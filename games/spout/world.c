@@ -10,7 +10,8 @@
  *               the glue holds, gusting with the rain, patted by drops,
  *               drooping heavier as it soaks, and drawn on twelves with the
  *               spider in stop-motion
- *   the spider  a folded-card body, eight two-part paper legs that step with
+ *   the spider  a folded-card body clinging belly to the pipe, eight two-part
+ *               paper legs (two-bone IK to feet planted on the pipe) that step with
  *               the distance walked (optionally on twelves, like stop-motion),
  *               googly eyes whose pupils hang toward the ground
  *   the garden  a paper meadow, folded grass tufts, a water butt, flowers,
@@ -164,6 +165,7 @@ static t3_material *edge_mat;
 /* ── the scene graph ───────────────────────────────────────────────── */
 
 typedef struct leg { t3_object *hip, *knee; float side, base; } leg;
+#define LEG_SEG 0.16f /* each leg segment (the strip in build_spider) */
 static struct {
   cw_node node;      /* the cartwheel node everything hangs under */
   t3_object *root;
@@ -173,6 +175,7 @@ static struct {
   t3_object *spider, *body, *abdomen, *pupils[2], *eyes[2];
   leg legs[8];
   float pupil_off[2][2], pupil_vel[2][2];
+  float flip; /* 0 clinging belly to the pipe .. 1 turned out while washed down */
   /* pipe and weather */
   t3_mesh *patches[MAX_PATCHES];
   t3_material *patch_mat[MAX_PATCHES];
@@ -950,7 +953,6 @@ static void build_spider(t3_object *root) {
   t3_geometry *gwhite = t3_circle_geometry_new(0.032f, 16), *gpupil = t3_circle_geometry_new(0.015f, 12);
   for (int e = 0; e < 2; e++) {
     t3_object *eye = t3_group_new();
-    t3_object_set_position(eye, e ? 0.038f : -0.038f, 0.1f, 0.125f);
     add_mesh(eye, t3_retain(gwhite), white, false, false);
     t3_mesh *p = add_mesh(eye, t3_retain(gpupil), black, false, false);
     t3_object_set_position(p, 0, 0, 0.003f);
@@ -976,13 +978,12 @@ static void build_spider(t3_object *root) {
   for (int i = 0; i < 8; i++) {
     leg *l = &W.legs[i];
     l->side = i < 4 ? -1 : 1;
-    l->base = -0.75f + (i % 4) * 0.5f; /* fan from front to back */
+    l->base = 0.6f + (i % 4) * 0.62f; /* the foot's bearing from the heading: front pair forward, back pair back */
     l->hip = t3_group_new();
-    t3_object_set_position(l->hip, l->side * 0.05f, 0.0f - (i % 4) * 0.025f, 0.06f);
     t3_mesh *up = add_mesh(l->hip, t3_retain(seg), card, true, true);
     t3_object_set_position(up, 0, 0, 0);
     l->knee = t3_group_new();
-    t3_object_set_position(l->knee, 0, 0.16f, 0);
+    t3_object_set_position(l->knee, 0, LEG_SEG, 0);
     t3_mesh *lo = add_mesh(l->knee, t3_retain(seg), card, true, true);
     t3_object_set_position(lo, 0, 0, 0);
     t3_object_add(l->hip, l->knee);
@@ -1044,60 +1045,130 @@ t3_vec3 world_spider_pos(const sim *prev, const sim *cur, float alpha, float *th
   return on_cyl(PIPE_R + 0.06f + r, th, y);
 }
 
-static void place_spider(const sim *prev, const sim *cur, float alpha, float t, bool stop) {
+static t3_vec3 v3(float x, float y, float z) { return (t3_vec3){ x, y, z }; }
+static t3_vec3 v3add(t3_vec3 a, t3_vec3 b) { return v3(a.x + b.x, a.y + b.y, a.z + b.z); }
+static t3_vec3 v3sub(t3_vec3 a, t3_vec3 b) { return v3(a.x - b.x, a.y - b.y, a.z - b.z); }
+static t3_vec3 v3mul(t3_vec3 a, float k) { return v3(a.x * k, a.y * k, a.z * k); }
+static float v3dot(t3_vec3 a, t3_vec3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+static t3_vec3 v3cross(t3_vec3 a, t3_vec3 b) { return v3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x); }
+static t3_vec3 v3norm(t3_vec3 a) {
+  float l = sqrtf(v3dot(a, a));
+  return l > 1e-6f ? v3mul(a, 1 / l) : a;
+}
+/* an orientation from its x, y and z axes (orthonormal) */
+static t3_quat quat_axes(t3_vec3 x, t3_vec3 y, t3_vec3 z) {
+  t3_mat4 m = { 0 };
+  m.e[0] = x.x, m.e[1] = x.y, m.e[2] = x.z;
+  m.e[4] = y.x, m.e[5] = y.y, m.e[6] = y.z;
+  m.e[8] = z.x, m.e[9] = z.y, m.e[10] = z.z;
+  m.e[15] = 1;
+  return t3_quat_from_rotation_matrix(&m);
+}
+
+/* two-bone IK for one leg in the body's frame: the hip at h reaches for the
+ * foot at f, the knee rising toward up (the spider's back), both segments
+ * LEG_SEG long; out of reach, the leg points straight at the target */
+static void leg_ik(leg *l, t3_vec3 h, t3_vec3 f, t3_vec3 up) {
+  t3_vec3 d = v3sub(f, h);
+  float dl = sqrtf(v3dot(d, d));
+  t3_vec3 dn = dl > 1e-5f ? v3mul(d, 1 / dl) : v3(0, 0, -1);
+  dl = cw_clampf(dl, 0.04f, 2 * LEG_SEG * 0.985f);
+  t3_vec3 pv = v3sub(up, v3mul(dn, v3dot(up, dn)));
+  if (v3dot(pv, pv) < 1e-4f) pv = v3(l->side, 0, 0);
+  pv = v3norm(pv);
+  float hh = sqrtf(LEG_SEG * LEG_SEG - dl * dl * 0.25f);
+  t3_vec3 k = v3add(h, v3add(v3mul(dn, dl * 0.5f), v3mul(pv, hh)));
+  t3_vec3 s1 = v3norm(v3sub(k, h)), s2 = v3norm(v3sub(v3add(h, v3mul(dn, dl)), k));
+  t3_vec3 pn = v3norm(v3cross(dn, pv)); /* the leg's plane: the strip lies across it */
+  t3_vec3 z1 = v3cross(pn, s1);
+  t3_object_set_position(l->hip, h.x, h.y, h.z);
+  t3_object_set_quaternion(l->hip, quat_axes(pn, s1, z1));
+  /* the knee turns about the hip's x axis (the plane's normal) */
+  t3_object_set_rotation(l->knee, cw_atan2(v3dot(s2, z1), v3dot(s2, s1)), 0, 0);
+}
+
+static void place_spider(const sim *prev, const sim *cur, float alpha, float t, float dt, bool stop) {
   float th;
   t3_vec3 p = world_spider_pos(prev, cur, alpha, &th);
   const spider *s = &cur->s;
   float face = lerpa(prev->s.face, cur->s.face, alpha);
-  if (s->state == SP_WASHED) face += cw_sin(t * 30) * 0.6f; /* tumbling down */
+  bool air = s->state == SP_JUMP, washed = s->state == SP_WASHED, zip = s->state == SP_ZIP;
+  if (washed) face += cw_sin(t * 30) * 0.6f; /* tumbling down */
+  /* washed down it turns out, belly and eyes off the pipe, legs flailing;
+   * otherwise it clings belly to the pipe. The turn takes 0.2 s each way. */
+  float ft = washed ? 1.f : 0.f, fstep = dt / 0.2f;
+  W.flip += cw_clampf(ft - W.flip, -fstep, fstep);
+  float fl = W.flip * W.flip * (3 - 2 * W.flip);
   /* the surface frame: n out of the pipe, u up, r round */
   float sn, cs;
   cw_sincos(th, &sn, &cs);
   t3_vec3 n = { sn, 0, cs }, u = { 0, 1, 0 }, rr = { cs, 0, -sn };
   float fs, fc;
   cw_sincos(face, &fs, &fc);
-  t3_vec3 hd = { u.x * fc + rr.x * fs, u.y * fc + rr.y * fs, u.z * fc + rr.z * fs };
-  t3_vec3 rt = { rr.x * fc - u.x * fs, rr.y * fc - u.y * fs, rr.z * fc - u.z * fs };
-  t3_mat4 m = { 0 };
-  m.e[0] = rt.x, m.e[1] = rt.y, m.e[2] = rt.z;
-  m.e[4] = hd.x, m.e[5] = hd.y, m.e[6] = hd.z;
-  m.e[8] = n.x, m.e[9] = n.y, m.e[10] = n.z;
-  m.e[15] = 1;
-  t3_object_set_quaternion(W.spider, t3_quat_from_rotation_matrix(&m));
-  t3_object_set_position(W.spider, p.x, p.y, p.z);
-  /* legs: a walk cycle on the distance walked; in the air they splay */
+  t3_vec3 hd = v3add(v3mul(u, fc), v3mul(rr, fs));
+  t3_vec3 rt = v3sub(v3mul(rr, fc), v3mul(u, fs));
+  /* the flip rolls the body half a turn about its heading */
+  float rs, rc;
+  cw_sincos(fl * 3.1415927f, &rs, &rc);
+  t3_vec3 rt2 = v3add(v3mul(rt, rc), v3mul(n, rs)), n2 = v3sub(v3mul(n, rc), v3mul(rt, rs));
+  t3_object_set_quaternion(W.spider, quat_axes(rt2, hd, n2));
+  t3_vec3 po = v3add(p, v3mul(n, 0.15f * fl)); /* turned out, its back would sink into the pipe */
+  t3_object_set_position(W.spider, po.x, po.y, po.z);
+  float bz = s->brace ? -0.03f : air ? 0.02f : 0;
+  t3_object_set_position(W.body, 0, 0, bz);
+  /* legs: feet planted on the pipe round the body, stepping on the distance
+   * walked; in the air they reach for the pipe; turned out they flail */
   float walk = prev->s.walk + (cur->s.walk - prev->s.walk) * alpha;
   float tt = t;
   if (stop) {
     walk = floorf(walk * 40) / 40; /* steps in twelves-ish: stop-motion */
     tt = floorf(t * 12) / 12;
   }
-  bool air = s->state == SP_JUMP, washed = s->state == SP_WASHED;
   for (int i = 0; i < 8; i++) {
     leg *l = &W.legs[i];
     float ph = walk * 22 + (i % 2 ? 3.1415927f : 0) + (i >= 4 ? 3.1415927f : 0);
-    float swing = cw_sin(ph) * 0.35f, lift = cw_clampf(cw_cos(ph), 0, 1) * 0.35f;
-    if (air) swing = 0, lift = 0.5f;
-    if (washed) swing = cw_sin(tt * 25 + i) * 0.8f, lift = 0.6f;
-    if (s->brace) swing = 0, lift = -0.25f;
-    /* hip: out to the side, fanned front to back; knee: bent down onto the pipe */
-    t3_object_set_rotation(l->hip, -0.6f - lift, 0, l->side * (1.25f) + (l->base + swing) * -l->side * 0.9f);
-    t3_object_set_rotation(l->knee, 1.25f + lift * 0.6f, 0, 0);
+    if (zip) ph = tt * 16 + (i % 2 ? 3.1415927f : 0) + (i >= 4 ? 3.1415927f : 0); /* scrabbling up the silk */
+    float swing = cw_sin(ph), lift = cw_clampf(cw_cos(ph), 0, 1);
+    if (air) swing = 0, lift = 0;
+    if (s->brace) swing = 0, lift = 0;
+    int k = i % 4;
+    t3_vec3 hip = v3(l->side * 0.05f, -k * 0.025f, 0.06f); /* in the spider's frame */
+    /* the grip: a foot on the pipe, bearing l->base from the heading */
+    float bs, bc;
+    cw_sincos(l->base, &bs, &bc);
+    float reach = (s->brace ? 0.2f : 0.24f) - (air ? 0.06f : 0);
+    float a = l->side * bs * reach, b = hip.y + bc * reach + swing * 0.055f;
+    t3_vec3 w = v3add(v3mul(rt, a), v3mul(hd, b)); /* along the surface */
+    float fth = th + v3dot(w, rr) / PIPE_R;
+    t3_vec3 fw = on_cyl(PIPE_R + 0.004f + lift * 0.05f, fth, p.y + w.y);
+    t3_vec3 dv = v3sub(fw, po);
+    t3_vec3 grip = v3(v3dot(dv, rt2), v3dot(dv, hd), v3dot(dv, n2));
+    /* the flail: feet waving off the belly, out from the pipe */
+    float wv = cw_sin(tt * 25 + i * 1.7f);
+    t3_vec3 flail = v3(l->side * (0.12f + bs * 0.1f), hip.y + bc * 0.18f + wv * 0.05f, -0.16f + cw_cos(tt * 21 + i) * 0.05f);
+    t3_vec3 f = v3add(v3mul(grip, 1 - fl), v3mul(flail, fl));
+    hip.z -= bz, f.z -= bz; /* into the body's frame */
+    leg_ik(l, hip, f, v3(l->side * 0.35f, 0, 1));
   }
   float breathe = 1 + 0.03f * cw_sin(tt * 4);
   t3_object_set_scale(W.abdomen, 0.9f * breathe, 1.15f * breathe, 0.75f);
-  if (s->brace) t3_object_set_position(W.body, 0, 0, -0.03f);
-  else t3_object_set_position(W.body, 0, 0, air ? 0.02f : 0);
-  /* googly pupils hang toward world down: down in the spider's frame is -(u . frame) */
-  float down_x = -(u.x * rt.x + u.y * rt.y + u.z * rt.z), down_y = -(u.x * hd.x + u.y * hd.y + u.z * hd.z);
+  /* googly eyes on the top-front of the head, looking up the pipe: from the
+   * camera only an edge shows while it clings; turned out they face it */
+  t3_vec3 ed = v3norm(v3add(v3mul(v3(0, 0.95f, 0.3f), 1 - fl), v3mul(v3(0, 0.35f, -0.94f), fl)));
+  t3_vec3 ey = v3cross(ed, v3(1, 0, 0));
+  /* googly pupils hang toward world down: world down in the eye's frame */
+  t3_vec3 dl = v3(-u.y * rt2.y, -u.y * hd.y, -u.y * n2.y);
+  float down_x = dl.x, down_y = v3dot(dl, ey);
   for (int e = 0; e < 2; e++) {
+    t3_object_set_position(W.eyes[e], e ? 0.036f : -0.036f, 0.06f + ed.y * 0.07f, 0.06f + ed.z * 0.07f);
+    t3_object_set_quaternion(W.eyes[e], quat_axes(v3(1, 0, 0), ey, ed));
     float tx = down_x * 0.012f, ty = down_y * 0.012f;
     float *o = W.pupil_off[e], *v = W.pupil_vel[e];
-    for (int k = 0; k < 2; k++) {
-      float target = k ? ty : tx;
-      v[k] += (target - o[k]) * 0.35f;
-      v[k] *= 0.78f;
-      o[k] += v[k];
+    for (int kk = 0; kk < 2; kk++) {
+      float target = kk ? ty : tx;
+      v[kk] += (target - o[kk]) * 0.35f;
+      v[kk] *= 0.78f;
+      o[kk] += v[kk];
     }
     t3_object_set_position(W.pupils[e], o[0], o[1], 0.003f);
   }
@@ -1108,7 +1179,7 @@ void world_sync(const sim *prev, const sim *cur, float alpha, float t, bool stop
   const level_def *L = W.L;
   float dt = W.last_t < 0 ? 1 / 60.0f : cw_clampf(t - W.last_t, 0, 0.1f);
   W.last_t = t;
-  place_spider(prev, cur, alpha, t, stop);
+  place_spider(prev, cur, alpha, t, dt, stop);
   /* weather amounts eased per frame */
   float rain_target = cur->weather == WX_RAIN ? 1 : cur->weather == WX_WARN ? 0.15f : 0;
   float sun_target = cur->weather == WX_SUN ? 1 : cur->weather == WX_CLEAR ? 0.6f : 0;
