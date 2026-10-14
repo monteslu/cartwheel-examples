@@ -160,22 +160,22 @@ covers the hosts (native, Chromium, wasmcart-native, romdev), the test GPU
 settings it expects in `~/.config/cartwheel/`, and the gate format.
 
 Without GPU hardware, `CW_TEST_GPU=software` runs on Mesa's software
-renderers, as CI does:
+renderers (llvmpipe for GL, lavapipe for WebGPU), as CI does:
 
 ```sh
-CW_TEST_GPU=software node tests/ci.mjs gl-1of1
-CW_TEST_GPU=software node tests/ci.mjs webgpu-1of1
+CW_TEST_GPU=software node tests/gate.mjs bikemesa-auto --hosts native
+CW_TEST_GPU=software node tests/gate.mjs bikemesa-auto --hosts native --gpu webgpu
 ```
 
 ## CI
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push to
-`main`, on pull requests and by hand (workflow_dispatch). It caches `deps/`,
-builds the ten carts and uploads them as the `carts-<commit>` artifact (kept
-for 30 days), and runs every gate natively on GL and on WebGPU with Mesa's
-software renderers, split over parallel jobs by `tests/ci.mjs`. CI renders
-at the games' own 960x540 (`CW_RENDER_SCALE=1`) to keep software rendering
-fast enough.
+`main`, on pull requests and by hand (workflow_dispatch), in two jobs. The
+first builds the ten carts and uploads them as the `carts-<commit>` artifact,
+kept for 30 days. The second runs each game's `_auto` gate natively on GL
+and then on WebGPU, with Mesa's software renderers at the games' own 960x540
+(`CW_RENDER_SCALE=1`). Both cache `deps/`. The full gate set runs locally
+with `tests/gate.mjs`.
 
 ## Layout
 
@@ -187,7 +187,7 @@ fast enough.
 | `games/<game>/programs/` | the game's three.c program table: `<game>.txt` and the C generated from it |
 | `tests/gates.json` | every gate |
 | `tests/<game>-*.json` | input scripts for the gates |
-| `tests/gate.mjs`, `tests/ci.mjs` | run the gates; CI's share of them |
+| `tests/gate.mjs` | runs the gates |
 | `scripts/deps.lock` | the pinned cartwheel-engine commit |
 | `scripts/fetch-deps.sh`, `scripts/build.sh` | fetch the engine and build |
 | `CMakeLists.txt` | adds each game; the engine's CMakeLists.txt is the top of the build |
