@@ -678,12 +678,15 @@ static void sway_range(int begin, int end, int worker, void *ctx) {
     sway_matrix(&tuft_at[c->start + k], j->t, (float *)c->im->instance_matrix->array + (size_t)k * 16);
   }
 }
-static void sway_shown(const t3_frustum *f) {
+/* the tuft chunks any of the n frusta sees (none given: all), swayed once for them all */
+static void sway_shown(const t3_frustum *f, int nf) {
   int vis[MAX_TUFT_CHUNKS], first[MAX_TUFT_CHUNKS], nvis = 0, total = 0;
   for (int i = 0; i < n_tch; i++) {
     tuft_chunk *c = &tch[i];
     c->count = (int)(c->n * density);
-    bool on = c->count > 0 && (!f || t3_frustum_intersects_sphere(f, c->sph));
+    bool seen = !f;
+    for (int k = 0; k < nf && !seen; k++) seen = t3_frustum_intersects_sphere(&f[k], c->sph);
+    bool on = c->count > 0 && seen;
     c->im->count = on ? c->count : 0;
     c->im->mesh.base.visible = on;
     if (!on) continue;
@@ -930,7 +933,7 @@ static void fill(t3_object *root, const track_desc *t, const theme *th) {
 #undef TUFT_CHUNK_OF
   }
   wind_t = 0;
-  sway_shown(NULL);
+  sway_shown(NULL, 0);
 
   t3_release(plain);
   t3_release(pl);
@@ -2400,20 +2403,23 @@ void view_density(float k) { density = k < 0.05f ? 0.05f : k > 1 ? 1 : k; }
 
 /* the grass for this frame, posed and culled against the camera's view (the
  * camera node already placed for the frame) */
-void view_grass(cw_node camera) {
-  t3_camera *cam = cw_camera3d_t3(camera);
-  /* the projection is the renderer's from the last frame (fov, aspect, near and
-   * far do not change in play); before the first render there is none: all */
-  if (!cam || cam->projection_matrix.e[11] != -1.0f) {
-    sway_shown(NULL);
-    return;
+void view_grass(const cw_node *cameras, int n) {
+  t3_frustum f[MAX_RIDERS];
+  int nf = 0;
+  for (int i = 0; i < n && nf < MAX_RIDERS; i++) {
+    t3_camera *cam = cw_camera3d_t3(cameras[i]);
+    /* the projection is the renderer's from the last frame (fov, aspect, near and
+     * far do not change in play); before the first render there is none: all */
+    if (!cam || cam->projection_matrix.e[11] != -1.0f) {
+      sway_shown(NULL, 0);
+      return;
+    }
+    t3_mat4 view, vp;
+    t3_mat4_invert(&view, cw_node3d_global_transform(cameras[i]));
+    t3_mat4_multiply(&vp, &cam->projection_matrix, &view);
+    t3_frustum_from_matrix(&f[nf++], &vp);
   }
-  t3_mat4 view, vp;
-  t3_mat4_invert(&view, cw_node3d_global_transform(camera));
-  t3_mat4_multiply(&vp, &cam->projection_matrix, &view);
-  t3_frustum f;
-  t3_frustum_from_matrix(&f, &vp);
-  sway_shown(&f);
+  sway_shown(f, nf);
 }
 
 void view_forget(void) {

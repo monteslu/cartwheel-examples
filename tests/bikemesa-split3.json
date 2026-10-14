@@ -1,0 +1,21 @@
+[
+  {"frame":25,"buttons":["south"],"pad2":{"buttons":[]},"pad3":{"buttons":[]}},
+  {"frame":27,"buttons":[],"pad2":{"buttons":[]},"pad3":{"buttons":[]}},
+  {"frame":37,"buttons":[],"pad2":{"buttons":["south"]},"pad3":{"buttons":["south"]}},
+  {"frame":39,"buttons":[],"pad2":{"buttons":[]},"pad3":{"buttons":[]}},
+  {"frame":45,"buttons":["south"],"pad2":{"buttons":[]},"pad3":{"buttons":[]}},
+  {"frame":47,"buttons":[],"pad2":{"buttons":[]},"pad3":{"buttons":[]}},
+  {"frame":49,"buttons":[],"pad2":{"buttons":["south"]},"pad3":{"buttons":["south"]}},
+  {"frame":51,"buttons":[],"pad2":{"buttons":[]},"pad3":{"buttons":[]}},
+  {"frame":61,"buttons":[],"pad2":{"buttons":["south"]},"pad3":{"buttons":["south"]}},
+  {"frame":63,"buttons":[],"pad2":{"buttons":[]},"pad3":{"buttons":[]}},
+  {"frame":65,"buttons":["south"],"pad2":{"buttons":[]},"pad3":{"buttons":[]}},
+  {"frame":67,"buttons":[],"pad2":{"buttons":[]},"pad3":{"buttons":[]}},
+  {"frame":85,"buttons":["south"],"pad2":{"buttons":[]},"pad3":{"buttons":[]}},
+  {"frame":87,"buttons":[],"pad2":{"buttons":[]},"pad3":{"buttons":[]}},
+  {"frame":270,"buttons":["south"],"pad2":{"buttons":[]},"pad3":{"buttons":[]}},
+  {"frame":300,"buttons":["south"],"pad2":{"buttons":[]},"pad3":{"buttons":["south"]}},
+  {"frame":330,"buttons":["south"],"pad2":{"buttons":["south"]},"pad3":{"buttons":["south"]}},
+  {"frame":420,"buttons":["south"],"pad2":{"buttons":["south"]},"pad3":{"buttons":["south"],"axes":{"ly":1}}},
+  {"frame":430,"buttons":["south"],"pad2":{"buttons":["south"]},"pad3":{"buttons":["south"]}}
+]

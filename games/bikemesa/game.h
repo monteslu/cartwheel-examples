@@ -34,8 +34,7 @@ typedef enum {
   GS_CRASH,  /* the rider tumbling; respawn at the checkpoint after */
   GS_FINISH, /* crossed the line: the result panel */
   GS_REPLAY, /* a wipeout replayed in slow motion (the sim waits) */
-  GS_CHARACTER, /* rotating rider preview */
-  GS_BIKE, /* rotating bike preview */
+  GS_CHARACTER, /* the players pick a rider and a bike each over a rotating preview; pads join here */
 } game_state;
 
 typedef enum {
@@ -194,13 +193,12 @@ static inline void set_index(t3_geometry *g, t3_attribute *a) {
   t3_release(a);
 }
 void models_build(cw_node parent);
-void models_set_selection(int character, int bike);
-void models_turntable(float angle, float center_x);
+void models_set_selection(int idx, int character, int bike); /* rider idx's pick, before models_build_rider */
+void models_turntable(int idx, float angle, float center_x);
 void models_sync(const bike_pose *p);
 void models_build_rider(cw_node parent, int idx); /* rider idx's bike and rider, in its colours */
 void models_sync_rider(int idx, const bike_pose *p, float z);
 void models_forget(void);
-t3_object *model_title_bike(void);
 
 /* crash.c: the 3D world a crash tumbles in, built once a track's scenery is:
  * static shapes from the same track data view.c draws (the ribbon and its
@@ -217,7 +215,7 @@ void view_tick(float rider_x, float rider_y, float speed, bool grounded);
 void view_forget(void);
 void view_density(float k); /* share of the grass tufts drawn, 0..1 (cw_quality_density) */
 void view_frame(float alpha); /* moving scenery (the bridge planks) at the frame's alpha */
-void view_grass(cw_node camera); /* the grass the camera sees, posed for the frame (after the camera is placed) */
+void view_grass(const cw_node *cameras, int n); /* the grass the cameras see, posed once for the frame (after they are placed) */
 void fx_dust(float x, float y, float amount);
 void fx_burst(float x, float y, int kind);
 float view_bank_y(float x, float z); /* the bank behind the track (z <= -TRACK_HALF_W - 0.3) */

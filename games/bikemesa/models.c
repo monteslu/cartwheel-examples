@@ -40,11 +40,13 @@ static model_t *Mc = MS;
 static const float PAINT[MAX_RIDERS][3] = { { 0.05f, 0.34f, 0.16f }, { 0.55f, 0.06f, 0.05f }, { 0.06f, 0.2f, 0.6f }, { 0.75f, 0.55f, 0.05f } };
 static const float SHIRT[MAX_RIDERS][3] = { { 0.07f, 0.07f, 0.075f }, { 0.85f, 0.85f, 0.82f }, { 0.75f, 0.42f, 0.1f }, { 0.12f, 0.3f, 0.5f } };
 static int rider_ix;
-static int selected_character, selected_bike;
-static bool slim_rider(void) { return rider_ix == 0 && selected_character == 1; }
-void models_set_selection(int character, int bike) {
-  selected_character = character;
-  selected_bike = bike;
+/* each rider's pick: the character (0 the regular rider, 1 the slim one) and the bike's paint (PAINT) */
+static int selected_character[MAX_RIDERS], selected_bike[MAX_RIDERS] = { 0, 1, 2, 3 };
+static bool slim_rider(void) { return selected_character[rider_ix] == 1; }
+void models_set_selection(int idx, int character, int bike) {
+  idx = CW_CLAMP(idx, 0, MAX_RIDERS - 1);
+  selected_character[idx] = character;
+  selected_bike[idx] = CW_CLAMP(bike, 0, MAX_RIDERS - 1);
 }
 
 /* frame-local points (bike.c's frame: origin at the bottom bracket). A
@@ -357,7 +359,7 @@ static t3_geometry *medium_hair_cards(void) {
 static void make_mats(mats *m) {
   /* deep racing green, metallic, a fine flake under a thick clear coat */
   m->paint = t3_mesh_physical_material_new(0xffffff);
-  int paint_ix = rider_ix ? rider_ix : selected_bike;
+  int paint_ix = selected_bike[rider_ix];
   m->paint->color = lin(PAINT[paint_ix][0], PAINT[paint_ix][1], PAINT[paint_ix][2]);
   m->paint->metalness = 0.6f;
   m->paint->roughness = 0.32f;
@@ -389,7 +391,7 @@ static void make_mats(mats *m) {
   m->saddle->clearcoat_roughness = 0.3f;
   /* a plain black cotton t-shirt: soft sheen, folds in the normal map */
   m->shirt = t3_mesh_physical_material_new(0xffffff);
-  m->shirt->color = slim_rider() ? lin(0.85f, 0.11f, 0.095f) : lin(SHIRT[rider_ix][0], SHIRT[rider_ix][1], SHIRT[rider_ix][2]);
+  m->shirt->color = slim_rider() && rider_ix == 0 ? lin(0.85f, 0.11f, 0.095f) : lin(SHIRT[rider_ix][0], SHIRT[rider_ix][1], SHIRT[rider_ix][2]);
   m->shirt->roughness = 0.9f;
   m->shirt->sheen = 1;
   m->shirt->sheen_color = lin(0.38f, 0.38f, 0.42f);
@@ -456,7 +458,7 @@ static void free_mats(mats *m) {
 static void mudguard(t3_object *f, const mats *m, t3_vec2 axle, float a0, float arc) {
   /* Outer tire radius is 0.203; keep the guard's inner edge clear of it. */
   t3_geometry *g = t3_torus_geometry_new(0.225f, 0.013f, 6, 24, arc);
-  int paint_ix = rider_ix ? rider_ix : selected_bike;
+  int paint_ix = selected_bike[rider_ix];
   t3_mesh *me = mesh(f, g, paint_ix == 1 ? m->alloy : m->guard);
   me->base.position = (t3_vec3){ axle.x, axle.y, 0 };
   me->base.scale = (t3_vec3){ 1, 1, 0.9f };
@@ -844,8 +846,8 @@ void models_forget(void) {
   Mc = MS;
 }
 
-void models_turntable(float angle, float center_x) {
-  t3_object *root = MS[0].root;
+void models_turntable(int idx, float angle, float center_x) {
+  t3_object *root = MS[CW_CLAMP(idx, 0, MAX_RIDERS - 1)].root;
   if (!root) return;
   float sn, cs;
   cw_sincos(angle, &sn, &cs);
@@ -853,4 +855,3 @@ void models_turntable(float angle, float center_x) {
   root->position = (t3_vec3){ center_x * (1 - cs), 0, center_x * sn };
 }
 
-t3_object *model_title_bike(void) { return MS[0].root; }

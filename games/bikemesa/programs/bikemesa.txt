@@ -19,3 +19,4 @@ physical+map+rep+nmap+ao+rmap+shadow+senv+cc+l1301+s100
 physical+instbig+shadow+senv+l1301+s100
 physical+shadow+senv+l1301+s100
 physical+shadow+senv+ds+sheen+l1301+s100
+physical+instbig+shadow+senv+ds+sheen+l1001
