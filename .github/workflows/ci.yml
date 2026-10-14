@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CW_TEST_GPU: software # Mesa llvmpipe (GL) and lavapipe (WebGPU)
+  CW_RENDER_SCALE: 1 # the games' own 960x540 instead of 1080p: software rendering is slow
+  CW_RUN_TIMEOUT_MS: 3600000 # one native run
+
+jobs:
+  carts:
+    name: Carts
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build libsdl2-dev libegl-dev libgles-dev
+      - name: Cache dependencies
+        uses: actions/cache@v6
+        with:
+          path: deps
+          key: deps-${{ runner.os }}-${{ hashFiles('scripts/deps.lock', 'scripts/fetch-deps.sh') }}
+      - name: Fetch dependencies
+        run: scripts/fetch-deps.sh
+      - name: Build cwpack (packs the carts' assets)
+        run: TARGETS=native scripts/build.sh cwpack
+      - name: Build GL and dual GL + WebGPU carts
+        run: TARGETS="cart cart-wgpu" scripts/build.sh bikemesa bomberdude derby pugball spout
+      - name: Collect carts
+        run: |
+          mkdir -p carts
+          for g in bikemesa bomberdude derby pugball spout; do
+            cp build/cart-wgpu/carts/$g.wasc carts/$g.wasc
+            cp build/cart/carts/$g.wasc carts/$g-gl.wasc
+          done
+          ls -l carts
+          echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: carts-${{ env.SHORT_SHA }}
+          path: carts/*.wasc
+          retention-days: 30
+          if-no-files-found: error
+
+  gates:
+    name: Gates (${{ matrix.part }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [gl-1of8, gl-2of8, gl-3of8, gl-4of8, gl-5of8, gl-6of8, gl-7of8, gl-8of8,
+               webgpu-1of11, webgpu-2of11, webgpu-3of11, webgpu-4of11, webgpu-5of11, webgpu-6of11,
+               webgpu-7of11, webgpu-8of11, webgpu-9of11, webgpu-10of11, webgpu-11of11]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build libsdl2-dev \
+            libegl-dev libgles-dev libegl-mesa0 libgl1-mesa-dri mesa-vulkan-drivers libvulkan1
+      - name: Cache dependencies
+        uses: actions/cache@v6
+        with:
+          path: deps
+          key: deps-${{ runner.os }}-${{ hashFiles('scripts/deps.lock', 'scripts/fetch-deps.sh') }}
+      - name: Fetch dependencies
+        run: scripts/fetch-deps.sh
+      - name: Build native
+        run: TARGETS=native scripts/build.sh
+      - name: Gates (native, software rendering)
+        run: node tests/ci.mjs ${{ matrix.part }}

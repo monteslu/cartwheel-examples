@@ -1,0 +1,5 @@
+[
+  { "frame": 190, "buttons": ["south"] },
+  { "frame": 1035, "buttons": ["south", "west"] },
+  { "frame": 1038, "buttons": ["south"] }
+]

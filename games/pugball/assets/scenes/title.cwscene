@@ -1,0 +1,96 @@
+[scene format=1]
+
+[node name="Stadium" type="Stadium"]
+index = 0
+title = "Pugball"
+blurb = "Sunshine, picnic blankets and a very grumpy cat."
+theme = PARK
+seed = 5
+cpu_level = 0
+match_secs = 300
+
+[node name="Sky" parent="." type="ProceduralSky"]
+sun = "../Sun"
+time_of_day = 17.6
+latitude = 40
+declination = 14
+north = 25
+sun_energy = 6.5
+sky_energy = 1
+mie = 1.4
+sun_disk_intensity = 1.2
+ground_color = color(0.0835, 0.1706, 0.0331, 1)
+env_update_angle = 2
+
+[node name="Sun" parent="." type="DirectionalLight3D"]
+shadow = true
+shadow_size = 2048
+shadow_extent = 28
+shadow_far = 140
+shadow_bias = -0.0003
+shadow_normal_bias = 0.03
+
+[node name="Env" parent="." type="WorldEnvironment"]
+background = color(0.0732, 0.1706, 0.448, 1)
+ambient_color = color(1, 0.8481, 0.6383, 1)
+ambient_energy = 0.05
+sky_color = color(1, 0.8481, 0.6383, 1)
+ground_color = color(0.0835, 0.1706, 0.0331, 1)
+hemi_energy = 0.25
+
+[node name="Fog" parent="." type="HeightFog"]
+density = 0.003
+height_falloff = 0.12
+base_height = 0
+use_sky_color = true
+sun_scatter = 0.35
+sun_g = 0.8
+max_opacity = 0.6
+start_distance = 40
+sky_distance = 400
+
+[node name="Post" parent="." type="PostProcess"]
+tonemap = AGX
+exposure = 0.9
+bloom = true
+bloom_intensity = 0.06
+bloom_threshold = 1.1
+bloom_knee = 0.6
+ssao = true
+ssao_radius = 0.8
+ssao_intensity = 0.9
+aa = SMAA
+vignette = true
+vignette_intensity = 0.25
+vignette_smoothness = 0.6
+grade = true
+lut = "grades/park.cube"
+grade_intensity = 0.8
+
+[node name="Camera" parent="." type="Camera3D"]
+position = vec3(0, 12, -40)
+fov = 62
+near = 0.2
+far = 600
+
+[node name="Flash0" parent="." type="OmniLight3D"]
+position = vec3(0, -50, 0)
+color = color(1, 0.6038, 0.214, 1)
+energy = 0
+range = 18
+decay = 2
+
+[node name="Flash1" parent="." type="OmniLight3D"]
+position = vec3(0, -50, 0)
+color = color(1, 0.6038, 0.214, 1)
+energy = 0
+range = 18
+decay = 2
+
+[node name="Flash2" parent="." type="OmniLight3D"]
+position = vec3(0, -50, 0)
+color = color(1, 0.6038, 0.214, 1)
+energy = 0
+range = 18
+decay = 2
+

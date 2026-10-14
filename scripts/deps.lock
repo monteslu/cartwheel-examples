@@ -1,0 +1,4 @@
+# Pinned dependencies. scripts/fetch-deps.sh reads this file.
+# name             git URL                                              commit
+# cartwheel-engine fetches its own dependencies (its scripts/deps.lock) into deps/cartwheel-engine/deps/.
+cartwheel-engine   https://github.com/monteslu/cartwheel-engine.git    624bdb4ffbef9a93f46c26d95f92bbca9c3ffadf

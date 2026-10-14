@@ -1,0 +1,11 @@
+[{"frame":30,"touches":[{"id":1,"x":248,"y":450}]},{"frame":33},
+ {"frame":180,"touches":[{"id":1,"x":200,"y":400}]},
+ {"frame":182,"touches":[{"id":1,"x":280,"y":400}]},
+ {"frame":192,"touches":[{"id":1,"x":200,"y":480}]},
+ {"frame":212},
+ {"frame":214,"touches":[{"id":2,"x":855,"y":435}]},{"frame":217},
+ {"frame":219,"touches":[{"id":1,"x":200,"y":400}]},
+ {"frame":221,"touches":[{"id":1,"x":200,"y":320}]},
+ {"frame":235,"touches":[{"id":1,"x":280,"y":320}]},
+ {"frame":256},
+ {"frame":260,"touches":[{"id":3,"x":480,"y":99}]},{"frame":263}]

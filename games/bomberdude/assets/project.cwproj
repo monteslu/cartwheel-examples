@@ -1,0 +1,13 @@
+; bomberdude project settings
+game_app = bomberdude
+
+; export presets (tools/cwexport.mjs --project games/bomberdude/assets --preset <name>)
+name = "BomberDude"
+app = "bomberdude"
+export.linux.platform = "linux-x64"
+export.windows.platform = "windows-x64"
+export.macos.platform = "macos"
+export.web.platform = "web"
+export.cart.platform = "wasc"
+export.android.platform = "android-arm64"
+export.android.app_id = "org.cartwheel.bomberdude"

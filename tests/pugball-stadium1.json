@@ -1,0 +1,32 @@
+[
+ {
+  "frame": 30,
+  "buttons": [
+   "south"
+  ]
+ },
+ {
+  "frame": 34,
+  "buttons": []
+ },
+ {
+  "frame": 50,
+  "buttons": [
+   "start"
+  ]
+ },
+ {
+  "frame": 54,
+  "buttons": []
+ },
+ {
+  "frame": 80,
+  "buttons": [
+   "south"
+  ]
+ },
+ {
+  "frame": 84,
+  "buttons": []
+ }
+]

@@ -1,0 +1,7 @@
+[{"frame":30,"buttons":["south"]},{"frame":34},
+ {"frame":40,"buttons":["right"]},{"frame":44},{"frame":48,"buttons":["right"]},{"frame":52},{"frame":56,"buttons":["right"]},{"frame":60},
+ {"frame":64,"buttons":["down"]},{"frame":68},{"frame":72,"buttons":["down"]},{"frame":76},{"frame":80,"buttons":["down"]},{"frame":84},{"frame":88,"buttons":["down"]},{"frame":92},
+ {"frame":96,"buttons":["right"]},{"frame":100},{"frame":104,"buttons":["right"]},{"frame":108},{"frame":112,"buttons":["right"]},{"frame":116},
+ {"frame":120,"buttons":["down"]},{"frame":124},
+ {"frame":128,"buttons":["right"]},{"frame":132},{"frame":136,"buttons":["right"]},{"frame":140},{"frame":144,"buttons":["right"]},{"frame":148},
+ {"frame":160,"buttons":["start"]},{"frame":164},{"frame":180,"buttons":["south"]},{"frame":184}]

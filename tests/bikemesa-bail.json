@@ -1,0 +1,14 @@
+[
+  { "frame": 25, "buttons": ["south"] },
+  { "frame": 27, "buttons": [] },
+  { "frame": 45, "buttons": ["south"] },
+  { "frame": 47, "buttons": [] },
+  { "frame": 65, "buttons": ["south"] },
+  { "frame": 67, "buttons": [] },
+  { "frame": 85, "buttons": ["south"] },
+  { "frame": 87, "buttons": [] },
+  { "frame": 230, "buttons": ["south"] },
+  { "frame": 1060, "buttons": ["south", "north", "up"] },
+  { "frame": 1062, "buttons": ["south", "north"] },
+  { "frame": 1250, "buttons": ["south"] }
+]

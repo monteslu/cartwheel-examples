@@ -1,0 +1,5 @@
+[{"frame":30,"buttons":["south"]},{"frame":34,"axes":{}},
+ {"frame":215,"buttons":["r"],"axes":{"rt":1}},
+ {"frame":300,"buttons":["start"]},{"frame":304,"axes":{}},
+ {"frame":320,"buttons":["down"]},{"frame":324,"axes":{}},
+ {"frame":340,"buttons":["south"]},{"frame":344,"axes":{}}]

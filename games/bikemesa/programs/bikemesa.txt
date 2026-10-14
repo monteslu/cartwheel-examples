@@ -1,0 +1,21 @@
+# r186 program states for bikemesa (cmake/programs.cmake; tools/programs.mjs adds what runs lack)
+standard+map+rep+shadow+senv+l1001
+basic+trans
+physical+instbig+shadow+senv+cc+l1001
+physical+instbig+shadow+senv+irid+l1001
+physical+trans+shadow+senv+cc+l1001
+physical+vcol+instbig+shadow+senv+sheen+l1001
+physical+shadow+senv+sheen+l1301+s100
+physical+map+rep+nmap+ao+rmap+shadow+senv+sheen+l1301+s100
+physical+instbig+shadow+senv+sheen+l1301+s100
+standard+instbig+shadow+senv+l1301+s100
+standard+shadow+senv+l1301+s100
+standard+map+rep+instbig+nmap+ao+rmap+shadow+senv+l1301+s100
+standard+map+rep+nmap+ao+rmap+shadow+senv+l1301+s100
+physical+vcol+instbig+shadow+senv+icol+sheen+l1301+s100
+physical+map+rep+instbig+nmap+ao+rmap+shadow+senv+cc+l1301+s100
+physical+shadow+senv+cc+l1301+s100
+physical+map+rep+nmap+ao+rmap+shadow+senv+cc+l1301+s100
+physical+instbig+shadow+senv+l1301+s100
+physical+shadow+senv+l1301+s100
+physical+shadow+senv+ds+sheen+l1301+s100

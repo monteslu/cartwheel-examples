@@ -1,0 +1,6 @@
+/deps/
+/build/
+/out/
+.cwcache/
+*.wasm
+*.wasc

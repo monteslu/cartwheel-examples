@@ -1,0 +1,13 @@
+[
+  {"frame":25,"buttons":["south"]},
+  {"frame":27,"buttons":[]},
+  {"frame":45,"buttons":["south"]},
+  {"frame":47,"buttons":[]},
+  {"frame":65,"buttons":["south"]},
+  {"frame":67,"buttons":[]},
+  {"frame":85,"buttons":["south"]},
+  {"frame":87,"buttons":[]},
+  {"frame":270,"buttons":["south"]},
+  {"frame":1090,"buttons":["south"],"axes":{"lx":-1}},
+  {"frame":1134,"buttons":["south"]}
+]

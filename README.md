@@ -1,0 +1,223 @@
+# cartwheel-examples
+
+[![CI](https://github.com/monteslu/cartwheel-examples/actions/workflows/ci.yml/badge.svg)](https://github.com/monteslu/cartwheel-examples/actions/workflows/ci.yml)
+
+Five complete games built with
+[cartwheel-engine](https://github.com/monteslu/cartwheel-engine), a 2D and 3D
+game engine in C. Each game builds as a native executable and as a
+[wasmcart](https://github.com/wasmcart/wasmcart) cart (`.wasc`) that runs in
+a browser, in Node, in a native player and in RetroArch.
+
+Everything in the games is made by code in this repository (models,
+textures, levels, sound and music) except the fonts, which are SIL Open Font
+License fonts shipped with their licences. Each game's `CREDITS` file says
+what is what.
+
+## The games
+
+### BikeMesa
+
+![BikeMesa: a rider in the air over a canyon jump](docs/screenshots/bikemesa.jpg)
+
+A downhill bike game. A 2D Box2D bicycle and rider ride hand-shaped lines
+through thirteen 3D worlds, from a red rock canyon and a snowy slope to a
+neon rooftop run, a haunted town, the Moon and Mars.
+Pedal, hop, lean into flips, hold poses in the air and land clean; get it
+wrong and the rider tumbles through a full 3D crash. Two players can race
+split screen in four lanes. Pick your rider and bike before each run.
+`games/bikemesa/`
+
+### BomberDude
+
+![BomberDude: blasts crossing an arena between four critters](docs/screenshots/bomberdude.jpg)
+
+A 3D arena bomber for one to four players and CPU rivals. Four critters,
+eight themed arenas with their own twists (conveyor belts, ice, teleporters),
+Battle and Adventure modes. The rules are integer only, so every host plays
+the same game. `games/bomberdude/` (its
+[README](games/bomberdude/README.md) has the full controls).
+
+### derby
+
+![derby: cars smashing into each other in the dirt bowl](docs/screenshots/derby.jpg)
+
+A demolition derby. Six cars on Box3D wheels in a walled dirt bowl; hits
+dent the bodywork, then come smoke and fire, and the last car running wins.
+Up to four players split screen. `games/derby/`
+
+### pugball
+
+![pugball: a pug flying at the cat in front of the goal](docs/screenshots/pugball.jpg)
+
+Soccer with jet-pack pugs and a fat, cross cat for a ball. 1v1 to 3v3 with
+players and CPUs, five stadiums and the Pug Cup to unlock them. The match
+runs on Box3D. `games/pugball/`
+
+### spout
+
+![spout: the paper spider climbing the spout in the rain](docs/screenshots/spout.jpg)
+
+A paper spider climbs a rain spout. The weather turns from sun to rain;
+rain makes the paper wraps slick and sends water down the spout, so brace
+or be washed back to the last bracket. Five spouts, each opening the next.
+`games/spout/`
+
+## Play the carts
+
+Every push builds the carts. To download them: the repository's
+[Actions](https://github.com/monteslu/cartwheel-examples/actions) tab, the
+latest green run on `main`, then **Artifacts** at the bottom of the run
+page: `carts-<commit>` is a zip of all ten. Each game comes as two carts:
+
+- `<game>.wasc`: GL and WebGPU in one cart; it uses WebGPU where the host
+  has it and GL otherwise.
+- `<game>-gl.wasc`: GL only.
+
+Hosts that run them:
+
+- [wasmcart](https://github.com/wasmcart/wasmcart), the web and Node player:
+  `npx wasmcart bikemesa.wasc`
+- [wasmcart-native](https://github.com/wasmcart/wasmcart-native), a native
+  player
+- [wasmcart-libretro](https://github.com/wasmcart/wasmcart-libretro), a
+  libretro core for RetroArch (it runs a cart's GL path)
+
+## Build
+
+You need Linux with cmake, ninja, a C17 compiler, SDL2, EGL and GLESv2
+development packages, Node.js, git, curl and unzip. On Ubuntu:
+
+```sh
+sudo apt-get install cmake ninja-build libsdl2-dev libegl-dev libgles-dev nodejs npm curl unzip
+```
+
+Then:
+
+```sh
+scripts/fetch-deps.sh   # cartwheel-engine at the commit in scripts/deps.lock, and the engine's own dependencies
+scripts/build.sh        # build/native, build/cart and build/cart-wgpu
+```
+
+`scripts/fetch-deps.sh` checks out cartwheel-engine into
+`deps/cartwheel-engine` and runs its `scripts/fetch-deps.sh`, which fetches
+three.c, Box2D, Box3D, wasi-sdk, wasmcart and the rest into
+`deps/cartwheel-engine/deps/`. Everything it fetches is pinned.
+
+`scripts/build.sh` builds three trees:
+
+| Tree | What | Where |
+|---|---|---|
+| `build/native` | native executables | `build/native/project/games/<game>/<app>` |
+| `build/cart` | GL carts | `build/cart/carts/<app>.wasc` |
+| `build/cart-wgpu` | dual GL + WebGPU carts | `build/cart-wgpu/carts/<app>.wasc` |
+
+`TARGETS="native"` (or `cart`, `cart-wgpu`) builds one tree,
+`BUILD_TYPE=Debug` makes a debug build, and any arguments are ninja targets:
+`scripts/build.sh pugball` builds only pugball in each tree. The cart trees
+pack assets with the native tree's `cwpack`, so build native first.
+
+## Run
+
+Natively:
+
+```sh
+build/native/project/games/pugball/pugball
+```
+
+The carts with any wasmcart host:
+
+```sh
+npx wasmcart build/cart-wgpu/carts/pugball.wasc
+```
+
+Or through the engine's runner, which drives every host the same way (frame
+count, input script, screenshot, debug state):
+
+```sh
+CW_PROJECT_ROOT=$PWD node deps/cartwheel-engine/tools/run-cart.mjs --host native --app pugball --frames 300 --shot out/pugball.png
+```
+
+## Tests
+
+Each game has gates in `tests/gates.json`. A gate runs an app on every host
+it names with the same frame count and input script, and compares each run
+with the native one: the frames within a pixel bound, and the game's named
+debug state (scores, positions, hashes of the simulation) exactly. Each gate
+also runs a control (one frame short, or a different input) that must fail,
+so a gate that cannot tell runs apart fails too. Gates with a `webgpu`
+entry run again on WebGPU and are compared with the GL run.
+
+```sh
+node tests/gate.mjs --hosts native                    # every gate, native, GL
+node tests/gate.mjs --hosts native --gpu webgpu       # the same on WebGPU
+node tests/gate.mjs bikemesa-ride derby-auto          # some gates, every host they name
+```
+
+`tests/gate.mjs` runs cartwheel-engine's gate runner with
+`CW_PROJECT_ROOT` set to this repository. The engine's
+[testing guide](https://github.com/monteslu/cartwheel-engine/blob/main/docs/guides/testing.md)
+covers the hosts (native, Chromium, wasmcart-native, romdev), the test GPU
+settings it expects in `~/.config/cartwheel/`, and the gate format.
+
+Without GPU hardware, `CW_TEST_GPU=software` runs on Mesa's software
+renderers, as CI does:
+
+```sh
+CW_TEST_GPU=software node tests/ci.mjs gl-1of1
+CW_TEST_GPU=software node tests/ci.mjs webgpu-1of1
+```
+
+## CI
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push to
+`main`, on pull requests and by hand (workflow_dispatch). It caches `deps/`,
+builds the ten carts and uploads them as the `carts-<commit>` artifact (kept
+for 30 days), and runs every gate natively on GL and on WebGPU with Mesa's
+software renderers, split over parallel jobs by `tests/ci.mjs`. CI renders
+at the games' own 960x540 (`CW_RENDER_SCALE=1`) to keep software rendering
+fast enough.
+
+## Layout
+
+| Path | Contents |
+|---|---|
+| `games/<game>/` | one game: its C sources, `CMakeLists.txt`, `CREDITS`, `assets/` and `tools/` |
+| `games/<game>/assets/` | what the game packs: scenes, colour grades, audio, fonts, `roots.txt` (the pack manifest), `input.cfg`, `project.cwproj` |
+| `games/<game>/tools/` | the scripts that generate the game's assets and gate inputs, committed next to their output |
+| `games/<game>/programs/` | the game's three.c program table: `<game>.txt` and the C generated from it |
+| `tests/gates.json` | every gate |
+| `tests/<game>-*.json` | input scripts for the gates |
+| `tests/gate.mjs`, `tests/ci.mjs` | run the gates; CI's share of them |
+| `scripts/deps.lock` | the pinned cartwheel-engine commit |
+| `scripts/fetch-deps.sh`, `scripts/build.sh` | fetch the engine and build |
+| `CMakeLists.txt` | adds each game; the engine's CMakeLists.txt is the top of the build |
+| `deps/`, `build/`, `out/` | fetched dependencies, build trees, test output (all gitignored) |
+
+## Working on the games
+
+- Each game is a cartwheel app: `cw_main` returns a `cw_app_desc` with a
+  fixed-tick update and a render callback. The engine's headers
+  (`deps/cartwheel-engine/include/cartwheel/*.h`) are its API reference.
+- A game is built several times from the same sources with different
+  defines: `<game>_auto` plays its gate's input script by itself (for hosts
+  that send no input), and test builds such as `pugball_cup` start from a
+  given save. `games/<game>/CMakeLists.txt` lists them.
+- The simulation is deterministic on every host: fixed ticks, randomness from
+  `cw_rng`, trig from `cartwheel/math.h`, no fast-math. State a gate checks
+  is published by name with `cw_debug_*`.
+- Generated assets come from the game's `tools/` scripts: change the script,
+  rerun it and commit both. The audio scripts need ffmpeg.
+- When a game draws a new material state, the gates fail and name it. Add it
+  to the game's program table with the engine's tool,
+  `node deps/cartwheel-engine/tools/programs.mjs <app> --build build/native`,
+  and commit the generated files.
+- To work on the engine and the games together, link an engine checkout:
+  `CARTWHEEL_ENGINE=../cartwheel-engine scripts/fetch-deps.sh`. Engine
+  changes go into cartwheel-engine first; then pin its new commit in
+  `scripts/deps.lock`.
+- A change is done when its gates pass natively on GL and WebGPU.
+
+## License
+
+MIT, see [LICENSE](LICENSE). The fonts keep their own licence (SIL Open Font
+License 1.1), shipped beside each font.

@@ -1,0 +1,7 @@
+[
+  {"frame": 190, "buttons": ["south"], "pad2": {"buttons": ["south"]}},
+  {"frame": 400, "buttons": ["south"], "pad2": {"buttons": ["south"], "axes": {"ly": 1}}},
+  {"frame": 410, "buttons": ["south"], "pad2": {"buttons": ["south"]}},
+  {"frame": 500, "buttons": ["south"], "pad2": {"buttons": ["south"], "axes": {"ly": 1}}},
+  {"frame": 510, "buttons": ["south"], "pad2": {"buttons": ["south"]}}
+]

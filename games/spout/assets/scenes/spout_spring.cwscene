@@ -1,0 +1,61 @@
+[scene format=1]
+
+[node name="Spout" type="Node3D"]
+
+[node name="Sky" parent="." type="ProceduralSky"]
+sun = "../Sun"
+time_of_day = 16.7
+latitude = 40
+declination = 14
+north = 120
+sun_energy = 3.6
+sky_energy = 1.4
+rayleigh = 0.35
+mie = 2.2
+mie_g = 0.7
+sun_disk_intensity = 0
+ground_color = color(0.42, 0.45, 0.32, 1)
+env_update_angle = 2
+
+[node name="Sun" parent="." type="DirectionalLight3D"]
+shadow = true
+shadow_size = 1024
+shadow_extent = 6
+shadow_far = 60
+shadow_bias = -0.0004
+shadow_normal_bias = 0.015
+
+[node name="Env" parent="." type="WorldEnvironment"]
+background = color(0.78, 0.82, 0.86, 1)
+ambient_color = color(0.82, 0.88, 1, 1)
+ambient_energy = 0.3
+sky_color = color(0.7, 0.8, 1, 1)
+ground_color = color(0.55, 0.5, 0.4, 1)
+hemi_energy = 0.95
+
+[node name="Post" parent="." type="PostProcess"]
+tonemap = NEUTRAL
+exposure = 1.1
+bloom = true
+bloom_intensity = 0.025
+bloom_threshold = 1.2
+bloom_knee = 0.6
+ssao = true
+ssao_radius = 0.18
+ssao_intensity = 1
+ssao_power = 1.6
+aa = SMAA
+grade = true
+lut = "grade_spring.cube"
+grade_intensity = 1
+vignette = true
+vignette_intensity = 0.3
+vignette_smoothness = 0.7
+grain = true
+grain_intensity = 0.025
+
+[node name="Camera" parent="." type="Camera3D"]
+position = vec3(0, 1.5, 3)
+fov = 55
+near = 0.05
+far = 400

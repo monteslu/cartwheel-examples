@@ -1,0 +1,21 @@
+Pugball: credits
+
+Everything in this game was made for it: code, pugs, the cat and every
+model, the procedural textures, the stadiums (tools/make-stadiums.mjs),
+colour grades (tools/make-grade.mjs) and the synthesized sound and music
+(tools/make-audio.mjs). The exceptions are the fonts below.
+
+Fonts (from github.com/google/fonts; each licence ships beside its font in
+assets/fonts/):
+
+  Lilita One (Regular): the logo, titles and banners.
+    Copyright (c) 2011 Juan Montoreano, with Reserved Font Name Lilita.
+    SIL Open Font License 1.1 (assets/fonts/LilitaOne-OFL.txt).
+
+  Bungee (Regular): the scoreboard, the clock and other numbers.
+    Copyright 2023 The Bungee Project Authors (https://github.com/djrrb/Bungee).
+    SIL Open Font License 1.1 (assets/fonts/Bungee-OFL.txt).
+
+  Fredoka (SemiBold, Bold): UI text.
+    Copyright 2016 The Fredoka Project Authors.
+    SIL Open Font License 1.1 (assets/fonts/Fredoka-OFL.txt).

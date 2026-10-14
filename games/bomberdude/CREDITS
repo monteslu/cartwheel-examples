@@ -1,0 +1,17 @@
+BomberDude: credits
+
+Everything in this game was made for it: code, critters and models,
+procedural textures, arenas (tools/make-arenas.mjs), colour grades
+(tools/make-grade.mjs) and the synthesized sound and music
+(tools/make-audio.mjs). The exceptions are the fonts below.
+
+Fonts (from github.com/google/fonts; each licence ships beside its font in
+assets/fonts/):
+
+  Titan One (Regular): titles, banners and the timer.
+    Copyright (c) 2011, Rodrigo Fuenzalida, with Reserved Font Name Titan.
+    SIL Open Font License 1.1 (assets/fonts/TitanOne-OFL.txt).
+
+  Fredoka (SemiBold, Bold): UI text.
+    Copyright 2016 The Fredoka Project Authors.
+    SIL Open Font License 1.1 (assets/fonts/Fredoka-OFL.txt).

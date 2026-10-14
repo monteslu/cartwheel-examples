@@ -1,0 +1,5 @@
+[
+  { "frame": 190, "buttons": ["south"] },
+  { "frame": 1770, "buttons": ["south"], "axes": { "lx": -1 } },
+  { "frame": 1960, "buttons": ["south"] }
+]

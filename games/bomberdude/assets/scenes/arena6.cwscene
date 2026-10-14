@@ -1,0 +1,104 @@
+[scene format=1]
+
+[node name="Arena" type="Arena"]
+index = 6
+title = "Neon Nights"
+blurb = "The belts never stop. Neither does the city."
+theme = NEON
+layout = "###############|#1.?????????.4#|#.#?#?#?#?#?#.#|#??EEEEEEEES??#|#?#N#?#?#?#S#?#|#??N???.???S??#|#?#N#?#.#?#S#?#|#??N???.???S??#|#?#N#?#?#?#S#?#|#??NWWWWWWWW??#|#.#?#?#?#?#?#.#|#3.?????????.2#|###############"
+crate_pct = 66
+seed = 67
+cpu = 3
+cpu_level = 1
+round_secs = 170
+
+[node name="Sky" parent="." type="ProceduralSky"]
+sun = ""
+time_of_day = 23.2
+latitude = 40
+declination = 0
+north = 0
+sun_energy = 6
+sky_energy = 1
+mie = 1
+sun_disk_intensity = 1.2
+ground_color = color(0.0039, 0.0039, 0.0072, 1)
+night_color = color(0.012, 0.014, 0.03, 1)
+env_update_angle = 2
+
+[node name="Sun" parent="." type="DirectionalLight3D"]
+position = vec3(-6, 14, 9)
+rotation = vec3(-0.95, -0.45, 0)
+color = color(0.3424, 0.448, 1, 1)
+energy = 2.6
+shadow = true
+shadow_size = 2048
+shadow_extent = 12
+shadow_far = 80
+shadow_bias = -0.0004
+shadow_normal_bias = 0.025
+
+[node name="Env" parent="." type="WorldEnvironment"]
+background = color(0.0732, 0.1706, 0.448, 1)
+ambient_color = color(0.3185, 0.214, 1, 1)
+ambient_energy = 0.05
+sky_color = color(0.3185, 0.214, 1, 1)
+ground_color = color(0.0039, 0.0039, 0.0072, 1)
+hemi_energy = 0.9
+
+[node name="Fog" parent="." type="HeightFog"]
+density = 0.008
+height_falloff = 0.18
+base_height = 0
+use_sky_color = true
+sun_scatter = 0.35
+sun_g = 0.8
+max_opacity = 0.7
+start_distance = 14
+sky_distance = 300
+
+[node name="Post" parent="." type="PostProcess"]
+tonemap = AGX
+exposure = 1.5
+bloom = true
+bloom_intensity = 0.12
+bloom_threshold = 1.2
+bloom_knee = 0.6
+ssao = true
+ssao_radius = 0.6
+ssao_intensity = 0.9
+aa = SMAA
+vignette = true
+vignette_intensity = 0.25
+vignette_smoothness = 0.6
+grade = true
+lut = "grades/neon.cube"
+grade_intensity = 0.8
+
+[node name="Camera" parent="." type="Camera3D"]
+position = vec3(0, 16, 12)
+fov = 38
+near = 0.3
+far = 400
+
+[node name="Flash0" parent="." type="OmniLight3D"]
+position = vec3(0, -50, 0)
+color = color(1, 0.3424, 0.0732, 1)
+energy = 0
+range = 7
+decay = 2
+
+[node name="Flash1" parent="." type="OmniLight3D"]
+position = vec3(0, -50, 0)
+color = color(1, 0.3424, 0.0732, 1)
+energy = 0
+range = 7
+decay = 2
+
+[node name="Flash2" parent="." type="OmniLight3D"]
+position = vec3(0, -50, 0)
+color = color(1, 0.3424, 0.0732, 1)
+energy = 0
+range = 7
+decay = 2
+

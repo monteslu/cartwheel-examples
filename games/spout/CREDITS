@@ -1,0 +1,12 @@
+spout: credits
+
+Everything in this game was made for it: code, the paper textures and
+models (made in code at load time), the levels, colour grades
+(tools/make-grade.mjs) and the synthesized sound and music
+(tools/make-audio.mjs). The exceptions are the fonts below; each licence
+ships beside its font in assets/fonts/.
+
+  Patrick Hand   Copyright (c) 2010-2012 Patrick Wagesreiter
+                 SIL Open Font License 1.1 (assets/fonts/patrickhand-OFL.txt)
+  Sniglet        Copyright (c) 2008 Haley Fiege, (c) 2012 Brenda Gallo, (c) 2013 Pablo Impallari
+                 SIL Open Font License 1.1 (assets/fonts/sniglet-OFL.txt)

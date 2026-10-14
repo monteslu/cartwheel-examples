@@ -1,0 +1,13 @@
+; spout project settings
+game_app = spout
+
+; export presets (tools/cwexport.mjs --project games/spout/assets --preset <name>)
+name = "Spout"
+app = "spout"
+export.linux.platform = "linux-x64"
+export.windows.platform = "windows-x64"
+export.macos.platform = "macos"
+export.web.platform = "web"
+export.cart.platform = "wasc"
+export.android.platform = "android-arm64"
+export.android.app_id = "org.cartwheel.spout"
