@@ -17,6 +17,8 @@ what is what.
 
 ### BikeMesa
 
+![BikeMesa: riding the Red Rock Run canyon track](docs/screenshots/bikemesa.jpg)
+
 ![BikeMesa: a rider in the air over a canyon jump](docs/screenshots/bikemesa.jpg)
 
 A downhill bike game. A 2D Box2D bicycle and rider ride hand-shaped lines
@@ -29,6 +31,8 @@ split screen in four lanes. Pick your rider and bike before each run.
 
 ### BomberDude
 
+![BomberDude: four players and blasts in the Clover Commons arena](docs/screenshots/bomberdude.jpg)
+
 ![BomberDude: blasts crossing an arena between four critters](docs/screenshots/bomberdude.jpg)
 
 A 3D arena bomber for one to four players and CPU rivals. Four critters,
@@ -39,6 +43,8 @@ the same game. `games/bomberdude/` (its
 
 ### derby
 
+![Derby: a dented sedan in the dirt bowl mid-bout](docs/screenshots/derby.jpg)
+
 ![derby: cars smashing into each other in the dirt bowl](docs/screenshots/derby.jpg)
 
 A demolition derby. Six cars on Box3D wheels in a walled dirt bowl; hits
@@ -47,6 +53,8 @@ Up to four players split screen. `games/derby/`
 
 ### pugball
 
+![Pugball: the ball in play during a match](docs/screenshots/pugball.jpg)
+
 ![pugball: a pug flying at the cat in front of the goal](docs/screenshots/pugball.jpg)
 
 Soccer with jet-pack pugs and a fat, cross cat for a ball. 1v1 to 3v3 with
@@ -54,6 +62,8 @@ players and CPUs, five stadiums and the Pug Cup to unlock them. The match
 runs on Box3D. `games/pugball/`
 
 ### spout
+
+![Spout: the spider climbing the pipe at night](docs/screenshots/spout.jpg)
 
 ![spout: the paper spider climbing the spout in the rain](docs/screenshots/spout.jpg)
 
