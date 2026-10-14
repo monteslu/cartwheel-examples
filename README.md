@@ -71,14 +71,12 @@ or be washed back to the last bracket. Five spouts, each opening the next.
 
 Tagged versions are on the
 [Releases](https://github.com/monteslu/cartwheel-examples/releases) page, with
-all ten carts attached. Every push also builds them: the repository's
+all five carts attached. Every push also builds them: the repository's
 [Actions](https://github.com/monteslu/cartwheel-examples/actions) tab, the
 latest green run on `main`, then **Artifacts** at the bottom of the run
-page: `carts-<commit>` is a zip of all ten. Each game comes as two carts:
-
-- `<game>.wasc`: GL and WebGPU in one cart; it uses WebGPU where the host
-  has it and GL otherwise.
-- `<game>-gl.wasc`: GL only.
+page: `carts-<commit>` is a zip of all five. Each `<game>.wasc` carries GL
+and WebGPU in one cart: it uses WebGPU where the host has it and GL
+otherwise.
 
 Hosts that run them:
 
@@ -178,13 +176,13 @@ CW_TEST_GPU=software node tests/gate.mjs bikemesa-auto --hosts native --gpu webg
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push to
 `main`, on pull requests and by hand (workflow_dispatch), in two jobs. The
-first builds the ten carts and uploads them as the `carts-<commit>` artifact,
+first builds the five carts and uploads them as the `carts-<commit>` artifact,
 kept for 30 days. The second runs each game's `_auto` gate natively on GL
 and then on WebGPU, with Mesa's software renderers at the games' own 960x540
 (`CW_RENDER_SCALE=1`). Both cache `deps/`. The full gate set runs locally
 with `tests/gate.mjs`.
 
-Pushing a `v*` tag runs the same jobs and publishes the ten carts as a GitHub
+Pushing a `v*` tag runs the same jobs and publishes the five carts as a GitHub
 release: `git tag v0.2.0 && git push origin v0.2.0`.
 
 ## Layout

@@ -42,14 +42,13 @@ jobs:
         run: scripts/fetch-deps.sh
       - name: Build cwpack (packs the carts' assets)
         run: TARGETS=native scripts/build.sh cwpack
-      - name: Build GL and dual GL + WebGPU carts
-        run: TARGETS="cart cart-wgpu" scripts/build.sh bikemesa bomberdude derby pugball spout
+      - name: Build the carts (GL and WebGPU in one cart each)
+        run: TARGETS="cart-wgpu" scripts/build.sh bikemesa bomberdude derby pugball spout
       - name: Collect carts
         run: |
           mkdir -p carts
           for g in bikemesa bomberdude derby pugball spout; do
             cp build/cart-wgpu/carts/$g.wasc carts/$g.wasc
-            cp build/cart/carts/$g.wasc carts/$g-gl.wasc
           done
           ls -l carts
           echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
