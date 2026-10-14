@@ -58,15 +58,9 @@ jobs:
           if-no-files-found: error
 
   gates:
-    name: Gates (${{ matrix.part }})
+    name: Gates
     runs-on: ubuntu-latest
     timeout-minutes: 240
-    strategy:
-      fail-fast: false
-      matrix:
-        part: [gl-1of8, gl-2of8, gl-3of8, gl-4of8, gl-5of8, gl-6of8, gl-7of8, gl-8of8,
-               webgpu-1of11, webgpu-2of11, webgpu-3of11, webgpu-4of11, webgpu-5of11, webgpu-6of11,
-               webgpu-7of11, webgpu-8of11, webgpu-9of11, webgpu-10of11, webgpu-11of11]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -86,5 +80,9 @@ jobs:
         run: scripts/fetch-deps.sh
       - name: Build native
         run: TARGETS=native scripts/build.sh
-      - name: Gates (native, software rendering)
-        run: node tests/ci.mjs ${{ matrix.part }}
+      # Each game's _auto gate: a scripted full session, checked on GL and on WebGPU.
+      # The full gate set runs locally with tests/gate.mjs.
+      - name: Gates on GL (native, software rendering)
+        run: node tests/gate.mjs bikemesa-auto bomberdude-auto derby-auto pugball-auto spout-auto --hosts native
+      - name: Gates on WebGPU (native, software rendering)
+        run: node tests/gate.mjs bikemesa-auto bomberdude-auto derby-auto pugball-auto spout-auto --hosts native --gpu webgpu
