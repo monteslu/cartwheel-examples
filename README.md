@@ -69,7 +69,9 @@ or be washed back to the last bracket. Five spouts, each opening the next.
 
 ## Play the carts
 
-Every push builds the carts. To download them: the repository's
+Tagged versions are on the
+[Releases](https://github.com/monteslu/cartwheel-examples/releases) page, with
+all ten carts attached. Every push also builds them: the repository's
 [Actions](https://github.com/monteslu/cartwheel-examples/actions) tab, the
 latest green run on `main`, then **Artifacts** at the bottom of the run
 page: `carts-<commit>` is a zip of all ten. Each game comes as two carts:
@@ -181,6 +183,9 @@ kept for 30 days. The second runs each game's `_auto` gate natively on GL
 and then on WebGPU, with Mesa's software renderers at the games' own 960x540
 (`CW_RENDER_SCALE=1`). Both cache `deps/`. The full gate set runs locally
 with `tests/gate.mjs`.
+
+Pushing a `v*` tag runs the same jobs and publishes the ten carts as a GitHub
+release: `git tag v0.2.0 && git push origin v0.2.0`.
 
 ## Layout
 
