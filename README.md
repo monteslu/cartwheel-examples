@@ -60,7 +60,7 @@ runs on Box3D. `games/pugball/`
 ### spout
 
 
-![spout: the spider climbing the spout at night](docs/screenshots/spout.jpg)
+![spout: the spider climbing the Cottage Downpipe on a sunny day](docs/screenshots/spout.jpg)
 
 A paper spider climbs a rain spout. The weather turns from sun to rain;
 rain makes the paper wraps slick and sends water down the spout, so brace
