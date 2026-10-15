@@ -59,6 +59,9 @@ for (const game of games) {
     ...process.env, CW_FRAMES: String(gate.frames), CW_FRAME_HZ: '60', CW_WARMUP_SPREAD: '0', CW_DEBUG_DUMP: dump,
     SDL_AUDIODRIVER: process.env.SDL_AUDIODRIVER || 'dummy',
   };
+  // macOS: GL is ANGLE, which SDL's offscreen video driver cannot open (it
+  // needs EGL device enumeration): a real window (CW_TEST_WINDOW) instead
+  if (process.platform === 'darwin') env.CW_TEST_WINDOW = '1';
   if (GPU === 'auto') delete env.CW_GPU;
   else env.CW_GPU = GPU;
   const t0 = Date.now();
