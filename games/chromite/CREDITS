@@ -1,0 +1,13 @@
+chromite: credits
+
+Chromite is a new game after Chromium B.S.U. (2000) by Mark B. Allan: its
+rules, enemy behaviours and wave scripts are re-implemented from that game's
+source (Clarified Artistic License), and its craft are modelled after that
+game's art. No code, image or sound of the original is included.
+
+Everything in this game is made by its own code (models in models.c,
+textures and the reflected environment in textures.c, the fortress in
+world.c, sound and music by tools/make-audio.mjs), except the fonts:
+
+  Russo One   Copyright (c) 2011-2012 Jovanny Lemonad      SIL Open Font License 1.1 (assets/fonts/RussoOne-OFL.txt)
+  Oswald      Copyright 2016 The Oswald Project Authors   SIL Open Font License 1.1 (assets/fonts/Oswald-OFL.txt)

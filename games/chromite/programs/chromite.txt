@@ -1,0 +1,13 @@
+# r186 program states for chromite (cmake/programs.cmake; tools/programs.mjs adds what runs lack)
+physical+map+fog+rep+nmap+ao+rmap+mmap+shadow+env+l1601+s100
+standard+fog+l1601
+physical+fog+env+cc+l1601
+physical+map+fog+rep+nmap+ao+rmap+mmap+env+l1601
+physical+fog+shadow+env+l1601+s100
+basic+fog+trans+instbig
+physical+fog+env+l1601
+sprite+map+fog+trans
+physical+map+fog+rep+instbig+nmap+ao+rmap+mmap+env+l1601
+standard+fog+instbig+l1601
+basic+fog+trans
+physical+fog+instbig+env+l1601
