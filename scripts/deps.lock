@@ -1,12 +1,12 @@
 # Pinned dependencies. scripts/fetch-deps.sh reads this file.
 # name             source                                               revision
 # cartwheel-engine: its source at the commit of the engine release below (its test tools: tests/gate.mjs).
-cartwheel-engine   https://github.com/monteslu/cartwheel-engine.git    1c270efad31a640abbbd7b500e0c3ae1cc9b0630
+cartwheel-engine   https://github.com/monteslu/cartwheel-engine.git    3691b90f25b00250ea5f7a1245d0424e6e8b1f66
 # The prebuilt engine SDKs of that release (cartwheel-engine docs/sdk.md), one per target, sha256 checked.
-cartwheel-sdk:linux-x64 https://github.com/monteslu/cartwheel-engine/releases/download/v0.6.7/cartwheel-sdk-0.6.7-linux-x64.tar.gz v0.6.7 72fb620451d74452dd7ac5102cf513f9b921f22a628f4a63a82be00f87aa3518
-cartwheel-sdk:linux-arm64 https://github.com/monteslu/cartwheel-engine/releases/download/v0.6.7/cartwheel-sdk-0.6.7-linux-arm64.tar.gz v0.6.7 76143a3f1b57e9125925b7880d1431323bee886f7b95627b5d74c0efbcc3f3a3
-cartwheel-sdk:windows-x64 https://github.com/monteslu/cartwheel-engine/releases/download/v0.6.7/cartwheel-sdk-0.6.7-windows-x64.tar.gz v0.6.7 ff5807bc9f6ad8f033bf6bfc3ab71b48617bedd813aff61ec47347fb050da856
-cartwheel-sdk:macos-arm64 https://github.com/monteslu/cartwheel-engine/releases/download/v0.6.7/cartwheel-sdk-0.6.7-macos-arm64.tar.gz v0.6.7 d0bd55f3fc6427ee65ce27008352b60bf97cf50bbf2ef8cd73115ad2018afa4e
-cartwheel-sdk:android-arm64 https://github.com/monteslu/cartwheel-engine/releases/download/v0.6.7/cartwheel-sdk-0.6.7-android-arm64.tar.gz v0.6.7 2211853729eb847faa5c6bec330bea09ea833fe0653a678770864fe0a54bfa89
-cartwheel-sdk:cart https://github.com/monteslu/cartwheel-engine/releases/download/v0.6.7/cartwheel-sdk-0.6.7-cart.tar.gz v0.6.7 b185071178532010035c472c741f436ea663518c5d0831cc5f6f8f2ed27f4c43
-cartwheel-sdk:cart-wgpu https://github.com/monteslu/cartwheel-engine/releases/download/v0.6.7/cartwheel-sdk-0.6.7-cart-wgpu.tar.gz v0.6.7 682365f828b0a14f0fe854a79369830bec4acd00cb704e4cc91970b06fd3e9ca
+cartwheel-sdk:linux-x64 https://github.com/monteslu/cartwheel-engine/releases/download/v0.7.0/cartwheel-sdk-0.7.0-linux-x64.tar.gz v0.7.0 d76fa8db43829f790a2a965cdf70f174bebe02467662bcb9e6d51a0afa7540e5
+cartwheel-sdk:linux-arm64 https://github.com/monteslu/cartwheel-engine/releases/download/v0.7.0/cartwheel-sdk-0.7.0-linux-arm64.tar.gz v0.7.0 aff403134b8dd71633e8468009de0f401d44d91e52c6b750598bb59925552193
+cartwheel-sdk:windows-x64 https://github.com/monteslu/cartwheel-engine/releases/download/v0.7.0/cartwheel-sdk-0.7.0-windows-x64.tar.gz v0.7.0 c8fc678a5f8fcaac955ead5cc20bb2f20c87ed0e8e8aead0118caab96c30f6ce
+cartwheel-sdk:macos-arm64 https://github.com/monteslu/cartwheel-engine/releases/download/v0.7.0/cartwheel-sdk-0.7.0-macos-arm64.tar.gz v0.7.0 c304d078cc757949d01139b04009d538c51f677a51e9da42b28770abd99d7081
+cartwheel-sdk:android-arm64 https://github.com/monteslu/cartwheel-engine/releases/download/v0.7.0/cartwheel-sdk-0.7.0-android-arm64.tar.gz v0.7.0 e37ca5ff1f8d18ea2deef02a39d18ac6e6a16a0c9efd995ef37a427744713377
+cartwheel-sdk:cart https://github.com/monteslu/cartwheel-engine/releases/download/v0.7.0/cartwheel-sdk-0.7.0-cart.tar.gz v0.7.0 1b246537bd3b127398e47294720b4c9282ec99f67cbae789c8a9c5a526ff48b9
+cartwheel-sdk:cart-wgpu https://github.com/monteslu/cartwheel-engine/releases/download/v0.7.0/cartwheel-sdk-0.7.0-cart-wgpu.tar.gz v0.7.0 dfd0bf4faaa02e6076304b0c6b57c440e7f1fbc79ea1fafd309567247e2a2a38
