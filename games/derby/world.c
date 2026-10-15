@@ -182,7 +182,7 @@ static void build_wall(cw_node root) {
     t3_instanced_mesh_set_color_at(im, i, c);
   }
   im->mesh.base.cast_shadow = im->mesh.base.receive_shadow = true;
-  hang_sectors(root, "Wall", im, 12);
+  hang_sectors(root, "Wall", im, 6);
   /* stacks of old tyres bolted along the top of the corners: soft bits for the eye */
   static arena_pt T[256];
   int nt = arena_line(T, 256, 1.1f, 0.33f);

@@ -140,7 +140,7 @@ static void fence(cw_node root, float out) {
   t3_instanced_mesh *posts = t3_instanced_mesh_new(t3_cylinder_geometry_new(0.05f, 0.05f, hgt, 8, 1, false), st, n);
   t3_release(posts->mesh.geometry);
   for (int i = 0; i < n; i++) put(posts, i, (t3_vec3){ P[i].x, hgt * 0.5f, P[i].z }, 0, (t3_vec3){ 1, 1, 1 });
-  finish_sectors(root, "Posts", posts, true, 8);
+  finish_sectors(root, "Posts", posts, true, 4);
   /* the mesh between the posts, and a rail along the top */
   mesh_build b = { 0 }, rail = { 0 };
   float u = 0;
@@ -408,7 +408,7 @@ static void car_stacks(cw_node root, uint32_t *h) {
       k++;
     }
   }
-  finish_sectors(root, "Crushed", im, true, 8);
+  finish_sectors(root, "Crushed", im, true, 4);
 }
 
 /* a tree line and a few sheds far out, dark against the sky */
@@ -427,7 +427,7 @@ static void horizon(cw_node root, uint32_t *h) {
       put(im, i * 3 + k, (t3_vec3){ x + ox, oy, z + oz }, 0, (t3_vec3){ sc, sc * 0.85f, sc });
     }
   }
-  finish_sectors(root, "Trees", im, false, 8);
+  finish_sectors(root, "Trees", im, false, 4);
 }
 
 void scenery_reset(void) {

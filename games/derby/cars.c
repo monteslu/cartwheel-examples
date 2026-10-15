@@ -1036,8 +1036,8 @@ void car_build(car_model *m, int kind, int colour, int number) {
     box_into(&bb, (t3_vec3){ x0, 0, 0 }, (t3_vec3){ L, 0.17f, 0.1f }, 0.04f, WHITE);
     box_into(&rb, (t3_vec3){ x0, 0.0f, dir * 0.052f }, (t3_vec3){ L - 0.12f, 0.05f, 0.02f }, 0.01f, RB);
     for (int s = 0; s < 2; s++) box_into(&rb, (t3_vec3){ s ? 2 * x0 : 0, 0, -dir * 0.1f }, (t3_vec3){ 0.06f, 0.08f, 0.14f }, 0.005f, RB);
+    mb_merge(&bb, &rb); /* the rubber strip and the brackets in the bar's mesh (their own dark colour) */
     mesh_in(pivot, mb_finish(&bb), chrome, true);
-    mesh_in(pivot, mb_finish(&rb), black, false);
     t3_object_add(m->bodies[0], pivot);
     t3_release(pivot);
     m->bumper[e] = pivot;
@@ -1059,7 +1059,10 @@ void car_build(car_model *m, int kind, int colour, int number) {
     section(k, sh, k->hl - 0.01f, &fs);
     float fy0 = sh->sill + 0.3f, fy1 = fs.y[7] - 0.04f, fz = k->hl + 0.004f;
     float gw = k->hw - 0.45f;
-    mesh_build g = { 0 }, ch = { 0 }, lamp = { 0 }, amb = { 0 };
+    mesh_build g = { 0 }, ch = { 0 }, lamp = { 0 };
+    /* the parking lamps ride in the black details' mesh, in their own colour */
+    t3_color ac = lin(0.8f, 0.42f, 0.06f);
+    const float AMBER[3] = { ac.r, ac.g, ac.b };
     static const float BLK[3] = { 0.02f, 0.02f, 0.02f }, TP[3] = { 0.35f, 0.35f, 0.33f };
     box_into(&g, (t3_vec3){ 0, (fy0 + fy1) * 0.5f, fz - 0.03f }, (t3_vec3){ 2 * gw, fy1 - fy0, 0.04f }, 0.01f, BLK);
     for (int sl = 0; sl < 5; sl++) box_into(&ch, (t3_vec3){ 0, fy0 + (fy1 - fy0) * (sl + 0.5f) / 5, fz }, (t3_vec3){ 2 * gw, 0.012f, 0.012f }, 0.003f, WHITE);
@@ -1075,17 +1078,13 @@ void car_build(car_model *m, int kind, int colour, int number) {
         else box_into(&lamp, (t3_vec3){ qx, ly, fz + 0.012f }, (t3_vec3){ 0.12f, 0.09f, 0.012f }, 0.012f, WHITE);
       }
       if (tape) box_into(&ch, (t3_vec3){ lx, ly, fz + 0.022f }, (t3_vec3){ 0.3f, 0.035f, 0.006f }, 0.002f, TP);
-      box_into(&amb, (t3_vec3){ s * (k->hw - 0.32f), bump_y - 0.02f, k->hl + 0.13f }, (t3_vec3){ 0.14f, 0.05f, 0.012f }, 0.01f, WHITE);
+      box_into(&g, (t3_vec3){ s * (k->hw - 0.32f), bump_y - 0.02f, k->hl + 0.13f }, (t3_vec3){ 0.14f, 0.05f, 0.012f }, 0.01f, AMBER);
     }
     /* the lamps show at levels 0 and 1 (a split view draws the other cars at 1) */
     m->lamps = t3_group_new();
     t3_object_add(m->body, m->lamps);
     t3_release(m->lamps);
     mesh_in(m->lamps, mb_finish(&lamp), m->lamp_mat, false);
-    t3_material *amber = phys(lin(0.8f, 0.42f, 0.06f), 0.3f, 0);
-    amber->vertex_colors = true;
-    mesh_in(m->bodies[0], mb_finish(&amb), amber, false);
-    t3_release(amber);
     mesh_build tl = { 0 }, bk = { 0 }, cr = { 0 };
     sec rs;
     section(k, sh, -k->hl + 0.01f, &rs);
@@ -1132,7 +1131,7 @@ void car_build(car_model *m, int kind, int colour, int number) {
       section(k, sh, fz2, &S);
       box_into(&sm, (t3_vec3){ -(S.x[6] + 0.004f), fy, fz2 }, (t3_vec3){ 0.012f, 0.11f, 0.11f }, 0.03f, WHITE);
     }
-    mesh_in(m->bodies[0], mb_finish(&ex), dark, false);
+    mb_merge(&g, &ex); /* the exhaust with the black details */
     mb_merge(&ch, &sm);
     mesh_in(m->bodies[0], mb_finish(&ch), chrome, false);
     mesh_in(m->bodies[0], mb_finish(&g), black, false);
@@ -1151,17 +1150,20 @@ void car_build(car_model *m, int kind, int colour, int number) {
     sec fs;
     section(k, sh, k->hl - 0.01f, &fs);
     float ly = (sh->sill + 0.3f + fs.y[7] - 0.04f) * 0.5f;
-    t3_geometry *cg = geo_beam(0.08f, 1.1f, 8);
+    /* both cones in one mesh */
+    mesh_build bm = { 0 };
     for (int s = -1; s <= 1; s += 2) {
-      t3_mesh *c = t3_mesh_new(cg, beam);
-      c->base.position = (t3_vec3){ s * (k->hw - 0.27f), ly - 0.1f, k->hl + 4.1f };
-      t3_object_set_rotation(&c->base, -1.5707963f + 0.05f, 0, 0);
-      c->base.render_order = 30;
-      c->base.frustum_culled = false;
-      t3_object_add(m->beams, c);
-      t3_release(c);
+      t3_mat4 cm;
+      t3_mat4_compose(&cm, (t3_vec3){ s * (k->hw - 0.27f), ly - 0.1f, k->hl + 4.1f },
+                      t3_quat_from_euler((t3_euler){ -1.5707963f + 0.05f, 0, 0, T3_XYZ }), (t3_vec3){ 1, 1, 1 });
+      mb_append(&bm, geo_beam(0.08f, 1.1f, 8), &cm);
     }
-    t3_release(cg);
+    t3_mesh *c = t3_mesh_new(mb_finish(&bm), beam);
+    t3_release(c->geometry);
+    c->base.render_order = 30;
+    c->base.frustum_culled = false;
+    t3_object_add(m->beams, c);
+    t3_release(c);
   }
   t3_release(beam);
   t3_object_add(m->bodies[0], m->beams);

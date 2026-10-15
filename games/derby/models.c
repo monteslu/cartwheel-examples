@@ -92,16 +92,18 @@ t3_geometry *mb_finish(mesh_build *b) {
 }
 
 /* append a geometry placed by a rigid transform (positions, normals, uvs,
- * index; no colours), so static parts sharing a material draw as one mesh.
- * Takes the geometry's reference. */
+ * its colours if it has them, index), so static parts sharing a material draw
+ * as one mesh. Takes the geometry's reference. */
 void mb_append(mesh_build *b, t3_geometry *g, const t3_mat4 *m) {
   t3_attribute *P = g->attributes[T3_ATTR_POSITION], *Nn = g->attributes[T3_ATTR_NORMAL], *U = g->attributes[T3_ATTR_UV];
-  const float *p = P->array, *n = Nn->array, *u = U ? U->array : NULL;
+  t3_attribute *C = g->attributes[T3_ATTR_COLOR];
+  const float *p = P->array, *n = Nn->array, *u = U ? U->array : NULL, *c = C && C->item_size == 3 ? C->array : NULL;
   int base = b->nv;
   for (int i = 0; i < P->count; i++) {
     t3_vec3 q = t3_vec3_apply_mat4((t3_vec3){ p[i * 3], p[i * 3 + 1], p[i * 3 + 2] }, m);
     t3_vec3 nn = t3_vec3_transform_direction((t3_vec3){ n[i * 3], n[i * 3 + 1], n[i * 3 + 2] }, m);
-    mb_vert(b, q, nn, u ? u[i * 2] : 0, u ? u[i * 2 + 1] : 0);
+    int v = mb_vert(b, q, nn, u ? u[i * 2] : 0, u ? u[i * 2 + 1] : 0);
+    if (c) mb_color(b, v, c[i * 3], c[i * 3 + 1], c[i * 3 + 2]);
   }
   if (g->index) {
     const uint32_t *ix = g->index->array;
