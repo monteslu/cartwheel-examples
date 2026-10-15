@@ -262,8 +262,8 @@ against the pinned SDKs.
   (Linux x64 and arm64 on Mesa's software renderers, macOS on the runner's
   Metal device), the first 300 frames of each game's `_auto` replay run on
   GL and on WebGPU (`tests/native-replay.mjs --frames 300`; macOS runners draw
-  GL at about a second a frame, so there the replays run on WebGPU and GL is
-  launch-checked). Windows builds cross-compile on Linux and run
+  GL at seconds a frame, so there the replays run on WebGPU and GL is
+  launch-checked on one game). Windows builds cross-compile on Linux and run
   on a Windows runner (ANGLE on Direct3D 11, Dawn on Direct3D 12); that job
   also adds Microsoft's Visual C++ runtime, which Dawn links, beside each
   game. The Android APKs are launched on an emulator (an x86_64 image
