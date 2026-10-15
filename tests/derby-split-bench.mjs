@@ -4,7 +4,7 @@
 //
 //   node deps/cartwheel-engine/tools/with-gpu-suite.mjs derby-split-bench node tests/derby-split-bench.mjs
 //        [--players 1,2,3,4] [--gpus gl,webgpu] [--res 1920x1080] [--end 1200] [--window 600]
-//        [--runs 5] [--shots dir] [--json out/derby-split-bench.json]
+//        [--runs 5] [--pairs 7] [--shots dir] [--json out/derby-split-bench.json]
 //        [--exes a,b]   A/B: these derby binaries instead of the build's, runs interleaved
 //
 // Run it through with-gpu-suite.mjs (the GPU suite lock, the test GPU, no
@@ -19,7 +19,7 @@
 // submitting the draws), so waits on the GPU stay out of it; frame is the
 // wall time from frame to frame. The CPU against one player is the ratio
 // within each round (its runs follow one another), the median of the rounds.
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,6 +37,10 @@ const RES = opt('res', '1920x1080');
 const END = +opt('end', 1200);
 const WINDOW = +opt('window', 600);
 const RUNS = +opt('runs', 5);
+// --pairs N: also N rounds of one player and n players run side by side (the
+// same load on the machine for both, so their ratio holds still where the
+// machine is busy), the median ratio
+const PAIRS = +opt('pairs', 0);
 const SHOTS = opt('shots', ''); // a screenshot of each count's last frame (the first clean run): derby-<n>p-<gpu>.png
 const OUT = join(ROOT, 'out');
 mkdirSync(OUT, { recursive: true });
@@ -70,7 +74,7 @@ function script(n) {
   return lines.join('\n') + '\n';
 }
 
-function run(exe, n, gpu, timed, shot) {
+async function run(exe, n, gpu, timed, shot) {
   const dir = tempDir(OUT, 'derby-split-bench-');
   const input = join(dir, 'input.txt');
   writeFileSync(input, script(n));
@@ -83,7 +87,13 @@ function run(exe, n, gpu, timed, shot) {
   else { env.CW_GPU = 'gl'; if (gl) Object.assign(env, gl.env); }
   scrubDisplay(env);
   if (existsSync(exe + '.assets')) env.CW_ASSETS = exe + '.assets';
-  const r = spawnSync('timeout', ['-s', 'KILL', '600', exe], { env, encoding: 'utf8', maxBuffer: 1 << 26 });
+  const r = await new Promise((done) => {
+    const c = spawn('timeout', ['-s', 'KILL', '600', exe], { env });
+    let stdout = '', stderr = '';
+    c.stdout.on('data', (d) => (stdout += d));
+    c.stderr.on('data', (d) => (stderr += d));
+    c.on('close', (status) => done({ status, stdout, stderr }));
+  });
   if (r.status !== 0) throw new Error(`derby ${n}p ${gpu} exited ${r.status}: ${(r.stderr || '').slice(-2000)}`);
   if (pin) pin.check('native', (/WebGPU adapter: (.*)/.exec(r.stderr) || [])[1]);
   else if (gl) gl.check('native', r.stderr);
@@ -102,8 +112,8 @@ for (const gpu of GPUS) {
     for (const n of PLAYERS)
       for (const e of EXES) {
         if (!cleans.has(key(e, n))) cleans.set(key(e, n), []), timeds.set(key(e, n), []);
-        cleans.get(key(e, n)).push(run(e, n, gpu, false, SHOTS && k === 0));
-        timeds.get(key(e, n)).push(run(e, n, gpu, true));
+        cleans.get(key(e, n)).push(await run(e, n, gpu, false, SHOTS && k === 0));
+        timeds.get(key(e, n)).push(await run(e, n, gpu, true));
       }
   for (const e of EXES) for (const n of PLAYERS) {
     const runs = cleans.get(key(e, n)), clean = runs[0], tr = timeds.get(key(e, n));
@@ -117,7 +127,17 @@ for (const gpu of GPUS) {
     // against one player: the ratio within each round (the runs next to each other), the median of the rounds
     const ones = cleans.get(key(e, 1));
     const vs1 = (k) => (ones && p.thread_cpu ? median(runs.map((x, i) => x.perf.thread_cpu[k] / ones[i].perf.thread_cpu[k])) : null);
-    results.push({ build, gpu, players: n, cpu_render_vs1: vs1('render'), res: RES, frame: r2(a('frame')), sim: r2(a('sim')), update: r2(a('update')), render: r2(a('render')), cpu_sim: r2(c('sim')), cpu_render: r2(c('render')), cpu_frame: r2(c('frame')),
+    // side by side: one player and n players at the same time, the ratio of each pair, the median
+    let pairs = null;
+    if (PAIRS && n > 1) {
+      const rs = [];
+      for (let k = 0; k < PAIRS; k++) {
+        const [one, many] = await Promise.all([run(e, 1, gpu, false), run(e, n, gpu, false)]);
+        rs.push(many.perf.thread_cpu.render / one.perf.thread_cpu.render);
+      }
+      pairs = median(rs);
+    }
+    results.push({ build, gpu, players: n, cpu_render_vs1: vs1('render'), cpu_render_vs1_pairs: pairs, res: RES, frame: r2(a('frame')), sim: r2(a('sim')), update: r2(a('update')), render: r2(a('render')), cpu_sim: r2(c('sim')), cpu_render: r2(c('render')), cpu_frame: r2(c('frame')),
       present: r2(a('present')), draws: p.draw_calls, tris: p.triangles, gpu_ms: r2(timed.pipe.gpu_ms), gpu_passes: passes, cpu_passes: cpuPasses });
     console.error(`${build}${build && ' '}${gpu} ${n}p: frame ${r2(a('frame'))} ms, sim ${r2(a('sim'))}, render ${r2(a('render'))} (cpu ${r2(c('render'))}), gpu ${r2(timed.pipe.gpu_ms)} ms, ${p.draw_calls} draws`);
   }
@@ -127,11 +147,11 @@ for (const gpu of GPUS) {
 const pct = (x, b) => (b ? `${x >= b ? '+' : ''}${Math.round((x / b - 1) * 100)}%` : '-');
 const pctr = (r) => (r == null ? '-' : `${r >= 1 ? '+' : ''}${Math.round((r - 1) * 100)}%`);
 const lines = [`derby splitscreen, ${RES}, native, last ${WINDOW} of ${END} frames`, '',
-  '| backend | players | frame ms | sim CPU ms | render CPU ms | GPU ms | draws | render CPU vs 1P | GPU vs 1P |',
-  '|---|---|---|---|---|---|---|---|---|'];
+  `| backend | players | frame ms | sim CPU ms | render CPU ms | GPU ms | draws | render CPU vs 1P |${PAIRS ? ' side by side |' : ''} GPU vs 1P |`,
+  `|---|---|---|---|---|---|---|---|${PAIRS ? '---|' : ''}---|`];
 for (const r of results) {
   const one = results.find((x) => x.build === r.build && x.gpu === r.gpu && x.players === 1) || r;
-  lines.push(`| ${r.build}${r.build && ' '}${r.gpu} | ${r.players} | ${r.frame} | ${r.cpu_sim} | ${r.cpu_render} | ${r.gpu_ms} | ${r.draws} | ${pctr(r.cpu_render_vs1)} | ${pct(r.gpu_ms, one.gpu_ms)} |`);
+  lines.push(`| ${r.build}${r.build && ' '}${r.gpu} | ${r.players} | ${r.frame} | ${r.cpu_sim} | ${r.cpu_render} | ${r.gpu_ms} | ${r.draws} | ${pctr(r.cpu_render_vs1)} |${PAIRS ? ` ${r.players === 1 ? '+0%' : pctr(r.cpu_render_vs1_pairs)} |` : ''} ${pct(r.gpu_ms, one.gpu_ms)} |`);
 }
 lines.push('', 'GPU ms by pass:');
 for (const r of results) lines.push(`  ${r.build}${r.build && ' '}${r.gpu} ${r.players}p: ${Object.entries(r.gpu_passes).map(([k, v]) => `${k} ${v}`).join(', ')}`);

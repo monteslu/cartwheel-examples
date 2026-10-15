@@ -211,11 +211,14 @@ node tests/pugball-split-bench.mjs --gpus gl --players 1,4 --runs 3
 
 `tests/derby-split-bench.mjs` plays one Derby bout at 1920x1080 with one to
 four players, every pad joining on the title and then driving its own line
-into the same pile-up. Run it through the engine's GPU suite wrapper:
+into the same pile-up. `--pairs N` also runs one player and n players side
+by side N times: both see the same load on a busy machine, so their ratio
+holds still where runs one after the other drift. Run it through the
+engine's GPU suite wrapper:
 
 ```sh
 node deps/cartwheel-engine/tools/with-gpu-suite.mjs derby-split-bench node tests/derby-split-bench.mjs
-node deps/cartwheel-engine/tools/with-gpu-suite.mjs derby-split-bench node tests/derby-split-bench.mjs --gpus webgpu --players 1,4 --shots out/shots
+node deps/cartwheel-engine/tools/with-gpu-suite.mjs derby-split-bench node tests/derby-split-bench.mjs --pairs 7 --gpus webgpu --players 1,4
 ```
 
 ## CI
