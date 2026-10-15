@@ -100,7 +100,9 @@ jobs:
           - { target: linux-arm64, os: ubuntu-24.04-arm, run: true }
           - { target: windows-x64, os: ubuntu-24.04, run: false } # runs on the Windows job below
           - { target: android-arm64, os: ubuntu-24.04, run: false } # launch-smoked on the emulator below
-          - { target: macos-arm64, os: macos-15, run: true }
+          # macOS runners draw GL (ANGLE) at about a second a frame: the replays
+          # run on WebGPU (Metal) there, GL is launch-checked (--smoke)
+          - { target: macos-arm64, os: macos-15, run: true, gl_smoke: true }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -162,8 +164,11 @@ jobs:
           path: out/test-bundle/*
           retention-days: 7
       - name: Replays on GL
-        if: matrix.run
+        if: matrix.run && !matrix.gl_smoke
         run: node tests/native-replay.mjs --bin build/${{ matrix.target }} --out out/replay/${{ matrix.target }}-gl --gpu gl
+      - name: GL launch check (60 frames each)
+        if: matrix.gl_smoke
+        run: node tests/native-replay.mjs --bin build/${{ matrix.target }} --out out/smoke --gpu gl --smoke 60
       - name: Replays on WebGPU
         if: matrix.run
         run: node tests/native-replay.mjs --bin build/${{ matrix.target }} --out out/replay/${{ matrix.target }}-webgpu --gpu webgpu

@@ -13,6 +13,8 @@
 //   --out   <out>/<game>.json: {gate, gpu, api, state} per game
 //   --gpu   CW_GPU for the runs (default gl); auto lets the game pick
 //   --ref   a directory of another run's <game>.json to compare against
+//   --smoke N  run each game N frames only: it starts and draws on that API
+//           (no expectations); for runners too slow for the full replay
 //
 // Exit status: 0 when every game ran, met its gate's expectations and (with
 // --ref) matched; 1 otherwise.
@@ -24,11 +26,12 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const argv = process.argv.slice(2);
 const opt = (k, d) => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : d; };
-const VALUED = new Set(['--bin', '--out', '--gpu', '--ref']);
+const VALUED = new Set(['--bin', '--out', '--gpu', '--ref', '--smoke']);
 const BIN = opt('--bin') && resolve(opt('--bin'));
 const OUT = opt('--out') && resolve(opt('--out'));
 const GPU = opt('--gpu', 'gl');
 const REF = opt('--ref') && resolve(opt('--ref'));
+const SMOKE = opt('--smoke') ? +opt('--smoke') : 0;
 if (!BIN || !OUT) {
   console.error('usage: node tests/native-replay.mjs --bin <dir> --out <dir> [--gpu gl|webgpu|auto] [--ref <dir>] [game ...]');
   process.exit(2);
@@ -56,7 +59,7 @@ for (const game of games) {
   if (!bin) { console.error(`${game}: no ${gate.app}${exe} under ${BIN}`); failed++; continue; }
   const dump = join(OUT, `${game}.state.json`);
   const env = {
-    ...process.env, CW_FRAMES: String(gate.frames), CW_FRAME_HZ: '60', CW_WARMUP_SPREAD: '0', CW_DEBUG_DUMP: dump,
+    ...process.env, CW_FRAMES: String(SMOKE || gate.frames), CW_FRAME_HZ: '60', CW_WARMUP_SPREAD: '0', CW_DEBUG_DUMP: dump,
     SDL_AUDIODRIVER: process.env.SDL_AUDIODRIVER || 'dummy',
   };
   if (GPU === 'auto') delete env.CW_GPU;
@@ -74,12 +77,12 @@ for (const game of games) {
   const api = all['cw.gpu.api'] === 2 ? 'webgpu' : all['cw.gpu.api'] === 1 ? 'gl' : 'unknown';
   const adapter = /WebGPU adapter: (.*)/.exec(r.stderr || '')?.[1] || /GL: (.*)/.exec(r.stderr || '')?.[1] || '';
   const problems = [];
-  for (const [k, v] of Object.entries(gate.expect || {})) if (!same(all[k], v)) problems.push(`${k} = ${JSON.stringify(all[k])}, the gate expects ${JSON.stringify(v)}`);
+  for (const [k, v] of Object.entries(SMOKE ? {} : gate.expect || {})) if (!same(all[k], v)) problems.push(`${k} = ${JSON.stringify(all[k])}, the gate expects ${JSON.stringify(v)}`);
   for (const f of gate.fields) if (all[f] === undefined) problems.push(`${f}: missing from the state`);
   if (GPU !== 'auto' && api !== GPU) problems.push(`ran on ${api}, not ${GPU}`);
   if (all['cw.gpu.errors']) problems.push(`${all['cw.gpu.errors']} GPU error(s)`);
   let matched = null;
-  if (REF) {
+  if (REF && !SMOKE) {
     const refFile = join(REF, `${game}.json`);
     if (!existsSync(refFile)) problems.push(`no reference ${refFile}`);
     else {
@@ -89,9 +92,9 @@ for (const game of games) {
       for (const f of diff) problems.push(`${f} = ${JSON.stringify(state[f])}, the reference has ${JSON.stringify(ref[f])}`);
     }
   }
-  writeFileSync(join(OUT, `${game}.json`), JSON.stringify({ gate: gate.name, app: gate.app, frames: gate.frames, gpu: GPU, api, adapter,
+  if (!SMOKE) writeFileSync(join(OUT, `${game}.json`), JSON.stringify({ gate: gate.name, app: gate.app, frames: gate.frames, gpu: GPU, api, adapter,
     platform: `${process.platform}-${process.arch}`, seconds: +secs, matched, state }, null, 2) + '\n');
   if (problems.length) { failed++; console.error(`${game}: FAIL (${api}, ${secs} s)\n  ${problems.join('\n  ')}`); }
-  else console.log(`${game}: ok (${api}${adapter ? `, ${adapter}` : ''}, ${gate.frames} frames, ${secs} s${matched ? ', state identical to the reference' : ''})`);
+  else console.log(`${game}: ok (${api}${adapter ? `, ${adapter}` : ''}, ${SMOKE || gate.frames} frames${SMOKE ? ' (smoke)' : ''}, ${secs} s${matched ? ', state identical to the reference' : ''})`);
 }
 process.exit(failed ? 1 : 0);
