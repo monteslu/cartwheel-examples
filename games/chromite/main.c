@@ -94,8 +94,9 @@ static struct {
 static int32_t input_mode;
 /* development jumps, written over the debug channel (romdev: wasm write):
  * cheat.level starts that level; cheat.boss jumps the level's clock to just
- * before its boss. Each clears itself once done. */
-static int32_t cheat_level, cheat_boss;
+ * before its boss. Each clears itself once done. cheat.gallery (nonzero)
+ * holds every craft still in a lineup over the deck, for model work. */
+static int32_t cheat_level, cheat_boss, cheat_gallery;
 static int32_t dbg_skill, dbg_hi0, dbg_armed;
 static uint32_t dbg_mouse;
 static bool device_used;
@@ -363,6 +364,7 @@ static void init(void *u) {
   cw_debug_i32("save.hi0", &dbg_hi0);
   cw_debug_i32("hero.armed", &dbg_armed);
   cw_debug_i32("cheat.boss", &cheat_boss);
+  cw_debug_i32("cheat.gallery", &cheat_gallery);
   cw_debug_i32("over.score", &G.final_score);
   cw_debug_u32("state.hash", &G.state_hash);
   cw_debug_u32("tex.hash", &tex_hash);
@@ -617,6 +619,24 @@ static void sync_hook(cw_tree *t, double alpha, void *u) {
   float a = cw_clampf((float)alpha, 0, 1);
   if (G.state == GS_PAUSE) a = 1;
   frame_t = (G.ticks + a) / 60.0f;
+  if (cheat_gallery) {
+    /* the lineup: the bosses at the top, the five enemy kinds across the
+     * middle, the hero below, as the game camera sees them */
+    static sim L;
+    L = G.S;
+    memset(L.en, 0, sizeof L.en), memset(L.eb, 0, sizeof L.eb);
+    memset(L.hb, 0, sizeof L.hb), memset(L.pu, 0, sizeof L.pu);
+    static const float AT[][3] = { { EK_BOSS0, -5, 5 }, { EK_BOSS1, 5, 5 }, { EK_STRAIGHT, -8, -0.5f }, { EK_OMNI, -4, -0.5f },
+                                   { EK_RAYGUN, 0, -0.5f }, { EK_TANK, 4, -0.5f }, { EK_GNAT, 8, -0.5f } };
+    for (int i = 0; i < 7; i++) {
+      enemy *e = &L.en[i];
+      e->live = true, e->kind = (int)AT[i][0], e->id = (uint32_t)i + 1, e->x = AT[i][1], e->y = AT[i][2];
+    }
+    L.h.x = 0, L.h.y = -6, L.h.dont_show = 0, L.mode = PLAY_ON;
+    world_sync(&L, &L, 1, frame_t, GS_PLAY);
+    world_camera(G.camera, &L, frame_t, 1);
+    return;
+  }
   world_sync(&G.prev, &G.S, a, frame_t, G.state);
   world_camera(G.camera, &G.S, frame_t, G.state == GS_TITLE ? 0 : 1);
 }

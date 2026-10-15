@@ -35,3 +35,5 @@ physical+map+rep+instbig+nmap+ao+rmap+mmap+env+sheen+l1601
 basic+bs
 basic+map
 basic+vcol+bs
+physical+map+rep+nmap+ao+rmap+mmap+env+cc+sheen+l1601
+physical+map+rep+instbig+nmap+ao+rmap+mmap+env+cc+sheen+l1601

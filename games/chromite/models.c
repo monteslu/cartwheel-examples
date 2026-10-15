@@ -58,17 +58,18 @@ static void mats_init(void) {
   if (MAT[M_CHROME]) return;
   MAT[M_CHROME] = metal(MT_CHROME, 1, 1, (t3_color){ 0.95f, 0.95f, 0.97f });
   MAT[M_LILAC] = metal(MT_CHROME, 1, 1, lin(0.82f, 0.82f, 0.98f));
-  MAT[M_LILAC]->metalness = 0.72f; /* silver paint over metal: it takes the key light too */
-  MAT[M_LILAC]->roughness = 1.6f;   /* (x the map: about 0.2) */
+  MAT[M_LILAC]->roughness = 0.45f;  /* (x the map: about 0.06, a mirror polish) */
+  MAT[M_LILAC]->clearcoat = 1;
+  MAT[M_LILAC]->clearcoat_roughness = 0.03f;
   MAT[M_RUST] = metal(MT_RUST, 1, 1, (t3_color){ 1, 1, 1 });
-  MAT[M_RUST_DARK] = metal(MT_RUST, 2, 2, lin(0.7f, 0.68f, 0.68f));
+  MAT[M_RUST_DARK] = metal(MT_RUST, 2, 2, lin(0.56f, 0.55f, 0.56f)); /* gunmetal */
   /* the craft must read against the deck: they mirror their surroundings
    * brighter than the deck does, and catch a cold rim at their silhouettes
    * (r186's sheen: a grazing-angle lobe) */
   static const int CRAFT_MATS[] = { M_CHROME, M_LILAC, M_RUST, M_RUST_DARK };
   for (size_t i = 0; i < sizeof CRAFT_MATS / sizeof CRAFT_MATS[0]; i++) {
     t3_material *m = MAT[CRAFT_MATS[i]];
-    m->env_map_intensity = CRAFT_MATS[i] == M_RUST || CRAFT_MATS[i] == M_RUST_DARK ? 2.3f : 1.6f;
+    m->env_map_intensity = CRAFT_MATS[i] == M_RUST || CRAFT_MATS[i] == M_RUST_DARK ? 2.3f : CRAFT_MATS[i] == M_LILAC ? 2.4f : 1.6f;
     m->sheen = 1;
     m->sheen_roughness = 0.35f;
     m->sheen_color = lin(0.55f, 0.62f, 0.75f);
@@ -313,28 +314,53 @@ static void build_raygun(kind_def *k) {
   k->radius = 0.95f;
 }
 
+static t3_geometry *box(float w, float h, float d) { return track(t3_box_geometry_new(w, h, d, 1, 1, 1)); }
+
+/* the tank, after the original's sprite: a stepped armour block. The back
+ * carries the exhaust stacks and a hatch with a cross of rounded bosses, a
+ * slab runs the full width with faceted track drums at its ends, the turret
+ * dome sits in a thick collar ringed in red, and the front plate has two
+ * flat domes and the cannons, which point at the player (-Z, as the hero's
+ * nose does; world.c turns enemies to face down the screen). */
 static void build_tank(kind_def *k) {
-  t3_geometry *hull = track(t3_box_geometry_new(1.7f, 0.5f, 1.9f, 1, 1, 1));
-  add(k, hull, M_RUST_DARK, 0, -0.1f, 0);
-  t3_geometry *deck = track(t3_box_geometry_new(1.2f, 0.3f, 1.3f, 1, 1, 1));
-  add(k, deck, M_RUST, 0, 0.25f, -0.05f);
-  /* track pods down both sides, round-ended */
-  static const float PODP[] = { 0, -1.1f, 0.22f, -1.0f, 0.3f, -0.6f, 0.3f, 0.7f, 0.22f, 1.0f, 0, 1.1f };
-  add_pair(k, lathe_z(PODP, 6, 18), M_RUST, 0.95f, -0.05f, 0);
-  /* the turret: a dome in a red ring, a short double barrel */
-  add(k, ellipsoid(0.42f, 0.32f, 0.42f, 24), M_CHROME, 0, 0.42f, 0.2f);
-  add(k, ring(0.46f, 0.05f, 32, 8), M_RED_GLOW, 0, 0.42f, 0.2f);
-  static const float BAR[] = { 0, 0.95f, 0.05f, 0.92f, 0.06f, 0.2f, 0, 0.15f };
-  add_pair(k, lathe_z(BAR, 4, 10), M_CHROME, 0.1f, 0.5f, 0.3f);
-  /* corner spires */
-  static const float SP[] = { 0, -0.45f, 0.1f, -0.3f, 0.12f, 0.2f, 0, 0.25f };
-  for (int s = -1; s <= 1; s += 2) {
-    piece *p = add(k, lathe_z(SP, 4, 12), M_CHROME, 0.72f * s, 0.3f, -0.9f);
-    p->rx = -1.5707963f;
-    p = add(k, lathe_z(SP, 4, 12), M_CHROME, 0.72f * s, 0.3f, 0.9f);
-    p->rx = -1.5707963f;
-  }
-  add_pair(k, track(t3_box_geometry_new(0.08f, 0.04f, 1.1f, 1, 1, 1)), M_PINK_GLOW, 0.62f, 0.15f, 0);
+  add(k, box(1.9f, 0.3f, 2.0f), M_RUST_DARK, 0, -0.15f, 0);
+  /* the back: a raised deck, a hatch on it, the cross of bosses */
+  add(k, box(1.3f, 0.28f, 0.95f), M_RUST_DARK, 0, 0.12f, 0.45f);
+  add(k, box(0.92f, 0.16f, 0.72f), M_RUST, 0, 0.33f, 0.45f);
+  add(k, ellipsoid(0.13f, 0.1f, 0.34f, 16), M_CHROME, 0, 0.44f, 0.45f);
+  add(k, ellipsoid(0.34f, 0.1f, 0.13f, 16), M_CHROME, 0, 0.44f, 0.45f);
+  add_pair(k, ellipsoid(0.14f, 0.11f, 0.14f, 14), M_RUST, 0.2f, 0.44f, 0.62f);
+  add_pair(k, ellipsoid(0.14f, 0.11f, 0.14f, 14), M_RUST, 0.2f, 0.44f, 0.28f);
+  /* exhaust stacks at the back corners, two a side */
+  static const float STACK[] = { 0, 0.55f, 0.09f, 0.5f, 0.14f, 0.38f, 0.15f, 0.1f, 0.15f, -0.25f, 0, -0.25f };
+  add_pair(k, lathe_z(STACK, 6, 12), M_CHROME, 0.66f, 0.3f, 0.62f);
+  piece *st = add(k, lathe_z(STACK, 6, 12), M_RUST_DARK, 0.9f, 0.18f, 0.66f);
+  st->sx = st->sy = st->sz = 0.72f;
+  t3_retain(st->g);
+  st = add(k, st->g, M_RUST_DARK, -0.9f, 0.18f, 0.66f);
+  st->sx = -0.72f, st->sy = st->sz = 0.72f;
+  /* the full-width slab and its track drums (octagonal: machined, not blown) */
+  add(k, box(2.05f, 0.24f, 0.62f), M_RUST_DARK, 0, 0.08f, -0.08f);
+  static const float DRUM[] = { 0, -0.48f, 0.27f, -0.48f, 0.3f, -0.42f, 0.3f, 0.42f, 0.27f, 0.48f, 0, 0.48f };
+  add_pair(k, lathe_z(DRUM, 6, 8), M_RUST, 0.92f, 0.05f, -0.1f);
+  /* the turret: a thick collar, the dome, the red omega (a ring and its feet) */
+  add(k, ring(0.34f, 0.11f, 28, 8), M_RUST, 0, 0.3f, -0.36f);
+  add(k, ellipsoid(0.25f, 0.2f, 0.25f, 22), M_CHROME, 0, 0.3f, -0.36f);
+  add(k, ring(0.47f, 0.028f, 36, 6), M_RED_GLOW, 0, 0.32f, -0.36f);
+  add_pair(k, box(0.34f, 0.03f, 0.04f), M_RED_GLOW, 0.36f, 0.22f, -0.8f);
+  add_pair(k, box(0.1f, 0.03f, 0.36f), M_PINK_GLOW, 0.98f, 0.12f, -0.5f);
+  /* the front plate, its two flat domes, the cannons */
+  add(k, box(1.45f, 0.24f, 0.42f), M_RUST_DARK, 0, 0.02f, -0.8f);
+  static const float DOME[] = { 0, 0.07f, 0.16f, 0.06f, 0.21f, 0.02f, 0.22f, -0.05f, 0, -0.05f };
+  piece *d = add(k, lathe_z(DOME, 5, 20), M_RUST, 0.42f, 0.15f, -0.82f);
+  d->rx = -1.5707963f;
+  t3_retain(d->g);
+  d = add(k, d->g, M_RUST, -0.42f, 0.15f, -0.82f);
+  d->rx = -1.5707963f;
+  static const float GUN[] = { 0, -0.62f, 0.07f, -0.62f, 0.07f, -0.54f, 0.05f, -0.52f, 0.05f, 0.05f, 0, 0.05f };
+  add_pair(k, lathe_z(GUN, 6, 10), M_CHROME, 0.84f, 0.02f, -0.72f);
+  static const float BAR[] = { 0, -0.58f, 0.055f, -0.58f, 0.055f, -0.52f, 0.04f, -0.5f, 0.045f, 0, 0, 0 };
+  add_pair(k, lathe_z(BAR, 6, 10), M_CHROME, 0.1f, 0.36f, -0.5f);
   k->radius = 1.15f;
 }
 
@@ -384,13 +410,26 @@ static void build_boss(kind_def *k, bool second) {
 
 static void fit(kind_def *k, float hw, float hh);
 
+/* half a turn about Y, for craft authored nose +Z */
+static void turn(kind_def *k) {
+  t3_quat r = t3_quat_from_axis_angle((t3_vec3){ 0, 1, 0 }, 3.1415927f);
+  for (int i = 0; i < k->n; i++) {
+    piece *p = &k->p[i];
+    t3_quat q = t3_quat_multiply(r, t3_quat_from_euler((t3_euler){ p->rx, p->ry, p->rz, T3_XYZ }));
+    t3_euler e = t3_euler_from_quat(q, T3_XYZ);
+    p->x = -p->x, p->z = -p->z, p->rx = e.x, p->ry = e.y, p->rz = e.z;
+  }
+}
+
 void models_init(void) {
   mats_init();
   if (KINDS[CK_HERO].n) return;
   build_hero(&KINDS[CK_HERO]);
   build_straight(&KINDS[CK_STRAIGHT]);
+  turn(&KINDS[CK_STRAIGHT]);
   build_omni(&KINDS[CK_OMNI]);
   build_raygun(&KINDS[CK_RAYGUN]);
+  turn(&KINDS[CK_RAYGUN]);
   build_tank(&KINDS[CK_TANK]);
   build_gnat(&KINDS[CK_GNAT]);
   build_boss(&KINDS[CK_BOSS0], false);
