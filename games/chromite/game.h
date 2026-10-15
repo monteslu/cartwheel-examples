@@ -160,6 +160,7 @@ enum { MT_CHROME, MT_RUST, MT_DECK, MT_GRATE, MT_KINDS };
 void tex_apply(t3_material *m, int kind, float ru, float rv);
 t3_texture *env_texture(void);
 t3_texture *env_logo_texture(void);
+void env_radiance(float x, float y, float z, float *rgb);
 t3_texture *tex_map_copy(int kind, float ru, float rv);
 void tex_free_all(void);
 bool tex_stale(void); /* the graphics preset changed since the maps were made */
@@ -177,6 +178,14 @@ extern uint32_t model_hash;
 
 /* world.c: the fortress below, the craft, the bullets */
 #define PLAY_Y 0.0f       /* the play plane's world height */
+/* the camera: over the play plane, tipped forward a little, framing the
+ * original's view (y -8.5 .. 8.5 of the field) on any aspect; it eases
+ * sideways after the ship by CAM_FOLLOW of the ship's x */
+#define CAM_FOV 36.0f
+#define CAM_H 25.5f
+#define CAM_Z 6.8f
+#define CAM_AT_Z 0.0f
+#define CAM_FOLLOW 0.12f
 #define GROUND_Y -14.0f   /* the fortress deck */
 void world_build(cw_node root, int variation);
 void world_free(void);
@@ -213,5 +222,6 @@ void probe_free(void);
 void probe_sync(float travel);
 void probe_set_every(int every);
 extern int probe_refreshes;
+extern int32_t probe_every;
 
 #endif

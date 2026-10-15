@@ -2,15 +2,15 @@
 
 [![CI](https://github.com/monteslu/cartwheel-examples/actions/workflows/ci.yml/badge.svg)](https://github.com/monteslu/cartwheel-examples/actions/workflows/ci.yml)
 
-Five complete games built with
+Six complete games built with
 [cartwheel-engine](https://github.com/monteslu/cartwheel-engine), a 2D and 3D
 game engine in C. Each game builds as a native executable and as a
 [wasmcart](https://github.com/wasmcart/wasmcart) cart (`.wasc`) that runs in
 a browser, in Node, in a native player and in RetroArch.
 
 Everything in the games is made by code in this repository (models,
-textures, levels, sound and music) except the fonts, which are SIL Open Font
-License fonts shipped with their licences. Each game's `CREDITS` file says
+textures, levels, sound and music) except the fonts, which ship with their
+licences (SIL Open Font License, and MIT for Chromite's Hack). Each game's `CREDITS` file says
 what is what.
 
 ## The games
@@ -41,6 +41,22 @@ eight themed arenas with their own twists (conveyor belts, ice, teleporters),
 Battle and Adventure modes. The rules are integer only, so every host plays
 the same game. `games/bomberdude/` (its
 [README](games/bomberdude/README.md) has the full controls).
+
+### Chromite
+
+
+![Chromite: the ship firing up the screen over a rusted chrome fortress](docs/screenshots/chromite.jpg)
+
+A vertical shooter after Chromium B.S.U. (2000): its rules, enemy
+behaviours and wave scripts re-implemented on a fixed tick, its craft, logo
+and instruments rebuilt in 3D. Fly a chrome cargo ship up over a scrolling
+fortress deck of worn, rusted plating; shields soak most of each hit, the
+hull takes the rest, and every enemy that gets past costs a ship. Three
+guns, power-ups for shields, repairs and ammunition, a self-destruct that
+sets off a super bomb, and two command craft at the end of the levels. The
+chrome reflects a live probe of the deck and the explosions (three.c's
+PMREMGenerator.fromScene, refreshed every other frame). Mouse, keyboard, pad
+or touch. `games/chromite/`
 
 ### derby
 

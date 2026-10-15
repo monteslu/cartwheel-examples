@@ -76,12 +76,12 @@ void hud3d_build(t3_object *parent) {
   H.glass->metalness = 0;
   H.glass->roughness = 0.04f;
   H.glass->transparent = true;
-  H.glass->opacity = 0.12f;
+  H.glass->opacity = 0.05f;
   H.glass->depth_write = false;
   H.glass->clearcoat = 1;
   H.glass->clearcoat_roughness = 0.02f;
   t3_material_set_texture(H.glass, T3_ENV_MAP, env_texture());
-  H.glass->env_map_intensity = 0.7f;
+  H.glass->env_map_intensity = 0.35f;
   H.cell_mat = t3_mesh_basic_material_new(0xffffff);
   H.cell_mat->blending = T3_ADDITIVE_BLENDING;
   H.cell_mat->transparent = true;
@@ -94,7 +94,7 @@ void hud3d_build(t3_object *parent) {
     int ns = 0;
     H.ships[i] = model_new(CK_HERO, H.root, H.ship_spin[i], &ns);
     for (int k = 0; k < ns; k++) H.ship_spin[i][k]->visible = false; /* no flames on the icons */
-    t3_object_set_scale(H.ships[i], 0.06f, 0.06f, 0.06f);
+    t3_object_set_scale(H.ships[i], 0.075f, 0.075f, 0.075f);
   }
   t3_object_add(parent, H.root);
   t3_release(H.root);
@@ -116,10 +116,10 @@ static void column_fill(column *c, float fill, float over, t3_color col, float f
   for (int i = 0; i < c->n; i++) {
     float k = 0.02f;
     if (i < lit) {
-      k = 0.45f + 0.5f * (float)i / c->n;
+      k = 0.5f + 0.5f * (float)i / c->n;
       if (i == lit - 1) k *= 0.7f + 0.3f * sinf(t * 24);
       float pd = fabsf((float)i / c->n - pulse);
-      if (pd < 0.07f) k += (0.07f - pd) * 25;
+      if (pd < 0.07f) k += (0.07f - pd) * 8;
       k += over * (0.8f + 0.4f * sinf(t * 9 + i));
     }
     k += flash * 2;
@@ -162,8 +162,8 @@ void hud3d_sync(const sim *S, float t, t3_vec3 eye, t3_vec3 at, float fov_deg, f
     t3_object_set_quaternion(H.col[i].root, q);
   }
   float sh = h->shields / HERO_SHIELDS;
-  column_fill(&H.col[0], sh > 1 ? 1 : sh, sh > 1 ? sh - 1 : 0, (t3_color){ 0.06f, 0.22f, 1.0f }, h->shield_flash, t);
-  column_fill(&H.col[1], (h->damage + HERO_HULL) / HERO_HULL, 0, (t3_color){ 1.1f, 0.08f, 0.03f }, h->damage_flash, t);
+  column_fill(&H.col[0], sh > 1 ? 1 : sh, sh > 1 ? sh - 1 : 0, (t3_color){ 0.03f, 0.2f, 1.1f }, h->shield_flash, t);
+  column_fill(&H.col[1], (h->damage + HERO_HULL) / HERO_HULL, 0, (t3_color){ 1.1f, 0.06f, 0.02f }, h->damage_flash, t);
   static const t3_color AC[GUNS] = { { 1.0f, 0.55f, 0.06f }, { 0.12f, 1.0f, 0.18f }, { 0.6f, 0.12f, 1.0f } };
   for (int g = 0; g < GUNS; g++) {
     column *c = &H.stock[g];

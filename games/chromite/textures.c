@@ -299,15 +299,22 @@ static void env_texel(float u, float v, float shift, float *c) {
      * light, so its flat faces flip between them as the craft bank */
     float k = clamp01((s - ridge) / (1 - ridge));
     float glow = cw_exp(-k * 7);
-    c[0] = 0.13f + 0.04f * (1 - k) + 0.25f * glow;
-    c[1] = 0.16f + 0.1f * (1 - k) + 0.9f * glow;
-    c[2] = 0.26f + 0.2f * (1 - k) + 1.5f * glow;
+    /* bright overcast overhead (the hulls' tops, which the camera sees, read
+     * silver against the dark deck), a darker band lower down (their flanks
+     * keep a hard dark line), the cyan glow at the ridge */
+    float over = sstep(0.75f, 1.2f, el);
+    c[0] = 0.08f + 0.5f * over + 0.25f * glow;
+    c[1] = 0.1f + 0.55f * over + 0.9f * glow;
+    c[2] = 0.17f + 0.68f * over + 1.5f * glow;
     /* two big panels overhead and a long one round the back */
     float az0 = cw_sin(az * 0.5f - 0.5f), az1 = cw_sin(az * 0.5f + 1.1f);
     float box0 = sstep(0.1f, 0.0f, fabsf(el - 1.3f) - 0.2f) * sstep(0.08f, 0.0f, fabsf(az0) - 0.26f);
     float box1 = sstep(0.1f, 0.0f, fabsf(el - 0.85f) - 0.1f) * sstep(0.08f, 0.0f, fabsf(az1) - 0.18f);
     float band = sstep(0.05f, 0.0f, fabsf(el - 0.42f) - 0.05f) * sstep(0.3f, 0.6f, cw_cos(az - 2.4f));
-    float light = 7 * box0 + 5 * box1 + 3.5f * band;
+    /* and a broad one straight overhead, over half the sky: the tops of the
+     * hulls, which the camera sees most, catch it as they bank */
+    float top = sstep(1.18f, 1.32f, el) * sstep(0.2f, 0.5f, cw_sin(az + 0.4f));
+    float light = 7 * box0 + 5 * box1 + 3.5f * band + 2.6f * top;
     c[0] += light * 0.95f, c[1] += light * 0.97f, c[2] += light;
     /* the thin strips */
     float strip1 = sstep(0.04f, 0.0f, fabsf(el - 1.45f)) * sstep(0.35f, 0.3f, fabsf(cw_sin(az * 0.5f - 2.2f)));
@@ -353,6 +360,13 @@ static t3_texture *env_make(float shift) {
   return ENV;
 }
 t3_texture *env_texture(void) { return ENV ? ENV : (ENV = env_make(0)); }
+/* the sky's linear radiance toward a direction (y up): what the map holds */
+void env_radiance(float x, float y, float z, float *rgb) {
+  float l = sqrtf(x * x + y * y + z * z);
+  x /= l, y /= l, z /= l;
+  float u = cw_atan2(z, x) / 6.2831853f + 0.5f, v = 0.5f - cw_asin(y) / 3.1415927f;
+  env_texel(u, v, 0, rgb);
+}
 /* the logo's: the horizon pulled up to 55 degrees, so letters that face the
  * camera (and reflect what is above them) carry the horizon's band across
  * their rounded fronts */

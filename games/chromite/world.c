@@ -29,7 +29,7 @@ enum { BK_HERO0, BK_HERO1, BK_HERO2, BK_HEAVY, BK_FLAK, BK_SLUG, BK_BEAM, BK_NEE
 static const int BOLT_CAP[BOLT_KINDS] = { 256, 32, 64, 256, 512, 64, 512, 256 };
 
 #define POOL_MAX 128
-typedef struct pool { t3_object *obj[POOL_MAX]; t3_object *spin[POOL_MAX][4]; int nspin[POOL_MAX]; int n, used; } pool;
+typedef struct pool { t3_object *obj[POOL_MAX]; t3_object *spin[POOL_MAX][4]; int nspin[POOL_MAX]; t3_material *glow[POOL_MAX]; int n, used; } pool;
 
 static struct {
   cw_node node;
@@ -47,6 +47,7 @@ static struct {
   t3_instanced_mesh *bolts[BOLT_KINDS];
   t3_object *pu[MAX_POWERUPS], *pu_ring[MAX_POWERUPS], *pu_core[MAX_POWERUPS];
   t3_material *pu_mat[PU_KINDS], *pu_core_mat[PU_KINDS];
+  t3_geometry *pu_geo[PU_KINDS];
   t3_sprite *pu_halo[MAX_POWERUPS];
   t3_material *halo_mat[PU_KINDS];
   t3_texture *halo_tex;
@@ -123,7 +124,7 @@ static void deck_materials(int variation) {
   const float *t = TINT[variation];
   W.deck_mat = t3_mesh_physical_material_new(0xffffff);
   tex_apply(W.deck_mat, MT_DECK, DECK_W / 12, SEG_L / 12);
-  W.deck_mat->color = (t3_color){ t[0] * 0.42f, t[1] * 0.42f, t[2] * 0.42f };
+  W.deck_mat->color = (t3_color){ t[0] * 0.34f, t[1] * 0.34f, t[2] * 0.34f };
   t3_material_set_texture(W.deck_mat, T3_ENV_MAP, env_texture());
   W.deck_mat->env_map_intensity = 0.1f;
   W.deck_mat->metalness = 0.45f;
@@ -145,12 +146,12 @@ static void deck_materials(int variation) {
     t3_material *m = t3_mesh_standard_material_new(0x000000);
     m->color = (t3_color){ 0.02f, 0.02f, 0.02f };
     m->emissive = lin(LAMP[variation][i][0], LAMP[variation][i][1], LAMP[variation][i][2]);
-    m->emissive_intensity = 2.5f;
+    m->emissive_intensity = 1.2f;
     m->roughness = 0.3f;
     m->metalness = 0;
     W.lamp_mat[i] = m;
     t3_material *h = t3_sprite_material_new(0xffffff);
-    h->color = (t3_color){ m->emissive.r * 2.4f, m->emissive.g * 2.4f, m->emissive.b * 2.4f };
+    h->color = (t3_color){ m->emissive.r * 0.9f, m->emissive.g * 0.9f, m->emissive.b * 0.9f };
     t3_material_set_map(h, W.halo_tex);
     h->blending = T3_ADDITIVE_BLENDING;
     h->depth_write = false;
@@ -183,11 +184,11 @@ static void hatch(t3_object *s, float x, float z, float r, int lamp) {
     t3_geometry_rotate_y(g, i * 1.0471976f + 0.3f);
     mesh(s, g, W.trim_mat, x, 0.7f, z, false, true);
   }
-  mesh(s, t3_sphere_geometry_new_ex(r * 0.11f, 20, 10, 0, 6.2831853f, 0, 1.5707963f), W.lamp_mat[lamp], x, 0.72f, z, false, false);
+  mesh(s, cyl(r * 0.11f, r * 0.11f, 0.04f, 24), W.lamp_mat[lamp], x, 0.72f, z, false, false);
   mesh(s, torus(r * 0.3f, 0.06f, 24, 8), W.steel_mat, x, 0.78f, z, false, true);
   t3_sprite *h = t3_sprite_new(W.lamp_halo[lamp]);
   t3_object_set_position(h, x, 1.4f, z);
-  t3_object_set_scale(h, r * 0.4f, r * 0.4f, r * 0.4f);
+  t3_object_set_scale(h, r * 0.28f, r * 0.28f, r * 0.28f);
   t3_object_add(s, h);
   t3_release(h);
 }
@@ -213,11 +214,12 @@ static void conduit(t3_object *s, float x, float r) {
 
 /* a lamp post: a short chrome column with a glowing cap */
 static void lamp(t3_object *s, float x, float z, int which) {
-  mesh(s, cyl(0.22f, 0.3f, 0.35f, 16), W.dark_mat, x, 0.17f, z, true, true);
-  mesh(s, t3_sphere_geometry_new_ex(0.13f, 16, 8, 0, 6.2831853f, 0, 1.5707963f), W.lamp_mat[which], x, 0.35f, z, false, false);
+  /* a flush lens in a shallow bezel, as the original's deck lights were */
+  mesh(s, cyl(0.26f, 0.3f, 0.08f, 20), W.dark_mat, x, 0.04f, z, false, true);
+  mesh(s, cyl(0.15f, 0.15f, 0.03f, 20), W.lamp_mat[which], x, 0.09f, z, false, false);
   t3_sprite *h = t3_sprite_new(W.lamp_halo[which]);
-  t3_object_set_position(h, x, 0.6f, z);
-  t3_object_set_scale(h, 1.3f, 1.3f, 1.3f);
+  t3_object_set_position(h, x, 0.3f, z);
+  t3_object_set_scale(h, 0.8f, 0.8f, 0.8f);
   t3_object_add(s, h);
   t3_release(h);
 }
@@ -248,7 +250,7 @@ static void greebles(t3_object *s, uint32_t seed) {
   t3_release(bg);
   t3_geometry *cg = cyl(0.5f, 0.5f, 1, 14);
   t3_geometry_translate(cg, 0, 0.5f, 0);
-  t3_instanced_mesh *ic = t3_instanced_mesh_new(cg, W.pipe_mat, NC);
+  t3_instanced_mesh *ic = t3_instanced_mesh_new(cg, W.trim_mat, NC);
   t3_release(cg);
   for (int i = 0; i < NB + NC; i++) {
     float side = hf(seed, 200 + i) < 0.5f ? -1 : 1;
@@ -324,11 +326,33 @@ static void build_deck(int variation) {
 
 /* ── craft, fire, power-ups ────────────────────────────────────────── */
 
+/* the craft whose red rings charge before they fire (the original's
+ * preFire glow) get rings of their own */
+static bool charges(int kind) { return kind == CK_STRAIGHT || kind == CK_RAYGUN || kind == CK_TANK || kind == CK_BOSS0 || kind == CK_BOSS1; }
+static void own_glow(t3_object *o, t3_material *g) {
+  for (int i = 0; i < o->child_count; i++) {
+    t3_object *c = o->children[i];
+    if (c->type == T3_MESH) {
+      t3_mesh *m = (t3_mesh *)c;
+      if (m->materials[0] == model_mat(M_RED_GLOW)) {
+        t3_retain(g);
+        t3_release(m->materials[0]);
+        m->materials[0] = g;
+      }
+    }
+    own_glow(c, g);
+  }
+}
+
 static t3_object *pool_get(int kind) {
   pool *p = &W.pools[kind];
   if (p->used == p->n) {
     if (p->n == POOL_MAX) return NULL;
     p->obj[p->n] = model_new(kind, W.play, p->spin[p->n], &p->nspin[p->n]);
+    if (charges(kind)) {
+      p->glow[p->n] = t3_material_clone(model_mat(M_RED_GLOW));
+      own_glow(p->obj[p->n], p->glow[p->n]);
+    }
     p->n++;
   }
   t3_object *o = p->obj[p->used++];
@@ -350,7 +374,7 @@ static void build_fire(void) {
    * green lance, the violet hammers; the enemies' red heavies, amber flak,
    * white slugs, red beam and pink needles */
   static const float C[BOLT_KINDS][4] = {
-    { 0.08f, 0.45f, 1, 2.2f }, { 0.1f, 1, 0.15f, 1.8f }, { 0.55f, 0.06f, 1, 2.2f }, { 1, 0.12f, 0.02f, 2.2f },
+    { 0.08f, 0.45f, 1, 2.2f }, { 0.06f, 1, 0.1f, 1.5f }, { 0.5f, 0.02f, 1, 1.7f }, { 1, 0.12f, 0.02f, 2.2f },
     { 1, 0.35f, 0.02f, 2 }, { 0.6f, 0.75f, 1, 2.4f }, { 1, 0.03f, 0.06f, 2.8f }, { 1, 0.12f, 0.6f, 2.2f },
   };
   for (int k = 0; k < BOLT_KINDS; k++) {
@@ -387,6 +411,12 @@ static void build_powerups(void) {
     h->depth_write = false;
     W.halo_mat[k] = h;
   }
+  /* a core shape per kind: shields a smooth orb, super shields a gem,
+   * repair a double pyramid, the stocks a faceted ball */
+  W.pu_geo[PU_SHIELDS] = t3_sphere_geometry_new(0.3f, 24, 16);
+  W.pu_geo[PU_SUPER] = t3_dodecahedron_geometry_new(0.34f, 0);
+  W.pu_geo[PU_REPAIR] = t3_octahedron_geometry_new(0.36f, 0);
+  for (int k = PU_AMMO0; k <= PU_AMMO2; k++) W.pu_geo[k] = t3_icosahedron_geometry_new(0.3f, 0);
   for (int i = 0; i < MAX_POWERUPS; i++) {
     W.pu[i] = t3_group_new();
     t3_geometry *rg = t3_torus_geometry_new(0.55f, 0.07f, 32, 8, 6.2831853f);
@@ -395,9 +425,7 @@ static void build_powerups(void) {
     t3_object_add(W.pu[i], r);
     t3_release(r);
     W.pu_ring[i] = T3_OBJ(r);
-    t3_geometry *cg = t3_icosahedron_geometry_new(0.3f, 0);
-    t3_mesh *c = t3_mesh_new(cg, W.pu_core_mat[0]);
-    t3_release(cg);
+    t3_mesh *c = t3_mesh_new(W.pu_geo[0], W.pu_core_mat[0]);
     T3_OBJ(c)->cast_shadow = true;
     t3_object_add(W.pu[i], c);
     t3_release(c);
@@ -422,7 +450,7 @@ static void build_hero(void) {
   W.shield_mat->transparent = true;
   W.shield_mat->depth_write = false;
   W.shield_mat->opacity = 0;
-  t3_geometry *sg = t3_icosahedron_geometry_new(1.3f, 3);
+  t3_geometry *sg = t3_icosahedron_geometry_new(0.95f, 3);
   W.shield = t3_mesh_new(sg, W.shield_mat);
   t3_release(sg);
   t3_object_add(W.hero, W.shield);
@@ -494,6 +522,9 @@ t3_texture *world_halo_texture(void) { return W.halo_tex; }
 
 void world_free(void) {
   probe_free();
+  for (int k = 0; k < CRAFT_KINDS; k++)
+    for (int i = 0; i < W.pools[k].n; i++)
+      if (W.pools[k].glow[i]) t3_release(W.pools[k].glow[i]);
   logo_free();
   hud3d_free();
   if (cw_node_valid(W.node)) cw_node_free(W.node);
@@ -504,6 +535,7 @@ void world_free(void) {
     if (W.pu_mat[k]) t3_release(W.pu_mat[k]);
     if (W.pu_core_mat[k]) t3_release(W.pu_core_mat[k]);
     if (W.halo_mat[k]) t3_release(W.halo_mat[k]);
+    if (W.pu_geo[k]) t3_release(W.pu_geo[k]);
   }
   if (W.halo_tex) t3_release(W.halo_tex);
   memset(&W, 0, sizeof W);
@@ -543,7 +575,7 @@ void world_sync(const sim *prev, const sim *cur, float a, float t, int state) {
     t3_object_set_position(W.seg[i], 0, 0, z);
   }
   /* lamps breathe, as the original's ground lights did */
-  for (int i = 0; i < 3; i++) W.lamp_mat[i]->emissive_intensity = 1.6f + 1.4f * (0.5f + 0.5f * sinf(t * (1.3f + i * 0.7f) + i * 2));
+  for (int i = 0; i < 3; i++) W.lamp_mat[i]->emissive_intensity = 0.9f + 0.4f * (0.5f + 0.5f * sinf(t * (1.3f + i * 0.7f) + i * 2));
 
   /* craft */
   for (int k = 0; k < CRAFT_KINDS; k++) {
@@ -568,8 +600,7 @@ void world_sync(const sim *prev, const sim *cur, float a, float t, int state) {
     float age = e->age / 50.0f;
     float bob = 0.15f * sinf(age * 2.1f + e->phase);
     t3_object_set_rotation(o, 0.12f + bob * 0.3f, 3.1415927f, bank);
-    float s = e->kind >= EK_BOSS0 ? 1.4f : 1.3f;
-    t3_object_set_scale(o, s, s, s);
+    if (p->glow[slot]) p->glow[slot]->emissive_intensity = 3 + 14 * cw_clampf(e->pre_fire, 0, 1) + 20 * cw_clampf(e->hit_flash, 0, 1);
     for (int k = 0; k < p->nspin[slot]; k++) t3_object_set_rotation(p->spin[slot][k], p->spin[slot][k]->rotation.x, age * (e->kind == EK_GNAT ? 9 : 3) + e->phase, p->spin[slot][k]->rotation.z);
   }
 
@@ -583,7 +614,6 @@ void world_sync(const sim *prev, const sim *cur, float a, float t, int state) {
     t3_object_set_position(W.hero, w.x, w.y, w.z);
     float vx = h->x - ph->x;
     t3_object_set_rotation(W.hero, 0.05f, 0, cw_clampf(-vx * 4, -0.5f, 0.5f));
-    t3_object_set_scale(W.hero, 1.3f, 1.3f, 1.3f);
     float super = h->shields > HERO_SHIELDS ? (h->shields - HERO_SHIELDS) / HERO_SHIELDS : 0;
     W.shield_mat->opacity = cw_clampf(h->shield_flash * 0.5f + super * (0.12f + 0.05f * sinf(t * 9)), 0, 1);
     T3_OBJ(W.shield)->visible = W.shield_mat->opacity > 0.01f;
@@ -604,8 +634,8 @@ void world_sync(const sim *prev, const sim *cur, float a, float t, int state) {
     if (!b->live) continue;
     float y = b->y - b->vy * K * (1 - a);
     if (b->gun == GUN_DEFAULT) set_bolt(W.bolts[BK_HERO0], &n[BK_HERO0], BOLT_CAP[BK_HERO0], b->x, y, 0.045f, 0.8f);
-    else if (b->gun == GUN_GREEN) set_bolt(W.bolts[BK_HERO1], &n[BK_HERO1], BOLT_CAP[BK_HERO1], b->x, y, 0.16f + 0.03f * sinf(t * 30 + i), 1.5f);
-    else set_bolt(W.bolts[BK_HERO2], &n[BK_HERO2], BOLT_CAP[BK_HERO2], b->x, y, 0.3f, 1.2f);
+    else if (b->gun == GUN_GREEN) set_bolt(W.bolts[BK_HERO1], &n[BK_HERO1], BOLT_CAP[BK_HERO1], b->x, y, 0.07f + 0.015f * sinf(t * 30 + i), 1.6f);
+    else set_bolt(W.bolts[BK_HERO2], &n[BK_HERO2], BOLT_CAP[BK_HERO2], b->x, y, 0.16f, 0.85f);
   }
   static const float ES[EA_KINDS][2] = { { 0.16f, 0.5f }, { 0.14f, 0.14f }, { 0.3f, 0.3f }, { 0.14f, 0.5f }, { 0.06f, 0.42f } };
   for (int i = 0; i < MAX_EBULLETS; i++) {
@@ -634,6 +664,9 @@ void world_sync(const sim *prev, const sim *cur, float a, float t, int state) {
     if (ring->materials[0] != W.pu_mat[p->kind]) {
       swap_mat(ring, W.pu_mat[p->kind]);
       swap_mat(core, W.pu_core_mat[p->kind]);
+      t3_retain(W.pu_geo[p->kind]);
+      t3_release(core->geometry);
+      core->geometry = W.pu_geo[p->kind];
       swap_mat(&W.pu_halo[i]->mesh, W.halo_mat[p->kind]);
     }
     t3_object_set_rotation(W.pu_ring[i], 1.2f + 0.3f * sinf(age * 2), age * 2.5f, 0);
@@ -659,18 +692,18 @@ void world_sync(const sim *prev, const sim *cur, float a, float t, int state) {
 /* the camera: high over the play plane, tipped forward a little so the
  * craft show their flanks and the deck below runs away in depth */
 void world_camera(cw_node cam, const sim *S, float t, int state) {
-  float target = state == 0 ? 0 : S->h.x * 0.12f;
+  float target = state == 0 ? 0 : S->h.x * CAM_FOLLOW;
   W.cam_x += (target - W.cam_x) * 0.05f;
   float zoom = S->mode == PLAY_DEAD ? (50 - S->hero_death) / 50 : 0;
   if (zoom < 0) zoom = 0;
   if (zoom > 1) zoom = 1;
   zoom = zoom * zoom;
-  t3_vec3 eye = { W.cam_x, 31 - 8 * zoom, 7.5f };
-  t3_vec3 at = { W.cam_x * 0.5f, 0, -0.8f };
+  t3_vec3 eye = { W.cam_x, CAM_H - 6 * zoom, CAM_Z };
+  t3_vec3 at = { W.cam_x * 0.5f, 0, CAM_AT_Z };
   cw_node3d_set_position(cam, eye);
   cw_node3d_look_at(cam, at, (t3_vec3){ 0, 1, 0 });
   logo_sync(state == 0, t, eye, at, W.bomb_light);
   int ww, wh;
   cw_window_size(&ww, &wh);
-  hud3d_sync(S, t, eye, at, 36, wh > 0 ? (float)ww / (float)wh : 16.0f / 9, state != 0);
+  hud3d_sync(S, t, eye, at, CAM_FOV, wh > 0 ? (float)ww / (float)wh : 16.0f / 9, state != 0);
 }

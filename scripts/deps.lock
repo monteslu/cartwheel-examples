@@ -1,7 +1,8 @@
 # Pinned dependencies. scripts/fetch-deps.sh reads this file.
 # name             source                                               revision
 # cartwheel-engine: its source at the commit of the engine release below (its test tools: tests/gate.mjs).
-cartwheel-engine   https://github.com/monteslu/cartwheel-engine.git    3691b90f25b00250ea5f7a1245d0424e6e8b1f66
+# Chromite needs three.c's PMREM fromScene options, not yet in an SDK release: build it from this engine source (CARTWHEEL_ENGINE_SOURCE=1, the local chromite-three-pmrem branch).
+cartwheel-engine   https://github.com/monteslu/cartwheel-engine.git    1be917945b4c35b160ce22b58692ace9fb3e1d6c
 # The prebuilt engine SDKs of that release (cartwheel-engine docs/sdk.md), one per target, sha256 checked.
 cartwheel-sdk:linux-x64 https://github.com/monteslu/cartwheel-engine/releases/download/v0.7.0/cartwheel-sdk-0.7.0-linux-x64.tar.gz v0.7.0 d76fa8db43829f790a2a965cdf70f174bebe02467662bcb9e6d51a0afa7540e5
 cartwheel-sdk:linux-arm64 https://github.com/monteslu/cartwheel-engine/releases/download/v0.7.0/cartwheel-sdk-0.7.0-linux-arm64.tar.gz v0.7.0 aff403134b8dd71633e8468009de0f401d44d91e52c6b750598bb59925552193

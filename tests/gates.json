@@ -4639,5 +4639,225 @@
     },
     "controlInput": "spout-peck-dodge.json",
     "note": "Spout: the climb is a fixed-step sim on cartwheel/math.h, so every host keeps the same named state; frames compare at 5% over 16 levels (thin paper edges and rain streaks rasterize a pixel apart). The paper bird comes at tick 1500, marks a spot near the spider and pecks it 75 ticks later: standing still is pecked down 2 m; the control steps aside while the mark shows and is not."
+  },
+  {
+    "name": "chromite-title",
+    "app": "chromite",
+    "frames": 150,
+    "maxGt16": 0.05,
+    "fields": [
+      "game.state",
+      "ticks",
+      "input.mode",
+      "level",
+      "score",
+      "lives",
+      "kills",
+      "losses",
+      "enemies",
+      "ebullets",
+      "hero.shields",
+      "hero.damage",
+      "hero.pos",
+      "hero.armed",
+      "over.rank",
+      "menu.cursor",
+      "save.skill",
+      "state.hash",
+      "tex.hash"
+    ],
+    "expect": {
+      "game.state": 0,
+      "menu.cursor": 0,
+      "save.skill": 2
+    },
+    "controlInput": "chromite-start.json",
+    "webgpu": {
+      "vsGl": 0.25,
+      "maxGt16": 0.05,
+      "hosts": [
+        "native",
+        "romdev",
+        "chromium"
+      ],
+      "note": "The title on WebGPU: the 3D chrome wordmark over its arcs, the deck scrolling."
+    },
+    "note": "Chromite: the original's rules on a fixed 60 Hz tick (sim.c on cartwheel/math.h and cw_rng), so every host keeps the same named state; frames compare at 5% over 16 levels (thin bolts and sparks rasterize a pixel apart). The title: the chrome wordmark, the menu on NEW GAME, skill normal. The control starts a game."
+  },
+  {
+    "name": "chromite-menu",
+    "app": "chromite",
+    "frames": 120,
+    "input": "chromite-menu.json",
+    "maxGt16": 0.05,
+    "fields": [
+      "game.state",
+      "ticks",
+      "input.mode",
+      "level",
+      "score",
+      "lives",
+      "kills",
+      "losses",
+      "enemies",
+      "ebullets",
+      "hero.shields",
+      "hero.damage",
+      "hero.pos",
+      "hero.armed",
+      "over.rank",
+      "menu.cursor",
+      "save.skill",
+      "state.hash",
+      "tex.hash"
+    ],
+    "expect": {
+      "game.state": 0,
+      "menu.cursor": 1,
+      "save.skill": 3
+    },
+    "controlInput": "chromite-start.json",
+    "webgpu": {
+      "vsGl": 0.25,
+      "maxGt16": 0.05,
+      "hosts": [
+        "native",
+        "romdev",
+        "chromium"
+      ],
+      "note": "The menu on WebGPU."
+    },
+    "note": "Chromite: the original's rules on a fixed 60 Hz tick (sim.c on cartwheel/math.h and cw_rng), so every host keeps the same named state; frames compare at 5% over 16 levels (thin bolts and sparks rasterize a pixel apart). Down to SKILL, right: normal becomes experienced (kept in the save). The control starts a game instead."
+  },
+  {
+    "name": "chromite-fight",
+    "app": "chromite",
+    "frames": 900,
+    "input": "chromite-fight.json",
+    "maxGt16": 0.05,
+    "fields": [
+      "game.state",
+      "ticks",
+      "input.mode",
+      "level",
+      "score",
+      "lives",
+      "kills",
+      "losses",
+      "enemies",
+      "ebullets",
+      "hero.shields",
+      "hero.damage",
+      "hero.pos",
+      "hero.armed",
+      "over.rank",
+      "menu.cursor",
+      "save.skill",
+      "state.hash",
+      "tex.hash"
+    ],
+    "expect": {
+      "game.state": 1,
+      "level": 1
+    },
+    "controlInput": "chromite-start.json",
+    "webgpu": {
+      "vsGl": 0.25,
+      "maxGt16": 0.05,
+      "hosts": [
+        "native",
+        "romdev",
+        "chromium"
+      ],
+      "note": "A fight on WebGPU: bolts, fireballs, the probe in the chrome."
+    },
+    "note": "Chromite: the original's rules on a fixed 60 Hz tick (sim.c on cartwheel/math.h and cw_rng), so every host keeps the same named state; frames compare at 5% over 16 levels (thin bolts and sparks rasterize a pixel apart). NEW GAME with (A), then (A) held to fire while weaving: the first waves die to the default gun. The control starts the game and never fires (no kills)."
+  },
+  {
+    "name": "chromite-destruct",
+    "app": "chromite",
+    "frames": 300,
+    "input": "chromite-destruct.json",
+    "maxGt16": 0.05,
+    "fields": [
+      "game.state",
+      "ticks",
+      "input.mode",
+      "level",
+      "score",
+      "lives",
+      "kills",
+      "losses",
+      "enemies",
+      "ebullets",
+      "hero.shields",
+      "hero.damage",
+      "hero.pos",
+      "hero.armed",
+      "over.rank",
+      "menu.cursor",
+      "save.skill",
+      "state.hash",
+      "tex.hash"
+    ],
+    "expect": {
+      "game.state": 1,
+      "lives": 3,
+      "hero.armed": 0
+    },
+    "controlInput": "chromite-destruct-once.json",
+    "webgpu": {
+      "vsGl": 0.25,
+      "maxGt16": 0.05,
+      "hosts": [
+        "native",
+        "romdev",
+        "chromium"
+      ],
+      "note": "The self-destruct and its super bomb on WebGPU."
+    },
+    "note": "Chromite: the original's rules on a fixed 60 Hz tick (sim.c on cartwheel/math.h and cw_rng), so every host keeps the same named state; frames compare at 5% over 16 levels (thin bolts and sparks rasterize a pixel apart). The self-destruct: (B) arms it, (B) again inside a second fires it: a ship is spent and the super bomb rings out. The control presses (B) once (armed, no ship lost)."
+  },
+  {
+    "name": "chromite-auto",
+    "app": "chromite_auto",
+    "frames": 2400,
+    "maxGt16": 0.05,
+    "fields": [
+      "game.state",
+      "ticks",
+      "input.mode",
+      "level",
+      "score",
+      "lives",
+      "kills",
+      "losses",
+      "enemies",
+      "ebullets",
+      "hero.shields",
+      "hero.damage",
+      "hero.pos",
+      "hero.armed",
+      "over.rank",
+      "menu.cursor",
+      "save.skill",
+      "state.hash",
+      "tex.hash"
+    ],
+    "expect": {
+      "game.state": 1,
+      "level": 1
+    },
+    "webgpu": {
+      "vsGl": 0.25,
+      "maxGt16": 0.05,
+      "hosts": [
+        "native",
+        "romdev",
+        "chromium"
+      ],
+      "note": "The autopilot on WebGPU."
+    },
+    "note": "Chromite: the original's rules on a fixed 60 Hz tick (sim.c on cartwheel/math.h and cw_rng), so every host keeps the same named state; frames compare at 5% over 16 levels (thin bolts and sparks rasterize a pixel apart). chromite_auto flies itself through the first waves of level 1. The control is one frame early."
   }
 ]

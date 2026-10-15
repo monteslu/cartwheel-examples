@@ -61,7 +61,18 @@ static void mats_init(void) {
   MAT[M_LILAC]->metalness = 0.72f; /* silver paint over metal: it takes the key light too */
   MAT[M_LILAC]->roughness = 1.6f;   /* (x the map: about 0.2) */
   MAT[M_RUST] = metal(MT_RUST, 1, 1, (t3_color){ 1, 1, 1 });
-  MAT[M_RUST_DARK] = metal(MT_RUST, 2, 2, lin(0.62f, 0.6f, 0.6f));
+  MAT[M_RUST_DARK] = metal(MT_RUST, 2, 2, lin(0.7f, 0.68f, 0.68f));
+  /* the craft must read against the deck: they mirror their surroundings
+   * brighter than the deck does, and catch a cold rim at their silhouettes
+   * (r186's sheen: a grazing-angle lobe) */
+  static const int CRAFT_MATS[] = { M_CHROME, M_LILAC, M_RUST, M_RUST_DARK };
+  for (size_t i = 0; i < sizeof CRAFT_MATS / sizeof CRAFT_MATS[0]; i++) {
+    t3_material *m = MAT[CRAFT_MATS[i]];
+    m->env_map_intensity = CRAFT_MATS[i] == M_RUST || CRAFT_MATS[i] == M_RUST_DARK ? 2.3f : 1.6f;
+    m->sheen = 1;
+    m->sheen_roughness = 0.35f;
+    m->sheen_color = lin(0.55f, 0.62f, 0.75f);
+  }
   /* the hero's spine: deep blue lacquer over metal, clear coated */
   t3_material *b = t3_mesh_physical_material_new(0xffffff);
   b->color = lin(0.06f, 0.12f, 0.85f);
@@ -211,7 +222,7 @@ static t3_mesh *part(t3_object *parent, t3_geometry *g, int mat, float x, float 
 /* every kind's parts, built once; a craft is a group of meshes on them */
 typedef struct piece { t3_geometry *g; int mat; float x, y, z, rx, ry, rz, sx, sy, sz; int spin; } piece;
 #define MAX_PIECES 40
-typedef struct kind_def { piece p[MAX_PIECES]; int n; float radius; } kind_def;
+typedef struct kind_def { piece p[MAX_PIECES]; int n; float radius; float fit, cx, cz; } kind_def;
 static kind_def KINDS[CRAFT_KINDS];
 
 static piece *add(kind_def *k, t3_geometry *g, int mat, float x, float y, float z) {
@@ -371,6 +382,8 @@ static void build_boss(kind_def *k, bool second) {
   k->radius = W;
 }
 
+static void fit(kind_def *k, float hw, float hh);
+
 void models_init(void) {
   mats_init();
   if (KINDS[CK_HERO].n) return;
@@ -382,19 +395,60 @@ void models_init(void) {
   build_gnat(&KINDS[CK_GNAT]);
   build_boss(&KINDS[CK_BOSS0], false);
   build_boss(&KINDS[CK_BOSS1], true);
+  fit(&KINDS[CK_HERO], 0.7f, 0.85f);
+  for (int k = CK_STRAIGHT; k < CRAFT_KINDS; k++) fit(&KINDS[k], enemy_half_w(k - CK_STRAIGHT), enemy_half_h(k - CK_STRAIGHT));
 }
 
 float model_radius(int kind) { return KINDS[kind].radius; }
+
+/* every craft is drawn at the size the original drew its sprite: the quad
+ * over the craft's half extents (the hero 0.7 x 0.85, a straight 0.75 x
+ * 1.02, a boss 3.5 x 2.275, ...), which is also its hit box. The model's
+ * own footprint (its parts' vertices, as placed) is measured once and
+ * scaled to fill that box, centred on it, so the proportions between craft
+ * are the original's. */
+static void fit(kind_def *k, float hw, float hh) {
+  float x0 = 1e9f, x1 = -1e9f, z0 = 1e9f, z1 = -1e9f;
+  for (int i = 0; i < k->n; i++) {
+    const piece *p = &k->p[i];
+    if (p->mat == M_FLAME) continue; /* the hull, not its exhaust */
+    t3_mat4 m;
+    t3_euler e = { p->rx, p->ry, p->rz, T3_XYZ };
+    t3_mat4_compose(&m, (t3_vec3){ p->x, p->y, p->z }, t3_quat_from_euler(e), (t3_vec3){ p->sx, p->sy, p->sz });
+    const t3_attribute *a = p->g->attributes[T3_ATTR_POSITION];
+    const float *v = a->array;
+    for (int j = 0; j < a->count; j++) {
+      float x = v[j * 3], y = v[j * 3 + 1], z = v[j * 3 + 2];
+      float wx = m.e[0] * x + m.e[4] * y + m.e[8] * z + m.e[12], wz = m.e[2] * x + m.e[6] * y + m.e[10] * z + m.e[14];
+      if (wx < x0) x0 = wx;
+      if (wx > x1) x1 = wx;
+      if (wz < z0) z0 = wz;
+      if (wz > z1) z1 = wz;
+    }
+  }
+  const float FILL = 0.94f; /* the sprites' art filled nearly all of their quads */
+  float sx = 2 * hw * FILL / (x1 - x0), sz = 2 * hh * FILL / (z1 - z0);
+  k->fit = sx < sz ? sx : sz;
+  k->cx = (x0 + x1) * 0.5f, k->cz = (z0 + z1) * 0.5f;
+  k->radius *= k->fit;
+}
 
 /* a new craft of `kind` under parent; spinners (discs, rings) are listed
  * in spin[] so the caller can turn them */
 t3_object *model_new(int kind, t3_object *parent, t3_object **spin, int *n_spin) {
   const kind_def *k = &KINDS[kind];
   t3_object *g = t3_group_new();
+  /* the parts hang in an inner group that carries the fit, so the caller is
+   * free to scale the craft itself (the HUD's spare ships) */
+  t3_object *in = t3_group_new();
+  t3_object_set_scale(in, k->fit, k->fit, k->fit);
+  t3_object_set_position(in, -k->cx * k->fit, 0, -k->cz * k->fit);
+  t3_object_add(g, in);
+  t3_release(in);
   if (n_spin) *n_spin = 0;
   for (int i = 0; i < k->n; i++) {
     const piece *p = &k->p[i];
-    t3_mesh *m = part(g, t3_retain(p->g), p->mat, p->x, p->y, p->z);
+    t3_mesh *m = part(in, t3_retain(p->g), p->mat, p->x, p->y, p->z);
     t3_object_set_rotation(m, p->rx, p->ry, p->rz);
     t3_object_set_scale(m, p->sx, p->sy, p->sz);
     if (p->spin && spin && n_spin && *n_spin < 4) spin[(*n_spin)++] = T3_OBJ(m);

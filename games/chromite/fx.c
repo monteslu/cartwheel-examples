@@ -20,7 +20,7 @@
 #define QUEUE 160
 
 enum { BOOM_S, BOOM_M, BOOM_L, SPARK, DEBRIS, SMOKE, RING_FX, SHIELD, HULL, PICK, FLASH, MUZZLE, KINDS_FX };
-static const int POOL_FX[KINDS_FX] = { 8, 6, 4, 10, 6, 8, 4, 4, 4, 3, 8, 6 };
+static const int POOL_FX[KINDS_FX] = { 5, 4, 3, 6, 4, 5, 4, 2, 2, 2, 5, 3 };
 
 typedef struct queued { int delay, kind; float x, y, size; } queued;
 
@@ -313,7 +313,7 @@ void fx_hero(const sim *S) {
   if (!FX.ready) return;
   bool on = sim_hero_visible(S);
   for (int i = 0; i < 2; i++) {
-    t3_vec3 p = to_world(S->h.x + (i ? 0.21f : -0.21f), S->h.y - 1.25f);
+    t3_vec3 p = to_world(S->h.x + (i ? 0.1f : -0.1f), S->h.y - 0.72f);
     p.y -= 0.05f;
     cw_node3d_set_position(FX.exhaust[i], p);
     cw_node_set(FX.exhaust[i], "emitting", cw_val_bool(on));

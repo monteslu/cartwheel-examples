@@ -13,6 +13,7 @@
  *
  * Cost per refresh: six 128 x 128 renders of four or five draws, and the
  * GGX filter's small passes. GL and WebGPU alike. Render-only. */
+#include <stdlib.h>
 #include <string.h>
 
 #include "cartwheel/pipeline.h"
@@ -27,7 +28,7 @@ static struct {
   bool ready;
   t3_scene *scene;
   t3_mesh *deck;
-  t3_material *deck_mat, *glow_mat[GLOWS];
+  t3_material *deck_mat, *glow_mat[GLOWS], *sky_mat;
   t3_texture *deck_map;
   t3_sprite *glow[GLOWS];
   t3_pmrem_generator *pmrem;
@@ -38,11 +39,17 @@ static struct {
 } P;
 
 int probe_refreshes; /* (debug field) */
+int32_t probe_every = 2; /* (debug field) refresh every n frames; 0 = off (the fixed environment) */
 
+static void restore_env(void);
 static void probe_exec(cw_pass_ctx *ctx, void *user) {
   (void)user;
-  if (!P.ready || !ctx->renderer || P.every <= 0) return;
-  if (P.rt && (P.frames++ % (uint64_t)P.every) != 0) return;
+  if (!P.ready || !ctx->renderer) return;
+  if (probe_every <= 0) {
+    if (P.rt) restore_env(), t3_release(P.rt), P.rt = NULL;
+    return;
+  }
+  if (P.rt && (P.frames++ % (uint64_t)probe_every) != 0) return;
   t3_renderer *r = ctx->renderer;
   bool wgpu = cw_gpu_backend() == CW_GPU_WEBGPU;
   /* three.c renders the probe on command buffers of its own (WebGPU) or
@@ -68,6 +75,12 @@ static void probe_exec(cw_pass_ctx *ctx, void *user) {
   probe_refreshes = P.refreshes;
 }
 
+static void restore_env(void) {
+  static const int MATS[] = { M_CHROME, M_LILAC, M_RUST, M_RUST_DARK, M_BLUE, M_TEAL, M_BLACK };
+  for (size_t i = 0; i < sizeof MATS / sizeof MATS[0]; i++)
+    if (model_mat(MATS[i])) t3_material_set_texture(model_mat(MATS[i]), T3_ENV_MAP, env_texture());
+}
+
 void probe_init(cw_tree *tree) {
   cw_pipeline *pl = cw_pipeline_of(tree);
   if (!cw_pipeline_has_pass(pl, "chromite_probe"))
@@ -79,7 +92,33 @@ void probe_init(cw_tree *tree) {
 void probe_build(void) {
   probe_free();
   P.scene = t3_scene_new();
-  t3_scene_set_background_texture(P.scene, env_texture());
+  /* the sky: a dome carrying the horizon map, seen from inside. (A scene
+   * background texture would need background programs this app's tables do
+   * not carry; a cart skips any draw its tables lack, which left the probe
+   * black overhead. The dome draws with two plain states that are in them.) */
+  P.sky_mat = t3_mesh_basic_material_new(0xffffff);
+  P.sky_mat->vertex_colors = true;
+  P.sky_mat->side = T3_BACK_SIDE;
+  P.sky_mat->depth_write = false;
+  t3_geometry *sg = t3_sphere_geometry_new(150, 96, 48);
+  {
+    /* the sky's radiance at every vertex (HDR colours: the softboxes and
+     * strips run well above 1), so the dome needs no texture */
+    const t3_attribute *pa = sg->attributes[T3_ATTR_POSITION];
+    const float *pv = pa->array;
+    float *col = malloc(sizeof(float) * 3 * (size_t)pa->count);
+    for (int i = 0; i < pa->count; i++) env_radiance(pv[i * 3], pv[i * 3 + 1], pv[i * 3 + 2], col + i * 3);
+    t3_attribute *ca = t3_attribute_new(T3_FLOAT32, col, pa->count, 3);
+    free(col);
+    t3_geometry_set_attribute(sg, T3_ATTR_COLOR, ca);
+    t3_release(ca);
+  }
+  t3_mesh *sky = t3_mesh_new(sg, P.sky_mat);
+  t3_release(sg);
+  t3_object_set_position(sky, 0, PLAY_Y, 0);
+  T3_OBJ(sky)->frustum_culled = false;
+  t3_object_add(&P.scene->base, sky);
+  t3_release(sky);
   /* the deck plate: its own copy of the plating's colour map (the offset
    * scrolls it), unlit and dim */
   P.deck_map = tex_map_copy(MT_DECK, 160 / DECK_TILE, 160 / DECK_TILE);
@@ -117,6 +156,7 @@ void probe_free(void) {
   }
   if (P.scene) t3_release(P.scene);
   if (P.deck_mat) t3_release(P.deck_mat);
+  if (P.sky_mat) t3_release(P.sky_mat);
   if (P.deck_map) t3_release(P.deck_map);
   for (int i = 0; i < GLOWS; i++)
     if (P.glow_mat[i]) t3_release(P.glow_mat[i]);
@@ -146,4 +186,4 @@ void probe_sync(float travel) {
   }
 }
 
-void probe_set_every(int every) { P.every = every; }
+void probe_set_every(int every) { probe_every = every; }

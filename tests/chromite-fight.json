@@ -1,0 +1,7 @@
+[{"frame":30,"buttons":["south"]},{"frame":34,"axes":{}},
+ {"frame":60,"buttons":["south"],"axes":{"lx":-0.6}},
+ {"frame":160,"buttons":["south"],"axes":{"lx":0.6}},
+ {"frame":330,"buttons":["south"],"axes":{"lx":-0.6,"ly":-0.4}},
+ {"frame":470,"buttons":["south"],"axes":{"lx":0.5}},
+ {"frame":620,"buttons":["south"],"axes":{"lx":-0.4}},
+ {"frame":760,"buttons":["south"],"axes":{}}]

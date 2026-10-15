@@ -92,6 +92,12 @@ static struct {
 } G;
 
 static int32_t input_mode;
+/* development jumps, written over the debug channel (romdev: wasm write):
+ * cheat.level starts that level; cheat.boss jumps the level's clock to just
+ * before its boss. Each clears itself once done. */
+static int32_t cheat_level, cheat_boss;
+static int32_t dbg_skill, dbg_hi0, dbg_armed;
+static uint32_t dbg_mouse;
 static bool device_used;
 enum { DEV_MOUSE, DEV_PAD, DEV_KEYS, DEV_TOUCH };
 static int last_device = DEV_KEYS;
@@ -145,13 +151,18 @@ static void touch_layout(void) {
 }
 
 static uint32_t prev_mouse;
-static bool mouse_clicked;
+static bool mouse_clicked, mouse_right_clicked;
 static void read_devices(void) {
   const cw_raw_input *in = cw_input_raw();
   int before = last_device;
   mouse_clicked = (in->mouse_buttons & 1) && !(prev_mouse & 1);
+  mouse_right_clicked = (in->mouse_buttons & 2) && !(prev_mouse & 2);
+  static float pmx = -1, pmy = -1;
+  if (pmx >= 0 && !in->mouse_from_touch && (fabsf(in->mouse_x - pmx) > 3 || fabsf(in->mouse_y - pmy) > 3)) last_device = DEV_MOUSE;
+  pmx = in->mouse_x, pmy = in->mouse_y;
   if (mouse_clicked) last_device = in->mouse_from_touch ? DEV_TOUCH : DEV_MOUSE;
   prev_mouse = in->mouse_buttons;
+  dbg_mouse = in->mouse_buttons;
   for (int i = 0; i < CW_MAX_TOUCHES; i++)
     if (in->touches[i].active) last_device = DEV_TOUCH;
   for (int i = 0; i < CW_MAX_PADS; i++) {
@@ -345,15 +356,25 @@ static void init(void *u) {
   cw_debug_f32("hero.damage", &G.damage);
   cw_debug_f32_array("hero.pos", G.hero_pos, 2);
   cw_debug_i32("over.rank", &G.rank);
+  cw_debug_i32("cheat.level", &cheat_level);
+  cw_debug_i32("menu.cursor", &G.cursor);
+  cw_debug_u32("input.mouse", &dbg_mouse);
+  cw_debug_i32("save.skill", &dbg_skill);
+  cw_debug_i32("save.hi0", &dbg_hi0);
+  cw_debug_i32("hero.armed", &dbg_armed);
+  cw_debug_i32("cheat.boss", &cheat_boss);
   cw_debug_i32("over.score", &G.final_score);
   cw_debug_u32("state.hash", &G.state_hash);
   cw_debug_u32("tex.hash", &tex_hash);
+  /* (render-only: three.c's geometry generators use the host's sin / cos, so
+   * these differ by ulps between native and carts; the gates leave them out) */
   cw_debug_u32("model.hash", &model_hash);
   cw_debug_u32("world.hash", &world_hash);
   cw_debug_i32("fx.lights", &fx_lights_live);
   cw_tree_add_hook(cw_scene_app_tree(), 2, 0, sync_hook, NULL);
   probe_init(cw_scene_app_tree());
   cw_debug_i32("probe.refreshes", &probe_refreshes);
+  cw_debug_i32("probe.every", &probe_every);
   G.variation = -1;
   load_world(0);
   sim_new_game(&G.S, 1, SKILL_BASE[SAVE.skill], 0xc4801eu);
@@ -371,6 +392,34 @@ static void init(void *u) {
 }
 
 static bool pressed(cw_action a) { return cw_action_just_pressed(0, a); }
+
+/* the mouse flies the ship, as in the original: the cursor's point on the
+ * play plane (a ray from the camera, which world_camera aims from where the
+ * ship is) is where the ship heads, at its own top speed; the left button
+ * fires. Only the input it makes reaches the simulation. */
+static bool mouse_target(float *tx, float *ty) {
+  const cw_raw_input *in = cw_input_raw();
+  int w, h;
+  cw_window_size(&w, &h);
+  if (w <= 0 || h <= 0) return false;
+  float cx = G.S.h.x * CAM_FOLLOW;
+  t3_vec3 eye = { cx, CAM_H, CAM_Z }, at = { cx * 0.5f, 0, CAM_AT_Z };
+  t3_vec3 f = { at.x - eye.x, at.y - eye.y, at.z - eye.z };
+  float fl = sqrtf(f.x * f.x + f.y * f.y + f.z * f.z);
+  f.x /= fl, f.y /= fl, f.z /= fl;
+  t3_vec3 r = { -f.z, 0, f.x }; /* f x (0, 1, 0) */
+  float rl = sqrtf(r.x * r.x + r.z * r.z);
+  r.x /= rl, r.z /= rl;
+  t3_vec3 u = { r.y * f.z - r.z * f.y, r.z * f.x - r.x * f.z, r.x * f.y - r.y * f.x };
+  float th = tanf(CAM_FOV * 0.5f * 3.1415927f / 180), aspect = (float)w / (float)h;
+  float nx = 2 * in->mouse_x / w - 1, ny = 1 - 2 * in->mouse_y / h;
+  t3_vec3 d = { f.x + r.x * nx * th * aspect + u.x * ny * th, f.y + r.y * nx * th * aspect + u.y * ny * th,
+                f.z + r.z * nx * th * aspect + u.z * ny * th };
+  if (d.y > -1e-4f) return false;
+  float t = (PLAY_Y - eye.y) / d.y;
+  *tx = eye.x + d.x * t, *ty = -(eye.z + d.z * t);
+  return true;
+}
 
 static void record_score(void) {
   int s = SAVE.skill;
@@ -401,7 +450,27 @@ static void title_input(void) {
     if (G.cursor == 3 && tex_stale()) load_world(G.variation);
     if (G.cursor) sfx(SFX_SELECT, 0.5f), save_write();
   }
-  bool go = pressed(G.a_start) || pressed(G.a_fire) || (mouse_clicked && input_mode == DEV_TOUCH);
+  /* the pointer: hovering a line chooses it, a click on it acts (on skill
+   * and level, a click steps the value) */
+  bool click = false;
+  if (input_mode == DEV_MOUSE || input_mode == DEV_TOUCH) {
+    cw_vec2 cs = cw_r2d_canvas_size(), m = cw_r2d_window_to_canvas(cw_v2(cw_input_raw()->mouse_x, cw_input_raw()->mouse_y));
+    float sc = cs.y / 540.0f, y0 = cs.y * 0.55f, x0 = cs.x * 0.36f;
+    for (int i = 0; i < 4; i++)
+      if (m.x > x0 - 30 * sc && m.x < x0 + cs.x * 0.3f && m.y > y0 + i * 34 * sc - 4 * sc && m.y < y0 + i * 34 * sc + 26 * sc) {
+        if (G.cursor != i && input_mode == DEV_MOUSE) G.cursor = i, sfx(SFX_SELECT, 0.3f);
+        if (mouse_clicked) G.cursor = i, click = true;
+      }
+    if (click && (G.cursor == 1 || G.cursor == 2)) {
+      int max_level = SAVE.best_level < MAX_START_LEVEL ? SAVE.best_level : MAX_START_LEVEL;
+      if (G.cursor == 1) SAVE.skill = (uint8_t)((SAVE.skill + 1) % SKILLS);
+      else SAVE.start_level = (uint8_t)(1 + SAVE.start_level % max_level);
+      save_write();
+      sfx(SFX_SELECT, 0.5f);
+      click = false;
+    }
+  }
+  bool go = pressed(G.a_start) || pressed(G.a_fire) || click || (mouse_clicked && input_mode == DEV_TOUCH && G.cursor == 0);
   if (G.state_ticks > 20 && go) {
     if (G.cursor == 3) {
       cw_quality_cycle();
@@ -428,6 +497,16 @@ static void fixed(void *u, double dt) {
   touch_layout();
   for (int i = 0; i < SFX_COUNT; i++)
     if (A.cooldown[i] > 0) A.cooldown[i]--;
+  if (cheat_level > 0) new_game(cheat_level), cheat_level = 0;
+  if (cheat_boss && G.state == GS_PLAY) {
+    for (int i = G.S.script_n - 1; i >= 0; i--)
+      if (G.S.script[i].kind == EK_BOSS0 || G.S.script[i].kind == EK_BOSS1) {
+        G.S.frame = (float)(G.S.script[i].at - 60);
+        while (G.S.script_i < G.S.script_n && G.S.script[G.S.script_i].at < G.S.script[i].at - 60) G.S.script_i++;
+        break;
+      }
+    cheat_boss = 0;
+  }
   switch (G.state) {
   case GS_TITLE: {
     G.prev = G.S;
@@ -445,6 +524,14 @@ static void fixed(void *u, double dt) {
     if (l > 1) in.x /= l, in.y /= l;
     in.fire = cw_action_pressed(0, G.a_fire);
     in.item = pressed(G.a_item);
+    float mx, my;
+    if (input_mode == DEV_MOUSE && mouse_target(&mx, &my)) {
+      const float step = 8 * 0.03f * K; /* the ship's top speed per tick */
+      in.x = cw_clampf((mx - G.S.h.x) / step, -1, 1);
+      in.y = cw_clampf((my - G.S.h.y) / step, -1, 1);
+      in.fire |= (cw_input_raw()->mouse_buttons & 1) != 0;
+      in.item |= mouse_right_clicked;
+    }
 #ifdef CHROMITE_AUTOPILOT
     in = autopilot(&G.S);
 #endif
@@ -518,6 +605,7 @@ static void fixed(void *u, double dt) {
   for (int i = 0; i < MAX_ENEMIES; i++) ne += G.S.en[i].live;
   for (int i = 0; i < MAX_EBULLETS; i++) nb += G.S.eb[i].live;
   G.live_enemies = ne, G.live_ebullets = nb;
+  dbg_skill = SAVE.skill, dbg_hi0 = SAVE.hi[SAVE.skill][0], dbg_armed = G.S.h.armed > 0;
 }
 
 /* ── per frame: the 3D world follows the sim (interpolated) ─────────── */
@@ -600,7 +688,7 @@ static void draw_hud(float W, float H, float s) {
     float bw = W * 0.36f, bx = (W - bw) * 0.5f, by = 22 * s;
     cw_r2d_rect(cw_rect_make(bx, by, bw, 6 * s), rgba(0.05f, 0.03f, 0.03f, 0.7f));
     cw_r2d_set_blend(CW_BLEND_ADD);
-    cw_r2d_rect(cw_rect_make(bx, by, bw * cw_clampf(1 - S->boss_hp, 0, 1), 6 * s), rgba(1, 0.25f, 0.15f, 0.9f));
+    cw_r2d_rect(cw_rect_make(bx, by, bw * cw_clampf(S->boss_hp, 0, 1), 6 * s), rgba(1, 0.25f, 0.15f, 0.9f));
     cw_r2d_set_blend(CW_BLEND_ALPHA);
     spaced("hostile command craft", 0, by + 10 * s, 11 * s, rgba(0.9f, 0.45f, 0.4f, 0.8f), CW_ALIGN_CENTER, W);
   }
@@ -609,7 +697,7 @@ static void draw_hud(float W, float H, float s) {
     float a = cw_clampf(G.state_ticks / 30.0f, 0, 1) * cw_clampf((260 - G.state_ticks) / 50.0f, 0, 1);
     snprintf(b, sizeof b, "LEVEL %d", S->level);
     heading(b, 0, H * 0.3f, 54 * s, a, CW_ALIGN_CENTER, W);
-    spaced("do not allow -any- enemies get past", 0, H * 0.3f + 74 * s, 17 * s, rgba(0.7f, 0.76f, 0.88f, a), CW_ALIGN_CENTER, W);
+    spaced("do not allow -any- enemies to get past", 0, H * 0.3f + 74 * s, 17 * s, rgba(0.7f, 0.76f, 0.88f, a), CW_ALIGN_CENTER, W);
   }
   if (S->mode == PLAY_LEVEL_OVER) heading("LEVEL COMPLETE", 0, H * 0.32f, 46 * s, cw_clampf((500 - S->success) / 30.0f, 0, 1), CW_ALIGN_CENTER, W);
   if (S->mode == PLAY_DEAD) heading("GAME OVER", 0, H * 0.36f, 60 * s, cw_clampf((50 - S->hero_death) / 30.0f, 0, 1), CW_ALIGN_CENTER, W);
@@ -686,7 +774,7 @@ static void draw_title(float W, float H, float s) {
   spaced(h, 0, H * 0.94f, 13 * s, rgba(0.5f, 0.56f, 0.7f, 0.55f + 0.25f * sinf(frame_t * 2.5f)), CW_ALIGN_CENTER, W);
   /* the original's ticker */
   float tw = W * 3, off = fmodf(frame_t * 90 * s, tw * 0.5f);
-  spaced("do not allow -any- enemies get past", W - off, H * 0.89f, 15 * s, rgba(0.35f, 0.4f, 0.85f, 0.85f), CW_ALIGN_LEFT, 0);
+  spaced("do not allow -any- enemies to get past", W - off, H * 0.89f, 15 * s, rgba(0.35f, 0.4f, 0.85f, 0.85f), CW_ALIGN_LEFT, 0);
 }
 
 static void draw_pause(float W, float H, float s) {
