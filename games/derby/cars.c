@@ -850,7 +850,6 @@ void car_build(car_model *m, int kind, int colour, int number) {
   for (int i = 0; i < MATS; i++) mat[i]->vertex_colors = true;
   t3_material *chrome = SHARED.chrome, *black = SHARED.black, *dark = SHARED.dark;
   /* the bodies, three levels of detail */
-  mesh_build trim0 = { 0 }; /* level 0's trim: its shell is made with the chrome details, below */
   for (int lod = 0; lod < 3; lod++) {
     pieces P;
     memset(&P, 0, sizeof P);
@@ -905,7 +904,13 @@ void car_build(car_model *m, int kind, int colour, int number) {
       t3_object_add(m->bodies[lod], s->mesh);
       t3_release(g);
     }
-    if (trim.nv) trim0 = trim; /* (level 0's: the lighter levels carry theirs in the skin) */
+    if (trim.nv) { /* (level 0's: the lighter levels carry theirs in the skin) */
+      car_shell *s = &m->trim;
+      shell_take(s, &trim);
+      s->mesh = t3_mesh_new(s->geo, chrome);
+      s->mesh->base.receive_shadow = true;
+      t3_object_add(m->bodies[lod], s->mesh);
+    }
     t3_object_add(m->body, m->bodies[lod]);
     t3_release(m->bodies[lod]);
     m->bodies[lod]->visible = lod == 0;
@@ -1118,12 +1123,7 @@ void car_build(car_model *m, int kind, int colour, int number) {
     }
     mb_merge(&g, &ex); /* the exhaust with the black details */
     mb_merge(&ch, &sm);
-    /* the chrome details ride in the trim's shell (one chrome mesh, dented with it) */
-    mb_merge(&trim0, &ch);
-    shell_take(&m->trim, &trim0);
-    m->trim.mesh = t3_mesh_new(m->trim.geo, chrome);
-    m->trim.mesh->base.receive_shadow = true;
-    t3_object_add(m->bodies[0], m->trim.mesh);
+    mesh_in(m->bodies[0], mb_finish(&ch), chrome, false);
     m->details = mesh_in(m->bodies[0], mb_finish(&g), black, false);
   }
   /* the beams: soft additive cones out front, front faces only */
