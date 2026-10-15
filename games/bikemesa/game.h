@@ -198,7 +198,8 @@ void models_turntable(int idx, float angle, float center_x);
 void models_sync(const bike_pose *p);
 void models_build_rider(cw_node parent, int idx); /* rider idx's bike and rider, in its colours */
 void models_sync_rider(int idx, const bike_pose *p, float z);
-void models_far(int idx, bool far); /* the far look: two draws (split screen's other riders) */
+void models_far(int idx, bool far); /* the far look: one draw (split screen's other riders) */
+void models_refresh(int idx); /* rider idx's world matrices, after posing it again mid-frame */
 void models_forget(void);
 /* geometries placed by their matrices merged into one (positions, normals,
  * uvs, colours: the attributes in mask, geo_merge_mask's bits) */
@@ -221,7 +222,7 @@ void view_tick(float rider_x, float rider_y, float speed, bool grounded);
 void view_forget(void);
 void view_density(float k); /* share of the grass tufts drawn, 0..1 (cw_quality_density) */
 void view_frame(float alpha); /* moving scenery (the bridge planks) at the frame's alpha */
-void view_grass(const cw_node *cameras, int n); /* the grass the cameras see, posed once for the frame (after they are placed) */
+void view_grass(const cw_node *cameras, int n); /* the grass the cameras see, posed once for the frame (after they are placed); none: no grass */
 void fx_dust(float x, float y, float amount);
 void fx_burst(float x, float y, int kind);
 float view_bank_y(float x, float z); /* the bank behind the track (z <= -TRACK_HALF_W - 0.3) */

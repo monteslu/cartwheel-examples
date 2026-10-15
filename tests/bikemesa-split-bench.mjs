@@ -12,9 +12,9 @@
 //             submission, the post passes, the HUD)
 //             both on the main thread's CPU clock (perf's thread_cpu), not
 //             the wall clock, which counts waits on the GPU too
-//   r3d       the 3D part of render (the pipeline up to the overlays)
 //   gpu       the pipeline's GPU timers summed over every pass of every view
-//             (CW_GPU_TIMERS=1), then the passes over 0.1 ms
+//             (CW_GPU_TIMERS=1, a run of its own: polling the timers costs the
+//             CPU), then the passes over 0.1 ms
 //   draws     three.c draw calls a frame (every view, shadow maps included)
 // and each against one player in percent; then the CPU and GPU ms of each
 // pass. Each number is the median of --runs runs (the machine's other work
@@ -45,10 +45,10 @@ mkdirSync(OUT, { recursive: true });
 const exe = JSON.parse(readFileSync(join(ROOT, 'build/native/apps/bikemesa_auto.json'), 'utf8')).binary;
 if (!existsSync(exe)) throw new Error(`no native bikemesa_auto (scripts/build.sh): ${exe}`);
 
-function run(n, gpu) {
+function run(n, gpu, timers) {
   const state = join(OUT, `state-${gpu}-${n}.json`);
-  const env = { ...process.env, CW_FRAMES: String(END), BIKEMESA_PLAYERS: String(n), CW_DEBUG_CMDS: `perf ${WINDOW};pipeline`, CW_DEBUG_DUMP: state,
-    CW_GPU_TIMERS: '1', CW_WGPU_VALIDATION: '0', SDL_AUDIODRIVER: 'dummy', BIKEMESA_NO_AUDIO: '1' };
+  const env = { ...process.env, ...(timers ? { CW_GPU_TIMERS: '1' } : {}), CW_FRAMES: String(END), BIKEMESA_PLAYERS: String(n), CW_DEBUG_CMDS: `perf ${WINDOW};pipeline`, CW_DEBUG_DUMP: state,
+    CW_WGPU_VALIDATION: '0', SDL_AUDIODRIVER: 'dummy', BIKEMESA_NO_AUDIO: '1' };
   const pin = gpu === 'webgpu' ? wgpuPin() : null, gl = pin ? null : glPin();
   if (pin) Object.assign(env, pin.env, { CW_GPU: 'webgpu' });
   else { env.CW_GPU = 'gl'; if (gl) Object.assign(env, gl.env); }
@@ -68,14 +68,14 @@ function run(n, gpu) {
   const passes = Object.fromEntries(ran.filter((p) => p.gpu_ms > 0).map((p) => [p.name, p.gpu_ms]));
   const cpu = Object.fromEntries(ran.filter((p) => p.cpu_ms > 0).map((p) => [p.name, p.cpu_ms]));
   const tc = perf.thread_cpu || {};
-  return { players: n, gpu, sim: tc.sim ?? perf.sim.avg, render: tc.render ?? perf.render.avg, render_wall: perf.render.avg, r3d: perf.r3d_cpu_ms, frame: perf.frame.avg,
+  return { players: n, gpu, sim: tc.sim ?? perf.sim.avg, render: tc.render ?? perf.render.avg, render_wall: perf.render.avg, frame: perf.frame.avg,
     gpu_ms: pipe.gpu_ms, passes, cpu, draws: perf.draw_calls, triangles: perf.triangles };
 }
 /* the median of each number over the runs */
 function median(rs) {
   const mid = (xs) => { const v = xs.filter((x) => x != null).sort((a, b) => a - b); return v.length ? v[(v.length - 1) >> 1] : null; };
   const out = { ...rs[0] };
-  for (const k of ['sim', 'render', 'r3d', 'frame', 'gpu_ms', 'draws', 'triangles']) out[k] = mid(rs.map((r) => r[k]));
+  for (const k of ['sim', 'render', 'render_wall', 'frame', 'gpu_ms', 'draws', 'triangles']) out[k] = mid(rs.map((r) => r[k]));
   for (const k of ['passes', 'cpu']) {
     out[k] = {};
     for (const p of new Set(rs.flatMap((r) => Object.keys(r[k])))) out[k][p] = mid(rs.map((r) => r[k][p]));
@@ -90,7 +90,12 @@ for (const gpu of GPUS) {
    * other work falls on every count alike */
   const runs = Object.fromEntries(PLAYERS.map((n) => [n, []]));
   for (let k = 0; k < RUNS; k++)
-    for (const n of PLAYERS) runs[n].push(run(n, gpu));
+    for (const n of PLAYERS) {
+      /* the CPU from a run without the GPU timers (polling them costs the CPU
+       * per pass and per view), the GPU from one with them */
+      const cpu = run(n, gpu, false), timed = run(n, gpu, true);
+      runs[n].push({ ...cpu, gpu_ms: timed.gpu_ms, passes: timed.passes });
+    }
   for (const n of PLAYERS) {
     const r = median(runs[n]);
     results.push(r);
@@ -104,10 +109,10 @@ for (const gpu of GPUS) {
   const rows = results.filter((r) => r.gpu === gpu);
   const base = rows.find((r) => r.players === 1) || rows[0];
   console.log(`\n${gpu}  (mean ms per frame over ${WINDOW} frames; vs 1 player)`);
-  console.log('players  sim         render       r3d          gpu            draws         triangles');
+  console.log('players  sim         render       gpu            draws         triangles');
   for (const r of rows)
     console.log(`${String(r.players).padEnd(9)}${f2(r.sim).padEnd(12)}${(f2(r.render) + ' ' + pct(r.render, base.render)).padEnd(13)}` +
-      `${(f2(r.r3d) + ' ' + pct(r.r3d, base.r3d)).padEnd(13)}${(f2(r.gpu_ms) + ' ' + pct(r.gpu_ms, base.gpu_ms)).padEnd(15)}` +
+      `${(f2(r.gpu_ms) + ' ' + pct(r.gpu_ms, base.gpu_ms)).padEnd(15)}` +
       `${(r.draws + ' ' + pct(r.draws, base.draws)).padEnd(14)}${(r.triangles / 1e6).toFixed(2)}M ${pct(r.triangles, base.triangles)}`);
   const names = [...new Set(rows.flatMap((r) => Object.keys(r.passes)))].filter((p) => rows.some((r) => r.passes[p] >= 0.1));
   console.log('GPU ms by pass: ' + rows.map((r) => `${r.players}p`).join('  '));

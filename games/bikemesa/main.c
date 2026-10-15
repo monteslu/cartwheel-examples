@@ -873,15 +873,20 @@ static void replay_camera(cw_node cam, const bike_pose *p, float u) {
   cw_node3d_look_at(cam, at, (t3_vec3){ 0, 1, 0 });
 }
 
-/* split screen: before each view draws, its own rider is drawn in full (two
- * players; in a quarter of the screen it too is far) and the others in their
- * far look (each view draws every rider: this keeps it cheap); a rider whose wipeout replays is posed in the replay in its own
- * view and where it really is in the others */
+/* split screen: before each view draws, the riders take their far look
+ * (each view draws every rider: one draw each keeps it cheap), but for the
+ * view's own rider close up, in the player select's preview or its wipeout
+ * replay. A rider whose replay plays is posed in it in its own view and
+ * where it really is in the others (posed again after the scene's matrices
+ * were updated for the frame, so it updates its own) */
 static void view_hook(int view, void *u) {
   (void)u;
-  for (int i = 0; i < NRID; i++) models_far(i, i != view || NRID > 2); /* a quarter of the screen: every rider far */
+  for (int i = 0; i < NRID; i++) models_far(i, !(i == view && (G.state == GS_CHARACTER || RD[i].replay_t > 0)));
   for (int i = 0; i < NRID; i++)
-    if (RD[i].replay_t > 0) models_sync_rider(i, i == view ? &RD[i].replay : &RD[i].live, i == view ? RD[i].replay.z : RD[i].live.z);
+    if (RD[i].replay_t > 0) {
+      models_sync_rider(i, i == view ? &RD[i].replay : &RD[i].live, i == view ? RD[i].replay.z : RD[i].live.z);
+      models_refresh(i);
+    }
 }
 
 static void frame_hook(cw_tree *t, double alpha, void *u) {
@@ -912,7 +917,7 @@ static void frame_hook(cw_tree *t, double alpha, void *u) {
     }
     use_rider(0);
     view_frame((float)alpha);
-    view_grass(cams, NRID);
+    view_grass(cams, NRID > 2 ? 0 : NRID); /* a quarter of the screen: no grass (its blades are a pixel wide there; three draws a view) */
     return;
   }
   bike_pose_get((float)alpha, &p);

@@ -2195,7 +2195,7 @@ void view_frame(float alpha) {
  * view in split screen draws the scenery again, so this is most of what
  * keeps four views cheap. Only meshes nothing animates (the pumpkins'
  * flames are left alone), opaque. */
-#define STILL_CHUNK 128.0f
+#define STILL_CHUNK 256.0f
 static bool still_ok(t3_object *o) {
   if (o->type != T3_MESH || o->child_count || !o->visible) return false;
   t3_mesh *m = (t3_mesh *)o;

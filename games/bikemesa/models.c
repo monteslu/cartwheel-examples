@@ -32,8 +32,8 @@ typedef struct model_t {
   t3_object *limb_r[RAG_COUNT]; /* the right arm / leg copies while riding (same pose, other side) */
   t3_object *foot[2];         /* ankle hinges: shoes turn independently of the shins */
   /* what is drawn: skinned meshes over the parts above (their bones), one per
-   * material, and the far look, one for the bike and one for the rider */
-  t3_object *near_mesh[24], *far_mesh[2];
+   * material, and the far look, one for it all */
+  t3_object *near_mesh[24], *far_mesh;
   int near_n;
   cw_node node;
 } model_t;
@@ -569,8 +569,7 @@ static t3_object *build_crank(const mats *m) {
  * of dozen moving parts (the frame, the wheels, the crank, each limb...).
  * They are drawn as skinned meshes instead, one per material, each part a
  * bone: the same picture in a fifth of the draws. The far look (split
- * screen's other riders) is two: the bike and the rider, each part in its
- * material's colour. Every view of every rider costs draws, so this is
+ * screen's other riders) is one, each part in its material's colour. Every view of every rider costs draws, so this is
  * what keeps split screen cheap. */
 #define MAX_BONES 32
 typedef struct part { t3_mesh *m; int bone; } part;
@@ -696,7 +695,6 @@ static void skin_build(void) {
   int nb = 0;
   bones[nb++] = M.root; /* for the pieces no part moves */
   t3_object *moving[] = { M.frame, M.rear, M.front, M.rear_guard, M.front_guard, M.crank, M.cap, M.neck, M.foot[0], M.foot[1] };
-  int bike_bones = 7; /* the root and the bike's six parts */
   for (int i = 0; i < (int)CW_ARRAY_LEN(moving); i++)
     if (moving[i]) bones[nb++] = moving[i];
   for (int i = 0; i < RAG_COUNT; i++) {
@@ -737,19 +735,13 @@ static void skin_build(void) {
     if (M.near_n < (int)CW_ARRAY_LEN(M.near_mesh))
       M.near_mesh[M.near_n++] = skin_mesh(skin_geometry(run, nr, false), ps[i].m->materials[0], sk, &ps[i].m->base);
   }
-  /* far: the bike, the rider */
-  for (int f = 0; f < 2; f++) {
-    int nr = 0;
-    for (int i = 0; i < np; i++)
-      if ((ps[i].bone > 0 && ps[i].bone < bike_bones) == (f == 0)) run[nr++] = ps[i];
-    t3_material *mat = t3_mesh_standard_material_new(0xffffff);
-    mat->vertex_colors = true;
-    mat->roughness = f == 0 ? 0.4f : 0.8f;
-    mat->metalness = f == 0 ? 0.3f : 0;
-    M.far_mesh[f] = nr ? skin_mesh(skin_geometry(run, nr, true), mat, sk, &run[0].m->base) : NULL;
-    if (M.far_mesh[f]) M.far_mesh[f]->visible = false;
-    t3_release(mat);
-  }
+  /* far: everything in one, each part in its material's colour */
+  t3_material *mat = t3_mesh_standard_material_new(0xffffff);
+  mat->vertex_colors = true;
+  mat->roughness = 0.7f;
+  M.far_mesh = np ? skin_mesh(skin_geometry(ps, np, true), mat, sk, &ps[0].m->base) : NULL;
+  if (M.far_mesh) M.far_mesh->visible = false;
+  t3_release(mat);
   for (int i = 0; i < np; i++) ps[i].m->base.visible = false; /* the parts stay, as bones */
   t3_release(sk);
   free(done);
@@ -757,13 +749,12 @@ static void skin_build(void) {
   free(ps);
 }
 
-/* rider idx near (every material) or far (two draws) */
+/* rider idx near (every material) or far (one draw) */
 void models_far(int idx, bool far) {
   model_t *mm = &MS[CW_CLAMP(idx, 0, MAX_RIDERS - 1)];
   if (!mm->root) return;
   for (int i = 0; i < mm->near_n; i++) mm->near_mesh[i]->visible = !far;
-  for (int f = 0; f < 2; f++)
-    if (mm->far_mesh[f]) mm->far_mesh[f]->visible = far;
+  if (mm->far_mesh) mm->far_mesh->visible = far;
 }
 
 void models_build(cw_node parent) { models_build_rider(parent, 0); }
@@ -997,11 +988,11 @@ void models_sync(const bike_pose *p) { models_sync_rider(0, p, p->z); }
 static void models_sync_rider_(const bike_pose *p, float z);
 void models_sync_rider(int idx, const bike_pose *p, float z) {
   Mc = &MS[CW_CLAMP(idx, 0, MAX_RIDERS - 1)];
-  if (!M.root) return;
-  models_sync_rider_(p, z);
-  /* split screen poses a rider again between views (its replay in its own
-   * view), after the scene's matrices were updated for the frame */
-  t3_object_update_world_matrix(M.root, true, true);
+  if (M.root) models_sync_rider_(p, z);
+}
+void models_refresh(int idx) {
+  model_t *mm = &MS[CW_CLAMP(idx, 0, MAX_RIDERS - 1)];
+  if (mm->root) t3_object_update_world_matrix(mm->root, true, true);
 }
 static void models_sync_rider_(const bike_pose *p, float z) {
   if (p->ragdoll) { /* a crash: every piece where the crash world has it (world space) */
