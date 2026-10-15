@@ -45,7 +45,7 @@ the same game. `games/bomberdude/` (its
 ### Chromite
 
 
-![Chromite: the ship firing up the screen over a rusted chrome fortress](docs/screenshots/chromite.jpg)
+![Chromite: the ship takes a hit on its shields while firing up over the rusted fortress deck](docs/screenshots/chromite.jpg)
 
 A vertical shooter after Chromium B.S.U. (2000): its rules, enemy
 behaviours and wave scripts re-implemented on a fixed tick, its craft, logo
