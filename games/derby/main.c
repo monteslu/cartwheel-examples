@@ -36,6 +36,7 @@
 #include "cartwheel/pipeline.h"
 #include "cartwheel/platform.h"
 #include "cartwheel/quality.h"
+#include "cartwheel/quality_menu.h"
 #include "cartwheel/render2d.h"
 #include "cartwheel/resource.h"
 #include "world.h"
@@ -80,7 +81,8 @@ typedef struct save_data {
   uint16_t version, size;
   uint32_t checksum;
   uint32_t bouts, wins, wrecks;
-  uint8_t colour, number, kind, pad;
+  uint8_t colour, number, kind, pad; /* pad: version 1's graphics preset */
+  uint8_t gfx[4];          /* the graphics settings (cw_quality_saved, little-endian) */
 } save_data;
 static save_data SAVE;
 
@@ -328,14 +330,22 @@ static bool any_pressed(cw_action a) {
 /* ── save data ──────────────────────────────────────────────────────── */
 
 #define SAVE_MAGIC 0x59425244u /* 'DRBY' */
-#define SAVE_VERSION 1
-static uint32_t save_sum(void) {
+#define SAVE_VERSION 2
+#define SAVE_V1_SIZE offsetof(save_data, gfx) /* version 1 ended there */
+static uint32_t sum_of(size_t size) {
   const uint8_t *b = (const uint8_t *)&SAVE + offsetof(save_data, bouts);
   uint32_t h = 2166136261u;
-  for (size_t i = 0; i < sizeof SAVE - offsetof(save_data, bouts); i++) h = (h ^ b[i]) * 16777619u;
+  for (size_t i = 0; i < size - offsetof(save_data, bouts); i++) h = (h ^ b[i]) * 16777619u;
   return h ^ (SAVE.version | (uint32_t)SAVE.size << 16);
 }
+static uint32_t save_sum(void) { return sum_of(sizeof SAVE); }
+static uint32_t gfx_saved(void) {
+  return SAVE.gfx[0] | (uint32_t)SAVE.gfx[1] << 8 | (uint32_t)SAVE.gfx[2] << 16 | (uint32_t)SAVE.gfx[3] << 24;
+}
 static void save_write(void) {
+  uint32_t q = cw_quality_saved();
+  if (q)
+    for (int i = 0; i < 4; i++) SAVE.gfx[i] = (uint8_t)(q >> (8 * i));
   SAVE.checksum = save_sum();
   cw_save_commit();
 }
@@ -350,6 +360,15 @@ static void save_reset(void) {
   SAVE.checksum = save_sum();
 }
 static void save_check(void) {
+  /* version 1 (no gfx; its graphics preset in pad): kept, the preset moved over */
+  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 1 && SAVE.size == SAVE_V1_SIZE && SAVE.checksum == sum_of(SAVE_V1_SIZE)) {
+    memset(SAVE.gfx, 0, sizeof SAVE.gfx);
+    SAVE.gfx[0] = SAVE.pad;
+    SAVE.pad = 0;
+    SAVE.version = SAVE_VERSION;
+    SAVE.size = (uint16_t)sizeof SAVE;
+    SAVE.checksum = save_sum();
+  }
   if (SAVE.magic != SAVE_MAGIC || SAVE.version != SAVE_VERSION || SAVE.size != sizeof SAVE || SAVE.checksum != save_sum()) {
     if (SAVE.magic) cw_warn("derby: save data rejected (magic %08x version %u), starting fresh", SAVE.magic, SAVE.version);
     save_reset();
@@ -598,7 +617,7 @@ static void cmd_bout(int argc, const char **argv, cw_reply *r) {
 static cw_font font_hud, font_title, font_small;
 
 static double wall_now(void);
-/* the graphics preset changed: thin or thicken the crowd */
+/* a graphics setting changed: thin or thicken the crowd */
 static void quality_changed(cw_quality q, void *u) {
   (void)q, (void)u;
   scenery_density(cw_quality_density());
@@ -608,8 +627,9 @@ static void init(void *u) {
   (void)u;
   double t_init = wall_now();
   save_check();
-  cw_quality_restore(SAVE.pad); /* the player's graphics preset, if they chose one */
   cw_quality_on_change(quality_changed, NULL);
+  cw_quality_restore(gfx_saved()); /* the player's graphics settings, if they chose any; else Auto */
+  cw_quality_auto(true, 0);
   scenery_density(cw_quality_density());
   if (!cw_input_load_bindings_asset("input.cfg")) cw_warn("derby: input.cfg had errors (see above)");
   cw_input_commit_defaults();
@@ -1097,6 +1117,7 @@ static void fixed(void *u, double dt) {
     break;
   }
   case GS_PAUSE: {
+    if (cw_quality_menu_is_open()) break; /* the graphics page has the presses */
     if (dy) G.menu = (G.menu + dy + 2) % 2, sfx(SFX_MOVE, 0.5f);
     int hover = -1;
     for (int i = 0; i < 2; i++)
@@ -1655,16 +1676,27 @@ static cw_rect gfx_rect(float W, float H) {
   return cw_rect_make(W * 0.5f - 170 * s, H * 0.44f, 340 * s, 46 * s);
 }
 static void gfx_input(void) {
-  if (G.state != GS_PAUSE || G.state_ticks < 5) return;
+  if (G.state != GS_PAUSE) {
+    cw_quality_menu_close();
+    return;
+  }
+  if (cw_quality_menu_is_open()) { /* the graphics page (cartwheel/quality_menu.h) owns the presses */
+    cw_quality_menu_update();
+    if (!cw_quality_menu_is_open()) {
+      sfx(SFX_SELECT, 0.6f);
+      if (cw_quality_menu_changed()) save_write();
+    }
+    return;
+  }
+  if (G.state_ticks < 5) return;
   const cw_raw_input *in = cw_input_raw();
   bool hit = in->keys_pressed[10]; /* G */
   for (int i = 0; i < CW_MAX_PADS; i++) hit |= (in->pads[i].pressed & (1u << CW_PAD_NORTH)) != 0;
   cw_vec2 cs = cw_r2d_canvas_size();
   if ((in->mouse_pressed & 1) && in_rect(mouse_canvas(), gfx_rect(cs.x, cs.y))) hit = true;
   if (!hit) return;
-  cw_quality_cycle();
-  SAVE.pad = cw_quality_saved();
-  save_write();
+  cw_quality_menu_open();
+  sfx(SFX_SELECT, 0.6f);
 }
 /* " · 1080p": the render resolution beside the graphics preset (the host
  * sets it, RetroArch's Internal Resolution; read-only here) */
@@ -1687,7 +1719,7 @@ static void draw_gfx(float W, float H, float s) {
   gfx_res_suffix(buf, sizeof buf); /* the render resolution: the host sets it */
   float sz = fit_title(buf, 24 * s, r.w - 16 * s);
   stencil(buf, r.x, r.y + 10 * s + (24 * s - sz) * 0.5f, sz, rgba(0.85f, 0.82f, 0.78f, 1), CW_ALIGN_CENTER, r.w);
-  text(last_device == DEV_TOUCH ? "tap to change" : "Y / G to change", r.x, r.y + r.h + 4 * s, 14 * s, rgba(0.85f, 0.82f, 0.78f, 0.8f), CW_ALIGN_CENTER, r.w);
+  text(last_device == DEV_TOUCH ? "tap for settings" : "Y / G for settings", r.x, r.y + r.h + 4 * s, 14 * s, rgba(0.85f, 0.82f, 0.78f, 0.8f), CW_ALIGN_CENTER, r.w);
 }
 
 static void draw_pause(float W, float H, float s) {
@@ -1723,6 +1755,7 @@ static void render(void *u, double alpha) {
   case GS_RESULTS: draw_results(W, H, s); break;
   default: break;
   }
+  cw_quality_menu_draw(&(cw_quality_menu_style){ .font = font_hud, .accent = rgba(0.95f, 0.78f, 0.5f, 1) });
   cw_r2d_end();
 }
 

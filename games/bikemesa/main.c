@@ -33,6 +33,7 @@
 #include "cartwheel/pipeline.h"
 #include "cartwheel/platform.h"
 #include "cartwheel/quality.h"
+#include "cartwheel/quality_menu.h"
 #include "cartwheel/render2d.h"
 #include "cartwheel/resource.h"
 #include "game.h"
@@ -128,6 +129,7 @@ static void set_lane_now(int lane);
 static void views_setup(void);
 static void camera_tick(void);
 static void gfx_input(void);
+static uint64_t gfx_frame = UINT64_MAX; /* the last frame the graphics page had the presses (gfx_input) */
 static void rider_finish(void);
 
 static struct {
@@ -305,13 +307,20 @@ static void save_reset(void) {
   SAVE.tr[0].shown = 1;
   SAVE.checksum = save_sum();
 }
+/* the player's graphics settings (cartwheel/quality.h, cw_quality_saved) ride
+ * in the last track record's best_ticks, a slot no track uses, under the
+ * checksum; saves from before kept a preset in its stars byte */
+#define QUALITY_SAVE SAVE.tr[BIKEMESA_TRACKS_MAX - 1].best_ticks
+#define QUALITY_SAVE_OLD SAVE.tr[BIKEMESA_TRACKS_MAX - 1].stars
 static void save_write(void) {
+  uint32_t q = cw_quality_saved();
+  if (q) {
+    QUALITY_SAVE = (int32_t)q;
+    QUALITY_SAVE_OLD = 0;
+  }
   SAVE.checksum = save_sum();
   cw_save_commit();
 }
-/* the player's graphics preset (cartwheel/quality.h) rides in the last track
- * record's stars byte, a slot no track uses, under the checksum */
-#define QUALITY_SAVE SAVE.tr[BIKEMESA_TRACKS_MAX - 1].stars
 static void save_check(void) {
   if (SAVE.magic != SAVE_MAGIC || SAVE.version != SAVE_VERSION || SAVE.size != sizeof SAVE || SAVE.checksum != save_sum()) {
     if (SAVE.magic) cw_warn("bikemesa: save data rejected (magic %08x version %u), starting fresh", SAVE.magic, SAVE.version);
@@ -1020,19 +1029,27 @@ static void touch_haptics(void) {
   }
 }
 
-/* the graphics preset changed: thin or thicken the grass */
+/* BikeMesa's own graphics setting: the distant ground's material (view_ground_detail) */
+static int ground_setting = -1;
+static const char *const GROUND_DETAIL[] = { "Simple", "Full" };
+
+/* a graphics setting changed: thin or thicken the grass, the distant ground's maps */
 static void quality_changed(cw_quality q, void *u) {
   (void)q, (void)u;
   view_density(cw_quality_density());
+  view_ground_detail(cw_gfx_get(ground_setting) == 1);
 }
 
 static void init(void *u) {
   (void)u;
   TRACK_COUNT = visible_tracks();
   save_check();
-  cw_quality_restore(QUALITY_SAVE); /* the player's graphics preset, if they chose one */
+  ground_setting = cw_quality_lever_add("Distant ground", GROUND_DETAIL, 2, (const uint8_t[CW_QUALITY_COUNT]){ 0, 0, 1, 1 });
   cw_quality_on_change(quality_changed, NULL);
-  view_density(cw_quality_density());
+  /* the player's graphics settings, if they chose any; else Auto */
+  cw_quality_restore(QUALITY_SAVE ? (uint32_t)QUALITY_SAVE : QUALITY_SAVE_OLD);
+  cw_quality_auto(true, 0);
+  quality_changed(cw_quality_get(), NULL);
 #ifdef BIKEMESA_PRESET
   save_preset(BIKEMESA_PRESET);
 #endif
@@ -1722,6 +1739,7 @@ static void fixed(void *u, double dt) {
       was = on;
     }
     if (G.paused) {
+      if (cw_quality_menu_is_open() || gfx_frame == cw_frame_index()) break; /* the graphics page has the presses */
       int dir = cw_action_just_pressed(0, G.m_down) - cw_action_just_pressed(0, G.m_up);
       G.pause_cursor = (G.pause_cursor + dir + PAUSE_ITEMS) % PAUSE_ITEMS;
       float W = cs.x, H = cs.y, s = H / 540.0f;
@@ -2421,9 +2439,10 @@ static void draw_finish(float W, float H, float s) {
   }
 }
 
-/* the graphics preset on the pause screen (cartwheel/quality.h): Y, G or a
- * tap steps Low, Medium, High, Ultra. Render-only, so it is read in
- * update, never in the simulation; kept in the save (QUALITY_SAVE) */
+/* the graphics settings from the pause screen (cartwheel/quality_menu.h): Y,
+ * G or a tap opens the page; it owns the frame's presses while it is open
+ * (gfx_frame: the pause menu leaves them alone). Render-only: nothing it
+ * changes reaches the simulation. Kept in the save (QUALITY_SAVE). */
 static cw_rect gfx_rect(float W, float H) {
   float s = H / 540.0f;
   return cw_rect_make(W - 236 * s, H * 0.27f, 224 * s, 40 * s);
@@ -2431,17 +2450,30 @@ static cw_rect gfx_rect(float W, float H) {
 static void gfx_input(void) {
   /* read in the fixed tick (the raw presses are there), once per frame however many ticks it runs */
   static uint64_t last_frame = UINT64_MAX;
-  if (!G.paused || cw_frame_index() == last_frame) return;
+  if (!G.paused) {
+    cw_quality_menu_close();
+    return;
+  }
+  if (cw_frame_index() == last_frame) return;
   last_frame = cw_frame_index();
+  if (cw_quality_menu_is_open()) {
+    gfx_frame = last_frame;
+    cw_quality_menu_update();
+    if (!cw_quality_menu_is_open()) {
+      game_sfx(SFX_SELECT, 1);
+      if (cw_quality_menu_changed()) save_write();
+    }
+    return;
+  }
   const cw_raw_input *in = cw_input_raw();
   bool hit = in->keys_pressed[10]; /* G */
   for (int i = 0; i < CW_MAX_PADS; i++) hit |= (in->pads[i].pressed & (1u << CW_PAD_NORTH)) != 0;
   cw_vec2 cs = cw_r2d_canvas_size();
   if ((in->mouse_pressed & 1) && in_rect(mouse_canvas(), gfx_rect(cs.x, cs.y))) hit = true;
   if (!hit) return;
-  cw_quality_cycle();
-  QUALITY_SAVE = cw_quality_saved();
-  save_write();
+  cw_quality_menu_open();
+  gfx_frame = last_frame;
+  game_sfx(SFX_SELECT, 1);
 }
 /* " · 1080p": the render resolution beside the graphics preset (the host
  * sets it, RetroArch's Internal Resolution; read-only here) */
@@ -2464,7 +2496,7 @@ static void draw_gfx(float W, float H, float s) {
   gfx_res_suffix(buf, sizeof buf); /* the render resolution: the host sets it */
   float sz = fit_text(buf, 18 * s, r.w - 14 * s);
   text(buf, r.x, r.y + 9 * s + (18 * s - sz) * 0.5f, sz, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, r.w);
-  text(last_device == DEV_TOUCH ? "tap to change" : "Y / G to change", r.x, r.y + r.h + 2 * s, 13 * s, rgba(1, 1, 1, 0.8f), CW_ALIGN_CENTER, r.w);
+  text(last_device == DEV_TOUCH ? "tap for settings" : "Y / G for settings", r.x, r.y + r.h + 2 * s, 13 * s, rgba(1, 1, 1, 0.8f), CW_ALIGN_CENTER, r.w);
 }
 
 static void draw_pause(float W, float H, float s) {
@@ -2537,6 +2569,7 @@ static void render(void *u, double alpha) {
       }
     } else if (G.state == GS_FINISH) draw_finish(W, H, s);
     if (G.paused) draw_pause(W, H, s);
+    cw_quality_menu_draw(&(cw_quality_menu_style){ .font = font_ui, .accent = rgba(1, 0.65f, 0.2f, 1) });
   }
   cw_r2d_end();
 }

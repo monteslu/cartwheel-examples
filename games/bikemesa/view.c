@@ -147,6 +147,54 @@ static t3_material *mat(int tex, const float c[3], float rx, float ry, float nsc
   return m;
 }
 
+/* ── distant ground: a graphics setting (view_ground_detail) ───────────
+ * The bank behind the track, the plains and the landforms cover over half
+ * the frame, farther from the camera than the riding line, where their
+ * normal, roughness and occlusion maps show least. Simple draws them with the
+ * colour map alone (a cheaper program: no normal mapping, three fewer
+ * texture reads a pixel; a fifth of the scene pass at 1080p); Full with every
+ * map.
+ * The materials are shared (merged meshes keep them), so the maps come and
+ * go on the material itself. */
+enum { MAX_FAR_MATS = 8 };
+static struct far_mat { t3_material *m; t3_texture *nmap, *rmap, *ao; } far_mats[MAX_FAR_MATS];
+static int n_far_mats;
+static bool ground_full = true;
+static void far_detail(struct far_mat *f, bool full) {
+  t3_material_set_texture(f->m, T3_NORMAL_MAP, full ? f->nmap : NULL);
+  t3_material_set_texture(f->m, T3_ROUGHNESS_MAP, full ? f->rmap : NULL);
+  t3_material_set_texture(f->m, T3_AO_MAP, full ? f->ao : NULL);
+}
+static t3_material *far_mat(t3_material *m) {
+  if (n_far_mats >= MAX_FAR_MATS) return m;
+  struct far_mat *f = &far_mats[n_far_mats++];
+  f->m = m;
+  f->nmap = m->normal_map;
+  f->rmap = m->roughness_map;
+  f->ao = m->ao_map;
+  t3_retain(m);
+  t3_retain(f->nmap);
+  t3_retain(f->rmap);
+  t3_retain(f->ao);
+  if (!ground_full) far_detail(f, false);
+  return m;
+}
+void view_ground_detail(bool full) {
+  if (full == ground_full) return;
+  ground_full = full;
+  for (int i = 0; i < n_far_mats; i++) far_detail(&far_mats[i], full);
+}
+static void far_mats_free(void) {
+  for (int i = 0; i < n_far_mats; i++) {
+    far_detail(&far_mats[i], true);
+    t3_release(far_mats[i].nmap);
+    t3_release(far_mats[i].rmap);
+    t3_release(far_mats[i].ao);
+    t3_release(far_mats[i].m);
+  }
+  n_far_mats = 0;
+}
+
 /* ── the track ribbon ──────────────────────────────────────────────────
  * top: the riding surface across z -W..W with a rounded lip at the front;
  * face: from the lip straight down to the bedrock, uv in world metres so the
@@ -449,7 +497,7 @@ static t3_geometry *geo_peak(float r, float h) {
 }
 
 static void landforms(t3_object *root, const track_desc *t, const theme *th) {
-  t3_material *m = mat(th->far_tex, th->far, 3, 3, 1.4f, 0.95f);
+  t3_material *m = far_mat(mat(th->far_tex, th->far, 3, 3, 1.4f, 0.95f));
   float x0 = -120, x1 = t->length + 160;
   for (int layer = 0; layer < 3; layer++) {
     float z = -70 - layer * 70, spacing = 38 + layer * 22;
@@ -551,32 +599,38 @@ float view_bank_y(float x, float z) { return bank_y(x, z, bank_kind); }
 
 static void bank(t3_object *root, const track_desc *t, const theme *th) {
   static const float ZS[] = { 0, 0.4f, 1, 2, 3.5f, 5.5f, 8, 11, 15, 20, 27, 36, 48, 62 };
-  enum { NZ = (int)CW_ARRAY_LEN(ZS) };
-  mb b = { 0 };
-  float x0 = GH_X0 + 4, x1 = t->length + 100;
-  int nx = (int)((x1 - x0) / 1.0f) + 1;
-  for (int i = 0; i < nx; i++) {
-    float x = x0 + i * 1.0f;
-    for (int j = 0; j < NZ; j++) {
-      float z = -TRACK_HALF_W - 0.3f - ZS[j];
-      float y = bank_y(x, z, th->far_kind == 1 ? 1 : 0) - (j == 0 ? 0.08f : 0);
-      float yx = bank_y(x + 0.5f, z, th->far_kind == 1 ? 1 : 0) - bank_y(x - 0.5f, z, th->far_kind == 1 ? 1 : 0);
-      float yz = bank_y(x, z + 0.5f, th->far_kind == 1 ? 1 : 0) - bank_y(x, z - 0.5f, th->far_kind == 1 ? 1 : 0);
-      mb_v(&b, (t3_vec3){ x, y, z }, (t3_vec3){ -yx, 1, -yz }, x / 5, z / 5, 1);
-      if (i > 0 && j > 0) {
-        int a = (i - 1) * NZ + j - 1, c = i * NZ + j - 1;
-        mb_t(&b, a, c + 1, a + 1);
-        mb_t(&b, a, c, c + 1);
-      }
-    }
-  }
+  /* rows 0..FAR_ROW the track's back edge, FAR_ROW.. (a metre back and on,
+   * farther from the camera than the riding line) distant ground */
+  enum { NZ = (int)CW_ARRAY_LEN(ZS), FAR_ROW = 2 };
   /* the bank: the riding surface's ground, paler (dust and sun) */
   float pale[3] = { th->top[0] * 1.08f, th->top[1] * 1.06f, th->top[2] * 1.02f };
-  t3_material *m = mat(th->top_tex, pale, 1, 1, 1.0f, 1);
-  t3_geometry *g = mb_done(&b);
-  add(root, g, m, false);
-  t3_release(g);
-  t3_release(m);
+  float x0 = GH_X0 + 4, x1 = t->length + 100;
+  int nx = (int)((x1 - x0) / 1.0f) + 1;
+  for (int part = 0; part < 2; part++) {
+    int j0 = part ? FAR_ROW : 0, j1 = part ? NZ : FAR_ROW + 1, nz = j1 - j0;
+    mb b = { 0 };
+    for (int i = 0; i < nx; i++) {
+      float x = x0 + i * 1.0f;
+      for (int j = j0; j < j1; j++) {
+        float z = -TRACK_HALF_W - 0.3f - ZS[j];
+        float y = bank_y(x, z, th->far_kind == 1 ? 1 : 0) - (j == 0 ? 0.08f : 0);
+        float yx = bank_y(x + 0.5f, z, th->far_kind == 1 ? 1 : 0) - bank_y(x - 0.5f, z, th->far_kind == 1 ? 1 : 0);
+        float yz = bank_y(x, z + 0.5f, th->far_kind == 1 ? 1 : 0) - bank_y(x, z - 0.5f, th->far_kind == 1 ? 1 : 0);
+        mb_v(&b, (t3_vec3){ x, y, z }, (t3_vec3){ -yx, 1, -yz }, x / 5, z / 5, 1);
+        if (i > 0 && j > j0) {
+          int a = (i - 1) * nz + j - j0 - 1, c = i * nz + j - j0 - 1;
+          mb_t(&b, a, c + 1, a + 1);
+          mb_t(&b, a, c, c + 1);
+        }
+      }
+    }
+    t3_material *m = mat(th->top_tex, pale, 1, 1, 1.0f, 1);
+    if (part) far_mat(m);
+    t3_geometry *g = mb_done(&b);
+    add(root, g, m, false);
+    t3_release(g);
+    t3_release(m);
+  }
 }
 
 /* ── boulders and grass along the track ───────────────────────────────── */
@@ -849,7 +903,7 @@ static void rocks(t3_object *root, const track_desc *t, const theme *th) {
 static void fill(t3_object *root, const track_desc *t, const theme *th) {
   rocks(root, t, th);
   /* ground plains behind the track at bedrock height */
-  t3_material *plain = mat(th->top_tex, th->top, 40, 40, 1.0f, 1);
+  t3_material *plain = far_mat(mat(th->top_tex, th->top, 40, 40, 1.0f, 1));
   t3_geometry *pl = t3_plane_geometry_new(1, 1, 1, 1);
   t3_mesh *ground = add(root, pl, plain, false);
   ground->base.position = (t3_vec3){ t->length * 0.5f, t->min_y - 8, -150 };
@@ -2432,6 +2486,7 @@ void view_grass(const cw_node *cameras, int n) {
 }
 
 void view_forget(void) {
+  far_mats_free();
   n_flags = 0;
   n_pk = 0; /* the pumpkins' faces and lights went with the scene */
   n_plank_mesh = 0;

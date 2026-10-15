@@ -33,6 +33,7 @@
 #include "cartwheel/math.h"
 #include "cartwheel/platform.h"
 #include "cartwheel/quality.h"
+#include "cartwheel/quality_menu.h"
 #include "cartwheel/render2d.h"
 #include "cartwheel/resource.h"
 #include "world.h"
@@ -84,7 +85,7 @@ typedef struct save_data {
   uint8_t shown[ARENAS];   /* its unlock has played on the select screen */
   int32_t best_secs[ARENAS];
   uint8_t crit[MAXP], slot[MAXP]; /* the last Battle setup */
-  uint8_t wins_needed, pad[3];
+  uint8_t wins_needed, pad[3]; /* pad: the graphics settings (cw_quality_saved, 24 bits little-endian) */
 } save_data;
 static save_data SAVE;
 
@@ -312,7 +313,11 @@ static uint32_t save_sum(void) {
   for (size_t i = 0; i < sizeof SAVE - offsetof(save_data, cleared); i++) h = (h ^ b[i]) * 16777619u;
   return h ^ (SAVE.version | (uint32_t)SAVE.size << 16);
 }
+static uint32_t gfx_saved(void) { return SAVE.pad[0] | (uint32_t)SAVE.pad[1] << 8 | (uint32_t)SAVE.pad[2] << 16; }
 static void save_write(void) {
+  uint32_t q = cw_quality_saved();
+  if (q)
+    for (int i = 0; i < 3; i++) SAVE.pad[i] = (uint8_t)(q >> (8 * i));
   SAVE.checksum = save_sum();
   cw_save_commit();
 }
@@ -495,7 +500,7 @@ static void cmd_touch_controls(int argc, const char **argv, cw_reply *r) {
 
 static cw_font font_ui, font_ui_bold, font_title;
 
-/* the graphics preset changed: thin or thicken the grass and the crowd */
+/* a graphics setting changed: thin or thicken the grass and the crowd */
 static void quality_changed(cw_quality q, void *u) {
   (void)q, (void)u;
   scenery_density(cw_quality_density());
@@ -504,8 +509,9 @@ static void quality_changed(cw_quality q, void *u) {
 static void init(void *u) {
   (void)u;
   save_check();
-  cw_quality_restore(SAVE.pad[0]); /* the player's graphics preset, if they chose one */
   cw_quality_on_change(quality_changed, NULL);
+  cw_quality_restore(gfx_saved()); /* the player's graphics settings, if they chose any; else Auto */
+  cw_quality_auto(true, 0);
   scenery_density(cw_quality_density());
 #ifdef BOMBERDUDE_PRESET
   save_preset(BOMBERDUDE_PRESET);
@@ -989,6 +995,7 @@ static void fixed(void *u, double dt) {
     break;
   }
   case GS_PAUSE:
+    if (cw_quality_menu_is_open()) break; /* the graphics page has the presses */
     if (dy || dx) G.menu = (G.menu + dy + dx + 2) % 2, sfx(SFX_MOVE, 0.5f);
     for (int i = 0; i < 2; i++) /* a click or a tap on RESUME / QUIT */
       if (mouse_clicked && in_rect(m, pause_button(i, cs.x, cs.y))) G.menu = i, confirm = true;
@@ -1575,24 +1582,36 @@ static void draw_podium(float W, float H, float s) {
   if (t > 120) prompt_line(menu_prompt(), W, H * 0.93f, 16 * s);
 }
 
-/* the graphics preset on the pause screen (cartwheel/quality.h): Y, G or a
- * tap steps Low, Medium, High, Ultra. Render-only, so it is read in
+/* the graphics settings from the pause screen (cartwheel/quality_menu.h): Y,
+ * G or a tap opens the page, which owns the presses while it is open (the
+ * pause menu's tick leaves them alone). Render-only, so it is read in
  * update, never in the simulation; the choice is kept in the save */
 static cw_rect gfx_rect(float W, float H) {
   float s = H / 540.0f;
   return cw_rect_make(W * 0.5f - 170 * s, H * 0.42f, 340 * s, 46 * s);
 }
 static void gfx_input(void) {
-  if (G.state != GS_PAUSE || G.state_ticks < 5) return;
+  if (G.state != GS_PAUSE) {
+    cw_quality_menu_close();
+    return;
+  }
+  if (cw_quality_menu_is_open()) {
+    cw_quality_menu_update();
+    if (!cw_quality_menu_is_open()) {
+      sfx(SFX_SELECT, 0.6f);
+      if (cw_quality_menu_changed()) save_write();
+    }
+    return;
+  }
+  if (G.state_ticks < 5) return;
   const cw_raw_input *in = cw_input_raw();
   bool hit = in->keys_pressed[10]; /* G */
   for (int i = 0; i < CW_MAX_PADS; i++) hit |= (in->pads[i].pressed & (1u << CW_PAD_NORTH)) != 0;
   cw_vec2 cs = cw_r2d_canvas_size();
   if ((in->mouse_pressed & 1) && in_rect(mouse_canvas(), gfx_rect(cs.x, cs.y))) hit = true;
   if (!hit) return;
-  cw_quality_cycle();
-  SAVE.pad[0] = cw_quality_saved();
-  save_write();
+  cw_quality_menu_open();
+  sfx(SFX_SELECT, 0.6f);
 }
 /* " · 1080p": the render resolution beside the graphics preset (the host
  * sets it, RetroArch's Internal Resolution; read-only here) */
@@ -1615,7 +1634,7 @@ static void draw_gfx(float W, float H, float s) {
   gfx_res_suffix(buf, sizeof buf); /* the render resolution: the host sets it */
   float sz = fit_title(buf, 22 * s, r.w - 16 * s);
   bold(buf, r.x, r.y + 10 * s + (22 * s - sz) * 0.5f, sz, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, r.w);
-  text(last_device == DEV_TOUCH ? "tap to change" : "Y / G to change", r.x, r.y + r.h + 4 * s, 15 * s, rgba(1, 1, 1, 0.7f), CW_ALIGN_CENTER, r.w);
+  text(last_device == DEV_TOUCH ? "tap for settings" : "Y / G for settings", r.x, r.y + r.h + 4 * s, 15 * s, rgba(1, 1, 1, 0.7f), CW_ALIGN_CENTER, r.w);
 }
 
 static void draw_pause(float W, float H, float s) {
@@ -1657,6 +1676,7 @@ static void render(void *u, double alpha) {
     break;
   case GS_PODIUM: draw_podium(W, H, s); break;
   }
+  cw_quality_menu_draw(&(cw_quality_menu_style){ .font = font_ui, .accent = rgba(1, 0.85f, 0.3f, 1) });
   cw_r2d_end();
 }
 

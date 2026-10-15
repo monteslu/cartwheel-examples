@@ -22,6 +22,7 @@
 #include "cartwheel/debug.h"
 #include "cartwheel/platform.h"
 #include "cartwheel/quality.h"
+#include "cartwheel/quality_menu.h"
 #include "cartwheel/render2d.h"
 #include "cartwheel/resource.h"
 #include "cartwheel/vfs.h"
@@ -37,7 +38,7 @@ typedef struct save_data {
   uint32_t magic;
   uint16_t version, size;
   struct { int32_t cleared, best_ticks, dews, flies; } lv[SP_LEVELS];
-  uint8_t quality, pad[3]; /* quality: cw_quality_saved(), 0 = none chosen */
+  uint8_t quality[4]; /* the graphics settings: cw_quality_saved() little-endian, 0 = none chosen */
   uint32_t checksum;
 } save_data;
 static save_data SAVE;
@@ -50,7 +51,13 @@ static void save_reset(void) {
   SAVE.size = sizeof SAVE;
   SAVE.checksum = save_sum();
 }
+static uint32_t gfx_saved(void) {
+  return SAVE.quality[0] | (uint32_t)SAVE.quality[1] << 8 | (uint32_t)SAVE.quality[2] << 16 | (uint32_t)SAVE.quality[3] << 24;
+}
 static void save_write(void) {
+  uint32_t q = cw_quality_saved();
+  if (q)
+    for (int i = 0; i < 4; i++) SAVE.quality[i] = (uint8_t)(q >> (8 * i));
   SAVE.checksum = save_sum();
   cw_save_commit();
 }
@@ -281,7 +288,8 @@ static void sync_hook(cw_tree *t, double alpha, void *u);
 static void init(void *u) {
   (void)u;
   save_check();
-  cw_quality_restore(SAVE.quality); /* the player's graphics preset, if they chose one */
+  cw_quality_restore(gfx_saved()); /* the player's graphics settings, if they chose any; else Auto */
+  cw_quality_auto(true, 0);
   if (!cw_input_load_bindings_asset("input.cfg")) cw_warn("spout: input.cfg had errors");
   cw_input_commit_defaults();
   G.a_left = cw_action_find("left");
@@ -442,6 +450,7 @@ static void fixed(void *u, double dt) {
   }
   case GS_PAUSE:
     G.prev = G.S;
+    if (cw_quality_menu_is_open()) break; /* the graphics page has the presses */
     if (G.state_ticks > 5 && (pressed(G.a_pause) || pressed(G.a_jump) || pressed(G.a_start) || mouse_clicked)) {
       /* the lower half of the panel is QUIT for the pointer; keys and pads resume */
       if (mouse_clicked && m.y > cs.y * 0.55f) load_world(0, true), G.state = GS_SELECT;
@@ -713,19 +722,26 @@ static void draw_select(float W, float H, float s) {
        rgba(0.3f, 0.25f, 0.2f, 1), CW_ALIGN_CENTER, W);
 }
 
-/* the graphics preset on the pause card (cartwheel/quality.h): Y or G steps
- * Low, Medium, High, Ultra (a click on the card already means resume
- * or quit). Render-only, so it is read in update, never in the simulation;
- * the choice is kept in the save. Touch players keep the default (High) */
+/* the graphics settings from the pause card (cartwheel/quality_menu.h): Y or
+ * G opens the page (a click on the card already means resume or quit),
+ * which owns the presses while it is open (the pause tick leaves them
+ * alone). Render-only, so it is read in update, never in the simulation;
+ * the choice is kept in the save. Touch players keep Auto */
 static void gfx_input(void) {
-  if (G.state != GS_PAUSE || G.state_ticks < 5) return;
+  if (G.state != GS_PAUSE) {
+    cw_quality_menu_close();
+    return;
+  }
+  if (cw_quality_menu_is_open()) {
+    cw_quality_menu_update();
+    if (!cw_quality_menu_is_open() && cw_quality_menu_changed()) save_write();
+    return;
+  }
+  if (G.state_ticks < 5) return;
   const cw_raw_input *in = cw_input_raw();
   bool hit = in->keys_pressed[10]; /* G */
   for (int i = 0; i < CW_MAX_PADS; i++) hit |= (in->pads[i].pressed & (1u << CW_PAD_NORTH)) != 0;
-  if (!hit) return;
-  cw_quality_cycle();
-  SAVE.quality = cw_quality_saved();
-  save_write();
+  if (hit) cw_quality_menu_open();
 }
 
 static void draw_pause(float W, float H, float s) {
@@ -736,7 +752,7 @@ static void draw_pause(float W, float H, float s) {
        rgba(0.25f, 0.2f, 0.15f, 1), CW_ALIGN_CENTER, W);
   if (input_mode == DEV_TOUCH || input_mode == DEV_MOUSE) text("tap here: quit to spouts", 0, H * 0.6f, 24 * s, rgba(0.6f, 0.2f, 0.1f, 1), CW_ALIGN_CENTER, W);
   char buf[64];
-  snprintf(buf, sizeof buf, input_mode == DEV_TOUCH ? "graphics: %s" : "graphics: %s   (Y / G to change)", cw_quality_label());
+  snprintf(buf, sizeof buf, input_mode == DEV_TOUCH ? "graphics: %s" : "graphics: %s   (Y / G for settings)", cw_quality_label());
   for (char *c = buf; *c; c++) *c = (char)(*c >= 'A' && *c <= 'Z' ? *c + 32 : *c);
   text(buf, 0, H * 0.52f, 18 * s, rgba(0.4f, 0.3f, 0.2f, 1), CW_ALIGN_CENTER, W);
 }
@@ -767,6 +783,7 @@ static void render(void *u, double alpha) {
     if (G.state == GS_PAUSE) draw_pause(W, H, s);
     if (G.state == GS_WIN) draw_win(W, H, s);
   }
+  cw_quality_menu_draw(&(cw_quality_menu_style){ .font = font_ui, .accent = rgba(0.95f, 0.55f, 0.3f, 1) });
   cw_r2d_end();
 }
 
