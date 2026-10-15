@@ -99,7 +99,8 @@ void world_prebuild_car(int i, int kind, const car_look *look);
 void world_reset(void);
 void world_tick(const sim *s);      /* fixed tick */
 /* each car's detail from a camera whose view is k of the screen's height;
- * a split view (k < 1) draws every car but its own (own: -1 none) at level 1 or lighter */
+ * a split view (k < 1) draws every car but the one it follows (own: -1 none)
+ * at level 1 or lighter beyond 12k metres */
 void world_lod(t3_vec3 eye, float k, int own);
 t3_vec3 world_car_pos(int i);
 

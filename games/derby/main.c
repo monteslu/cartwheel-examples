@@ -436,13 +436,19 @@ static void line_up(bool with_human) {
 /* each car's detail from this view's camera, just before the view renders
  * (a quadrant draws a car half as tall as the full screen does) */
 static int car_of_view(int v);
+static float view_fov = 64; /* the split views' vertical angle (views_setup) */
 static void view_lod(int v, void *u) {
   (void)u;
   const cw_view *vs = NULL;
   int n = cw_pipeline_views(cw_pipeline_of(cw_scene_app_tree()), &vs);
   /* the car this view follows (its player's, or the one it watches once that is out) keeps full detail */
   int me = car_of_view(v), follow = me >= 0 && (!G.S.c[me].wrecked || G.S.c[me].wreck_ticks < 150) ? me : RIG[v].spectate;
-  if (v < n) world_lod(RIG[v].cam_eye, vs[v].h, follow);
+  if (v >= n) return;
+  /* how big a car is drawn there against one player's full screen: the view's
+   * height over the tangent of its half angle (two players' views are
+   * narrower vertically, so a car there is drawn bigger than in a quarter) */
+  float k = vs[v].h * tanf(32 * CW_PI / 180) / tanf(view_fov * 0.5f * CW_PI / 180);
+  world_lod(RIG[v].cam_eye, k < 1 ? k : 0.999f, follow);
 }
 
 /* splitscreen: a Camera3D per player and the pipeline's views. Two players
@@ -461,6 +467,7 @@ static void views_setup(void) {
   cw_window_size(&ww, &wh);
   bool stacked = nviews == 2 && ww >= wh; /* (a tall screen splits side by side) */
   float fov = stacked ? 40 : 64;
+  view_fov = fov;
   cw_view vw[CW_MAX_VIEWS];
   static const float Q[CW_MAX_VIEWS][2] = { { 0, 0 }, { 0.5f, 0 }, { 0, 0.5f }, { 0.5f, 0.5f } };
   static const int Q3[3] = { 0, 2, 3 }; /* three players: top left, bottom left, bottom right */

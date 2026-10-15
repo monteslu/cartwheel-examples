@@ -359,7 +359,7 @@ void world_lod(t3_vec3 eye, float k, int own) {
     t3_vec3 p = cw_node3d_position(W.car_node[i]);
     float dx = p.x - eye.x, dz = p.z - eye.z, d = dx * dx + dz * dz;
     int lod = d > far * far ? 2 : d > near * near ? 1 : 0;
-    if (k < 1 && i != own && lod == 0) lod = 1;
+    if (k < 1 && i != own && lod == 0 && d > 12 * k * 12 * k) lod = 1; /* a split view: full detail only close by (6 m in a quarter) */
     car_set_trimmed(&W.car[i], k < 1 && i == own);
     car_set_lod(&W.car[i], lod);
   }
