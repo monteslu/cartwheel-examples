@@ -140,7 +140,7 @@ static void fence(cw_node root, float out) {
   t3_instanced_mesh *posts = t3_instanced_mesh_new(t3_cylinder_geometry_new(0.05f, 0.05f, hgt, 8, 1, false), st, n);
   t3_release(posts->mesh.geometry);
   for (int i = 0; i < n; i++) put(posts, i, (t3_vec3){ P[i].x, hgt * 0.5f, P[i].z }, 0, (t3_vec3){ 1, 1, 1 });
-  finish_sectors(root, "Posts", posts, true, 4);
+  finish_sectors(root, "Posts", posts, true, 1);
   /* the mesh between the posts, and a rail along the top */
   mesh_build b = { 0 }, rail = { 0 };
   float u = 0;
@@ -205,8 +205,8 @@ static int bleachers(cw_node root, float side, uint32_t *h, int crowd0) {
     float top = 0.5f + (rows - 1) * rise;
     mb_append(&legs, t3_box_geometry_new(0.1f, top, 0.1f, 1, 1, 1), &at(side * (x0 + (rows - 1) * depth), top * 0.5f, z));
   }
+  mb_merge(&seats, &risers); /* one wood mesh (the risers cast shadows too) */
   add_part(g, mb_finish(&seats), wood, true, true);
-  add_part(g, mb_finish(&risers), wood, false, true);
   add_part(g, mb_finish(&legs), st, true, false);
   hang(root, side > 0 ? "StandsL" : "StandsR", g);
   t3_release(g);
@@ -349,7 +349,6 @@ static void floodlights(cw_node root) {
     b->base.position = (t3_vec3){ 0, -dist * 0.4f * cw_sin(pitch), dist * 0.4f * cw_cos(pitch) };
     t3_object_set_rotation(&b->base, 1.5707963f + pitch, 0, 0);
     b->base.render_order = 40;
-    b->base.frustum_culled = false;
     t3_object_add(head, b);
     S.shaft[k] = &b->base;
     S.shaft_a[k] = (t3_vec3){ x, H, z };
@@ -408,7 +407,7 @@ static void car_stacks(cw_node root, uint32_t *h) {
       k++;
     }
   }
-  finish_sectors(root, "Crushed", im, true, 4);
+  finish_sectors(root, "Crushed", im, true, 2);
 }
 
 /* a tree line and a few sheds far out, dark against the sky */
@@ -427,7 +426,7 @@ static void horizon(cw_node root, uint32_t *h) {
       put(im, i * 3 + k, (t3_vec3){ x + ox, oy, z + oz }, 0, (t3_vec3){ sc, sc * 0.85f, sc });
     }
   }
-  finish_sectors(root, "Trees", im, false, 4);
+  finish_sectors(root, "Trees", im, false, 2);
 }
 
 void scenery_reset(void) {

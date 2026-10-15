@@ -803,19 +803,6 @@ static void shared_make(void) {
   }
 }
 
-/* append b's vertices and triangles to a (same material), freeing b */
-static void mb_merge(mesh_build *a, mesh_build *b) {
-  int base = a->nv;
-  for (int i = 0; i < b->nv; i++) {
-    const float *p = b->pos + i * 3, *n = b->nor + i * 3, *u = b->uv + i * 2, *c = b->col + i * 3;
-    int v = mb_vert(a, (t3_vec3){ p[0], p[1], p[2] }, (t3_vec3){ n[0], n[1], n[2] }, u[0], u[1]);
-    if (b->colors) mb_color(a, v, c[0], c[1], c[2]);
-  }
-  for (int i = 0; i + 2 < b->ni; i += 3) mb_tri(a, base + (int)b->idx[i], base + (int)b->idx[i + 1], base + (int)b->idx[i + 2]);
-  free(b->pos), free(b->nor), free(b->uv), free(b->col), free(b->idx);
-  memset(b, 0, sizeof *b);
-}
-
 void car_build(car_model *m, int kind, int colour, int number) {
   shared_make();
   memset(m, 0, sizeof *m);
@@ -863,6 +850,7 @@ void car_build(car_model *m, int kind, int colour, int number) {
   for (int i = 0; i < MATS; i++) mat[i]->vertex_colors = true;
   t3_material *chrome = SHARED.chrome, *black = SHARED.black, *dark = SHARED.dark;
   /* the bodies, three levels of detail */
+  mesh_build trim0 = { 0 }; /* level 0's trim: its shell is made with the chrome details, below */
   for (int lod = 0; lod < 3; lod++) {
     pieces P;
     memset(&P, 0, sizeof P);
@@ -883,6 +871,9 @@ void car_build(car_model *m, int kind, int colour, int number) {
       mb_merge(&P.mb[into], &P.mb[MAT_RUST]);
       mb_merge(&P.mb[into], &glass);
       mb_merge(&P.mb[into], &trim);
+      t3_mat4 one;
+      t3_mat4_identity(&one);
+      mb_append(&P.mb[into], t3_retain(SHARED.liners[kind]), &one); /* the arch liners too */
       float bump_y = sh->sill + 0.2f;
       for (int e = 0; e < 2; e++)
         box_into(&P.mb[into], (t3_vec3){ 0, bump_y, e == 0 ? k->hl + 0.07f : -k->hl - 0.07f }, (t3_vec3){ 2 * k->hw + 0.04f, 0.17f, 0.1f }, 0.03f, CHROME_C);
@@ -914,18 +905,12 @@ void car_build(car_model *m, int kind, int colour, int number) {
       t3_object_add(m->bodies[lod], s->mesh);
       t3_release(g);
     }
-    if (trim.nv) { /* (level 0's: the lighter levels carry theirs in the skin) */
-      car_shell *s = &m->trim;
-      shell_take(s, &trim);
-      s->mesh = t3_mesh_new(s->geo, chrome);
-      s->mesh->base.receive_shadow = true;
-      t3_object_add(m->bodies[lod], s->mesh);
-    }
+    if (trim.nv) trim0 = trim; /* (level 0's: the lighter levels carry theirs in the skin) */
     t3_object_add(m->body, m->bodies[lod]);
     t3_release(m->bodies[lod]);
     m->bodies[lod]->visible = lod == 0;
   }
-  mesh_in(m->body, t3_retain(SHARED.liners[kind]), dark, false);
+  mesh_in(m->bodies[0], t3_retain(SHARED.liners[kind]), dark, false); /* (the lighter levels carry them in their skin) */
   /* the bonnet lid on its hinge (dents ride it too) */
   {
     t3_vec3 hinge = { 0, keyed(sh->belt, sh->nbelt, sh->cowl) + 0.02f, sh->cowl + 0.05f };
@@ -1133,8 +1118,13 @@ void car_build(car_model *m, int kind, int colour, int number) {
     }
     mb_merge(&g, &ex); /* the exhaust with the black details */
     mb_merge(&ch, &sm);
-    mesh_in(m->bodies[0], mb_finish(&ch), chrome, false);
-    mesh_in(m->bodies[0], mb_finish(&g), black, false);
+    /* the chrome details ride in the trim's shell (one chrome mesh, dented with it) */
+    mb_merge(&trim0, &ch);
+    shell_take(&m->trim, &trim0);
+    m->trim.mesh = t3_mesh_new(m->trim.geo, chrome);
+    m->trim.mesh->base.receive_shadow = true;
+    t3_object_add(m->bodies[0], m->trim.mesh);
+    m->details = mesh_in(m->bodies[0], mb_finish(&g), black, false);
   }
   /* the beams: soft additive cones out front, front faces only */
   t3_material *beam = t3_mesh_basic_material_new(0xffffff);
@@ -1161,7 +1151,6 @@ void car_build(car_model *m, int kind, int colour, int number) {
     t3_mesh *c = t3_mesh_new(mb_finish(&bm), beam);
     t3_release(c->geometry);
     c->base.render_order = 30;
-    c->base.frustum_culled = false;
     t3_object_add(m->beams, c);
     t3_release(c);
   }
@@ -1404,6 +1393,15 @@ void car_apply_dents(car_model *m, const car *c) {
   dents_catch_up(m, 3);
 }
 
+/* a car its own split view follows: the small parts a quarter of the
+ * screen cannot show from behind (the grille and lamp bezels, the parking
+ * lamps, the exhaust, the headlamp beams) are left out */
+void car_set_trimmed(car_model *m, bool trimmed) {
+  if (m->details) m->details->base.visible = !trimmed;
+  if (m->beams_on) m->beams->visible = !trimmed;
+  m->trimmed = trimmed;
+}
+
 void car_set_lod(car_model *m, int lod) {
   if (m->lod == lod) return;
   m->lod = lod;
@@ -1466,5 +1464,6 @@ void car_pose(car_model *m, const car *c, int ticks) {
   float flicker = c->hp < 35 && lit ? 0.6f + 0.4f * cw_sin(ticks * 0.9f + m->number) : 1;
   m->lamp_mat->emissive_intensity = lit ? 3 * flicker : 0;
   m->tail_mat->emissive_intensity = lit ? 1.5f : 0;
-  m->beams->visible = lit;
+  m->beams_on = lit;
+  m->beams->visible = lit && !m->trimmed;
 }

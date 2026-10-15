@@ -91,6 +91,19 @@ t3_geometry *mb_finish(mesh_build *b) {
   return g;
 }
 
+/* append b's vertices and triangles to a (same material), freeing b */
+void mb_merge(mesh_build *a, mesh_build *b) {
+  int base = a->nv;
+  for (int i = 0; i < b->nv; i++) {
+    const float *p = b->pos + i * 3, *n = b->nor + i * 3, *u = b->uv + i * 2, *c = b->col + i * 3;
+    int v = mb_vert(a, (t3_vec3){ p[0], p[1], p[2] }, (t3_vec3){ n[0], n[1], n[2] }, u[0], u[1]);
+    if (b->colors) mb_color(a, v, c[0], c[1], c[2]);
+  }
+  for (int i = 0; i + 2 < b->ni; i += 3) mb_tri(a, base + (int)b->idx[i], base + (int)b->idx[i + 1], base + (int)b->idx[i + 2]);
+  free(b->pos), free(b->nor), free(b->uv), free(b->col), free(b->idx);
+  memset(b, 0, sizeof *b);
+}
+
 /* append a geometry placed by a rigid transform (positions, normals, uvs,
  * its colours if it has them, index), so static parts sharing a material draw
  * as one mesh. Takes the geometry's reference. */

@@ -182,7 +182,7 @@ static void build_wall(cw_node root) {
     t3_instanced_mesh_set_color_at(im, i, c);
   }
   im->mesh.base.cast_shadow = im->mesh.base.receive_shadow = true;
-  hang_sectors(root, "Wall", im, 6);
+  hang_sectors(root, "Wall", im, 4);
   /* stacks of old tyres bolted along the top of the corners: soft bits for the eye */
   static arena_pt T[256];
   int nt = arena_line(T, 256, 1.1f, 0.33f);
@@ -208,7 +208,7 @@ static void build_wall(cw_node root) {
   }
   tm->mesh.base.cast_shadow = tm->mesh.base.receive_shadow = true;
   tm->count = k; /* the stacks placed */
-  hang_sectors(root, "Tyres", tm, 4); /* the four corners */
+  hang_sectors(root, "Tyres", tm, 1);
 }
 
 /* ── skid marks ─────────────────────────────────────────────────────── */
@@ -353,13 +353,14 @@ void world_lod(t3_vec3 eye, float k, int own) {
   if (!W.ready) return;
   /* full detail close up, the silhouette far off; distances in a view k of
    * the screen's height tall (a car there is drawn k times as big) */
-  float near = 25 * k, far = 60 * k;
+  float near = 25 * k, far = (k < 1 ? 20 : 60) * k; /* a split view: the silhouette from 10 m (a quarter screen's car is small) */
   for (int i = 0; i < MAXC; i++) {
     if (!W.on[i]) continue;
     t3_vec3 p = cw_node3d_position(W.car_node[i]);
     float dx = p.x - eye.x, dz = p.z - eye.z, d = dx * dx + dz * dz;
     int lod = d > far * far ? 2 : d > near * near ? 1 : 0;
     if (k < 1 && i != own && lod == 0) lod = 1;
+    car_set_trimmed(&W.car[i], k < 1 && i == own);
     car_set_lod(&W.car[i], lod);
   }
 }

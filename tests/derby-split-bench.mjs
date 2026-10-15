@@ -17,7 +17,8 @@
 // before --end, all of them in the bout. CPU is the main thread's own CPU
 // time per phase (sim: the fixed ticks; render: culling, recording and
 // submitting the draws), so waits on the GPU stay out of it; frame is the
-// wall time from frame to frame.
+// wall time from frame to frame. The CPU against one player is the ratio
+// within each round (its runs follow one another), the median of the rounds.
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
@@ -113,7 +114,10 @@ for (const gpu of GPUS) {
     const c = (k) => (p.thread_cpu ? Math.min(...runs.map((x) => x.perf.thread_cpu[k])) : null); // main-thread CPU time
     const passes = Object.fromEntries((timed.pipe.passes || []).filter((x) => x.ran && !x.fused && x.gpu_ms > 0).map((x) => [x.name, r2(x.gpu_ms)]));
     const cpuPasses = Object.fromEntries((clean.pipe.passes || []).filter((x) => x.ran && !x.fused && x.cpu_ms > 0).map((x) => [x.name, r2(x.cpu_ms)]));
-    results.push({ build, gpu, players: n, res: RES, frame: r2(a('frame')), sim: r2(a('sim')), update: r2(a('update')), render: r2(a('render')), cpu_sim: r2(c('sim')), cpu_render: r2(c('render')), cpu_frame: r2(c('frame')),
+    // against one player: the ratio within each round (the runs next to each other), the median of the rounds
+    const ones = cleans.get(key(e, 1));
+    const vs1 = (k) => (ones && p.thread_cpu ? median(runs.map((x, i) => x.perf.thread_cpu[k] / ones[i].perf.thread_cpu[k])) : null);
+    results.push({ build, gpu, players: n, cpu_render_vs1: vs1('render'), res: RES, frame: r2(a('frame')), sim: r2(a('sim')), update: r2(a('update')), render: r2(a('render')), cpu_sim: r2(c('sim')), cpu_render: r2(c('render')), cpu_frame: r2(c('frame')),
       present: r2(a('present')), draws: p.draw_calls, tris: p.triangles, gpu_ms: r2(timed.pipe.gpu_ms), gpu_passes: passes, cpu_passes: cpuPasses });
     console.error(`${build}${build && ' '}${gpu} ${n}p: frame ${r2(a('frame'))} ms, sim ${r2(a('sim'))}, render ${r2(a('render'))} (cpu ${r2(c('render'))}), gpu ${r2(timed.pipe.gpu_ms)} ms, ${p.draw_calls} draws`);
   }
@@ -121,12 +125,13 @@ for (const gpu of GPUS) {
 
 // the table: each count against one player on the same backend
 const pct = (x, b) => (b ? `${x >= b ? '+' : ''}${Math.round((x / b - 1) * 100)}%` : '-');
+const pctr = (r) => (r == null ? '-' : `${r >= 1 ? '+' : ''}${Math.round((r - 1) * 100)}%`);
 const lines = [`derby splitscreen, ${RES}, native, last ${WINDOW} of ${END} frames`, '',
   '| backend | players | frame ms | sim CPU ms | render CPU ms | GPU ms | draws | render CPU vs 1P | GPU vs 1P |',
   '|---|---|---|---|---|---|---|---|---|'];
 for (const r of results) {
   const one = results.find((x) => x.build === r.build && x.gpu === r.gpu && x.players === 1) || r;
-  lines.push(`| ${r.build}${r.build && ' '}${r.gpu} | ${r.players} | ${r.frame} | ${r.cpu_sim} | ${r.cpu_render} | ${r.gpu_ms} | ${r.draws} | ${pct(r.cpu_render, one.cpu_render)} | ${pct(r.gpu_ms, one.gpu_ms)} |`);
+  lines.push(`| ${r.build}${r.build && ' '}${r.gpu} | ${r.players} | ${r.frame} | ${r.cpu_sim} | ${r.cpu_render} | ${r.gpu_ms} | ${r.draws} | ${pctr(r.cpu_render_vs1)} | ${pct(r.gpu_ms, one.gpu_ms)} |`);
 }
 lines.push('', 'GPU ms by pass:');
 for (const r of results) lines.push(`  ${r.build}${r.build && ' '}${r.gpu} ${r.players}p: ${Object.entries(r.gpu_passes).map(([k, v]) => `${k} ${v}`).join(', ')}`);

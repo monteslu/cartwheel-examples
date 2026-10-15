@@ -50,6 +50,8 @@ typedef struct car_model {
   car_shell glass[3], trim, lid, numbers, screen; /* dented too */
   t3_object *hood;          /* the lid's hinge */
   t3_object *lamps;         /* head and tail lamps (levels 0 and 1) */
+  t3_mesh *details;         /* level 0's black details (grille, bezels, parking lamps, exhaust) */
+  bool beams_on, trimmed;   /* the headlamp beams lit; car_set_trimmed */
   t3_vec3 lid_origin;
   t3_mesh *cabin;
   t3_object *wheel[4], *wheel_lod[4][3], *bumper[2], *beams;
@@ -66,6 +68,7 @@ void car_free(car_model *m);
 void car_apply_dents(car_model *m, const car *c);   /* when the sim's dents change */
 void car_pose(car_model *m, const car *c, int ticks); /* fixed tick: wheels, lean, bumpers, bonnet, lamps */
 void car_set_lod(car_model *m, int lod);            /* 0 full, 1 light, 2 silhouette */
+void car_set_trimmed(car_model *m, bool trimmed);   /* level 0 without the parts a small view cannot show */
 float car_wheel_yaw(const car *c, int w);           /* the front wheels' drawn angle (+: toward +x, the car's left) */
 t3_texture *tex_crack(void);
 t3_texture *tex_crack_clean(void); /* side-window grime, sampled like the crack */
@@ -113,5 +116,6 @@ void mb_tri(mesh_build *b, int a, int c, int d);
 void mb_quad(mesh_build *b, int a, int c, int d, int e);
 t3_geometry *mb_finish(mesh_build *b);
 void mb_append(mesh_build *b, t3_geometry *g, const t3_mat4 *m); /* a static part placed by m; takes g */
+void mb_merge(mesh_build *a, mesh_build *b); /* b's vertices and triangles onto a's; frees b */
 
 #endif
