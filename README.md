@@ -57,8 +57,13 @@ Up to four players split screen. `games/derby/`
 ![pugball: the cat ball in play during a match](docs/screenshots/pugball.jpg)
 
 Soccer with jet-pack pugs and a fat, cross cat for a ball. 1v1 to 3v3 with
-players and CPUs, five stadiums and the Pug Cup to unlock them. The match
-runs on Box3D. `games/pugball/`
+players and CPUs, five stadiums and the Pug Cup to unlock them. Up to four
+players share the screen, one pad each: pads 2-4 join on the team sheet and
+pick their side, and CPUs fill the other slots. Two players split the screen
+top and bottom, three or four take its quarters (with three, the last
+quarter holds the score, the clock and a mini map of the pitch). Each player
+has a chase camera with its own ball cam and boost gauge. The match runs on
+Box3D. `games/pugball/`
 
 ### spout
 
@@ -186,6 +191,17 @@ per frame by pass, the draw calls, and each against one player in percent.
 ```sh
 node tests/bikemesa-split-bench.mjs                         # GL and WebGPU, 1-4 players, 3 runs each
 node tests/bikemesa-split-bench.mjs --gpus webgpu --runs 5
+```
+
+`tests/pugball-split-bench.mjs` does the same for Pugball: one 2v2 in the
+first stadium with one to four players (CPUs fill the other pugs), every pad
+driving at the cat from the kickoff (`tests/pugball-split1.json` to
+`pugball-split4.json`). The CPU numbers come from runs without GPU timers,
+the GPU numbers from runs with them.
+
+```sh
+node tests/pugball-split-bench.mjs                          # GL and WebGPU, 1-4 players, 5 rounds
+node tests/pugball-split-bench.mjs --gpus gl --players 1,4 --runs 3
 ```
 
 ## CI
