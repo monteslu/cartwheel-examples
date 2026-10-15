@@ -3,6 +3,7 @@ physical+map+rep+nmap+ao+rmap+shadow+senv+l1341+s100
 physical+map+vcol+rep+nmap+ao+rmap+shadow+senv+cc+l1341+s100
 physical+map+vcol+rep+nmap+ao+rmap+shadow+senv+l1341+s100
 physical+vcol+shadow+senv+l1341+s100
+physical+vcol+instbig+shadow+senv+l1341+s100
 physical+map+vcol+shadow+senv+atest+l1341+s100
 physical+map+vcol+rep+nmap+ao+rmap+shadow+senv+ds+cc+l1341+s100
 physical+map+vcol+rep+instbig+nmap+ao+rmap+shadow+senv+l1341+s100

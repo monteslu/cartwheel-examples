@@ -1511,6 +1511,178 @@
     ]
   },
   {
+    "name": "derby-split3",
+    "app": "derby",
+    "frames": 700,
+    "input": "derby-split3.json",
+    "controlInput": "derby-split3-idle.json",
+    "maxGt16": 0.05,
+    "fields": [
+      "game.state",
+      "bout.phase",
+      "bout.clock",
+      "bout.alive",
+      "bout.winner",
+      "cars.pos",
+      "cars.hp",
+      "cars.dents",
+      "cars.wrecked",
+      "cars.slot",
+      "cars.points",
+      "count.crashes",
+      "count.walls",
+      "count.wrecks",
+      "count.max_hit",
+      "count.flips",
+      "ticks",
+      "sim.hash",
+      "state.hash",
+      "input.mode",
+      "tex.hash",
+      "scenery.hash",
+      "car0.wheel_yaw",
+      "car0.yaw_rate",
+      "check.steer_agrees",
+      "views",
+      "players.thr",
+      "players.steer",
+      "cw.pad1.buttons",
+      "cw.pad1.connected",
+      "cw.pad2.buttons",
+      "cw.pad2.connected"
+    ],
+    "expect": {
+      "game.state": 1,
+      "bout.phase": 1,
+      "views": 3,
+      "cars.slot": [
+        1,
+        1,
+        1,
+        2,
+        2,
+        4,
+        0,
+        0
+      ],
+      "players.thr": [
+        127,
+        127,
+        -127,
+        0
+      ],
+      "players.steer": [
+        70,
+        -127,
+        28,
+        0
+      ],
+      "cw.pad1.buttons": 1024,
+      "cw.pad1.connected": 1,
+      "cw.pad2.buttons": 512,
+      "cw.pad2.connected": 1
+    },
+    "webgpu": {
+      "vsGl": 0.25,
+      "maxGt16": 0.05,
+      "hosts": [
+        "native",
+        "romdev",
+        "chromium"
+      ],
+      "note": "Three-way splitscreen on WebGPU."
+    },
+    "note": "Three players join on the title with pads 2 and 3 ((A) on each), P1 starts QUICK MATCH: three views (top left, bottom left, bottom right) and the top right quadrant for the shared HUD (clock, mode, cars running, the standings) and the map. Every player drives from their own pad, each a different line; players.thr / players.steer are each player's car's input on the last tick (P1 throttle and right, P2 throttle and full left, P3 reversing). cw.pad1-3.buttons are what the platform delivered on each pad (R1, L1, R1). The control joins the same players and never drives."
+  },
+  {
+    "name": "derby-split4",
+    "app": "derby",
+    "frames": 700,
+    "input": "derby-split4.json",
+    "controlInput": "derby-split4-idle.json",
+    "maxGt16": 0.05,
+    "fields": [
+      "game.state",
+      "bout.phase",
+      "bout.clock",
+      "bout.alive",
+      "bout.winner",
+      "cars.pos",
+      "cars.hp",
+      "cars.dents",
+      "cars.wrecked",
+      "cars.slot",
+      "cars.points",
+      "count.crashes",
+      "count.walls",
+      "count.wrecks",
+      "count.max_hit",
+      "count.flips",
+      "ticks",
+      "sim.hash",
+      "state.hash",
+      "input.mode",
+      "tex.hash",
+      "scenery.hash",
+      "car0.wheel_yaw",
+      "car0.yaw_rate",
+      "check.steer_agrees",
+      "views",
+      "players.thr",
+      "players.steer",
+      "cw.pad1.buttons",
+      "cw.pad1.connected",
+      "cw.pad2.buttons",
+      "cw.pad2.connected",
+      "cw.pad3.buttons",
+      "cw.pad3.connected"
+    ],
+    "expect": {
+      "game.state": 1,
+      "bout.phase": 1,
+      "views": 4,
+      "cars.slot": [
+        1,
+        1,
+        1,
+        1,
+        2,
+        4,
+        0,
+        0
+      ],
+      "players.thr": [
+        127,
+        127,
+        -127,
+        127
+      ],
+      "players.steer": [
+        70,
+        -127,
+        28,
+        0
+      ],
+      "cw.pad1.buttons": 1024,
+      "cw.pad1.connected": 1,
+      "cw.pad2.buttons": 512,
+      "cw.pad2.connected": 1,
+      "cw.pad3.buttons": 1024,
+      "cw.pad3.connected": 1
+    },
+    "webgpu": {
+      "vsGl": 0.25,
+      "maxGt16": 0.05,
+      "hosts": [
+        "native",
+        "romdev",
+        "chromium"
+      ],
+      "note": "Four-way splitscreen on WebGPU."
+    },
+    "note": "Four players join on the title with pads 2-4, P1 starts QUICK MATCH: four quadrants, the clock and the cars running where they meet. Every player drives from their own pad, each a different line; players.thr / players.steer are each player's car's input on the last tick (P1 throttle and right, P2 throttle and full left, P3 reversing, P4 throttle straight). cw.pad1-3.buttons are what the platform delivered on each pad (R1, L1, R1). The control joins the same players and never drives."
+  },
+  {
     "name": "derby-ram",
     "app": "derby_ram",
     "frames": 1750,

@@ -90,6 +90,7 @@ static save_data SAVE;
 static struct {
   /* debug fields */
   int32_t state, phase, clock, alive, winner, ticks, state_ticks, lookback;
+  int32_t thr[4], steer[4]; /* each player's car's input on the last tick (P1-P4; 0 without that player) */
   int32_t pos[MAXC * 2], hp[MAXC], dents[MAXC], wrecked[MAXC], slots[MAXC], points[MAXC];
   int32_t crashes, walls, wrecks, max_hit, flips;
   float wheel_yaw0, yaw_rate0;  /* car 1's drawn front-wheel angle and its turn rate (rad, rad/s; + = left) */
@@ -129,6 +130,11 @@ typedef struct rig {
 } rig;
 static rig RIG[CW_MAX_VIEWS];
 static int nviews; /* humans with a view of their own in this bout (1 = full screen) */
+/* a driver's name: YOU alone, P1-P4 with more than one player */
+static const char *driver(int i) {
+  static const char *const P[4] = { "P1", "P2", "P3", "P4" };
+  return nviews > 1 && G.human_of[i] >= 0 && G.human_of[i] < 4 ? P[G.human_of[i]] : DRIVER[i];
+}
 
 /* ── autopilot: a gate's pad script compiled in ───────────────────── */
 
@@ -388,6 +394,8 @@ static void load_scene(int index) {
   nviews = 1;
   G.views = 1;
   cw_pipeline_set_views(cw_pipeline_of(cw_scene_app_tree()), NULL, 0);
+  cw_pipeline_set_view_hook(cw_pipeline_of(cw_scene_app_tree()), NULL, NULL);
+  cw_pipeline_set_views_shared_post(cw_pipeline_of(cw_scene_app_tree()), false);
 }
 
 static void assign_humans(void) {
@@ -425,30 +433,61 @@ static void line_up(bool with_human) {
   }
 }
 
-/* splitscreen: a Camera3D per extra player, the pipeline's views split
- * between them, and the costs that scale with views trimmed (GTAO off, a
- * smaller sun shadow) */
+/* each car's detail from this view's camera, just before the view renders
+ * (a quadrant draws a car half as tall as the full screen does) */
+static int car_of_view(int v);
+static void view_lod(int v, void *u) {
+  (void)u;
+  const cw_view *vs = NULL;
+  int n = cw_pipeline_views(cw_pipeline_of(cw_scene_app_tree()), &vs);
+  /* the car this view follows (its player's, or the one it watches once that is out) keeps full detail */
+  int me = car_of_view(v), follow = me >= 0 && (!G.S.c[me].wrecked || G.S.c[me].wreck_ticks < 150) ? me : RIG[v].spectate;
+  if (v < n) world_lod(RIG[v].cam_eye, vs[v].h, follow);
+}
+
+/* splitscreen: a Camera3D per player and the pipeline's views. Two players
+ * one above the other: each view keeps the arena's full width (the hits come
+ * from the sides), with a narrower vertical field of view so the picture is
+ * as wide as one player's. Three take three quadrants (the top right one is
+ * the shared HUD and the map), four take all four. The costs that scale
+ * with views are trimmed (GTAO off, a smaller sun shadow). */
 static void views_setup(void) {
   int n = 0;
   for (int i = 0; i < MAXC; i++) n += G.human_of[i] >= 0;
   nviews = n < 1 ? 1 : n;
   G.views = nviews;
   if (nviews < 2) return;
-  cw_node cams[CW_MAX_VIEWS];
-  cams[0] = RIG[0].cam;
-  for (int v = 1; v < nviews; v++) {
-    char name[16];
-    snprintf(name, sizeof name, "Camera%d", v + 1);
-    cw_node c = cw_node_new("Camera3D", name);
-    cw_node_add_child(G.scene, c);
-    cw_node_set(c, "fov", cw_val_float(64));
-    cw_node_set(c, "near", cw_val_float(0.2f));
-    cw_node_set(c, "far", cw_val_float(600));
-    cw_node_set(c, "interpolate", cw_val_bool(true));
-    RIG[v].cam = c;
-    cams[v] = c;
+  int ww = 0, wh = 0;
+  cw_window_size(&ww, &wh);
+  bool stacked = nviews == 2 && ww >= wh; /* (a tall screen splits side by side) */
+  float fov = stacked ? 40 : 64;
+  cw_view vw[CW_MAX_VIEWS];
+  static const float Q[CW_MAX_VIEWS][2] = { { 0, 0 }, { 0.5f, 0 }, { 0, 0.5f }, { 0.5f, 0.5f } };
+  static const int Q3[3] = { 0, 2, 3 }; /* three players: top left, bottom left, bottom right */
+  for (int v = 0; v < nviews; v++) {
+    cw_node c = RIG[0].cam;
+    if (v > 0) {
+      char name[16];
+      snprintf(name, sizeof name, "Camera%d", v + 1);
+      c = cw_node_new("Camera3D", name);
+      cw_node_add_child(G.scene, c);
+      cw_node_set(c, "near", cw_val_float(0.2f));
+      cw_node_set(c, "far", cw_val_float(600));
+      cw_node_set(c, "interpolate", cw_val_bool(true));
+      RIG[v].cam = c;
+    }
+    cw_node_set(c, "fov", cw_val_float(fov));
+    if (nviews == 2) vw[v] = stacked ? (cw_view){ c, 0, 0.5f * v, 1, 0.5f } : (cw_view){ c, 0.5f * v, 0, 0.5f, 1 };
+    else {
+      int q = nviews == 3 ? Q3[v] : v;
+      vw[v] = (cw_view){ c, Q[q][0], Q[q][1], 0.5f, 0.5f };
+    }
   }
-  cw_pipeline_split(cw_pipeline_of(cw_scene_app_tree()), cams, nviews);
+  cw_pipeline *pl = cw_pipeline_of(cw_scene_app_tree());
+  cw_pipeline_set_views(pl, vw, nviews);
+  cw_pipeline_set_view_hook(pl, view_lod, NULL);
+  cw_pipeline_set_views_shared_post(pl, true); /* bloom, the grade and AA once over the laid-out views */
+  scenery_light_crowd(true);
   cw_node post = find_type(G.scene, "PostProcess");
   if (cw_node_valid(post)) cw_node_set(post, "ssao", cw_val_bool(false));
   if (cw_node_valid(G.sun)) cw_node_set(G.sun, "shadow_size", cw_val_int(1024));
@@ -470,6 +509,8 @@ static void start_bout(int arena, bool with_human) {
   G.slot[0] = SLOT_ACE; /* the self-playing build: six CPUs, a short bout to a winner */
 #endif
   assign_humans();
+  memset(G.thr, 0, sizeof G.thr);
+  memset(G.steer, 0, sizeof G.steer);
   bool on[MAXC];
   for (int i = 0; i < MAXC; i++) on[i] = G.slot[i] != SLOT_OFF;
   int secs = BOUT_SECS;
@@ -622,6 +663,8 @@ static void init(void *u) {
   cw_debug_field("cars.wrecked", G.wrecked, CW_DBG_I32, MAXC);
   cw_debug_field("cars.slot", G.slots, CW_DBG_I32, MAXC);
   cw_debug_field("cars.points", G.points, CW_DBG_I32, MAXC);
+  cw_debug_field("players.thr", G.thr, CW_DBG_I32, 4);
+  cw_debug_field("players.steer", G.steer, CW_DBG_I32, 4);
   cw_debug_i32("count.crashes", &G.crashes);
   cw_debug_i32("count.walls", &G.walls);
   cw_debug_i32("count.wrecks", &G.wrecks);
@@ -958,8 +1001,8 @@ static void sim_sounds(void) {
     case EV_WRECK: {
       sfx_at(SFX_BOOM, e->at, 1, 1);
       sfx(SFX_CHEER, 0.9f);
-      if (e->b >= 0) snprintf(G.feed, sizeof G.feed, "#%d %s WRECKED #%d %s!", G.look[e->b].number, DRIVER[e->b], G.look[e->a].number, DRIVER[e->a]);
-      else snprintf(G.feed, sizeof G.feed, "#%d %s IS DONE FOR!", G.look[e->a].number, DRIVER[e->a]);
+      if (e->b >= 0) snprintf(G.feed, sizeof G.feed, "#%d %s WRECKED #%d %s!", G.look[e->b].number, driver(e->b), G.look[e->a].number, driver(e->a));
+      else snprintf(G.feed, sizeof G.feed, "#%d %s IS DONE FOR!", G.look[e->a].number, driver(e->a));
       G.feed_ticks = 200;
       break;
     }
@@ -1019,6 +1062,8 @@ static void fixed(void *u, double dt) {
 #endif
     }
     sim_step(&G.S, in);
+    for (int i = 0; i < MAXC; i++)
+      if (G.human_of[i] >= 0 && G.human_of[i] < 4) G.thr[G.human_of[i]] = in[i].thr, G.steer[G.human_of[i]] = in[i].steer;
     static FILE *rec; /* dev aid: DERBY_RECORD=file logs every tick's input (tools/make-gate-script.mjs) */
     static bool rec_checked;
     if (!rec_checked) {
@@ -1078,7 +1123,7 @@ static void fixed(void *u, double dt) {
     t3_vec3 eyes[CW_MAX_VIEWS];
     int n = G.state == GS_TITLE ? 1 : nviews;
     for (int v = 0; v < n; v++) eyes[v] = RIG[v].cam_eye;
-    world_lod(eyes, n, n > 1);
+    if (n == 1) world_lod(eyes[0], 1, -1); /* splitscreen: per view (view_lod) */
     scenery_beams(eyes, n);
   }
   const sim *s = &G.S;
@@ -1333,33 +1378,89 @@ static void field_list(float lx, float ly, float s) {
   }
 }
 
-/* the splitscreen HUD: a plate per view (player tag, number, engine, speed),
- * WRECKED inside a wrecked player's view, the clock where the views meet,
- * and the field in the spare quadrant of a three-way split */
+/* the arena from above in r (z up the screen): the wall, the cars as
+ * little boxes along their headings; each player's car in its paint with
+ * its tag, the CPUs plain, the wrecks greyed */
+static void mini_map(cw_rect r, float s) {
+  const sim *S = &G.S;
+  static arena_pt line[160];
+  static int nline;
+  if (!nline) nline = arena_line(line, 160, 1.5f, 0);
+  float k = fminf(r.w / (2 * AW + 4), r.h / (2 * AL + 4)), cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
+  cw_vec2 pts[160];
+  for (int i = 0; i < nline; i++) pts[i] = cw_v2(cx + line[i].x * k, cy - line[i].z * k);
+  cw_r2d_polygon(pts, nline, rgba(0.2f, 0.16f, 0.12f, 0.92f));
+  cw_r2d_polygon_lines(pts, nline, 2.5f * s, rgba(0.75f, 0.72f, 0.66f, 1));
+  char buf[16];
+  for (int pass = 0; pass < 2; pass++) /* the players on top */
+    for (int i = 0; i < MAXC; i++) {
+      const car *c = &S->c[i];
+      bool human = G.human_of[i] >= 0;
+      if (!c->on || human != (pass == 1)) continue;
+      const car_spec *ks = &CAR_SPEC[c->kind];
+      float sh, ch;
+      cw_sincos(c->h, &sh, &ch);
+      /* forward (sin h, cos h) and side (cos h, -sin h) in the world; screen y is -z */
+      float fl = ks->hl * k * 1.25f, sw = ks->hw * k * 1.25f;
+      cw_vec2 f = cw_v2(sh * fl, -ch * fl), d = cw_v2(ch * sw, sh * sw), o = cw_v2(cx + c->x * k, cy - c->z * k);
+      cw_vec2 q[4] = { cw_v2(o.x + f.x + d.x, o.y + f.y + d.y), cw_v2(o.x + f.x - d.x, o.y + f.y - d.y),
+                       cw_v2(o.x - f.x - d.x, o.y - f.y - d.y), cw_v2(o.x - f.x + d.x, o.y - f.y + d.y) };
+      cw_color col = c->wrecked ? rgba(0.32f, 0.31f, 0.3f, 0.9f) : human ? paint_col(i, 1) : rgba(0.86f, 0.84f, 0.8f, 1);
+      cw_r2d_polygon(q, 4, col);
+      if (human) {
+        cw_r2d_polygon_lines(q, 4, 2 * s, c->wrecked ? rgba(0.5f, 0.48f, 0.45f, 1) : rgba(1, 0.95f, 0.85f, 1));
+        snprintf(buf, sizeof buf, "P%d", G.human_of[i] + 1);
+        small(buf, o.x - 30 * s, o.y - 26 * s, 13 * s, c->wrecked ? rgba(0.6f, 0.58f, 0.55f, 1) : rgba(1, 0.95f, 0.85f, 1), CW_ALIGN_CENTER, 60 * s);
+      } else
+        cw_r2d_line(o, cw_v2(o.x + f.x, o.y + f.y), 1.5f * s, rgba(0.1f, 0.1f, 0.1f, 0.8f)); /* which way it faces */
+    }
+}
+
+/* the clock and the running count (or the mode, on points) in a plate */
+static void clock_plate(cw_rect top, float s) {
+  const sim *S = &G.S;
+  char buf[32];
+  plate(top, 1, rgba(0.4f, 0.37f, 0.33f, 1));
+  int secs = (S->clock + 59) / 60;
+  snprintf(buf, sizeof buf, "%d:%02d", secs / 60, secs % 60);
+  text(buf, top.x + 10 * s, top.y + top.h * 0.5f - 13 * s, 24 * s,
+       secs <= 20 && S->phase == PH_GO && (G.ticks / 20) % 2 ? rgba(1, 0.4f, 0.2f, 1) : rgba(1, 0.95f, 0.85f, 1), CW_ALIGN_LEFT, 0);
+  snprintf(buf, sizeof buf, "%d LEFT", S->alive);
+  stencil(buf, top.x, top.y + top.h * 0.5f - 10 * s, 17 * s, rgba(0.84f, 0.56f, 0.24f, 1), CW_ALIGN_RIGHT, top.w - 10 * s);
+}
+
+/* the splitscreen HUD. Each view: its player's plate (tag, number, speed,
+ * the car's damage from above, the engine bar; the points on POINTS FOR
+ * HITS) and WRECKED when that car is out. Shared: two players, the clock
+ * where the views meet; three, the spare top right quadrant holds the clock,
+ * the mode, the cars running, the standings and the map; four, a small clock
+ * where the four views meet. */
 static void draw_split_hud(float W, float H, float s) {
   const sim *S = &G.S;
   const cw_view *vs = NULL;
   int n = cw_pipeline_views(cw_pipeline_of(cw_scene_app_tree()), &vs);
   char buf[64];
-  float sv = s * (n > 2 ? 0.72f : 0.85f);
+  float sv = s * (n > 2 || vs[0].h < 1 ? 0.72f : 0.85f);
   for (int v = 0; v < n; v++) {
     cw_rect R = cw_rect_make(vs[v].x * W, vs[v].y * H, vs[v].w * W, vs[v].h * H);
-    /* the seams between views */
-    cw_r2d_rect(cw_rect_make(R.x, R.y, R.w, 2 * s), rgba(0.02f, 0.02f, 0.02f, 1));
-    cw_r2d_rect(cw_rect_make(R.x, R.y, 2 * s, R.h), rgba(0.02f, 0.02f, 0.02f, 1));
     int me = car_of_view(v);
     if (me < 0) continue;
     const car *c = &S->c[me];
-    cw_rect pr = cw_rect_make(R.x + 10 * sv, R.y + R.h - 78 * sv, 214 * sv, 68 * sv);
+    /* bottom left, or bottom right in a right-hand view: clear of the clock where the views meet */
+    bool right = R.x > 1 && R.w < W * 0.75f;
+    cw_rect pr = cw_rect_make(right ? R.x + R.w - 272 * sv : R.x + 10 * sv, R.y + R.h - 88 * sv, 262 * sv, 78 * sv);
     plate(pr, 1, paint_col(me, 1));
+    car_diagram(pr.x + 24 * sv, pr.y + pr.h * 0.5f, sv * 0.85f, me);
+    float tx = pr.x + 50 * sv, tw = pr.w - 58 * sv;
     snprintf(buf, sizeof buf, "P%d", v + 1);
-    stencil(buf, pr.x + 8 * sv, pr.y + 6 * sv, 26 * sv, rgba(0.95f, 0.78f, 0.5f, 1), CW_ALIGN_LEFT, 0);
+    stencil(buf, tx, pr.y + 6 * sv, 26 * sv, rgba(0.95f, 0.78f, 0.5f, 1), CW_ALIGN_LEFT, 0);
     snprintf(buf, sizeof buf, "#%d", G.look[me].number);
-    text(buf, pr.x + 56 * sv, pr.y + 6 * sv, 24 * sv, rgba(1, 0.95f, 0.85f, 1), CW_ALIGN_LEFT, 0);
+    text(buf, tx + 46 * sv, pr.y + 6 * sv, 24 * sv, rgba(1, 0.95f, 0.85f, 1), CW_ALIGN_LEFT, 0);
     float mph = fabsf(car_speed(c)) * 2.237f;
     snprintf(buf, sizeof buf, "%d MPH", (int)(mph + 0.5f));
-    small(buf, pr.x, pr.y + 12 * sv, 15 * sv, rgba(1, 0.95f, 0.85f, 1), CW_ALIGN_RIGHT, pr.w - 10 * sv);
-    cw_rect bar = cw_rect_make(pr.x + 8 * sv, pr.y + 42 * sv, pr.w - 16 * sv, 14 * sv);
+    small(buf, tx, pr.y + 12 * sv, 15 * sv, rgba(1, 0.95f, 0.85f, 1), CW_ALIGN_RIGHT, tw);
+    small(c->wrecked ? "WRECKED" : "ENGINE", tx, pr.y + 38 * sv, 11 * sv, rgba(0.9f, 0.85f, 0.75f, 1), CW_ALIGN_LEFT, 0);
+    cw_rect bar = cw_rect_make(tx, pr.y + 54 * sv, tw, 14 * sv);
     cw_r2d_rect(bar, rgba(0.02f, 0.02f, 0.02f, 0.9f));
     cw_r2d_rect(cw_rect_make(bar.x + 2, bar.y + 2, (bar.w - 4) * cw_clampf(c->hp / 100, 0, 1), bar.h - 4), hp_col(c->hp, 1));
     if (S->rule == RULE_POINTS) {
@@ -1371,20 +1472,23 @@ static void draw_split_hud(float W, float H, float s) {
       stencil("WRECKED", R.x, R.y + R.h * 0.36f, 48 * sv, rgba(0.95f, 0.3f, 0.15f, a), CW_ALIGN_CENTER, R.w);
     }
   }
-  /* the clock and the running count where the views meet */
-  cw_rect top = cw_rect_make(W * 0.5f - 90 * s, n == 2 && vs[1].y > 0 ? H * 0.5f - 22 * s : 6 * s, 180 * s, 40 * s);
-  plate(top, 1, rgba(0.4f, 0.37f, 0.33f, 1));
-  int secs = (S->clock + 59) / 60;
-  snprintf(buf, sizeof buf, "%d:%02d", secs / 60, secs % 60);
-  text(buf, top.x + 10 * s, top.y + 6 * s, 24 * s, secs <= 20 && S->phase == PH_GO && (G.ticks / 20) % 2 ? rgba(1, 0.4f, 0.2f, 1) : rgba(1, 0.95f, 0.85f, 1),
-       CW_ALIGN_LEFT, 0);
-  if (S->rule == RULE_LAST_RUNNING) snprintf(buf, sizeof buf, "%d LEFT", S->alive);
-  else snprintf(buf, sizeof buf, "POINTS");
-  stencil(buf, top.x, top.y + 9 * s, 17 * s, rgba(0.84f, 0.56f, 0.24f, 1), CW_ALIGN_RIGHT, top.w - 10 * s);
   if (n == 3) {
-    cw_r2d_rect(cw_rect_make(W * 0.5f, H * 0.5f, W * 0.5f, H * 0.5f), rgba(0.07f, 0.06f, 0.05f, 1));
-    stencil(GAME_TITLE, W * 0.5f, H * 0.53f, 40 * s, rgba(0.88f, 0.85f, 0.78f, 0.5f), CW_ALIGN_CENTER, W * 0.5f);
-    field_list(W * 0.5f + 40 * s, H * 0.62f, s * 0.62f);
+    /* the top right quadrant: the bout at a glance */
+    cw_rect Q = cw_rect_make(W * 0.5f, 0, W * 0.5f, H * 0.5f);
+    cw_r2d_rect(Q, rgba(0.07f, 0.06f, 0.05f, 1));
+    float pad = 14 * s, col = Q.w * 0.5f;
+    clock_plate(cw_rect_make(Q.x + pad, Q.y + pad, col - pad * 1.5f, 40 * s), s);
+    stencil(S->rule == RULE_POINTS ? "POINTS FOR HITS" : "QUICK MATCH", Q.x + pad, Q.y + pad + 50 * s, 17 * s, rgba(0.88f, 0.85f, 0.78f, 0.9f),
+            CW_ALIGN_LEFT, 0);
+    snprintf(buf, sizeof buf, "%d OF %d CARS RUNNING", S->alive, S->ncars);
+    small(buf, Q.x + pad, Q.y + pad + 74 * s, 13 * s, rgba(0.9f, 0.86f, 0.8f, 0.9f), CW_ALIGN_LEFT, 0);
+    field_list(Q.x + pad + 24 * s * 0.75f, Q.y + pad + 98 * s, s * 0.75f);
+    mini_map(cw_rect_make(Q.x + col, Q.y + pad, col - pad, Q.h - 2 * pad), s);
+  } else if (n == 4) {
+    clock_plate(cw_rect_make(W * 0.5f - 80 * s, H * 0.5f - 18 * s, 160 * s, 36 * s), s);
+  } else {
+    bool stacked = vs[1].y > 0;
+    clock_plate(cw_rect_make(W * 0.5f - 90 * s, stacked ? H * 0.5f - 20 * s : 6 * s, 180 * s, 40 * s), s);
   }
 }
 
@@ -1466,7 +1570,7 @@ static void draw_hud(float W, float H, float s) {
     }
     stencil(head, 0, H * 0.24f, 66 * s, rgba(0.84f, 0.56f, 0.24f, a), CW_ALIGN_CENTER, W);
     if (S->winner >= 0) {
-      snprintf(buf, sizeof buf, "#%d %s takes it", G.look[S->winner].number, DRIVER[S->winner]);
+      snprintf(buf, sizeof buf, "#%d %s takes it", G.look[S->winner].number, driver(S->winner));
       prompt_line(buf, W, H * 0.38f, 18 * s);
     }
   }
@@ -1492,8 +1596,13 @@ static void draw_results(float W, float H, float s) {
   float in = cw_clampf(G.state_ticks / 20.0f, 0, 1);
   int me = focus_car();
   bool won = me >= 0 && S->winner == me;
+  const char *head = won ? "YOU WON THE BOUT!" : "RESULTS";
+  if (nviews > 1 && S->winner >= 0 && G.human_of[S->winner] >= 0) {
+    snprintf(buf, sizeof buf, "%s WON THE BOUT!", driver(S->winner));
+    head = buf;
+  }
   hazard(cw_rect_make(0, H * 0.04f, W, 9 * s), in);
-  stencil(won ? "YOU WON THE BOUT!" : "RESULTS", 0, H * 0.07f, 56 * s, rgba(0.84f, 0.56f, 0.24f, in), CW_ALIGN_CENTER, W);
+  stencil(head, 0, H * 0.07f, 56 * s, rgba(0.84f, 0.56f, 0.24f, in), CW_ALIGN_CENTER, W);
   /* the table: order by finish (the winner, then most damage dealt) */
   int order[MAXC], m = 0;
   for (int i = 0; i < MAXC; i++)
@@ -1520,7 +1629,7 @@ static void draw_results(float W, float H, float s) {
     snprintf(buf, sizeof buf, "%d.", r + 1);
     text(buf, x, yy + 4 * s, 18 * s, rgba(1, 0.95f, 0.85f, in), CW_ALIGN_LEFT, 0);
     cw_r2d_rect(cw_rect_make(x + 34 * s, yy + 6 * s, 8 * s, 20 * s), paint_col(i, in));
-    snprintf(buf, sizeof buf, "#%d %s", G.look[i].number, DRIVER[i]);
+    snprintf(buf, sizeof buf, "#%d %s", G.look[i].number, driver(i));
     text(buf, x + 50 * s, yy + 4 * s, 18 * s, G.human_of[i] >= 0 ? rgba(0.84f, 0.56f, 0.24f, in) : rgba(1, 0.95f, 0.85f, in), CW_ALIGN_LEFT, 0);
     int vals[4] = { (int)(c->dealt + 0.5f), (int)(c->taken + 0.5f), c->wrecks, c->points };
     for (int k = 0; k < 4; k++) {

@@ -49,6 +49,7 @@ typedef struct car_model {
   car_shell shell[3][3];    /* [lod][paint, primer, rust] */
   car_shell glass[3], trim, lid, numbers, screen; /* dented too */
   t3_object *hood;          /* the lid's hinge */
+  t3_object *lamps;         /* head and tail lamps (levels 0 and 1) */
   t3_vec3 lid_origin;
   t3_mesh *cabin;
   t3_object *wheel[4], *wheel_lod[4][3], *bumper[2], *beams;
@@ -83,6 +84,7 @@ void scenery_build(cw_node scene, int theme, uint32_t seed);
 void scenery_tick(const sim *s, int ticks, int cheer);
 void scenery_beams(const t3_vec3 *eyes, int n); /* floodlight beams only from a distance */
 void scenery_reset(void);
+void scenery_light_crowd(bool light); /* lighter figures for the crowd (splitscreen) */
 void scenery_density(float k); /* share of the crowd drawn, 0..1 (cw_quality_density) */
 extern uint32_t scenery_hash;
 
@@ -93,7 +95,9 @@ void world_build(cw_node scene, const sim *s, int theme, const car_look looks[MA
 void world_prebuild_car(int i, int kind, const car_look *look);
 void world_reset(void);
 void world_tick(const sim *s);      /* fixed tick */
-void world_lod(const t3_vec3 *eyes, int n, bool split); /* each car's detail from the nearest camera */
+/* each car's detail from a camera whose view is k of the screen's height;
+ * a split view (k < 1) draws every car but its own (own: -1 none) at level 1 or lighter */
+void world_lod(t3_vec3 eye, float k, int own);
 t3_vec3 world_car_pos(int i);
 
 /* a little mesh builder shared by the 3D files */
@@ -108,5 +112,6 @@ void mb_color(mesh_build *b, int v, float r, float g, float bl);
 void mb_tri(mesh_build *b, int a, int c, int d);
 void mb_quad(mesh_build *b, int a, int c, int d, int e);
 t3_geometry *mb_finish(mesh_build *b);
+void mb_append(mesh_build *b, t3_geometry *g, const t3_mat4 *m); /* a static part placed by m; takes g */
 
 #endif

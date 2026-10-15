@@ -20,6 +20,7 @@ static struct {
   /* the crowd, one pair of meshes per bleacher (side 0 the +x one), so a view
    * culls the stand it cannot see: fans [side_start[s], side_start[s + 1]) */
   t3_instanced_mesh *body[2], *head[2];
+  t3_geometry *fig[2], *hd[2]; /* the crowd's figure and head: full, and lighter for splitscreen's smaller views */
   int side_start[3];
   t3_object *shaft[4];       /* the floodlight beams */
   t3_vec3 shaft_a[4], shaft_b[4]; /* each beam's axis: the lamp, where it lands */
@@ -53,6 +54,22 @@ static t3_material *phys(t3_color c, float rough, float metal) {
   m->roughness = rough;
   m->metalness = metal;
   return m;
+}
+/* a translation, for mb_append */
+static t3_mat4 at_m;
+static const t3_mat4 *at_(float x, float y, float z) {
+  t3_mat4_compose(&at_m, (t3_vec3){ x, y, z }, (t3_quat){ 0, 0, 0, 1 }, (t3_vec3){ 1, 1, 1 });
+  return &at_m;
+}
+#define at(x, y, z) (*at_(x, y, z))
+/* a merged part into a group (takes the geometry) */
+static void add_part(t3_object *g, t3_geometry *geo, t3_material *m, bool cast, bool recv) {
+  t3_mesh *mesh = t3_mesh_new(geo, m);
+  mesh->base.cast_shadow = cast;
+  mesh->base.receive_shadow = recv;
+  t3_object_add(g, mesh);
+  t3_release(geo);
+  t3_release(mesh);
 }
 static void put(t3_instanced_mesh *im, int i, t3_vec3 p, float yaw, t3_vec3 s) {
   t3_mat4 m;
@@ -175,32 +192,22 @@ static int bleachers(cw_node root, float side, uint32_t *h, int crowd0) {
   tex_apply_uv(wood, TEX_WOOD, len / 4, 1, 1, 1);
   t3_material *st = phys(lin(0.45f, 0.45f, 0.47f), 0.5f, 1);
   tex_apply(st, TEX_STEEL, 1, 0.5f, 1);
+  /* the seats, the risers and the frame each one mesh (a draw apiece in a view) */
   t3_object *g = t3_group_new();
+  mesh_build seats = { 0 }, risers = { 0 }, legs = { 0 };
   for (int r = 0; r < rows; r++) {
     float x = side * (x0 + r * depth), y = 0.5f + r * rise;
-    t3_mesh *seat = t3_mesh_new(t3_box_geometry_new(depth * 0.95f, 0.08f, len, 1, 1, 1), wood);
-    seat->base.position = (t3_vec3){ x, y, 0 };
-    seat->base.cast_shadow = seat->base.receive_shadow = true;
-    t3_object_add(g, seat);
-    t3_release(seat->geometry);
-    t3_release(seat);
-    t3_mesh *riser = t3_mesh_new(t3_box_geometry_new(0.04f, rise, len, 1, 1, 1), wood);
-    riser->base.position = (t3_vec3){ x - side * depth * 0.47f, y - rise * 0.5f, 0 };
-    riser->base.receive_shadow = true;
-    t3_object_add(g, riser);
-    t3_release(riser->geometry);
-    t3_release(riser);
+    mb_append(&seats, t3_box_geometry_new(depth * 0.95f, 0.08f, len, 1, 1, 1), &at(x, y, 0));
+    mb_append(&risers, t3_box_geometry_new(0.04f, rise, len, 1, 1, 1), &at(x - side * depth * 0.47f, y - rise * 0.5f, 0));
   }
   /* the frame under it */
   for (float z = -len * 0.5f; z <= len * 0.5f + 0.01f; z += 4) {
     float top = 0.5f + (rows - 1) * rise;
-    t3_mesh *leg = t3_mesh_new(t3_box_geometry_new(0.1f, top, 0.1f, 1, 1, 1), st);
-    leg->base.position = (t3_vec3){ side * (x0 + (rows - 1) * depth), top * 0.5f, z };
-    leg->base.cast_shadow = true;
-    t3_object_add(g, leg);
-    t3_release(leg->geometry);
-    t3_release(leg);
+    mb_append(&legs, t3_box_geometry_new(0.1f, top, 0.1f, 1, 1, 1), &at(side * (x0 + (rows - 1) * depth), top * 0.5f, z));
   }
+  add_part(g, mb_finish(&seats), wood, true, true);
+  add_part(g, mb_finish(&risers), wood, false, true);
+  add_part(g, mb_finish(&legs), st, true, false);
   hang(root, side > 0 ? "StandsL" : "StandsR", g);
   t3_release(g);
   t3_release(wood);
@@ -235,6 +242,9 @@ static void crowd_build(cw_node root, uint32_t *h) {
   t3_geometry *fig = t3_lathe_geometry_new(FIG, (int)(sizeof FIG / sizeof FIG[0]), 10, 0, CW_TAU);
   t3_material *skin = phys(lin(1, 1, 1), 0.7f, 0);
   t3_geometry *hd = t3_sphere_geometry_new(0.1f, 10, 8);
+  S.fig[0] = t3_retain(fig), S.hd[0] = t3_retain(hd);
+  S.fig[1] = t3_lathe_geometry_new(FIG, (int)(sizeof FIG / sizeof FIG[0]), 6, 0, CW_TAU);
+  S.hd[1] = t3_sphere_geometry_new(0.1f, 6, 4);
   for (int s = 0; s < 2; s++) {
     int ns = S.side_start[s + 1] - S.side_start[s];
     S.body[s] = t3_instanced_mesh_new(fig, cloth, ns ? ns : 1);
@@ -312,33 +322,25 @@ static void floodlights(cw_node root) {
   beam->blending = T3_ADDITIVE_BLENDING;
   beam->depth_write = false;
   beam->side = T3_FRONT_SIDE; /* from inside a cone, nothing: it never fills the screen */
+  /* the four towers' steel and their lamps are one mesh each (two draws a view) */
+  mesh_build steel = { 0 }, lamps = { 0 };
   for (int k = 0; k < 4; k++) {
     float sx = k & 1 ? 1.0f : -1.0f, sz = k & 2 ? 1.0f : -1.0f;
     float x = sx * (AW + 4), z = sz * (AL + 4), H = 17;
     t3_object *g = t3_group_new();
-    t3_mesh *pole = t3_mesh_new(t3_cylinder_geometry_new(0.18f, 0.32f, H, 12, 1, false), st);
-    pole->base.position = (t3_vec3){ x, H * 0.5f, z };
-    pole->base.cast_shadow = pole->base.receive_shadow = true;
-    t3_object_add(g, pole);
-    t3_release(pole->geometry);
-    t3_release(pole);
+    mb_append(&steel, t3_cylinder_geometry_new(0.18f, 0.32f, H, 12, 1, false), &at(x, H * 0.5f, z));
     /* the head, turned to face the middle */
     t3_object *head = t3_group_new();
     head->position = (t3_vec3){ x, H, z };
     float yaw = cw_atan2(-x, -z);
     t3_object_set_rotation(head, 0, yaw, 0);
-    t3_mesh *frame = t3_mesh_new(t3_box_geometry_new(3.2f, 1.7f, 0.3f, 1, 1, 1), st);
-    frame->base.cast_shadow = true;
-    t3_object_add(head, frame);
-    t3_release(frame->geometry);
-    t3_release(frame);
+    t3_mat4 hm, m;
+    t3_mat4_compose(&hm, head->position, t3_quat_from_euler((t3_euler){ 0, yaw, 0, T3_XYZ }), (t3_vec3){ 1, 1, 1 });
+    mb_append(&steel, t3_box_geometry_new(3.2f, 1.7f, 0.3f, 1, 1, 1), &hm);
     for (int r = 0; r < 2; r++)
       for (int c = 0; c < 4; c++) {
-        t3_mesh *l = t3_mesh_new(t3_box_geometry_new(0.62f, 0.62f, 0.06f, 1, 1, 1), lamp);
-        l->base.position = (t3_vec3){ -1.17f + c * 0.78f, -0.38f + r * 0.76f, 0.17f };
-        t3_object_add(head, l);
-        t3_release(l->geometry);
-        t3_release(l);
+        t3_mat4_multiply(&m, &hm, &at(-1.17f + c * 0.78f, -0.38f + r * 0.76f, 0.17f));
+        mb_append(&lamps, t3_box_geometry_new(0.62f, 0.62f, 0.06f, 1, 1, 1), &m);
       }
     /* the beam: a long cone toward the arena floor */
     float dist = sqrtf(x * x + z * z + H * H);
@@ -372,6 +374,11 @@ static void floodlights(cw_node root) {
     cw_node3d_set_position(sp, (t3_vec3){ x * 0.97f, H - 0.4f, z * 0.97f });
     cw_node3d_look_at(sp, (t3_vec3){ x * 0.12f, 0, z * 0.12f }, (t3_vec3){ 0, 1, 0 });
   }
+  t3_object *g = t3_group_new();
+  add_part(g, mb_finish(&steel), st, true, true);
+  add_part(g, mb_finish(&lamps), lamp, false, false);
+  hang(root, "Towers", g);
+  t3_release(g);
   t3_release(st);
   t3_release(lamp);
   t3_release(beam);
@@ -423,7 +430,23 @@ static void horizon(cw_node root, uint32_t *h) {
   finish_sectors(root, "Trees", im, false, 8);
 }
 
-void scenery_reset(void) { memset(&S, 0, sizeof S); }
+void scenery_reset(void) {
+  for (int i = 0; i < 2; i++) {
+    if (S.fig[i]) t3_release(S.fig[i]);
+    if (S.hd[i]) t3_release(S.hd[i]);
+  }
+  memset(&S, 0, sizeof S);
+}
+/* the crowd's lighter figures (splitscreen: a quarter of the screen shows a
+ * fan a few pixels tall, and every view draws both stands' worth) */
+void scenery_light_crowd(bool light) {
+  for (int s = 0; s < 2; s++) {
+    if (!S.body[s]) continue;
+    t3_geometry *f = S.fig[light], *h = S.hd[light];
+    if (S.body[s]->mesh.geometry != f) t3_retain(f), t3_release(S.body[s]->mesh.geometry), S.body[s]->mesh.geometry = f;
+    if (S.head[s]->mesh.geometry != h) t3_retain(h), t3_release(S.head[s]->mesh.geometry), S.head[s]->mesh.geometry = h;
+  }
+}
 void scenery_density(float k) {
   density = k;
   if (S.ready) crowd_pose(0);

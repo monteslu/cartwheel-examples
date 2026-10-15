@@ -349,19 +349,18 @@ void world_build(cw_node scene, const sim *s, int theme, const car_look looks[MA
   for (int i = 0; i < MAXC; i++) cw_node3d_snapshot(W.car_node[i]);
 }
 
-void world_lod(const t3_vec3 *eyes, int n, bool split) {
+void world_lod(t3_vec3 eye, float k, int own) {
   if (!W.ready) return;
+  /* full detail close up, the silhouette far off; distances in a view k of
+   * the screen's height tall (a car there is drawn k times as big) */
+  float near = 25 * k, far = 60 * k;
   for (int i = 0; i < MAXC; i++) {
     if (!W.on[i]) continue;
     t3_vec3 p = cw_node3d_position(W.car_node[i]);
-    float best = 1e9f;
-    for (int v = 0; v < n; v++) {
-      float dx = p.x - eyes[v].x, dz = p.z - eyes[v].z, d = dx * dx + dz * dz;
-      if (d < best) best = d;
-    }
-    /* full detail close up; a split view keeps it only for the nearest */
-    float near = split ? 12 : 25, far = split ? 40 : 60;
-    car_set_lod(&W.car[i], best > far * far ? 2 : best > near * near ? 1 : 0);
+    float dx = p.x - eye.x, dz = p.z - eye.z, d = dx * dx + dz * dz;
+    int lod = d > far * far ? 2 : d > near * near ? 1 : 0;
+    if (k < 1 && i != own && lod == 0) lod = 1;
+    car_set_lod(&W.car[i], lod);
   }
 }
 

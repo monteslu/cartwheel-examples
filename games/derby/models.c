@@ -91,6 +91,30 @@ t3_geometry *mb_finish(mesh_build *b) {
   return g;
 }
 
+/* append a geometry placed by a rigid transform (positions, normals, uvs,
+ * index; no colours), so static parts sharing a material draw as one mesh.
+ * Takes the geometry's reference. */
+void mb_append(mesh_build *b, t3_geometry *g, const t3_mat4 *m) {
+  t3_attribute *P = g->attributes[T3_ATTR_POSITION], *Nn = g->attributes[T3_ATTR_NORMAL], *U = g->attributes[T3_ATTR_UV];
+  const float *p = P->array, *n = Nn->array, *u = U ? U->array : NULL;
+  int base = b->nv;
+  for (int i = 0; i < P->count; i++) {
+    t3_vec3 q = t3_vec3_apply_mat4((t3_vec3){ p[i * 3], p[i * 3 + 1], p[i * 3 + 2] }, m);
+    t3_vec3 nn = t3_vec3_transform_direction((t3_vec3){ n[i * 3], n[i * 3 + 1], n[i * 3 + 2] }, m);
+    mb_vert(b, q, nn, u ? u[i * 2] : 0, u ? u[i * 2 + 1] : 0);
+  }
+  if (g->index) {
+    const uint32_t *ix = g->index->array;
+    const uint16_t *ix16 = g->index->array;
+    for (int i = 0; i + 2 < g->index->count; i += 3) {
+      if (g->index->type == T3_UINT16) mb_tri(b, base + ix16[i], base + ix16[i + 1], base + ix16[i + 2]);
+      else mb_tri(b, base + (int)ix[i], base + (int)ix[i + 1], base + (int)ix[i + 2]);
+    }
+  } else
+    for (int i = 0; i + 2 < P->count; i += 3) mb_tri(b, base + i, base + i + 1, base + i + 2);
+  t3_release(g);
+}
+
 /* append a geometry (positions, normals, uvs, index) at an offset, scaled,
  * every vertex painted rgb */
 static void append(mesh_build *b, t3_geometry *g, t3_vec3 at, t3_vec3 scale, const float rgb[3], float uv_scale) {

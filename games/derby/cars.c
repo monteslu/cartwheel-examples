@@ -765,7 +765,59 @@ static void hood_into(mesh_build *b, const wear *W, const car_spec *k, const sha
 
 static const float WHITE[3] = { 1, 1, 1 };
 
+/* what every car shares: the materials that are the same on all of them and
+ * the parts that are the same for a kind (wheels, wheel-arch liners, the
+ * cabin). The renderer draws the meshes that share a geometry and a material
+ * as one instanced draw, so the six cars' tyres are a draw or two a view,
+ * not twenty-four. Made with the first car, kept for the program's life. */
+static struct {
+  bool made;
+  t3_material *tyre, *wheel, *chrome, *black, *dark;
+  t3_geometry *tyres[CAR_KINDS][3], *rims[CAR_KINDS][3][2], *liners[CAR_KINDS], *cabin[CAR_KINDS];
+} SHARED;
+
+static void shared_make(void) {
+  if (SHARED.made) return;
+  SHARED.made = true;
+  SHARED.chrome = phys(lin(0.7f, 0.68f, 0.65f), 0.24f, 1);
+  tex_apply(SHARED.chrome, TEX_STEEL, 1, 0.5f, 1);
+  SHARED.chrome->vertex_colors = true;
+  SHARED.black = phys(lin(1, 1, 1), 0.75f, 0);
+  SHARED.black->vertex_colors = true;
+  SHARED.dark = phys(lin(1, 1, 1), 0.9f, 0);
+  SHARED.dark->vertex_colors = true;
+  SHARED.tyre = phys(lin(1, 1, 1), 0.85f, 0);
+  tex_apply_uv(SHARED.tyre, TEX_RUBBER, 1, 1, 1.3f, 1);
+  SHARED.tyre->vertex_colors = true;
+  SHARED.wheel = phys(lin(0.45f, 0.43f, 0.4f), 0.55f, 0.8f);
+  tex_apply(SHARED.wheel, TEX_RUST, 1, 0.6f, 1);
+  SHARED.wheel->vertex_colors = true;
+  for (int kind = 0; kind < CAR_KINDS; kind++) {
+    const car_spec *k = &CAR_SPEC[kind];
+    for (int lod = 0; lod < 3; lod++) {
+      SHARED.tyres[kind][lod] = tyre_geo(k->wr, lod);
+      for (int h = 0; h < 2; h++) SHARED.rims[kind][lod][h] = rim_geo(k->wr, lod, h == 1);
+    }
+    SHARED.liners[kind] = liners_geo(k);
+    SHARED.cabin[kind] = cabin_geo(k, &SHAPES[kind]);
+  }
+}
+
+/* append b's vertices and triangles to a (same material), freeing b */
+static void mb_merge(mesh_build *a, mesh_build *b) {
+  int base = a->nv;
+  for (int i = 0; i < b->nv; i++) {
+    const float *p = b->pos + i * 3, *n = b->nor + i * 3, *u = b->uv + i * 2, *c = b->col + i * 3;
+    int v = mb_vert(a, (t3_vec3){ p[0], p[1], p[2] }, (t3_vec3){ n[0], n[1], n[2] }, u[0], u[1]);
+    if (b->colors) mb_color(a, v, c[0], c[1], c[2]);
+  }
+  for (int i = 0; i + 2 < b->ni; i += 3) mb_tri(a, base + (int)b->idx[i], base + (int)b->idx[i + 1], base + (int)b->idx[i + 2]);
+  free(b->pos), free(b->nor), free(b->uv), free(b->col), free(b->idx);
+  memset(b, 0, sizeof *b);
+}
+
 void car_build(car_model *m, int kind, int colour, int number) {
+  shared_make();
   memset(m, 0, sizeof *m);
   m->kind = kind;
   m->colour = colour;
@@ -809,13 +861,7 @@ void car_build(car_model *m, int kind, int colour, int number) {
   mat[MAT_RUST] = phys(lin(1, 1, 1), 0.85f, 0.25f);
   tex_apply(mat[MAT_RUST], TEX_RUST, 1, 1.4f, 1);
   for (int i = 0; i < MATS; i++) mat[i]->vertex_colors = true;
-  t3_material *chrome = phys(lin(0.7f, 0.68f, 0.65f), 0.24f, 1);
-  tex_apply(chrome, TEX_STEEL, 1, 0.5f, 1);
-  chrome->vertex_colors = true;
-  t3_material *black = phys(lin(1, 1, 1), 0.75f, 0);
-  black->vertex_colors = true;
-  t3_material *dark = phys(lin(1, 1, 1), 0.9f, 0);
-  dark->vertex_colors = true;
+  t3_material *chrome = SHARED.chrome, *black = SHARED.black, *dark = SHARED.dark;
   /* the bodies, three levels of detail */
   for (int lod = 0; lod < 3; lod++) {
     pieces P;
@@ -824,6 +870,23 @@ void car_build(car_model *m, int kind, int colour, int number) {
     loft(&P, &W, k, sh, lod);
     greenhouse(&P, &glass, &trim, &W, k, sh, lod);
     m->bodies[lod] = t3_group_new();
+    if (lod > 0) {
+      /* the lighter levels draw their skin in fewer meshes: the primer and
+       * the rust patches, the glass (dark, opaque) and the trim with the
+       * paint's level-2 silhouette, or in a second, flat mesh at level 1; the
+       * bumpers ride along (a car's draws count once per view) */
+      static const float GLASS_C[3] = { 0.07f, 0.08f, 0.08f }, CHROME_C[3] = { 0.5f, 0.49f, 0.46f };
+      for (int v = 0; v < glass.nv; v++) mb_color(&glass, v, GLASS_C[0], GLASS_C[1], GLASS_C[2]);
+      for (int v = 0; v < trim.nv; v++) mb_color(&trim, v, CHROME_C[0], CHROME_C[1], CHROME_C[2]);
+      int into = lod == 1 ? MAT_PRIMER : MAT_PAINT;
+      if (lod == 2) mb_merge(&P.mb[MAT_PAINT], &P.mb[MAT_PRIMER]);
+      mb_merge(&P.mb[into], &P.mb[MAT_RUST]);
+      mb_merge(&P.mb[into], &glass);
+      mb_merge(&P.mb[into], &trim);
+      float bump_y = sh->sill + 0.2f;
+      for (int e = 0; e < 2; e++)
+        box_into(&P.mb[into], (t3_vec3){ 0, bump_y, e == 0 ? k->hl + 0.07f : -k->hl - 0.07f }, (t3_vec3){ 2 * k->hw + 0.04f, 0.17f, 0.1f }, 0.03f, CHROME_C);
+    }
     for (int i = 0; i < MATS; i++) {
       car_shell *s = &m->shell[lod][i];
       if (!P.mb[i].nv) continue;
@@ -851,7 +914,7 @@ void car_build(car_model *m, int kind, int colour, int number) {
       t3_object_add(m->bodies[lod], s->mesh);
       t3_release(g);
     }
-    if (trim.nv) {
+    if (trim.nv) { /* (level 0's: the lighter levels carry theirs in the skin) */
       car_shell *s = &m->trim;
       shell_take(s, &trim);
       s->mesh = t3_mesh_new(s->geo, chrome);
@@ -862,7 +925,7 @@ void car_build(car_model *m, int kind, int colour, int number) {
     t3_release(m->bodies[lod]);
     m->bodies[lod]->visible = lod == 0;
   }
-  mesh_in(m->body, liners_geo(k), dark, false);
+  mesh_in(m->body, t3_retain(SHARED.liners[kind]), dark, false);
   /* the bonnet lid on its hinge (dents ride it too) */
   {
     t3_vec3 hinge = { 0, keyed(sh->belt, sh->nbelt, sh->cowl) + 0.02f, sh->cowl + 0.05f };
@@ -932,7 +995,7 @@ void car_build(car_model *m, int kind, int colour, int number) {
     t3_object_add(m->body, m->numbers.mesh);
     t3_release(mt);
   }
-  m->cabin = mesh_in(m->bodies[0], cabin_geo(k, sh), dark, false);
+  m->cabin = mesh_in(m->bodies[0], t3_retain(SHARED.cabin[kind]), dark, false);
   /* the windscreen, cracked, bowed a little (its own glass: partly see-through) */
   {
     gh g = gh_of(k, sh);
@@ -979,11 +1042,6 @@ void car_build(car_model *m, int kind, int colour, int number) {
     t3_release(pivot);
     m->bumper[e] = pivot;
   }
-  for (int lod = 1; lod < 3; lod++) {
-    mesh_build bb = { 0 };
-    for (int e = 0; e < 2; e++) box_into(&bb, (t3_vec3){ 0, bump_y, e == 0 ? k->hl + 0.07f : -k->hl - 0.07f }, (t3_vec3){ 2 * k->hw + 0.04f, 0.17f, 0.1f }, 0.03f, WHITE);
-    mesh_in(m->bodies[lod], mb_finish(&bb), chrome, lod == 1);
-  }
   /* the front: a recessed black grille with chrome slats, quad rectangular
    * sealed beams in chrome bezels (one side taped over), amber parking
    * lamps; the back: tail-lamp clusters in chrome, a blank plate, an
@@ -1019,9 +1077,11 @@ void car_build(car_model *m, int kind, int colour, int number) {
       if (tape) box_into(&ch, (t3_vec3){ lx, ly, fz + 0.022f }, (t3_vec3){ 0.3f, 0.035f, 0.006f }, 0.002f, TP);
       box_into(&amb, (t3_vec3){ s * (k->hw - 0.32f), bump_y - 0.02f, k->hl + 0.13f }, (t3_vec3){ 0.14f, 0.05f, 0.012f }, 0.01f, WHITE);
     }
-    mesh_in(m->bodies[0], mb_finish(&g), black, false);
-    mesh_in(m->bodies[0], mb_finish(&ch), chrome, false);
-    mesh_in(m->bodies[0], mb_finish(&lamp), m->lamp_mat, false);
+    /* the lamps show at levels 0 and 1 (a split view draws the other cars at 1) */
+    m->lamps = t3_group_new();
+    t3_object_add(m->body, m->lamps);
+    t3_release(m->lamps);
+    mesh_in(m->lamps, mb_finish(&lamp), m->lamp_mat, false);
     t3_material *amber = phys(lin(0.8f, 0.42f, 0.06f), 0.3f, 0);
     amber->vertex_colors = true;
     mesh_in(m->bodies[0], mb_finish(&amb), amber, false);
@@ -1036,9 +1096,9 @@ void car_build(car_model *m, int kind, int colour, int number) {
       box_into(&tl, (t3_vec3){ s * (k->hw - 0.3f), ty, tz - 0.01f }, (t3_vec3){ 0.38f, 0.13f, 0.02f }, 0.01f, WHITE);
     }
     box_into(&bk, (t3_vec3){ 0, bump_y + 0.17f, tz - 0.004f }, (t3_vec3){ 0.32f, 0.16f, 0.012f }, 0.004f, PLATE);
-    mesh_in(m->bodies[0], mb_finish(&tl), m->tail_mat, false);
-    mesh_in(m->bodies[0], mb_finish(&cr), chrome, false);
-    mesh_in(m->bodies[0], mb_finish(&bk), black, false);
+    mesh_in(m->lamps, mb_finish(&tl), m->tail_mat, false);
+    mb_merge(&ch, &cr); /* the chrome and the black details, one mesh each */
+    mb_merge(&g, &bk);
     mesh_build ex = { 0 }, sm = { 0 };
     {
       t3_vec2 pts[] = { { 0.025f, -0.2f }, { 0.03f, -0.2f }, { 0.03f, 0.2f }, { 0.025f, 0.2f } };
@@ -1073,7 +1133,9 @@ void car_build(car_model *m, int kind, int colour, int number) {
       box_into(&sm, (t3_vec3){ -(S.x[6] + 0.004f), fy, fz2 }, (t3_vec3){ 0.012f, 0.11f, 0.11f }, 0.03f, WHITE);
     }
     mesh_in(m->bodies[0], mb_finish(&ex), dark, false);
-    mesh_in(m->bodies[0], mb_finish(&sm), chrome, false);
+    mb_merge(&ch, &sm);
+    mesh_in(m->bodies[0], mb_finish(&ch), chrome, false);
+    mesh_in(m->bodies[0], mb_finish(&g), black, false);
   }
   /* the beams: soft additive cones out front, front faces only */
   t3_material *beam = t3_mesh_basic_material_new(0xffffff);
@@ -1105,17 +1167,8 @@ void car_build(car_model *m, int kind, int colour, int number) {
   t3_object_add(m->bodies[0], m->beams);
   t3_release(m->beams);
   /* wheels: tyres with sidewalls and tread, steel wheels (a hubcap on some), three LODs */
-  t3_material *tyre = phys(lin(1, 1, 1), 0.85f, 0);
-  tex_apply_uv(tyre, TEX_RUBBER, 1, 1, 1.3f, 1);
-  tyre->vertex_colors = true;
-  t3_material *wheelm = phys(lin(0.45f, 0.43f, 0.4f), 0.55f, 0.8f);
-  tex_apply(wheelm, TEX_RUST, 1, 0.6f, 1);
-  wheelm->vertex_colors = true;
-  t3_geometry *tg[3], *rgs[3][2];
-  for (int lod = 0; lod < 3; lod++) {
-    tg[lod] = tyre_geo(k->wr, lod);
-    for (int h = 0; h < 2; h++) rgs[lod][h] = rim_geo(k->wr, lod, h == 1);
-  }
+  t3_material *tyre = SHARED.tyre, *wheelm = SHARED.wheel;
+  t3_geometry *(*tg) = SHARED.tyres[kind], *(*rgs)[2] = SHARED.rims[kind];
   for (int w = 0; w < 4; w++) {
     float side = w & 1 ? -1.0f : 1.0f;
     t3_object *spin = t3_group_new();
@@ -1142,16 +1195,7 @@ void car_build(car_model *m, int kind, int colour, int number) {
     t3_release(spin);
     m->wheel[w] = spin;
   }
-  for (int lod = 0; lod < 3; lod++) {
-    t3_release(tg[lod]);
-    for (int h = 0; h < 2; h++) t3_release(rgs[lod][h]);
-  }
-  t3_release(tyre);
-  t3_release(wheelm);
   for (int i = 0; i < MATS; i++) t3_release(mat[i]);
-  t3_release(chrome);
-  t3_release(black);
-  t3_release(dark);
   t3_release(m->body);
   m->lod = 0;
 }
@@ -1369,6 +1413,7 @@ void car_set_lod(car_model *m, int lod) {
   }
   if (m->hood) m->hood->visible = lod < 2;
   if (m->numbers.mesh) m->numbers.mesh->base.visible = lod < 2;
+  if (m->lamps) m->lamps->visible = lod < 2;
 }
 
 /* the front wheels' angle as drawn (the sim's, with a little Ackermann:
