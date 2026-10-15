@@ -3,8 +3,8 @@
 project.cwproj
 input.cfg
 scenes/chromite.cwscene
-fonts/RussoOne-Regular.ttf
-fonts/RussoOne-OFL.txt
+fonts/Hack-Bold.ttf
+fonts/Hack-LICENSE.txt
 fonts/Oswald-VF.ttf
 fonts/Oswald-OFL.txt
 audio/music_title.ogg
@@ -25,3 +25,10 @@ audio/bomb.wav
 audio/select.wav
 audio/armed.wav
 audio/alarm.wav
+grade_steel.cube
+grade_rust.cube
+grade_toxic.cube
+fx/fireball.png
+fx/smoke.png
+fx/spark.png
+fx/flare.png

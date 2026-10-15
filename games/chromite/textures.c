@@ -15,6 +15,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cartwheel/jobs.h"
+#include "cartwheel/quality.h"
 #include "game.h"
 
 uint32_t tex_hash = CW_HASH32_INIT;
@@ -75,7 +77,7 @@ static void gen(int kind, float u, float v, int size, texel *t) {
     /* rust grows in blotches; pits where it is deepest */
     float blot = fbm(u, v, 4, 4, 5, 11);
     float fine = fbm(u, v, 32, 32, 2, 13);
-    float rust = sstep(0.56f, 0.7f, blot + 0.12f * (fine - 0.5f));
+    float rust = sstep(0.47f, 0.62f, blot + 0.14f * (fine - 0.5f));
     float deep = sstep(0.68f, 0.8f, blot);
     float pit = h01((int)(u * 256), (int)(v * 256), 17) > 0.97f ? deep : 0;
     float swirl = fbm(u, v, 4, 24, 3, 3);
@@ -90,11 +92,12 @@ static void gen(int kind, float u, float v, int size, texel *t) {
     break;
   }
   case MT_DECK: {
-    /* plating: the tile splits into four big panels, and each of those
-     * stays whole or splits in two or in four (a fixed layout from the
-     * hash). Each panel gets its own tone and brushing direction, a seam
-     * round it, rivets along its long edges, scratches along the grain and
-     * grime that gathers toward the seams; one in five is tread plate */
+    /* plating, worn hard: the tile splits into four big panels, each whole
+     * or split in two or four (a fixed layout from the hash). Each panel has
+     * its own tone and brushing; a seam round it, rivets along its long
+     * edges, edges worn back to bright metal; rust bleeding down from the
+     * seams and rivets in streaks; oil stains (dark and glossy), soot, and
+     * grime packed into the recesses; one panel in eight is tread plate */
     int qx = u < 0.5f ? 0 : 1, qy = v < 0.5f ? 0 : 1;
     float x0 = qx * 0.5f, y0 = qy * 0.5f, x1 = x0 + 0.5f, y1 = y0 + 0.5f;
     uint32_t split = hash2(qx, qy, 61) % 4, id = (uint32_t)(qx + qy * 2) * 4;
@@ -102,32 +105,49 @@ static void gen(int kind, float u, float v, int size, texel *t) {
     if (split == 1 || split == 3) { if (u < mx) x1 = mx; else x0 = mx, id += 1; }
     if (split == 2 || split == 3) { if (v < my) y1 = my; else y0 = my, id += 2; }
     float ex = fminf(u - x0, x1 - u), ey = fminf(v - y0, y1 - v), edge = fminf(ex, ey);
-    float seam = 1 - sstep(0.002f, 0.005f, edge);
-    float bevel = sstep(0.003f, 0.012f, edge);
-    float tone = 0.8f + 0.4f * h01((int)id, 3, 23);
+    float seam = 1 - sstep(0.0015f, 0.004f, edge);
+    float bevel = sstep(0.002f, 0.008f, edge);
+    float wear = sstep(0.009f, 0.003f, edge) * (1 - seam) * sstep(0.45f, 0.65f, fbm(u, v, 48, 48, 2, 81));
+    float tone = 0.75f + 0.5f * h01((int)id, 3, 23);
     bool along_u = (x1 - x0) >= (y1 - y0);
-    /* rivets in a row 0.02 in from the long edges */
-    float rv = 0;
-    float ldist = along_u ? ey : ex;
-    if (ldist > 0.012f && ldist < 0.03f) rv = rivet(u, v, 1.0f / 48, 0.3f);
-    /* brushing: long fibres along the panel */
-    float brush = along_u ? fbm(u, v, 4, 160, 2, 29 + id) : fbm(u, v, 160, 4, 2, 29 + id);
-    float scratch = sstep(0.66f, 0.72f, along_u ? fbm(u, v, 3, 90, 2, 43 + id) : fbm(u, v, 90, 3, 2, 43 + id)) * 0.6f;
+    float rv = 0, ldist = along_u ? ey : ex;
+    if (ldist > 0.01f && ldist < 0.024f) rv = rivet(u, v, 1.0f / 64, 0.32f);
+    float brush = along_u ? fbm(u, v, 4, 256, 2, 29 + id) : fbm(u, v, 256, 4, 2, 29 + id);
+    float scratch = sstep(0.67f, 0.72f, along_u ? fbm(u, v, 3, 128, 2, 43 + id) : fbm(u, v, 128, 3, 2, 43 + id));
     float tread = 0;
     if (h01((int)id, 7, 71) < 0.12f) {
-      float a = (u + v) * 40, b = (u - v) * 40;
+      float a = (u + v) * 64, b = (u - v) * 64;
       float fa = a - floorf(a) - 0.5f, fb = b - floorf(b) - 0.5f;
       tread = sstep(0.32f, 0.2f, sqrtf(fa * fa * 0.25f + fb * fb * 4)) * 0.8f;
     }
+    /* rust: bleeds down (+v) from the top seam of each panel and from rivets, in streaks */
+    float below_top = v - y0;
+    float streaks = fbm(u, v, 96, 3, 3, 91 + id);
+    float bleed = sstep(0.35f, 0.0f, below_top) * sstep(0.5f, 0.75f, streaks);
+    float rivet_bleed = (ldist > 0.01f && ldist < 0.08f) ? sstep(0.6f, 0.8f, fbm(u, v, 64, 4, 2, 97)) * 0.6f : 0;
+    float blotch = sstep(0.6f, 0.75f, fbm(u, v, 5, 5, 5, 101));
+    float rust = clamp01(bleed + rivet_bleed + blotch * 0.8f) * (1 - wear);
+    float oil = sstep(0.68f, 0.78f, fbm(u, v, 4, 4, 4, 107)) * (1 - rust * 0.5f);
+    float soot = sstep(0.72f, 0.85f, fbm(u, v, 3, 3, 3, 113));
     float grime = fbm(u, v, 6, 6, 4, 31);
-    float g = sstep(0.45f, 0.8f, grime) * (0.35f + 0.65f * sstep(0.06f, 0.0f, edge));
-    float base = 0.3f * tone * (0.96f + 0.08f * brush) * (1 - 0.5f * g) + 0.08f * scratch + 0.05f * tread;
-    t->r = base * 0.97f, t->g = base, t->b = base * 1.03f;
-    if (seam > 0) t->r *= 1 - 0.85f * seam, t->g *= 1 - 0.85f * seam, t->b *= 1 - 0.85f * seam;
-    t->h = 0.5f * bevel - 0.5f * seam + 0.4f * rv + 0.3f * tread + 0.01f * brush;
-    t->rough = 0.42f + 0.3f * g - 0.15f * scratch - 0.08f * brush;
-    t->metal = 1 - 0.6f * g;
-    t->ao = 1 - 0.6f * seam - 0.15f * (1 - bevel);
+    float g = clamp01(sstep(0.4f, 0.75f, grime) * (0.3f + 0.7f * sstep(0.05f, 0.0f, edge)) + (1 - bevel) * 0.5f);
+    float base = 0.26f * tone * (0.95f + 0.1f * brush) * (1 - 0.55f * g) + 0.1f * scratch + 0.04f * tread;
+    float r = base * 0.96f, gg = base, b = base * 1.04f;
+    /* worn edges: bare bright steel */
+    r += wear * 0.35f, gg += wear * 0.35f, b += wear * 0.36f;
+    /* rust: umber to orange */
+    float rf = fbm(u, v, 40, 40, 2, 117);
+    r = r + (0.2f + 0.12f * rf - r) * rust * 0.85f;
+    gg = gg + (0.07f + 0.05f * rf - gg) * rust * 0.85f;
+    b = b + (0.03f - b) * rust * 0.85f;
+    r *= 1 - 0.55f * oil, gg *= 1 - 0.55f * oil, b *= 1 - 0.5f * oil;
+    r *= 1 - 0.6f * soot, gg *= 1 - 0.6f * soot, b *= 1 - 0.6f * soot;
+    if (seam > 0) r *= 1 - 0.9f * seam, gg *= 1 - 0.9f * seam, b *= 1 - 0.9f * seam;
+    t->r = r, t->g = gg, t->b = b;
+    t->h = 0.5f * bevel - 0.5f * seam + 0.4f * rv + 0.3f * tread + 0.008f * brush - 0.08f * rust * rf + 0.03f * scratch;
+    t->rough = clamp01(0.4f + 0.3f * g - 0.15f * scratch - 0.1f * brush + 0.4f * rust - 0.3f * oil + 0.25f * soot - 0.2f * wear);
+    t->metal = clamp01(1 - 0.6f * g - 0.9f * rust - 0.5f * soot + wear);
+    t->ao = 1 - 0.7f * seam - 0.2f * (1 - bevel) - 0.2f * g;
     break;
   }
   default: { /* MT_GRATE: 8 slots over a dark cavity, bars between */
@@ -151,9 +171,30 @@ static void gen(int kind, float u, float v, int size, texel *t) {
   }
 }
 
+/* texels are pure functions of (kind, u, v): rows fill in parallel and come out the same */
+typedef struct gen_job { int kind, n; texel *tx; } gen_job;
+static void gen_rows(int begin, int end, int worker, void *ctx) {
+  (void)worker;
+  const gen_job *j = ctx;
+  for (int y = begin; y < end; y++)
+    for (int x = 0; x < j->n; x++) gen(j->kind, (x + 0.5f) / j->n, (y + 0.5f) / j->n, j->n, &j->tx[y * j->n + x]);
+}
+
 typedef struct mat_set { t3_texture *map, *normal, *rough, *metal, *ao; } mat_set;
 static mat_set SETS[MT_KINDS];
-static const int SIZES[MT_KINDS] = { 256, 256, 512, 256 };
+/* every map is made by code at load, so its resolution is a choice: it
+ * follows the graphics preset (the deck plating is the big one on screen) */
+static int SIZES[MT_KINDS] = { 512, 512, 1024, 512 };
+static int built_quality = -1;
+static void sizes_for_quality(void) {
+  static const int CRAFT[CW_QUALITY_COUNT] = { 256, 512, 1024, 1024 }, DECK[CW_QUALITY_COUNT] = { 512, 1024, 2048, 2048 };
+  int q = (int)cw_quality_get();
+  SIZES[MT_CHROME] = SIZES[MT_RUST] = SIZES[MT_GRATE] = CRAFT[q];
+  SIZES[MT_DECK] = DECK[q];
+  built_quality = q;
+}
+/* the maps were made for another preset: drop them (the next mat_get remakes them) */
+bool tex_stale(void) { return built_quality != (int)cw_quality_get(); }
 
 static uint8_t b8(float x) { return (uint8_t)(clamp01(x) * 255.0f + 0.5f); }
 static t3_texture *finish(const uint8_t *px, int n, bool srgb, float ru, float rv) {
@@ -172,13 +213,14 @@ static t3_texture *finish(const uint8_t *px, int n, bool srgb, float ru, float r
 static const mat_set *mat_get(int kind) {
   mat_set *s = &SETS[kind];
   if (s->map) return s;
+  if (built_quality < 0) sizes_for_quality();
   int N = SIZES[kind];
   texel *tx = malloc(sizeof *tx * (size_t)N * N);
   uint8_t *a = malloc((size_t)N * N * 4), *nm = malloc((size_t)N * N * 4), *ro = malloc((size_t)N * N * 4),
           *me = malloc((size_t)N * N * 4), *ao = malloc((size_t)N * N * 4);
-  for (int y = 0; y < N; y++)
-    for (int x = 0; x < N; x++) gen(kind, (x + 0.5f) / N, (y + 0.5f) / N, N, &tx[y * N + x]);
-  float strength = kind == MT_DECK ? 6.0f : kind == MT_GRATE ? 5.0f : 3.0f;
+  gen_job job = { kind, N, tx };
+  cw_parallel_for(N, 8, gen_rows, &job);
+  float strength = kind == MT_DECK ? 9.0f : kind == MT_GRATE ? 5.0f : 3.0f;
   for (int y = 0; y < N; y++)
     for (int x = 0; x < N; x++) {
       const texel *t = &tx[y * N + x];
@@ -229,7 +271,7 @@ void tex_apply(t3_material *m, int kind, float ru, float rv) {
 
 #define ENV_W 512
 #define ENV_H 256
-static t3_texture *ENV;
+static t3_texture *ENV, *ENV_LOGO;
 
 static uint16_t half(float f) {
   uint32_t x;
@@ -242,26 +284,37 @@ static uint16_t half(float f) {
   return (uint16_t)(sign | (uint32_t)e << 10 | (m + 0x1000u) >> 13);
 }
 
-/* direction (equirect u, v) -> linear HDR radiance. v = 0 is straight up. */
-static void env_texel(float u, float v, float *c) {
-  float el = (0.5f - v) * 3.14159265f; /* elevation, radians: + up */
+/* direction (equirect u, v) -> linear HDR radiance. v = 0 is straight up.
+ * shift raises the horizon by that many radians (the logo's map). */
+static void env_texel(float u, float v, float shift, float *c) {
+  float el = (0.5f - v) * 3.14159265f - shift; /* elevation, radians: + up */
+  if (el < -1.5707963f) el = -1.5707963f;
   float az = u * 6.2831853f;
   /* the broken ridge: a skyline of mesas and spires round the horizon */
   float ridge = 0.04f + 0.09f * fbm(u, 0.3f, 6, 1, 4, 51) + 0.06f * sstep(0.7f, 0.75f, fbm(u, 0.7f, 24, 1, 2, 53));
   float s = cw_sin(el);
   if (el > ridge) {
-    /* sky: deep ultramarine overhead to a bright cyan glow at the ridge */
+    /* sky: a dark steel-blue vault rising to a bright cyan glow at the
+     * ridge, hung with softboxes: chrome needs dark to reflect as much as
+     * light, so its flat faces flip between them as the craft bank */
     float k = clamp01((s - ridge) / (1 - ridge));
     float glow = cw_exp(-k * 7);
-    c[0] = 0.55f - 0.35f * (1 - k) + 0.2f * glow;
-    c[1] = 0.68f - 0.3f * (1 - k) + 0.8f * glow;
-    c[2] = 0.95f - 0.1f * (1 - k) + 1.3f * glow;
-    /* two long studio strips high up: the chrome's bright streaks */
-    float strip1 = sstep(0.06f, 0.0f, fabsf(el - 1.0f)) * sstep(0.35f, 0.3f, fabsf(cw_sin(az * 0.5f - 0.6f)));
-    float strip2 = sstep(0.04f, 0.0f, fabsf(el - 0.55f)) * sstep(0.5f, 0.45f, fabsf(cw_sin(az * 0.5f + 1.2f)));
-    c[0] += 6 * strip1 + 3 * strip2;
-    c[1] += 6.2f * strip1 + 3.2f * strip2;
-    c[2] += 6.6f * strip1 + 3.6f * strip2;
+    c[0] = 0.13f + 0.04f * (1 - k) + 0.25f * glow;
+    c[1] = 0.16f + 0.1f * (1 - k) + 0.9f * glow;
+    c[2] = 0.26f + 0.2f * (1 - k) + 1.5f * glow;
+    /* two big panels overhead and a long one round the back */
+    float az0 = cw_sin(az * 0.5f - 0.5f), az1 = cw_sin(az * 0.5f + 1.1f);
+    float box0 = sstep(0.1f, 0.0f, fabsf(el - 1.3f) - 0.2f) * sstep(0.08f, 0.0f, fabsf(az0) - 0.26f);
+    float box1 = sstep(0.1f, 0.0f, fabsf(el - 0.85f) - 0.1f) * sstep(0.08f, 0.0f, fabsf(az1) - 0.18f);
+    float band = sstep(0.05f, 0.0f, fabsf(el - 0.42f) - 0.05f) * sstep(0.3f, 0.6f, cw_cos(az - 2.4f));
+    float light = 7 * box0 + 5 * box1 + 3.5f * band;
+    c[0] += light * 0.95f, c[1] += light * 0.97f, c[2] += light;
+    /* the thin strips */
+    float strip1 = sstep(0.04f, 0.0f, fabsf(el - 1.45f)) * sstep(0.35f, 0.3f, fabsf(cw_sin(az * 0.5f - 2.2f)));
+    float strip2 = sstep(0.03f, 0.0f, fabsf(el - 0.6f)) * sstep(0.5f, 0.45f, fabsf(cw_sin(az * 0.5f + 2.6f)));
+    c[0] += 4 * strip1 + 2.5f * strip2;
+    c[1] += 4.2f * strip1 + 2.7f * strip2;
+    c[2] += 4.5f * strip1 + 3 * strip2;
   } else if (el > -0.02f) {
     /* the ridge itself: near black, a little blue on its face */
     c[0] = 0.006f, c[1] = 0.008f, c[2] = 0.02f;
@@ -278,14 +331,14 @@ static void env_texel(float u, float v, float *c) {
   }
 }
 
-t3_texture *env_texture(void) {
-  if (ENV) return ENV;
+static t3_texture *env_make(float shift) {
+  t3_texture *ENV;  /* (this map) */
   uint16_t *px = malloc(sizeof(uint16_t) * 4 * ENV_W * ENV_H);
   for (int y = 0; y < ENV_H; y++)
     for (int x = 0; x < ENV_W; x++) {
       float c[3];
       /* a DataTexture is not flipped: row 0 is the bottom of the map (straight down) */
-      env_texel((x + 0.5f) / ENV_W, 1 - (y + 0.5f) / ENV_H, c);
+      env_texel((x + 0.5f) / ENV_W, 1 - (y + 0.5f) / ENV_H, shift, c);
       uint16_t *p = px + (y * ENV_W + x) * 4;
       p[0] = half(c[0]), p[1] = half(c[1]), p[2] = half(c[2]), p[3] = half(1);
     }
@@ -299,8 +352,21 @@ t3_texture *env_texture(void) {
   ENV->color_space = T3_LINEAR_SRGB_COLOR_SPACE;
   return ENV;
 }
+t3_texture *env_texture(void) { return ENV ? ENV : (ENV = env_make(0)); }
+/* the logo's: the horizon pulled up to 55 degrees, so letters that face the
+ * camera (and reflect what is above them) carry the horizon's band across
+ * their rounded fronts */
+t3_texture *env_logo_texture(void) { return ENV_LOGO ? ENV_LOGO : (ENV_LOGO = env_make(0.95f)); }
+
+/* a new texture with the colour map of a kind, its own repeat and offset
+ * (the caller releases it) */
+t3_texture *tex_map_copy(int kind, float ru, float rv) {
+  const mat_set *s = mat_get(kind);
+  return finish(s->map->pixels, SIZES[kind], true, ru, rv);
+}
 
 void tex_free_all(void) {
+  built_quality = -1;
   for (int k = 0; k < MT_KINDS; k++) {
     mat_set *s = &SETS[k];
     if (!s->map) continue;
@@ -308,4 +374,5 @@ void tex_free_all(void) {
     memset(s, 0, sizeof *s);
   }
   if (ENV) t3_release(ENV), ENV = NULL;
+  if (ENV_LOGO) t3_release(ENV_LOGO), ENV_LOGO = NULL;
 }

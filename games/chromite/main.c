@@ -239,6 +239,8 @@ static void load_world(int variation) {
     world_free();
     cw_node_free(G.scene);
   }
+  /* the graphics preset sets the maps' resolution: remake them (and what uses them) when it changed */
+  if (tex_stale()) models_free(), tex_free_all();
   G.scene = cw_scene_instance_path("scenes/chromite.cwscene");
   cw_node_add_child(cw_tree_root(cw_scene_app_tree()), G.scene);
   G.camera = cw_node_get(G.scene, "Camera");
@@ -247,6 +249,10 @@ static void load_world(int variation) {
   cw_node3d_look_at(G.sun, (t3_vec3){ 0, -10, 0 }, (t3_vec3){ 0, 1, 0 });
   world_build(G.scene, variation);
   fx_init(G.scene);
+  static const char *const GRADE[3] = { "\"grade_steel.cube\"", "\"grade_rust.cube\"", "\"grade_toxic.cube\"" };
+  cw_node post = cw_node_get(G.scene, "Post");
+  cw_value v;
+  if (cw_node_valid(post) && cw_value_parse(GRADE[variation % 3], CW_T_STRING, &v)) cw_node_set(post, "lut", v);
   G.variation = variation;
 }
 
@@ -324,7 +330,7 @@ static void init(void *u) {
   touch_layout();
   audio_init();
   font_ui = cw_font_load("fonts/Oswald-VF.ttf", NULL);
-  font_title = cw_font_load("fonts/RussoOne-Regular.ttf", NULL);
+  font_title = cw_font_load("fonts/Hack-Bold.ttf", NULL);
   cw_debug_i32("game.state", &G.state);
   cw_debug_i32("ticks", &G.ticks);
   cw_debug_i32("input.mode", &input_mode);
@@ -346,11 +352,14 @@ static void init(void *u) {
   cw_debug_u32("world.hash", &world_hash);
   cw_debug_i32("fx.lights", &fx_lights_live);
   cw_tree_add_hook(cw_scene_app_tree(), 2, 0, sync_hook, NULL);
+  probe_init(cw_scene_app_tree());
+  cw_debug_i32("probe.refreshes", &probe_refreshes);
   G.variation = -1;
   load_world(0);
   sim_new_game(&G.S, 1, SKILL_BASE[SAVE.skill], 0xc4801eu);
   G.S.mode = PLAY_LEVEL_OVER; /* the title: the deck scrolls, nothing spawns */
   G.S.success = 1e9f;
+  G.S.h.y = -7.2f; /* the ship idles low on the title, under the menu */
   G.prev = G.S;
   G.state = GS_TITLE;
   music(0);
@@ -389,6 +398,7 @@ static void title_input(void) {
     if (G.cursor == 1) SAVE.skill = (uint8_t)((SAVE.skill + dx + SKILLS) % SKILLS);
     if (G.cursor == 2) SAVE.start_level = (uint8_t)(1 + (SAVE.start_level - 1 + dx + max_level) % max_level);
     if (G.cursor == 3) cw_quality_cycle(), SAVE.quality = cw_quality_saved();
+    if (G.cursor == 3 && tex_stale()) load_world(G.variation);
     if (G.cursor) sfx(SFX_SELECT, 0.5f), save_write();
   }
   bool go = pressed(G.a_start) || pressed(G.a_fire) || (mouse_clicked && input_mode == DEV_TOUCH);
@@ -397,6 +407,7 @@ static void title_input(void) {
       cw_quality_cycle();
       SAVE.quality = cw_quality_saved();
       save_write();
+      if (tex_stale()) load_world(G.variation);
       sfx(SFX_SELECT, 0.5f);
     } else if (G.cursor == 1 || G.cursor == 2) {
       G.cursor = 0;
@@ -487,10 +498,12 @@ static void fixed(void *u, double dt) {
       G.cursor = 0;
       G.S.mode = PLAY_LEVEL_OVER;
       G.S.success = 1e9f;
+      G.S.h.y = -7.2f;
     }
     break;
   }
   }
+  fx_hero(&G.S);
   fx_update(1.0f / 60);
   G.state_hash = sim_hash(&G.S);
   G.hero_pos[0] = G.S.h.x, G.hero_pos[1] = G.S.h.y;
@@ -529,23 +542,30 @@ static void update(void *u, double dt) {
   if (A.on) cw_audio_update();
 }
 
-/* ── HUD ────────────────────────────────────────────────────────────── */
+/* ── HUD: after the original's, a thin instrument layer ───────────────
+ * Two tall glass columns (shields left, damage right) with segmented
+ * fills and a pulse running up them, stock bars beside the shields, the
+ * score in mono digits, spare ships as small silhouettes, wide-spaced
+ * lowercase messages. */
 
 static cw_color rgba(float r, float g, float b, float a) { return (cw_color){ r, g, b, a }; }
 
+/* spaced text: mono (Hack) for readouts, Oswald for words */
 static void text(cw_font f, const char *s, float x, float y, float size, cw_color c, cw_text_align al, float wrap, float spacing) {
   cw_text_style st = { .size = size, .color = c, .align = al, .wrap_width = wrap, .letter_spacing = spacing,
-                       .shadow_color = rgba(0, 0, 0, 0.7f * c.a), .shadow_offset = cw_v2(size * 0.05f, size * 0.06f), .shadow_softness = size * 0.08f };
+                       .shadow_color = rgba(0, 0, 0, 0.8f * c.a), .shadow_offset = cw_v2(0, size * 0.04f), .shadow_softness = size * 0.12f };
   cw_r2d_text(f, s, cw_v2(x, y), &st);
 }
-/* chrome lettering: a cool top, a hot horizon line, a warm bottom, an
- * outline, as the original's logo text */
-static void chrome_text(const char *s, float x, float y, float size, float alpha, cw_text_align al, float wrap) {
-  cw_text_style st = { .size = size, .color = rgba(0.75f, 0.85f, 1, alpha), .align = al, .wrap_width = wrap, .letter_spacing = size * 0.06f,
-                       .outline_width = size * 0.07f, .outline_color = rgba(0.02f, 0.04f, 0.18f, alpha),
-                       .shadow_color = rgba(0.1f, 0.3f, 1, 0.55f * alpha), .shadow_offset = cw_v2(0, 0), .shadow_spread = size * 0.12f,
-                       .shadow_softness = size * 0.3f };
-  cw_r2d_text(font_title, s, cw_v2(x, y), &st);
+/* a heading: wide-spaced capitals in steel with a cold glow behind */
+static void heading(const char *s, float x, float y, float size, float alpha, cw_text_align al, float wrap) {
+  cw_text_style st = { .size = size, .color = rgba(0.86f, 0.9f, 0.96f, alpha), .align = al, .wrap_width = wrap, .letter_spacing = size * 0.32f,
+                       .outline_width = size * 0.03f, .outline_color = rgba(0.02f, 0.03f, 0.06f, alpha),
+                       .shadow_color = rgba(0.15f, 0.35f, 0.9f, 0.45f * alpha), .shadow_offset = cw_v2(0, 0), .shadow_spread = size * 0.1f,
+                       .shadow_softness = size * 0.45f };
+  cw_r2d_text(font_ui, s, cw_v2(x, y), &st);
+}
+static void spaced(const char *s, float x, float y, float size, cw_color c, cw_text_align al, float wrap) {
+  text(font_ui, s, x, y, size, c, al, wrap, size * 0.35f);
 }
 
 /* a vertical gradient quad */
@@ -555,96 +575,62 @@ static void vgrad(cw_rect r, cw_color top, cw_color bot) {
   static const uint32_t idx[6] = { 0, 1, 2, 0, 2, 3 };
   cw_r2d_triangles((cw_texture){ 0 }, v, 4, idx, 6);
 }
-
-/* a glass tube gauge, filled from the bottom, with a flowing light inside */
-static void tube(float x, float y, float w, float h, float fill, float over, cw_color c, float flash) {
-  cw_r2d_round_rect(cw_rect_make(x - 3, y - 3, w + 6, h + 6), w * 0.5f, 12, rgba(0.02f, 0.03f, 0.06f, 0.75f));
-  float fh = h * cw_clampf(fill, 0, 1);
-  if (fh > 1) {
-    cw_rect r = cw_rect_make(x, y + h - fh, w, fh);
-    vgrad(r, rgba(c.r * 1.3f, c.g * 1.3f, c.b * 1.3f, 0.95f), rgba(c.r * 0.45f, c.g * 0.45f, c.b * 0.45f, 0.95f));
-    /* bands of light rising through it */
-    cw_r2d_set_blend(CW_BLEND_ADD);
-    for (int i = 0; i < 5; i++) {
-      float p = fmodf(frame_t * 0.35f + i * 0.2f, 1.0f);
-      float by = y + h - p * h;
-      if (by < y + h - fh) continue;
-      cw_r2d_rect(cw_rect_make(x + 2, by, w - 4, 2 + w * 0.08f), rgba(c.r * 0.5f, c.g * 0.5f, c.b * 0.5f, 0.6f));
-    }
-    if (over > 0) cw_r2d_rect(cw_rect_make(x, y, w, h), rgba(1, 1, 1, 0.12f * over + 0.08f * over * sinf(frame_t * 9)));
-    if (flash > 0.02f) cw_r2d_rect(cw_rect_make(x - 3, y - 3, w + 6, h + 6), rgba(c.r, c.g, c.b, 0.6f * flash));
-    cw_r2d_set_blend(CW_BLEND_ALPHA);
-  }
-  /* the glass: a highlight down one side, a rim */
-  cw_r2d_rect(cw_rect_make(x + w * 0.18f, y + 4, w * 0.12f, h - 8), rgba(1, 1, 1, 0.18f));
-  cw_r2d_round_rect_lines(cw_rect_make(x - 3, y - 3, w + 6, h + 6), w * 0.5f, 2, 12, rgba(0.7f, 0.8f, 0.95f, 0.65f));
-}
-
-static void hero_icon(float cx, float cy, float s, cw_color c) {
-  cw_vec2 p[7] = { cw_v2(cx, cy - 9 * s), cw_v2(cx + 2 * s, cy - 2 * s), cw_v2(cx + 8 * s, cy + 6 * s), cw_v2(cx + 2 * s, cy + 5 * s),
-                   cw_v2(cx - 2 * s, cy + 5 * s), cw_v2(cx - 8 * s, cy + 6 * s), cw_v2(cx - 2 * s, cy - 2 * s) };
-  cw_r2d_polygon(p, 7, c);
-  cw_r2d_line(cw_v2(cx, cy - 8 * s), cw_v2(cx, cy + 4 * s), 2 * s, rgba(0.25f, 0.4f, 1, c.a));
+static void hgrad(cw_rect r, cw_color left, cw_color right) {
+  cw_vertex2d v[4] = { { cw_v2(r.x, r.y), cw_v2(0, 0), left }, { cw_v2(r.x + r.w, r.y), cw_v2(1, 0), right },
+                       { cw_v2(r.x + r.w, r.y + r.h), cw_v2(1, 1), right }, { cw_v2(r.x, r.y + r.h), cw_v2(0, 1), left } };
+  static const uint32_t idx[6] = { 0, 1, 2, 0, 2, 3 };
+  cw_r2d_triangles((cw_texture){ 0 }, v, 4, idx, 6);
 }
 
 static void draw_hud(float W, float H, float s) {
   const sim *S = &G.S;
   const hero *h = &S->h;
   char b[64];
-  /* side gauges: shields on the left (blue), hull on the right (red) */
-  float tw = 26 * s, th = 230 * s;
-  float sh = h->shields / HERO_SHIELDS, over = sh > 1 ? sh - 1 : 0;
-  tube(28 * s, H - th - 50 * s, tw, th, sh > 1 ? 1 : sh, over, rgba(0.2f, 0.45f, 1, 1), h->shield_flash);
-  text(font_title, "SHIELDS", 28 * s + tw * 0.5f - 60 * s, H - 44 * s, 15 * s, rgba(0.6f, 0.75f, 1, 0.9f), CW_ALIGN_CENTER, 120 * s, 2 * s);
-  float hull = (h->damage + HERO_HULL) / HERO_HULL;
-  tube(W - 28 * s - tw, H - th - 50 * s, tw, th, hull, 0, rgba(1, 0.2f, 0.12f, 1), h->damage_flash);
-  text(font_title, "DAMAGE", W - 28 * s - tw * 0.5f - 60 * s, H - 44 * s, 15 * s, rgba(1, 0.6f, 0.55f, 0.9f), CW_ALIGN_CENTER, 120 * s, 2 * s);
-  /* the stocks: three slim bars beside the shields */
-  static const float AC[GUNS][3] = { { 1, 0.85f, 0.25f }, { 0.3f, 1, 0.35f }, { 0.75f, 0.3f, 1 } };
-  for (int g = 0; g < GUNS; g++) {
-    float x = 66 * s + g * 14 * s, y = H - 50 * s - 120 * s;
-    cw_r2d_rect(cw_rect_make(x, y, 8 * s, 120 * s), rgba(0.02f, 0.03f, 0.06f, 0.6f));
-    float f = h->ammo[g] / AMMO_MAX;
-    if (f > 0) cw_r2d_rect(cw_rect_make(x, y + 120 * s * (1 - f), 8 * s, 120 * s * f), rgba(AC[g][0], AC[g][1], AC[g][2], 0.9f));
-  }
-  /* the score, bottom left; ships in reserve, top right */
-  snprintf(b, sizeof b, "%07lld", (long long)S->score);
-  text(font_title, b, 24 * s, 16 * s, 30 * s, rgba(0.85f, 0.92f, 1, 0.95f), CW_ALIGN_LEFT, 0, 3 * s);
-  snprintf(b, sizeof b, "LEVEL %d", S->level);
-  text(font_title, b, 24 * s, 52 * s, 16 * s, rgba(0.6f, 0.7f, 0.9f, 0.85f), CW_ALIGN_LEFT, 0, 2 * s);
-  for (int i = 0; i < h->lives && i < 9; i++) hero_icon(W - 30 * s - (i % 5) * 24 * s, 30 * s + (i / 5) * 26 * s, 1.3f * s, rgba(0.8f, 0.85f, 1, 0.9f));
-  /* the boss's health across the top */
+  /* the gauges and spare ships are 3D (hud3d.c); their labels are here */
+  spaced("shields", 0, H - 34 * s, 12 * s, rgba(0.55f, 0.68f, 0.95f, 0.85f), CW_ALIGN_LEFT, 0);
+  spaced("damage", W - 96 * s, H - 34 * s, 12 * s, rgba(0.95f, 0.55f, 0.5f, 0.85f), CW_ALIGN_LEFT, 0);
+  /* score and level, top left; reserve ships, top right */
+  hgrad(cw_rect_make(0, 0, 330 * s, 70 * s), rgba(0.01f, 0.015f, 0.025f, 0.6f), rgba(0.01f, 0.015f, 0.025f, 0));
+  snprintf(b, sizeof b, "%08lld", (long long)S->score);
+  text(font_title, b, 26 * s, 14 * s, 26 * s, rgba(0.8f, 0.86f, 0.95f, 0.95f), CW_ALIGN_LEFT, 0, 3 * s);
+  snprintf(b, sizeof b, "level %d   %s", S->level, SKILL_NAME[SAVE.skill]);
+  spaced(b, 28 * s, 46 * s, 12 * s, rgba(0.5f, 0.58f, 0.72f, 0.85f), CW_ALIGN_LEFT, 0);
+  /* the boss: a hairline gauge across the top */
   if (S->boss_hp >= 0) {
-    float bw = W * 0.4f, bx = (W - bw) * 0.5f, by = 18 * s;
-    cw_r2d_round_rect(cw_rect_make(bx - 3, by - 3, bw + 6, 14 * s + 6), 6 * s, 8, rgba(0.02f, 0.02f, 0.05f, 0.7f));
-    vgrad(cw_rect_make(bx, by, bw * cw_clampf(1 - S->boss_hp, 0, 1), 14 * s), rgba(1, 0.4f, 0.3f, 0.95f), rgba(0.6f, 0.05f, 0.05f, 0.95f));
-    cw_r2d_round_rect_lines(cw_rect_make(bx - 3, by - 3, bw + 6, 14 * s + 6), 6 * s, 2, 8, rgba(0.9f, 0.6f, 0.55f, 0.7f));
+    float bw = W * 0.36f, bx = (W - bw) * 0.5f, by = 22 * s;
+    cw_r2d_rect(cw_rect_make(bx, by, bw, 6 * s), rgba(0.05f, 0.03f, 0.03f, 0.7f));
+    cw_r2d_set_blend(CW_BLEND_ADD);
+    cw_r2d_rect(cw_rect_make(bx, by, bw * cw_clampf(1 - S->boss_hp, 0, 1), 6 * s), rgba(1, 0.25f, 0.15f, 0.9f));
+    cw_r2d_set_blend(CW_BLEND_ALPHA);
+    spaced("hostile command craft", 0, by + 10 * s, 11 * s, rgba(0.9f, 0.45f, 0.4f, 0.8f), CW_ALIGN_CENTER, W);
   }
-  /* messages */
-  if (G.state_ticks < 240 && S->mode == PLAY_ON) {
-    float a = cw_clampf(G.state_ticks / 20.0f, 0, 1) * cw_clampf((240 - G.state_ticks) / 40.0f, 0, 1);
+  /* messages, in the original's spaced lowercase */
+  if (G.state_ticks < 260 && S->mode == PLAY_ON) {
+    float a = cw_clampf(G.state_ticks / 30.0f, 0, 1) * cw_clampf((260 - G.state_ticks) / 50.0f, 0, 1);
     snprintf(b, sizeof b, "LEVEL %d", S->level);
-    chrome_text(b, 0, H * 0.3f, 64 * s, a, CW_ALIGN_CENTER, W);
-    text(font_ui, "do not allow -any- enemies get past", 0, H * 0.3f + 80 * s, 22 * s, rgba(0.8f, 0.85f, 1, a), CW_ALIGN_CENTER, W, 3 * s);
+    heading(b, 0, H * 0.3f, 54 * s, a, CW_ALIGN_CENTER, W);
+    spaced("do not allow -any- enemies get past", 0, H * 0.3f + 74 * s, 17 * s, rgba(0.7f, 0.76f, 0.88f, a), CW_ALIGN_CENTER, W);
   }
-  if (S->mode == PLAY_LEVEL_OVER) {
-    float a = cw_clampf((500 - S->success) / 30.0f, 0, 1);
-    chrome_text("LEVEL COMPLETE", 0, H * 0.32f, 54 * s, a, CW_ALIGN_CENTER, W);
+  if (S->mode == PLAY_LEVEL_OVER) heading("LEVEL COMPLETE", 0, H * 0.32f, 46 * s, cw_clampf((500 - S->success) / 30.0f, 0, 1), CW_ALIGN_CENTER, W);
+  if (S->mode == PLAY_DEAD) heading("GAME OVER", 0, H * 0.36f, 60 * s, cw_clampf((50 - S->hero_death) / 30.0f, 0, 1), CW_ALIGN_CENTER, W);
+  if (h->armed > 0)
+    spaced(input_mode == DEV_PAD ? "self-destruct armed : (b) again" : "self-destruct armed : again to fire", 0, H * 0.62f, 18 * s,
+           rgba(1, 0.3f, 0.2f, 0.6f + 0.4f * sinf(frame_t * 20)), CW_ALIGN_CENTER, W);
+  if (S->past_warn > 0.05f && S->mode == PLAY_ON) {
+    cw_r2d_set_blend(CW_BLEND_ADD);
+    vgrad(cw_rect_make(0, H - 90 * s, W, 90 * s), rgba(0.6f, 0.02f, 0.02f, 0), rgba(0.6f * S->past_warn, 0.03f, 0.02f, 0.5f * (0.6f + 0.4f * sinf(frame_t * 18))));
+    cw_r2d_set_blend(CW_BLEND_ALPHA);
+    spaced("enemy getting past", 0, H - 36 * s, 15 * s, rgba(1, 0.3f, 0.25f, S->past_warn), CW_ALIGN_CENTER, W);
   }
-  if (S->mode == PLAY_DEAD) chrome_text("GAME OVER", 0, H * 0.36f, 72 * s, cw_clampf((50 - S->hero_death) / 30.0f, 0, 1), CW_ALIGN_CENTER, W);
-  if (h->armed > 0) text(font_title, input_mode == DEV_PAD ? "SELF-DESTRUCT ARMED: (B) AGAIN" : "SELF-DESTRUCT ARMED: AGAIN TO FIRE", 0, H * 0.62f, 22 * s,
-                         rgba(1, 0.35f, 0.25f, 0.6f + 0.4f * sinf(frame_t * 20)), CW_ALIGN_CENTER, W, 2 * s);
-  if (S->past_warn > 0.05f && S->mode == PLAY_ON)
-    text(font_title, "!  ENEMY GETTING PAST  !", 0, H - 36 * s, 20 * s, rgba(1, 0.25f, 0.2f, S->past_warn * (0.6f + 0.4f * sinf(frame_t * 18))), CW_ALIGN_CENTER, W, 3 * s);
 }
 
 static void touch_button(int id, const char *label, cw_vec2 wc, float wr, cw_color c) {
   cw_vec2 cc = cw_r2d_window_to_canvas(wc), e = cw_r2d_window_to_canvas(cw_v2(wc.x + wr, wc.y));
   float r = e.x - cc.x;
   bool on = cw_touch_control_active(id);
-  cw_r2d_circle(cc, r * (on ? 0.92f : 1), 32, rgba(c.r, c.g, c.b, on ? 0.6f : 0.35f));
-  cw_r2d_circle_lines(cc, r, 3, 32, rgba(0.8f, 0.9f, 1, 0.7f));
-  text(font_title, label, cc.x - r * 2, cc.y - r * 0.25f, r * 0.38f, rgba(1, 1, 1, 0.95f), CW_ALIGN_CENTER, r * 4, 0);
+  cw_r2d_circle(cc, r * (on ? 0.92f : 1), 40, rgba(c.r * 0.3f, c.g * 0.3f, c.b * 0.3f, on ? 0.55f : 0.35f));
+  cw_r2d_circle_lines(cc, r, 1.5f, 40, rgba(c.r, c.g, c.b, 0.8f));
+  spaced(label, cc.x - r * 2, cc.y - r * 0.2f, r * 0.3f, rgba(0.9f, 0.92f, 1, 0.95f), CW_ALIGN_CENTER, r * 4);
 }
 static void draw_touch(void) {
   int ww, wh;
@@ -655,67 +641,77 @@ static void draw_touch(void) {
   cw_vec2 wc = on ? cw_touch_stick_center(T_STICK) : cw_v2(150 * k, (float)wh - 150 * k);
   cw_vec2 c = cw_r2d_window_to_canvas(wc), e = cw_r2d_window_to_canvas(cw_v2(wc.x + 60 * k, wc.y));
   float R = e.x - c.x;
-  cw_r2d_circle(c, R * 1.25f, 36, rgba(0.3f, 0.45f, 0.8f, on ? 0.3f : 0.18f));
-  cw_r2d_circle_lines(c, R * 1.25f, 3, 36, rgba(0.7f, 0.8f, 1, 0.5f));
+  cw_r2d_circle_lines(c, R * 1.25f, 1.5f, 48, rgba(0.6f, 0.7f, 0.9f, on ? 0.6f : 0.35f));
   cw_vec2 v = on ? cw_touch_stick_value(T_STICK) : cw_v2(0, 0);
-  cw_r2d_circle(cw_v2(c.x + v.x * R, c.y + v.y * R), R * 0.45f, 24, rgba(0.75f, 0.85f, 1, on ? 0.8f : 0.5f));
-  touch_button(T_FIRE, "FIRE", cw_v2(fx, fy), fr, rgba(0.3f, 0.5f, 1, 1));
-  touch_button(T_BOMB, "BOMB", cw_v2(bx, by), br, rgba(1, 0.3f, 0.2f, 1));
-  touch_button(T_PAUSE, "II", cw_v2(14 * k + 32 * k, 14 * k + 26 * k), 26 * k, rgba(0.2f, 0.25f, 0.35f, 1));
+  cw_r2d_circle(cw_v2(c.x + v.x * R, c.y + v.y * R), R * 0.4f, 32, rgba(0.5f, 0.6f, 0.8f, on ? 0.6f : 0.3f));
+  touch_button(T_FIRE, "fire", cw_v2(fx, fy), fr, rgba(0.35f, 0.55f, 1, 1));
+  touch_button(T_BOMB, "bomb", cw_v2(bx, by), br, rgba(1, 0.3f, 0.2f, 1));
+  touch_button(T_PAUSE, "||", cw_v2(14 * k + 32 * k, 14 * k + 26 * k), 26 * k, rgba(0.6f, 0.65f, 0.75f, 1));
 }
 
+/* the title: the 3D logo is world.c's; this draws the menu under it as the
+ * original did, wide-spaced lowercase with a light bar sweeping the choice */
 static void draw_title(float W, float H, float s) {
-  chrome_text(CHROMITE_TITLE, 0, H * 0.12f, 112 * s, 1, CW_ALIGN_CENTER, W);
-  text(font_ui, "a chrome fortress, a cargo ship, and nothing gets past", 0, H * 0.12f + 130 * s, 22 * s, rgba(0.75f, 0.82f, 1, 0.9f), CW_ALIGN_CENTER, W, 2 * s);
   char lines[4][64];
-  snprintf(lines[0], 64, "START");
-  snprintf(lines[1], 64, "SKILL   %s", SKILL_NAME[SAVE.skill]);
-  snprintf(lines[2], 64, "LEVEL   %d", SAVE.start_level);
-  snprintf(lines[3], 64, "GRAPHICS   %s", cw_quality_label());
-  float y0 = H * 0.5f;
+  snprintf(lines[0], 64, "new game");
+  snprintf(lines[1], 64, "skill   :   %s", SKILL_NAME[SAVE.skill]);
+  snprintf(lines[2], 64, "level   :   %d", SAVE.start_level);
+  snprintf(lines[3], 64, "graphics   :   %s", cw_quality_label());
+  for (char *c = lines[3]; *c; c++) *c = (char)(*c >= 'A' && *c <= 'Z' ? *c + 32 : *c);
+  float y0 = H * 0.55f, x0 = W * 0.36f;
+  vgrad(cw_rect_make(x0 - 30 * s, y0 - 18 * s, W * 0.34f, 4 * 34 * s + 28 * s), rgba(0.0f, 0.0f, 0.01f, 0.55f), rgba(0.0f, 0.0f, 0.01f, 0.35f));
   for (int i = 0; i < 4; i++) {
     bool sel = i == G.cursor;
-    float y = y0 + i * 40 * s;
+    float y = y0 + i * 34 * s;
     if (sel) {
+      /* the original's bar: bright at the left edge, fading right, with a glint sweeping it */
       cw_r2d_set_blend(CW_BLEND_ADD);
-      vgrad(cw_rect_make(W * 0.3f, y - 4 * s, W * 0.4f, 36 * s), rgba(0.15f, 0.25f, 0.8f, 0.5f), rgba(0.05f, 0.08f, 0.3f, 0.3f));
+      hgrad(cw_rect_make(0, y - 3 * s, x0 + W * 0.3f, 28 * s), rgba(0.1f, 0.18f, 0.6f, 0.0f), rgba(0.12f, 0.2f, 0.7f, 0.0f));
+      hgrad(cw_rect_make(x0 - 30 * s, y - 3 * s, W * 0.3f, 28 * s), rgba(0.25f, 0.35f, 0.95f, 0.75f), rgba(0.05f, 0.08f, 0.3f, 0.0f));
+      float gx = x0 - 30 * s + fmodf(frame_t * 0.7f, 1.0f) * W * 0.3f;
+      hgrad(cw_rect_make(gx - 40 * s, y - 3 * s, 40 * s, 28 * s), rgba(0.4f, 0.5f, 1, 0), rgba(0.5f, 0.6f, 1, 0.5f));
       cw_r2d_set_blend(CW_BLEND_ALPHA);
     }
-    text(font_title, lines[i], 0, y, 24 * s, sel ? rgba(1, 1, 1, 1) : rgba(0.6f, 0.68f, 0.85f, 0.85f), CW_ALIGN_CENTER, W, 4 * s);
+    spaced(lines[i], x0, y, 17 * s, sel ? rgba(1, 1, 1, 1) : rgba(0.62f, 0.68f, 0.8f, 0.85f), CW_ALIGN_LEFT, 0);
   }
-  /* the table for this skill */
-  float tx = W * 0.8f, ty = H * 0.52f;
-  text(font_title, "HIGH SCORES", tx - 100 * s, ty, 16 * s, rgba(0.7f, 0.8f, 1, 0.9f), CW_ALIGN_CENTER, 200 * s, 3 * s);
+  /* high scores, bottom left, as the original kept them */
+  float tx = 40 * s, ty = H * 0.7f;
+  spaced("high scores", tx, ty, 13 * s, rgba(0.62f, 0.68f, 0.82f, 0.9f), CW_ALIGN_LEFT, 0);
   for (int i = 0; i < 5; i++) {
     char b[48];
-    snprintf(b, sizeof b, "%d", SAVE.hi[SAVE.skill][i]);
-    text(font_title, b, tx - 100 * s, ty + (26 + i * 22) * s, 18 * s, i == 0 ? rgba(1, 0.5f, 0.45f, 1) : rgba(0.75f, 0.8f, 0.9f, 0.85f - i * 0.1f), CW_ALIGN_CENTER, 200 * s, 2 * s);
+    snprintf(b, sizeof b, "%8d", SAVE.hi[SAVE.skill][i]);
+    text(font_title, b, tx, ty + (22 + i * 19) * s, 15 * s, i == 0 ? rgba(1, 0.42f, 0.38f, 1) : rgba(0.6f, 0.64f, 0.72f, 0.85f - i * 0.12f), CW_ALIGN_LEFT, 0, 2 * s);
   }
-  const char *h = input_mode == DEV_TOUCH ? "tap to launch" : input_mode == DEV_PAD ? "d-pad: choose   (A): launch" : "arrows: choose   Enter / Space: launch";
-  text(font_ui, h, 0, H * 0.92f, 20 * s, rgba(0.6f, 0.7f, 0.9f, 0.6f + 0.3f * sinf(frame_t * 3)), CW_ALIGN_CENTER, W, 2 * s);
+  const char *h = input_mode == DEV_TOUCH ? "tap to launch" : input_mode == DEV_PAD ? "d-pad : choose      (a) : launch" : "arrows : choose      enter / space : launch";
+  spaced(h, 0, H * 0.94f, 13 * s, rgba(0.5f, 0.56f, 0.7f, 0.55f + 0.25f * sinf(frame_t * 2.5f)), CW_ALIGN_CENTER, W);
+  /* the original's ticker */
+  float tw = W * 3, off = fmodf(frame_t * 90 * s, tw * 0.5f);
+  spaced("do not allow -any- enemies get past", W - off, H * 0.89f, 15 * s, rgba(0.35f, 0.4f, 0.85f, 0.85f), CW_ALIGN_LEFT, 0);
 }
 
 static void draw_pause(float W, float H, float s) {
-  cw_r2d_rect(cw_rect_make(0, 0, W, H), rgba(0.0f, 0.02f, 0.06f, 0.45f));
-  chrome_text("PAUSED", 0, H * 0.34f, 64 * s, 1, CW_ALIGN_CENTER, W);
-  text(font_ui, input_mode == DEV_PAD ? "(A) resume    Back: end the game" : input_mode == DEV_TOUCH ? "tap to resume" : "Space: resume    Backspace: end the game", 0, H * 0.5f,
-       22 * s, rgba(0.8f, 0.85f, 1, 0.9f), CW_ALIGN_CENTER, W, 2 * s);
+  cw_r2d_rect(cw_rect_make(0, 0, W, H), rgba(0.0f, 0.01f, 0.03f, 0.55f));
+  heading("PAUSED", 0, H * 0.36f, 52 * s, 1, CW_ALIGN_CENTER, W);
+  spaced(input_mode == DEV_PAD ? "(a) resume      back : end the game" : input_mode == DEV_TOUCH ? "tap to resume" : "space : resume      backspace : end the game", 0,
+         H * 0.5f, 15 * s, rgba(0.7f, 0.76f, 0.88f, 0.9f), CW_ALIGN_CENTER, W);
 }
 
 static void draw_over(float W, float H, float s) {
   float a = cw_clampf(G.state_ticks / 30.0f, 0, 1);
-  cw_r2d_rect(cw_rect_make(0, 0, W, H), rgba(0, 0.01f, 0.04f, 0.5f * a));
-  chrome_text("GAME OVER", 0, H * 0.2f, 72 * s, a, CW_ALIGN_CENTER, W);
+  cw_r2d_rect(cw_rect_make(0, 0, W, H), rgba(0, 0.005f, 0.02f, 0.55f * a));
+  heading("GAME OVER", 0, H * 0.22f, 60 * s, a, CW_ALIGN_CENTER, W);
   char b[96];
-  snprintf(b, sizeof b, "score %d   level %d", G.final_score, G.final_level);
-  text(font_title, b, 0, H * 0.38f, 28 * s, rgba(0.85f, 0.9f, 1, a), CW_ALIGN_CENTER, W, 3 * s);
-  const char *verdict = G.rank == 1 ? "new high score!" : G.rank > 1 ? "n o t   b a d !" : "l o s e r";
-  text(font_title, verdict, 0, H * 0.48f, 34 * s, G.rank ? rgba(1, 0.6f, 0.4f, a) : rgba(0.6f, 0.65f, 0.8f, a), CW_ALIGN_CENTER, W, 3 * s);
+  snprintf(b, sizeof b, "%08d", G.final_score);
+  text(font_title, b, 0, H * 0.38f, 34 * s, rgba(0.85f, 0.9f, 1, a), CW_ALIGN_CENTER, W, 6 * s);
+  snprintf(b, sizeof b, "level %d", G.final_level);
+  spaced(b, 0, H * 0.46f, 14 * s, rgba(0.6f, 0.66f, 0.8f, a), CW_ALIGN_CENTER, W);
+  const char *verdict = G.rank == 1 ? "new high score !" : G.rank > 1 ? "not bad !" : "loser";
+  spaced(verdict, 0, H * 0.54f, 24 * s, G.rank ? rgba(1, 0.55f, 0.4f, a) : rgba(0.55f, 0.6f, 0.75f, a), CW_ALIGN_CENTER, W);
   if (G.rank > 1) {
     snprintf(b, sizeof b, "rank %d", G.rank);
-    text(font_title, b, 0, H * 0.56f, 24 * s, rgba(1, 0.75f, 0.5f, a), CW_ALIGN_CENTER, W, 3 * s);
+    spaced(b, 0, H * 0.6f, 16 * s, rgba(1, 0.7f, 0.5f, a), CW_ALIGN_CENTER, W);
   }
-  text(font_ui, input_mode == DEV_TOUCH ? "tap to continue" : "press fire to continue", 0, H * 0.8f, 20 * s, rgba(0.6f, 0.7f, 0.9f, a * 0.8f), CW_ALIGN_CENTER, W, 2 * s);
+  spaced(input_mode == DEV_TOUCH ? "tap to continue" : "press fire to continue", 0, H * 0.82f, 14 * s, rgba(0.5f, 0.56f, 0.72f, a * 0.8f), CW_ALIGN_CENTER, W);
 }
 
 static void render(void *u, double alpha) {

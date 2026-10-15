@@ -57,7 +57,9 @@ t3_material *model_mat(int which) { return MAT[which]; }
 static void mats_init(void) {
   if (MAT[M_CHROME]) return;
   MAT[M_CHROME] = metal(MT_CHROME, 1, 1, (t3_color){ 0.95f, 0.95f, 0.97f });
-  MAT[M_LILAC] = metal(MT_CHROME, 1, 1, lin(0.8f, 0.8f, 0.98f));
+  MAT[M_LILAC] = metal(MT_CHROME, 1, 1, lin(0.82f, 0.82f, 0.98f));
+  MAT[M_LILAC]->metalness = 0.72f; /* silver paint over metal: it takes the key light too */
+  MAT[M_LILAC]->roughness = 1.6f;   /* (x the map: about 0.2) */
   MAT[M_RUST] = metal(MT_RUST, 1, 1, (t3_color){ 1, 1, 1 });
   MAT[M_RUST_DARK] = metal(MT_RUST, 2, 2, lin(0.62f, 0.6f, 0.6f));
   /* the hero's spine: deep blue lacquer over metal, clear coated */
@@ -90,6 +92,25 @@ static void mats_init(void) {
   MAT[M_PINK_GLOW] = glow(lin(1, 0.2f, 0.9f), 5);
   MAT[M_ENGINE] = glow(lin(0.55f, 0.75f, 1), 9);
   MAT[M_AMBER] = glow(lin(1, 0.55f, 0.15f), 6);
+  MAT[M_GREEN_GLOW] = glow(lin(0.2f, 1, 0.35f), 5);
+  /* the canopy: dark tinted glass, glossy */
+  t3_material *cp = t3_mesh_physical_material_new(0xffffff);
+  cp->color = lin(0.04f, 0.07f, 0.1f);
+  cp->metalness = 0.4f;
+  cp->roughness = 0.04f;
+  cp->clearcoat = 1;
+  cp->clearcoat_roughness = 0.0f;
+  cp->emissive = lin(0.05f, 0.25f, 0.4f);
+  cp->emissive_intensity = 0.6f;
+  t3_material_set_texture(cp, T3_ENV_MAP, env_texture());
+  MAT[M_CANOPY] = cp;
+  /* engine flame: additive, unlit, a hot blue-white core */
+  t3_material *fl = t3_mesh_basic_material_new(0xffffff);
+  fl->color = (t3_color){ 1.6f, 2.4f, 5.5f };
+  fl->blending = T3_ADDITIVE_BLENDING;
+  fl->transparent = true;
+  fl->depth_write = false;
+  MAT[M_FLAME] = fl;
 }
 
 /* ── geometry helpers ──────────────────────────────────────────────── */
@@ -180,7 +201,7 @@ static t3_geometry *slab(const float *xz, int n, float th, float crown) {
 static t3_mesh *part(t3_object *parent, t3_geometry *g, int mat, float x, float y, float z) {
   t3_mesh *m = t3_mesh_new(g, MAT[mat]);
   t3_object_set_position(m, x, y, z);
-  T3_OBJ(m)->cast_shadow = mat != M_RED_GLOW && mat != M_PINK_GLOW && mat != M_ENGINE && mat != M_AMBER;
+  T3_OBJ(m)->cast_shadow = mat != M_RED_GLOW && mat != M_PINK_GLOW && mat != M_ENGINE && mat != M_AMBER && mat != M_GREEN_GLOW && mat != M_FLAME;
   T3_OBJ(m)->receive_shadow = false;
   t3_object_add(parent, m);
   t3_release(m);
@@ -215,7 +236,7 @@ static void build_hero(kind_def *k) {
   add(k, ellipsoid(0.1f, 0.12f, 0.75f, 20), M_BLUE, 0, 0.13f, -0.15f);
   /* wings: a swept delta with a sawtooth trailing edge */
   static const float WING[] = { 0.15f, -0.35f, 0.15f, 0.55f, 0.55f, 0.62f, 0.6f, 0.48f, 0.82f, 0.6f, 0.86f, 0.46f, 1.02f, 0.58f, 1.0f, 0.42f };
-  add_pair(k, slab(WING, 8, 0.025f, 0.05f), M_CHROME, 0, -0.02f, 0);
+  add_pair(k, slab(WING, 8, 0.025f, 0.05f), M_LILAC, 0, -0.02f, 0);
   /* cannon pods: long tubes with cone tips, inboard of the wing roots */
   static const float POD[] = { 0, -0.95f, 0.035f, -0.85f, 0.06f, -0.6f, 0.07f, 0.3f, 0.06f, 0.55f, 0, 0.6f };
   add_pair(k, lathe_z(POD, 6, 16), M_CHROME, 0.3f, 0.02f, 0);
@@ -227,6 +248,20 @@ static void build_hero(kind_def *k) {
   static const float FIN[] = { 0, 0.2f, 0, 0.75f, 0.02f, 0.75f, 0.02f, 0.3f };
   piece *f = add(k, slab(FIN, 4, 0.012f, 0), M_CHROME, -0.01f, 0.05f, 0);
   f->rz = 1.5707963f, f->sy = 1.6f;
+  /* the canopy at the front of the spine, wingtip lights (red port, green
+   * starboard), strakes on the leading edge roots, flames behind the nozzles
+   * (world.c flickers them: spin flag 2) */
+  add(k, ellipsoid(0.085f, 0.075f, 0.24f, 20), M_CANOPY, 0, 0.17f, -0.55f);
+  add(k, ellipsoid(0.03f, 0.025f, 0.05f, 10), M_GREEN_GLOW, 1.0f, -0.0f, 0.5f);
+  add(k, ellipsoid(0.03f, 0.025f, 0.05f, 10), M_RED_GLOW, -1.0f, -0.0f, 0.5f);
+  static const float STRAKE[] = { 0.12f, -0.75f, 0.2f, -0.35f, 0.18f, -0.3f };
+  add_pair(k, slab(STRAKE, 3, 0.02f, 0.02f), M_CHROME, 0, 0, 0);
+  static const float FLAME[] = { 0, 0, 0.05f, 0.05f, 0.035f, 0.35f, 0, 0.75f };
+  piece *fa = add(k, lathe_z(FLAME, 4, 12), M_FLAME, 0.16f, -0.04f, 0.93f);
+  fa->spin = 2;
+  t3_retain(fa->g);
+  piece *fb = add(k, fa->g, M_FLAME, -0.16f, -0.04f, 0.93f);
+  fb->spin = 2;
   k->radius = 1.05f;
 }
 

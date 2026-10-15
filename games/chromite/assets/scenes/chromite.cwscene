@@ -4,7 +4,7 @@
 
 [node name="Sun" parent="." type="DirectionalLight3D"]
 position = vec3(-22, 22, -16)
-color = color(0.85, 0.9, 1, 1)
+color = color(0.8, 0.86, 1, 1)
 energy = 1.4
 shadow = true
 shadow_size = 2048
@@ -16,33 +16,44 @@ shadow_normal_bias = 0.03
 [node name="Env" parent="." type="WorldEnvironment"]
 background = color(0.004, 0.006, 0.012, 1)
 ambient_color = color(0.55, 0.62, 0.85, 1)
-ambient_energy = 0.08
+ambient_energy = 0.05
 sky_color = color(0.35, 0.45, 0.8, 1)
 ground_color = color(0.12, 0.1, 0.1, 1)
-hemi_energy = 0.3
-fog_mode = LINEAR
-fog_color = color(0.01, 0.012, 0.025, 1)
-fog_near = 40
-fog_far = 95
+hemi_energy = 0.22
+
+[node name="Haze" parent="." type="HeightFog"]
+density = 0.035
+height_falloff = 0.22
+base_height = -14
+color = color(0.035, 0.04, 0.045, 1)
+use_sky_color = false
+sun_scatter = 0.25
+sun_g = 0.7
+max_opacity = 0.7
 
 [node name="Post" parent="." type="PostProcess"]
 tonemap = AGX
-exposure = 1.0
+exposure = 1.05
 bloom = true
-bloom_intensity = 0.06
-bloom_threshold = 1.0
-bloom_knee = 0.5
-bloom_radius = 0.8
+bloom_intensity = 0.07
+bloom_threshold = 1.1
+bloom_knee = 0.4
+bloom_radius = 0.85
 ssao = true
-ssao_radius = 0.9
-ssao_intensity = 1.2
-ssao_power = 1.5
+ssao_radius = 1.1
+ssao_intensity = 1.6
+ssao_power = 1.8
 aa = SMAA
+grade = true
+lut = "grade_steel.cube"
+grade_intensity = 1
 vignette = true
-vignette_intensity = 0.4
-vignette_smoothness = 0.6
+vignette_intensity = 0.55
+vignette_smoothness = 0.55
 grain = true
-grain_intensity = 0.02
+grain_intensity = 0.035
+chromatic_aberration = true
+ca_intensity = 0.001
 
 [node name="Camera" parent="." type="Camera3D"]
 position = vec3(0, 31, 7.5)

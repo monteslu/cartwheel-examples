@@ -159,12 +159,15 @@ void script_build(sim *S);
 enum { MT_CHROME, MT_RUST, MT_DECK, MT_GRATE, MT_KINDS };
 void tex_apply(t3_material *m, int kind, float ru, float rv);
 t3_texture *env_texture(void);
+t3_texture *env_logo_texture(void);
+t3_texture *tex_map_copy(int kind, float ru, float rv);
 void tex_free_all(void);
+bool tex_stale(void); /* the graphics preset changed since the maps were made */
 extern uint32_t tex_hash;
 
 /* models.c */
 enum { CK_HERO, CK_STRAIGHT, CK_OMNI, CK_RAYGUN, CK_TANK, CK_GNAT, CK_BOSS0, CK_BOSS1, CRAFT_KINDS };
-enum { M_CHROME, M_LILAC, M_RUST, M_RUST_DARK, M_BLUE, M_TEAL, M_BLACK, M_RED_GLOW, M_PINK_GLOW, M_ENGINE, M_AMBER, MATS_N };
+enum { M_CHROME, M_LILAC, M_RUST, M_RUST_DARK, M_BLUE, M_TEAL, M_BLACK, M_RED_GLOW, M_PINK_GLOW, M_ENGINE, M_AMBER, M_GREEN_GLOW, M_CANOPY, M_FLAME, MATS_N };
 void models_init(void);
 void models_free(void);
 t3_object *model_new(int kind, t3_object *parent, t3_object **spin, int *n_spin);
@@ -180,14 +183,35 @@ void world_free(void);
 void world_sync(const sim *prev, const sim *cur, float alpha, float t, int state);
 void world_camera(cw_node cam, const sim *S, float t, int state);
 extern uint32_t world_hash;
+t3_texture *world_halo_texture(void);
 /* sim plane to world: x right, +y up the screen is -Z */
 static inline t3_vec3 to_world(float x, float y) { return (t3_vec3){ x, PLAY_Y, -y }; }
+
+/* logo.c: the title's 3D wordmark */
+void logo_build(t3_object *parent, t3_texture *halo);
+void logo_free(void);
+void logo_sync(bool visible, float t, t3_vec3 eye, t3_vec3 at, t3_light *glint);
+
+/* hud3d.c: the gauges and spare ships as 3D instruments */
+void hud3d_build(t3_object *parent);
+void hud3d_free(void);
+void hud3d_sync(const sim *S, float t, t3_vec3 eye, t3_vec3 at, float fov_deg, float aspect, bool visible);
 
 /* fx.c: explosions, sparks, flashes, smoke */
 void fx_init(cw_node root);
 void fx_free(void);
 void fx_events(const sim *S);
+void fx_hero(const sim *S);
 void fx_update(float dt);
 extern int fx_lights_live;
+int fx_flashes(t3_vec3 *pos, t3_color *col, float *energy, int max);
+
+/* probe.c: the live reflection probe the chrome mirrors */
+void probe_init(cw_tree *tree);
+void probe_build(void);
+void probe_free(void);
+void probe_sync(float travel);
+void probe_set_every(int every);
+extern int probe_refreshes;
 
 #endif
