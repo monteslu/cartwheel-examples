@@ -10,6 +10,7 @@
  *          sphere, paws tucked, tail wrapped round, ears flat or up, three
  *          faces (grumpy, outraged, dizzy) and whiskers
  * Pugs face +z; the cat's face looks along +z of its own frame. */
+#include <stdlib.h>
 #include <string.h>
 
 #include "cartwheel/math.h"
@@ -39,9 +40,206 @@ static t3_mesh *part(t3_object *parent, t3_geometry *g, t3_material *m, float x,
   t3_release(me);
   return me;
 }
+/* the light stand-ins of the round shapes (a fraction of the triangles),
+ * made once and kept for good: what a model's far copy is built from
+ * (model_far) */
+#define LOD_PAIRS 8
+typedef struct lod_pair { t3_geometry *full, *light; } lod_pair;
+static lod_pair LODG[LOD_PAIRS];
+static int nlodg;
+static t3_geometry *with_light(t3_geometry *full, t3_geometry *light) {
+  if (nlodg < LOD_PAIRS) LODG[nlodg++] = (lod_pair){ full, light };
+  return full;
+}
+static t3_geometry *light_of(const t3_geometry *full) {
+  for (int i = 0; i < nlodg; i++)
+    if (LODG[i].full == full) return LODG[i].light;
+  return NULL;
+}
+
+/* geometry appended, transformed by m (normals by its normal matrix), one
+ * colour per vertex */
+typedef struct bake_buf { float *pos, *nor, *col; uint32_t *idx; int nv, ni, cv, ci; } bake_buf;
+static void bake_add(bake_buf *b, const t3_geometry *g, const t3_mat4 *m, const float rgb[3]) {
+  const t3_attribute *pa = g->attributes[T3_ATTR_POSITION], *na = g->attributes[T3_ATTR_NORMAL], *ia = g->index;
+  if (!pa || !na || !ia) return;
+  if (b->nv + pa->count > b->cv) {
+    b->cv = (b->nv + pa->count) * 2;
+    b->pos = realloc(b->pos, sizeof(float) * 3 * (size_t)b->cv);
+    b->nor = realloc(b->nor, sizeof(float) * 3 * (size_t)b->cv);
+    b->col = realloc(b->col, sizeof(float) * 3 * (size_t)b->cv);
+  }
+  if (b->ni + ia->count > b->ci) {
+    b->ci = (b->ni + ia->count) * 2;
+    b->idx = realloc(b->idx, sizeof(uint32_t) * (size_t)b->ci);
+  }
+  const float *e = m->e;
+  t3_mat3 nm;
+  t3_mat3_normal_matrix(&nm, m);
+  const float *q = nm.e;
+  float det = e[0] * (e[5] * e[10] - e[9] * e[6]) - e[4] * (e[1] * e[10] - e[9] * e[2]) + e[8] * (e[1] * e[6] - e[5] * e[2]);
+  const float *P = pa->array, *N = na->array;
+  for (int i = 0; i < pa->count; i++) {
+    float x = P[i * 3], y = P[i * 3 + 1], z = P[i * 3 + 2], a = N[i * 3], bb = N[i * 3 + 1], c = N[i * 3 + 2];
+    float *d = b->pos + (size_t)(b->nv + i) * 3, *dn = b->nor + (size_t)(b->nv + i) * 3, *dc = b->col + (size_t)(b->nv + i) * 3;
+    d[0] = e[0] * x + e[4] * y + e[8] * z + e[12];
+    d[1] = e[1] * x + e[5] * y + e[9] * z + e[13];
+    d[2] = e[2] * x + e[6] * y + e[10] * z + e[14];
+    float nx = q[0] * a + q[3] * bb + q[6] * c, ny = q[1] * a + q[4] * bb + q[7] * c, nz = q[2] * a + q[5] * bb + q[8] * c;
+    float l = sqrtf(nx * nx + ny * ny + nz * nz);
+    if (l > 0) nx /= l, ny /= l, nz /= l;
+    dn[0] = nx, dn[1] = ny, dn[2] = nz;
+    dc[0] = rgb[0], dc[1] = rgb[1], dc[2] = rgb[2];
+  }
+  for (int i = 0; i < ia->count; i++) {
+    uint32_t ix = ia->type == T3_UINT16 ? ((const uint16_t *)ia->array)[i] : ((const uint32_t *)ia->array)[i];
+    b->idx[b->ni + i] = (uint32_t)b->nv + ix;
+  }
+  if (det < 0) /* a mirrored part: its triangles wind the other way */
+    for (int i = 0; i + 2 < ia->count; i += 3) {
+      uint32_t t = b->idx[b->ni + i + 1];
+      b->idx[b->ni + i + 1] = b->idx[b->ni + i + 2];
+      b->idx[b->ni + i + 2] = t;
+    }
+  b->nv += pa->count;
+  b->ni += ia->count;
+}
+static t3_geometry *bake_done(bake_buf *b, bool colours) {
+  t3_geometry *g = t3_geometry_new();
+  t3_attribute *a = t3_attribute_new(T3_FLOAT32, b->pos, b->nv, 3);
+  t3_geometry_set_attribute(g, T3_ATTR_POSITION, a);
+  t3_release(a);
+  a = t3_attribute_new(T3_FLOAT32, b->nor, b->nv, 3);
+  t3_geometry_set_attribute(g, T3_ATTR_NORMAL, a);
+  t3_release(a);
+  if (colours) {
+    a = t3_attribute_new(T3_FLOAT32, b->col, b->nv, 3);
+    t3_geometry_set_attribute(g, T3_ATTR_COLOR, a);
+    t3_release(a);
+  }
+  a = t3_attribute_new(T3_UINT32, b->idx, b->ni, 1);
+  t3_geometry_set_index(g, a);
+  t3_release(a);
+  free(b->pos), free(b->nor), free(b->col), free(b->idx);
+  memset(b, 0, sizeof *b);
+  return g;
+}
+
+/* ── the far copy ───────────────────────────────────────────────────────
+ * Split screen draws every view on its own, and a pug or the cat far from
+ * a view's camera is a few dozen pixels there. For it the whole model in its
+ * rest pose is one mesh of the light shapes, each part in its material's
+ * colour (a textured part in its texture's average): one draw instead of
+ * fifty. Built before the parts are merged, it rides on the model's root
+ * (hidden until a view wants it: world_view_detail). */
+static void texture_mean(const t3_texture *t, float out[3]) {
+  out[0] = out[1] = out[2] = 1;
+  if (!t || !t->pixels || t->type != T3_UNSIGNED_BYTE_TYPE || t->width <= 0 || t->height <= 0) return;
+  double s[3] = { 0, 0, 0 };
+  long n = (long)t->width * t->height;
+  for (long i = 0; i < n; i++)
+    for (int k = 0; k < 3; k++) s[k] += t->pixels[i * 4 + k];
+  t3_color c = lin((float)(s[0] / n / 255), (float)(s[1] / n / 255), (float)(s[2] / n / 255));
+  out[0] = c.r, out[1] = c.g, out[2] = c.b;
+}
+static void far_walk(bake_buf *b, t3_object *o, const t3_mat4 *parent, bool top) {
+  if (!o->visible) return;
+  t3_mat4 m = *parent;
+  if (!top) {
+    t3_object_update_matrix(o);
+    t3_mat4_multiply(&m, parent, &o->matrix);
+  }
+  if (o->type == T3_MESH) {
+    t3_mesh *me = (t3_mesh *)o;
+    t3_material *mat = me->materials[0];
+    if (mat && !mat->transparent && me->material_count == 1) {
+      float rgb[3];
+      texture_mean(mat->map, rgb);
+      rgb[0] *= mat->color.r, rgb[1] *= mat->color.g, rgb[2] *= mat->color.b;
+      const t3_geometry *lg = light_of(me->geometry);
+      bake_add(b, lg ? lg : me->geometry, &m, rgb);
+    }
+  }
+  for (int i = 0; i < o->child_count; i++) far_walk(b, o->children[i], &m, false);
+}
+static t3_object *model_far(t3_object *root) {
+  static t3_material *fm;
+  if (!fm) {
+    fm = phys(lin(1, 1, 1), 0.6f, 0);
+    fm->vertex_colors = true;
+    fm->sheen = 0.6f;
+    fm->sheen_color = lin(0.8f, 0.8f, 0.8f);
+  }
+  bake_buf b = { 0 };
+  t3_mat4 id;
+  t3_mat4_identity(&id);
+  far_walk(&b, root, &id, true);
+  t3_geometry *g = bake_done(&b, true);
+  t3_mesh *me = t3_mesh_new(g, fm);
+  t3_release(g);
+  me->base.cast_shadow = me->base.receive_shadow = true;
+  me->base.visible = false;
+  t3_object_add(root, me);
+  t3_release(me);
+  return &me->base;
+}
+
+/* ── merging the parts ──────────────────────────────────────────────────
+ * A pug is some seventy meshes and the cat forty, most of them small round
+ * parts that never move against their pivot: the leaves under one pivot
+ * that share a material become one mesh (one draw), baked in the pivot's
+ * space. The pivots, which the animation moves, stay. */
+static bool mergeable(const t3_object *o) {
+  if (o->type != T3_MESH || o->child_count || !o->visible) return false;
+  const t3_mesh *me = (const t3_mesh *)o;
+  const t3_geometry *g = me->geometry;
+  return me->material_count == 1 && g->group_count == 0 && !g->morph_count && !g->named_count && g->index &&
+         g->attributes[T3_ATTR_POSITION] && g->attributes[T3_ATTR_NORMAL] && !g->attributes[T3_ATTR_TANGENT] && !g->attributes[T3_ATTR_UV1] &&
+         !g->attributes[T3_ATTR_COLOR] && !me->materials[0]->map && !me->materials[0]->normal_map;
+}
+static bool same_kind(const t3_mesh *a, const t3_mesh *b) {
+  return a->materials[0] == b->materials[0] && a->base.cast_shadow == b->base.cast_shadow && a->base.receive_shadow == b->base.receive_shadow &&
+         a->base.render_order == b->base.render_order && a->base.frustum_culled == b->base.frustum_culled && a->base.layers == b->base.layers;
+}
+static void merge_leaves(t3_object *parent) {
+  for (int i = 0; i < parent->child_count; i++)
+    if (parent->children[i]->child_count) merge_leaves(parent->children[i]);
+  enum { MAXK = 96 };
+  t3_mesh *leaf[MAXK];
+  int n = 0;
+  for (int i = 0; i < parent->child_count && n < MAXK; i++)
+    if (mergeable(parent->children[i])) leaf[n++] = (t3_mesh *)parent->children[i];
+  bool done[MAXK] = { false };
+  for (int a = 0; a < n; a++) {
+    if (done[a]) continue;
+    t3_mesh *group[MAXK];
+    int g = 0;
+    for (int b = a; b < n; b++)
+      if (!done[b] && same_kind(leaf[a], leaf[b])) group[g++] = leaf[b], done[b] = true;
+    if (g == 1) continue;
+    bake_buf bb = { 0 };
+    static const float white[3] = { 1, 1, 1 };
+    for (int k = 0; k < g; k++) {
+      t3_object_update_matrix(&group[k]->base);
+      bake_add(&bb, group[k]->geometry, &group[k]->base.matrix, white);
+    }
+    t3_geometry *full = bake_done(&bb, false);
+    t3_mesh *me = t3_mesh_new(full, group[0]->materials[0]);
+    t3_release(full);
+    me->base.cast_shadow = group[0]->base.cast_shadow;
+    me->base.receive_shadow = group[0]->base.receive_shadow;
+    me->base.render_order = group[0]->base.render_order;
+    me->base.frustum_culled = group[0]->base.frustum_culled;
+    me->base.layers = group[0]->base.layers;
+    for (int k = 0; k < g; k++) t3_object_remove(parent, group[k]);
+    t3_object_add(parent, me);
+    t3_release(me);
+  }
+}
+
 static t3_geometry *SPH;
 static t3_mesh *blob(t3_object *g, t3_material *m, float rx, float ry, float rz, float x, float y, float z) {
-  if (!SPH) SPH = t3_sphere_geometry_new(1, 32, 24);
+  if (!SPH) SPH = with_light(t3_sphere_geometry_new(1, 32, 24), t3_sphere_geometry_new(1, 12, 8));
   t3_mesh *me = part(g, SPH, m, x, y, z);
   me->base.scale = (t3_vec3){ rx, ry, rz };
   return me;
@@ -179,8 +377,8 @@ static void build_hat(pug_model *m, int hat, t3_color tc) {
  * face, a brow ridge over the eyes, cheek pads, the forehead creases cut in.
  * The seam is at the back; the uv stays the sphere's, so the head map's mask
  * lands on the face. */
-static t3_geometry *pug_skull(void) {
-  t3_geometry *g = t3_sphere_geometry_new_ex(1, 96, 72, 4.712389f, 6.2831853f, 0, 3.1415927f);
+static t3_geometry *pug_skull_at(int ws, int hs) {
+  t3_geometry *g = t3_sphere_geometry_new_ex(1, ws, hs, 4.712389f, 6.2831853f, 0, 3.1415927f);
   t3_attribute *pa = g->attributes[T3_ATTR_POSITION];
   float *p = pa->array;
   for (int i = 0; i < pa->count; i++) {
@@ -202,6 +400,11 @@ static t3_geometry *pug_skull(void) {
   }
   t3_geometry_compute_vertex_normals(g);
   return g;
+}
+static t3_geometry *pug_skull(void) {
+  static t3_geometry *skull;
+  if (!skull) skull = with_light(pug_skull_at(96, 72), pug_skull_at(32, 24));
+  return t3_retain(skull);
 }
 
 /* a fur material over a coat map, with the fine fur normal and ao */
@@ -419,9 +622,14 @@ void pug_build(pug_model *m, int team, pug_look look) {
   blob(m->tongue, pink, 0.02f, 0.008f, 0.02f, 0, 0, 0.004f);
   /* eyes: set wide in the flat face under the brow, dark brown, wet; lids
    * that droop a little (the upper one blinks and squints) */
-  t3_geometry *eg = t3_sphere_geometry_new(1, 24, 18);
-  t3_geometry *upper = t3_sphere_geometry_new_ex(1, 24, 10, 0, 6.2831853f, 0, 1.5707963f);
-  t3_geometry *lower = t3_sphere_geometry_new_ex(1, 24, 10, 0, 6.2831853f, 1.5707963f, 1.5707963f);
+  static t3_geometry *EYE, *LID_UP, *LID_LO; /* shared by every pug, with light stand-ins */
+  if (!EYE) {
+    EYE = with_light(t3_sphere_geometry_new(1, 24, 18), t3_sphere_geometry_new(1, 8, 6));
+    LID_UP = with_light(t3_sphere_geometry_new_ex(1, 24, 10, 0, 6.2831853f, 0, 1.5707963f), t3_sphere_geometry_new_ex(1, 8, 3, 0, 6.2831853f, 0, 1.5707963f));
+    LID_LO = with_light(t3_sphere_geometry_new_ex(1, 24, 10, 0, 6.2831853f, 1.5707963f, 1.5707963f),
+                        t3_sphere_geometry_new_ex(1, 8, 3, 0, 6.2831853f, 1.5707963f, 1.5707963f));
+  }
+  t3_geometry *eg = t3_retain(EYE), *upper = t3_retain(LID_UP), *lower = t3_retain(LID_LO);
   for (int sd = -1; sd <= 1; sd += 2) {
     float ex = sd * 0.078f, ey = 0.035f, ez = 0.112f;
     t3_object *ep = pivot(h, ex, ey, ez);
@@ -478,6 +686,10 @@ void pug_build(pug_model *m, int team, pug_look look) {
   t3_release(lacquer);
   t3_release(steel);
   /* glint and flame_mat stay referenced by the meshes (the model reads them) */
+  m->flame->visible = false; /* the far copy has no flame (world_tick shows it while boosting) */
+  m->far = model_far(m->root);
+  m->flame->visible = true;
+  merge_leaves(m->root);
 }
 
 /* ── the cat ────────────────────────────────────────────────────────── */
@@ -510,7 +722,9 @@ void cat_build(cat_model *c) {
   t3_material *mouth = phys(lin(0.45f, 0.08f, 0.1f), 0.5f, 0);
 
   /* the chonk: very nearly the physics sphere */
-  t3_geometry *bodyg = t3_sphere_geometry_new(RB * 0.98f, 64, 40);
+  static t3_geometry *CAT_BODY;
+  if (!CAT_BODY) CAT_BODY = with_light(t3_sphere_geometry_new(RB * 0.98f, 64, 40), t3_sphere_geometry_new(RB * 0.98f, 24, 16));
+  t3_geometry *bodyg = t3_retain(CAT_BODY);
   t3_mesh *bm = part(c->body, bodyg, tabby, 0, 0, 0);
   rot(&bm->base, 1.5707963f, 0, 0); /* the stripes wrap round its middle */
   t3_release(bodyg);
@@ -607,4 +821,8 @@ void cat_build(cat_model *c) {
   t3_release(white);
   t3_release(dark);
   t3_release(mouth);
+  c->eyes_angry->visible = c->eyes_dizzy->visible = c->mouth_yowl->visible = false; /* the far copy: its calm face */
+  c->far = model_far(c->root);
+  merge_leaves(c->root);
 }
+

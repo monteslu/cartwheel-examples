@@ -170,6 +170,7 @@ static struct {
   /* the Node3Ds that carry the pugs, the cat and its ring: their transforms
    * are set on the fixed tick and rendered between the last two ticks */
   cw_node pug_node[MAXP], cat_node, ring_node;
+  bool far_on[MAXP + 1]; /* drawn as their far copies now: the pugs, then the cat */
 } W;
 
 static cw_node hang(cw_node parent, const char *name, t3_object *obj) {
@@ -844,4 +845,27 @@ t3_vec3 world_pug_pos(int i) { return W.pug[i].root ? cw_node3d_position(W.pug_n
 t3_vec3 world_pug_render_pos(int i) {
   t3_object *o = cw_node3d_object(W.pug_node[i]);
   return o ? o->position : (t3_vec3){ 0, 0, 0 };
+}
+
+/* split screen draws each view on its own: a pug or the cat far from the
+ * view's camera is a few dozen pixels there, so it draws as its far copy */
+#define FAR_PUG 9.0f
+#define FAR_CAT 20.0f
+static void set_far(int k, t3_object *body, t3_object *far, bool on) {
+  if (!body || !far || W.far_on[k] == on) return;
+  W.far_on[k] = on;
+  body->visible = !on;
+  far->visible = on;
+}
+void world_view_detail(t3_vec3 eye, bool full) {
+  if (!W.ready) return;
+  for (int i = 0; i <= MAXP; i++) {
+    t3_object *o = cw_node3d_object(i < MAXP ? W.pug_node[i] : W.cat_node);
+    if (!o) continue;
+    t3_vec3 d = v3sub(o->position, eye);
+    float far = i < MAXP ? FAR_PUG : FAR_CAT;
+    bool on = !full && v3dot(d, d) > far * far;
+    if (i < MAXP) set_far(i, W.pug[i].body, W.pug[i].far, on);
+    else set_far(i, W.cat.body, W.cat.far, on);
+  }
 }

@@ -54,6 +54,7 @@ typedef struct pug_model {
   t3_object *head, *ear[2], *tail, *jaw, *tongue, *leg[4], *lids[2], *pack, *flame, *hat;
   t3_object *roll;          /* leans into turns */
   t3_material *flame_mat, *eye_glint;
+  t3_object *far;           /* the whole pug as one light mesh (split screen, far from a view) */
   pug_look look;
   int team;
 } pug_model;
@@ -62,6 +63,7 @@ typedef struct cat_model {
   t3_object *root;          /* at the sim's ball, rolled */
   t3_object *body;          /* squash */
   t3_object *head, *ear[2], *tail, *paw[4], *eyes_open, *eyes_dizzy, *eyes_angry, *mouth_grump, *mouth_yowl, *whisk;
+  t3_object *far;           /* the whole cat as one light mesh */
 } cat_model;
 void cat_build(cat_model *c);
 
@@ -78,7 +80,9 @@ void fx_set_trail(int pug, int kind);  /* the boost trail cosmetic */
 void scenery_build(cw_node scene, int theme, uint32_t seed);
 void scenery_tick(const sim *s, int ticks, int cheer);
 void scenery_reset(void);
-void scenery_quality(float k);   /* share of the crowd and grass drawn, 0..1 */
+void scenery_quality(float k, float grass); /* share of the crowd and of the grass drawn, 0..1 */
+void scenery_light_crowd(bool light); /* the crowd's light meshes (split screen) or the full ones */
+void scenery_view_detail(t3_vec3 eye); /* split screen, per view: the grass and crowd thinned with distance */
 extern uint32_t scenery_hash;
 
 /* the arena's plan (the rounded rectangle of its walls), sampled every half
@@ -108,7 +112,10 @@ void world_reset(void);
 void world_tick(const sim *s);      /* fixed tick: animation state */
 void world_showcase(int ticks, const pug_look looks[MAXP], int focus); /* title / select: pugs on parade */
 t3_vec3 world_pug_pos(int i);
-t3_vec3 world_pug_render_pos(int i); /* as drawn this frame */       /* drawn position (ragdolls included) */
+t3_vec3 world_pug_render_pos(int i); /* as drawn this frame (ragdolls included) */
+/* split screen, before each view draws: the pugs and the cat far from its
+ * camera (eye) as their far copies; full = every one as itself */
+void world_view_detail(t3_vec3 eye, bool full);
 
 
 #endif

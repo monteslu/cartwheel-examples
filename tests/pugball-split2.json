@@ -1,0 +1,157 @@
+[
+ {
+  "frame": 30,
+  "buttons": [
+   "south"
+  ],
+  "pad2": {
+   "buttons": []
+  }
+ },
+ {
+  "frame": 34,
+  "buttons": [],
+  "pad2": {
+   "buttons": []
+  }
+ },
+ {
+  "frame": 40,
+  "buttons": [],
+  "pad2": {
+   "buttons": [
+    "south"
+   ]
+  }
+ },
+ {
+  "frame": 44,
+  "buttons": [],
+  "pad2": {
+   "buttons": []
+  }
+ },
+ {
+  "frame": 80,
+  "buttons": [
+   "start"
+  ],
+  "pad2": {
+   "buttons": []
+  }
+ },
+ {
+  "frame": 84,
+  "buttons": [],
+  "pad2": {
+   "buttons": []
+  }
+ },
+ {
+  "frame": 100,
+  "buttons": [
+   "south"
+  ],
+  "pad2": {
+   "buttons": []
+  }
+ },
+ {
+  "frame": 104,
+  "buttons": [],
+  "pad2": {
+   "buttons": []
+  }
+ },
+ {
+  "frame": 290,
+  "buttons": [
+   "r",
+   "east"
+  ],
+  "pad2": {
+   "buttons": []
+  }
+ },
+ {
+  "frame": 293,
+  "buttons": [
+   "r",
+   "east"
+  ],
+  "pad2": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  }
+ },
+ {
+  "frame": 300,
+  "buttons": [
+   "r",
+   "east",
+   "left"
+  ],
+  "pad2": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  }
+ },
+ {
+  "frame": 306,
+  "buttons": [
+   "r",
+   "east",
+   "left"
+  ],
+  "pad2": {
+   "buttons": [
+    "r",
+    "east",
+    "right"
+   ]
+  }
+ },
+ {
+  "frame": 314,
+  "buttons": [
+   "r",
+   "east"
+  ],
+  "pad2": {
+   "buttons": [
+    "r",
+    "east",
+    "right"
+   ]
+  }
+ },
+ {
+  "frame": 320,
+  "buttons": [
+   "r",
+   "east"
+  ],
+  "pad2": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  }
+ },
+ {
+  "frame": 380,
+  "buttons": [
+   "r",
+   "east"
+  ],
+  "pad2": {
+   "buttons": [
+    "r"
+   ]
+  }
+ }
+]

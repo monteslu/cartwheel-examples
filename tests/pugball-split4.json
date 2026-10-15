@@ -1,0 +1,578 @@
+[
+ {
+  "frame": 30,
+  "buttons": [
+   "south"
+  ],
+  "pad2": {
+   "buttons": []
+  },
+  "pad3": {
+   "buttons": []
+  },
+  "pad4": {
+   "buttons": []
+  }
+ },
+ {
+  "frame": 34,
+  "buttons": [],
+  "pad2": {
+   "buttons": []
+  },
+  "pad3": {
+   "buttons": []
+  },
+  "pad4": {
+   "buttons": []
+  }
+ },
+ {
+  "frame": 40,
+  "buttons": [],
+  "pad2": {
+   "buttons": [
+    "south"
+   ]
+  },
+  "pad3": {
+   "buttons": []
+  },
+  "pad4": {
+   "buttons": []
+  }
+ },
+ {
+  "frame": 44,
+  "buttons": [],
+  "pad2": {
+   "buttons": []
+  },
+  "pad3": {
+   "buttons": []
+  },
+  "pad4": {
+   "buttons": []
+  }
+ },
+ {
+  "frame": 48,
+  "buttons": [],
+  "pad2": {
+   "buttons": []
+  },
+  "pad3": {
+   "buttons": [
+    "south"
+   ]
+  },
+  "pad4": {
+   "buttons": []
+  }
+ },
+ {
+  "frame": 52,
+  "buttons": [],
+  "pad2": {
+   "buttons": []
+  },
+  "pad3": {
+   "buttons": []
+  },
+  "pad4": {
+   "buttons": []
+  }
+ },
+ {
+  "frame": 56,
+  "buttons": [],
+  "pad2": {
+   "buttons": []
+  },
+  "pad3": {
+   "buttons": []
+  },
+  "pad4": {
+   "buttons": [
+    "south"
+   ]
+  }
+ },
+ {
+  "frame": 60,
+  "buttons": [],
+  "pad2": {
+   "buttons": []
+  },
+  "pad3": {
+   "buttons": []
+  },
+  "pad4": {
+   "buttons": []
+  }
+ },
+ {
+  "frame": 80,
+  "buttons": [
+   "start"
+  ],
+  "pad2": {
+   "buttons": []
+  },
+  "pad3": {
+   "buttons": []
+  },
+  "pad4": {
+   "buttons": []
+  }
+ },
+ {
+  "frame": 84,
+  "buttons": [],
+  "pad2": {
+   "buttons": []
+  },
+  "pad3": {
+   "buttons": []
+  },
+  "pad4": {
+   "buttons": []
+  }
+ },
+ {
+  "frame": 100,
+  "buttons": [
+   "south"
+  ],
+  "pad2": {
+   "buttons": []
+  },
+  "pad3": {
+   "buttons": []
+  },
+  "pad4": {
+   "buttons": []
+  }
+ },
+ {
+  "frame": 104,
+  "buttons": [],
+  "pad2": {
+   "buttons": []
+  },
+  "pad3": {
+   "buttons": []
+  },
+  "pad4": {
+   "buttons": []
+  }
+ },
+ {
+  "frame": 290,
+  "buttons": [
+   "r",
+   "east"
+  ],
+  "pad2": {
+   "buttons": []
+  },
+  "pad3": {
+   "buttons": []
+  },
+  "pad4": {
+   "buttons": []
+  }
+ },
+ {
+  "frame": 293,
+  "buttons": [
+   "r",
+   "east"
+  ],
+  "pad2": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  },
+  "pad3": {
+   "buttons": []
+  },
+  "pad4": {
+   "buttons": []
+  }
+ },
+ {
+  "frame": 296,
+  "buttons": [
+   "r",
+   "east"
+  ],
+  "pad2": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  },
+  "pad3": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  },
+  "pad4": {
+   "buttons": []
+  }
+ },
+ {
+  "frame": 299,
+  "buttons": [
+   "r",
+   "east"
+  ],
+  "pad2": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  },
+  "pad3": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  },
+  "pad4": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  }
+ },
+ {
+  "frame": 300,
+  "buttons": [
+   "r",
+   "east",
+   "left"
+  ],
+  "pad2": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  },
+  "pad3": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  },
+  "pad4": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  }
+ },
+ {
+  "frame": 306,
+  "buttons": [
+   "r",
+   "east",
+   "left"
+  ],
+  "pad2": {
+   "buttons": [
+    "r",
+    "east",
+    "right"
+   ]
+  },
+  "pad3": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  },
+  "pad4": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  }
+ },
+ {
+  "frame": 312,
+  "buttons": [
+   "r",
+   "east",
+   "left"
+  ],
+  "pad2": {
+   "buttons": [
+    "r",
+    "east",
+    "right"
+   ]
+  },
+  "pad3": {
+   "buttons": [
+    "r",
+    "east",
+    "right"
+   ]
+  },
+  "pad4": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  }
+ },
+ {
+  "frame": 314,
+  "buttons": [
+   "r",
+   "east"
+  ],
+  "pad2": {
+   "buttons": [
+    "r",
+    "east",
+    "right"
+   ]
+  },
+  "pad3": {
+   "buttons": [
+    "r",
+    "east",
+    "right"
+   ]
+  },
+  "pad4": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  }
+ },
+ {
+  "frame": 318,
+  "buttons": [
+   "r",
+   "east"
+  ],
+  "pad2": {
+   "buttons": [
+    "r",
+    "east",
+    "right"
+   ]
+  },
+  "pad3": {
+   "buttons": [
+    "r",
+    "east",
+    "right"
+   ]
+  },
+  "pad4": {
+   "buttons": [
+    "r",
+    "east",
+    "left"
+   ]
+  }
+ },
+ {
+  "frame": 320,
+  "buttons": [
+   "r",
+   "east"
+  ],
+  "pad2": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  },
+  "pad3": {
+   "buttons": [
+    "r",
+    "east",
+    "right"
+   ]
+  },
+  "pad4": {
+   "buttons": [
+    "r",
+    "east",
+    "left"
+   ]
+  }
+ },
+ {
+  "frame": 326,
+  "buttons": [
+   "r",
+   "east"
+  ],
+  "pad2": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  },
+  "pad3": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  },
+  "pad4": {
+   "buttons": [
+    "r",
+    "east",
+    "left"
+   ]
+  }
+ },
+ {
+  "frame": 332,
+  "buttons": [
+   "r",
+   "east"
+  ],
+  "pad2": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  },
+  "pad3": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  },
+  "pad4": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  }
+ },
+ {
+  "frame": 360,
+  "buttons": [
+   "r",
+   "east"
+  ],
+  "pad2": {
+   "buttons": [
+    "r",
+    "north"
+   ]
+  },
+  "pad3": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  },
+  "pad4": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  }
+ },
+ {
+  "frame": 364,
+  "buttons": [
+   "r",
+   "east"
+  ],
+  "pad2": {
+   "buttons": []
+  },
+  "pad3": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  },
+  "pad4": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  }
+ },
+ {
+  "frame": 366,
+  "buttons": [
+   "r",
+   "east"
+  ],
+  "pad2": {
+   "buttons": []
+  },
+  "pad3": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  },
+  "pad4": {
+   "buttons": [
+    "r",
+    "north"
+   ]
+  }
+ },
+ {
+  "frame": 370,
+  "buttons": [
+   "r",
+   "east"
+  ],
+  "pad2": {
+   "buttons": []
+  },
+  "pad3": {
+   "buttons": [
+    "r",
+    "east"
+   ]
+  },
+  "pad4": {
+   "buttons": []
+  }
+ },
+ {
+  "frame": 380,
+  "buttons": [
+   "r",
+   "east"
+  ],
+  "pad2": {
+   "buttons": [
+    "r"
+   ]
+  },
+  "pad3": {
+   "buttons": [
+    "r",
+    "east",
+    "west"
+   ]
+  },
+  "pad4": {
+   "buttons": [
+    "east"
+   ]
+  }
+ }
+]

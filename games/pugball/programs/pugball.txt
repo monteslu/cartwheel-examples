@@ -20,3 +20,4 @@ basic+trans
 physical+trans+shadow+senv+l1301+s100
 physical+map+rep+instbig+nmap+ao+rmap+shadow+senv+icol+l1301+s100
 standard+instbig+shadow+senv+icol+l1301+s100
+physical+vcol+shadow+senv+sheen+l1301+s100

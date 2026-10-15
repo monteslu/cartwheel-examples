@@ -118,10 +118,12 @@ static struct {
   int menu, cursor, col;
   int unlock_tile, unlock_ticks, bump_tile, bump_ticks;
   cw_node scene, camera, sun;
+  float sun_extent, sun_extent_set; /* the scene's shadow box half size; the one set now */
   stadium_info *info;
   sim S;
   ai_mem ai[MAXP];
-  int human_of[MAXP]; /* cw player index for a human slot, -1 */
+  int human_of[MAXP]; /* cw player index (the pad) for a human slot, -1 */
+  int pad_of[MAXP];   /* the team sheet: the pad that plays a human slot (0..3) */
   t3_vec3 cam_at, cam_eye;
   bool cam_snap;
   /* the chase camera's springs (critically damped): eye, look point, yaw */
@@ -135,15 +137,16 @@ static struct {
   float cf_yaw[4], cf_dist[4], cf_high[4], cf_lift[4], cf_ground[4];
   double cf_last;
   bool cf_live[4];
-  int ballcam_h[4]; /* each human's ball cam */
-  cw_node cams[4];  /* each human's camera (cams[0] is the scene's) */
+  int ballcam_h[4]; /* each pad's ball cam */
+  cw_node cams[4];  /* each view's camera (cams[0] is the scene's) */
   int nviews;       /* split screen: one view per human (0 = one camera) */
+  int view_slot[4]; /* the slot each view follows, in pad order */
   int camtrace;
   int feed_ticks;
   char feed[96];
   int cup_unlock_hat;
   cw_action a_fwd, a_back, a_left, a_right, a_pfwd, a_pback, a_jump, a_boost, a_slide, a_ballcam, a_start, a_esc;
-  cw_action m_left, m_right, m_up, m_down, m_ok, m_alt;
+  cw_action m_left, m_right, m_up, m_down, m_ok, m_alt, m_team, m_leave;
 } G;
 
 /* ── self-timing: what a frame costs, on every host (wall clock) ──────
@@ -179,11 +182,14 @@ static int quality_tier;
 static void apply_quality(void) {
   quality_tier = CW_QUALITY_HIGH - (int)cw_quality_get();
   float k = cw_quality_density();
-  if (G.nviews && k > 0.66f) k = 0.66f; /* split screen draws the scene 2-4 times: lighter */
-  scenery_quality(k);
+  /* split screen draws the scene in each view: thinner grass (the crowd
+   * keeps its fans, drawn as the light ones) */
+  scenery_quality(k, G.nviews && k > 0.66f ? 0.66f : k);
+  scenery_light_crowd(G.nviews >= 2); /* and its views are small: the light fans */
+  if (!G.nviews) world_view_detail((t3_vec3){ 0, 0, 0 }, true); /* one camera: every pug in full */
   if (!cw_node_valid(G.scene)) return;
   cw_node post = find_type(G.scene, "PostProcess");
-  if (cw_node_valid(post)) cw_node_set(post, "ssao", cw_val_bool(!G.nviews));
+
   if (cw_node_valid(G.sun)) cw_node_set(G.sun, "shadow_size", cw_val_int(2048));
 }
 static void quality_changed(cw_quality q, void *u) {
@@ -518,13 +524,40 @@ static void load_scene(int index) {
   }
   if (cw_node_valid(G.camera)) cw_node_set(G.camera, "interpolate", cw_val_bool(true));
   G.sun = cw_node_get(G.scene, "Sun");
+  cw_value ext = { 0 };
+  G.sun_extent = G.sun_extent_set = cw_node_valid(G.sun) && cw_node_get_prop(G.sun, "shadow_extent", &ext) ? (float)ext.f : 28;
   G.stadium = index;
   G.cam_snap = true;
 }
 
+static int sheet_pad[MAXP]; /* the team sheet's pads, kept through a Cup fixture */
 static void assign_humans(void) {
+  for (int i = 0; i < MAXP; i++) G.human_of[i] = G.slot[i] == SLOT_HUMAN ? G.pad_of[i] : -1;
+}
+/* the team sheet's pads: a slot made a player takes the lowest free pad */
+static int free_pad(void) {
+  for (int p = 0; p < 4; p++) {
+    bool used = false;
+    for (int i = 0; i < MAXP; i++) used |= G.slot[i] == SLOT_HUMAN && G.pad_of[i] == p;
+    if (!used) return p;
+  }
+  return -1;
+}
+static int slot_of_pad(int p) {
+  for (int i = 0; i < MAXP; i++)
+    if (G.slot[i] == SLOT_HUMAN && G.pad_of[i] == p) return i;
+  return -1;
+}
+/* pads in slot order (a save from before pads had slots, and the Cup) */
+static void pads_in_order(void) {
   int k = 0;
-  for (int i = 0; i < MAXP; i++) G.human_of[i] = G.slot[i] == SLOT_HUMAN && k < 4 ? k++ : -1;
+  for (int i = 0; i < MAXP; i++) {
+    G.pad_of[i] = -1;
+    if (G.slot[i] == SLOT_HUMAN) {
+      if (k < 4) G.pad_of[i] = k++;
+      else G.slot[i] = SLOT_PRO; /* four pads at most */
+    }
+  }
 }
 static int humans(void) {
   int n = 0;
@@ -679,6 +712,7 @@ static void begin_cup(int stadium) {
     else if (i == 0) G.slot[i] = SLOT_HUMAN;
     else G.slot[i] = team == TEAM_BLUE ? SLOT_PRO : SLOT_ROOKIE + lvl;
   }
+  pads_in_order();
   start_match(stadium);
 }
 
@@ -701,6 +735,7 @@ static cw_font font_ui, font_ui_bold, font_title, font_score;
 
 static void cam_frame(cw_tree *t, double alpha, void *user);
 static void cmd_camtrace(int argc, const char **argv, cw_reply *r);
+static void view_hook(int view, void *user);
 
 /* the render-time camera log (debug command camtrace2): what is drawn each
  * frame, the camera object's position and the pug's place on screen */
@@ -776,6 +811,8 @@ static void init(void *u) {
   G.m_down = cw_action_find("m_down");
   G.m_ok = cw_action_find("m_ok");
   G.m_alt = cw_action_find("m_alt");
+  G.m_team = cw_action_find("m_team");
+  G.m_leave = cw_action_find("m_leave");
   /* on-screen touch controls (logical window coordinates): a floating steer
    * stick on the left half; jump, boost, powerslide and ball cam on the
    * right, thumb-sized and clear of the scoreboard. The stick also throttles
@@ -819,8 +856,10 @@ static void init(void *u) {
     G.slot[i] = SAVE.slot[i];
     G.look[i] = (pug_look){ SAVE.coat[i], SAVE.hat[i], 0, SAVE.trail[i] };
   }
+  pads_in_order();
+  memcpy(sheet_pad, G.pad_of, sizeof sheet_pad);
   G.secs_i = SAVE.secs_i;
-  G.ballcam = 1;
+  G.ballcam = 15;
   for (int k = 0; k < 4; k++) G.ballcam_h[k] = 1;
   G.mvp = -1;
   cw_debug_i32("game.state", &G.state);
@@ -845,7 +884,8 @@ static void init(void *u) {
   cw_debug_i32("count.pads", &G.pads);
   cw_debug_i32("count.bounces", &G.bounces);
   cw_debug_i32("ticks", &G.ticks);
-  cw_debug_i32("cam.ballcam", &G.ballcam);
+  cw_debug_i32("cam.ballcam", &G.ballcam); /* bit p: pad p's ball cam */
+  cw_debug_i32("cam.views", &G.nviews);  /* split screen: the views drawn (0: one camera) */
   cw_debug_u32("sim.hash", &G.hash);
   cw_debug_f32("perf.frame_ms", &PERF.frame_ms);
   cw_debug_f32("perf.fixed_ms", &PERF.fixed_ms);
@@ -866,6 +906,8 @@ static void init(void *u) {
   cw_tree_add_hook(cw_scene_app_tree(), 2, 10, cam_log, NULL); /* after the nodes write their objects */
   cw_debug_command("camtrace", "camtrace [0|1]: print the chase camera every frame (pcam t eye.xyz pug.sx pug.sy)", cmd_camtrace);
   cw_tree_add_hook(cw_scene_app_tree(), 2, -10, cam_frame, NULL); /* before the nodes write their objects */
+  cw_pipeline_set_view_hook(cw_pipeline_of(cw_scene_app_tree()), view_hook, NULL);
+  cw_pipeline_set_views_shared_post(cw_pipeline_of(cw_scene_app_tree()), true); /* split screen: one post chain over the views */
   cw_debug_command("progress", "progress [show | preset <0..5>]: the save data; preset n = Cup fixtures 1..n won", cmd_progress);
   G.state_hash = 2166136261u;
   enter_title();
@@ -874,6 +916,7 @@ static void init(void *u) {
     const char *ts = getenv("PUG_TEAM"); /* pugs a side */
     int n = ts ? CW_CLAMP(atoi(ts), 1, 3) : 2;
     for (int i = 0; i < MAXP; i++) G.slot[i] = i / 2 < n ? (i == 0 && !getenv("PUG_CPU_ONLY") ? SLOT_HUMAN : SLOT_ALLSTAR) : SLOT_OFF;
+    pads_in_order();
     G.mode = MODE_EXHIBITION;
     start_match(atoi(a));
   }
@@ -955,11 +998,29 @@ static void fit_tick(t3_vec3 *eye_out, t3_vec3 *at_out) {
 }
 
 static void sun_follow(void) {
-  /* the sun's shadow box follows the play */
+  /* the sun's shadow box follows the play; split screen: one box round every
+   * human (the views share the one shadow map), grown to hold them all */
   if (!cw_node_valid(G.sun)) return;
   const t3_mat4 *m = cw_node3d_global_transform(G.sun);
   t3_vec3 f = v3norm((t3_vec3){ -m->e[8], -m->e[9], -m->e[10] });
   t3_vec3 c = v3add(v3mul(G.cam_at, 0.6f), v3mul(G.cam_eye, 0.4f));
+  float ext = G.sun_extent;
+  if (G.nviews >= 2) {
+    t3_vec3 lo = { 1e9f, 0, 1e9f }, hi = { -1e9f, 0, -1e9f };
+    for (int i = 0; i < MAXP; i++) {
+      if (G.human_of[i] < 0) continue;
+      t3_vec3 p = G.S.p[i].p;
+      lo.x = fminf(lo.x, p.x), lo.z = fminf(lo.z, p.z), hi.x = fmaxf(hi.x, p.x), hi.z = fmaxf(hi.z, p.z);
+    }
+    c = v3mul(v3add(lo, hi), 0.5f);
+    float need = 0.5f * fmaxf(hi.x - lo.x, hi.z - lo.z) + 0.6f * G.sun_extent; /* the extent reaches ahead of each pug */
+    ext = cw_clampf(need, G.sun_extent, AL + 10);
+    ext = 4 * (float)(int)(ext / 4 + 0.999f); /* in steps, so the box is not redrawn at a new size every tick */
+  }
+  if (ext != G.sun_extent_set) {
+    G.sun_extent_set = ext;
+    cw_node_set(G.sun, "shadow_extent", cw_val_float(ext));
+  }
   c.y = 0;
   cw_node3d_set_position(G.sun, v3sub(c, v3mul(f, 70)));
 }
@@ -1197,11 +1258,11 @@ static void chase_view(int h, int me, cw_node cam, double alpha, double now, flo
   }
   cw_node3d_set_position(cam, eye);
   cw_node3d_look_at(cam, look, (t3_vec3){ 0, 1, 0 });
-  if (h == 0) {
+  if (cam.id == G.camera.id) {
     G.cam_eye = eye;
     G.cam_at = look;
   }
-  if (G.camtrace && h == 0) {
+  if (G.camtrace && cam.id == G.camera.id) {
     /* the pug's place on screen (tangent units) and the eye, for jerk checks */
     t3_vec3 fw = v3norm(v3sub(look, eye)), rt = v3norm(v3cross(fw, (t3_vec3){ 0, 1, 0 })), up = v3cross(rt, fw);
     t3_vec3 v = v3sub(v3add(P, (t3_vec3){ 0, 0.3f, 0 }), eye);
@@ -1220,33 +1281,53 @@ static cw_node extra_camera(int k) {
   G.cams[k] = c;
   return c;
 }
+/* the views' rectangles (fractions of the output, from the top left): 2
+ * players top and bottom; 3 the upper left, lower left and lower right
+ * quadrants (the upper right holds the shared scoreboard and the mini map);
+ * 4 the four quadrants */
+static const float VIEW_RECT[5][4][4] = {
+  { { 0 } }, { { 0, 0, 1, 1 } },
+  { { 0, 0, 1, 0.5f }, { 0, 0.5f, 1, 0.5f } },
+  { { 0, 0, 0.5f, 0.5f }, { 0, 0.5f, 0.5f, 0.5f }, { 0.5f, 0.5f, 0.5f, 0.5f } },
+  { { 0, 0, 0.5f, 0.5f }, { 0.5f, 0, 0.5f, 0.5f }, { 0, 0.5f, 0.5f, 0.5f }, { 0.5f, 0.5f, 0.5f, 0.5f } },
+};
 static void cam_frame(cw_tree *t, double alpha, void *user) {
   (void)user;
   if (!G.chase_on || !cw_node_valid(G.camera)) return;
   double now = cw_time();
   float dt = (float)cw_clampf((float)(now - G.cf_last), 0, 0.1f);
   G.cf_last = now;
+  /* the humans in pad order: P1's view first */
   int k = 0;
+  for (int p = 0; p < 4; p++)
+    for (int i = 0; i < MAXP; i++)
+      if (G.human_of[i] == p) G.view_slot[k++] = i;
   cw_view views[4];
-  for (int i = 0; i < MAXP && k < 4; i++) {
-    if (G.human_of[i] < 0) continue;
-    cw_node cam = k == 0 ? G.camera : extra_camera(k);
-    chase_view(k, i, cam, alpha, now, dt);
-    views[k] = (cw_view){ cam, 0, 0, 1, 1 };
-    k++;
+  for (int v = 0; v < k; v++) {
+    int i = G.view_slot[v];
+    cw_node cam = v == 0 ? G.camera : extra_camera(v);
+    chase_view(G.human_of[i], i, cam, alpha, now, dt);
+    const float *r = VIEW_RECT[k][v];
+    views[v] = (cw_view){ cam, r[0], r[1], r[2], r[3] };
   }
-  /* 2: top and bottom halves; 3 and 4: quadrants (3 leaves the last to the scoreboard) */
-  if (k == 2) {
-    views[0] = (cw_view){ views[0].camera, 0, 0, 1, 0.5f };
-    views[1] = (cw_view){ views[1].camera, 0, 0.5f, 1, 0.5f };
-  } else if (k >= 3)
-    for (int v = 0; v < k; v++) views[v].x = (float)(v & 1) * 0.5f, views[v].y = (float)(v / 2) * 0.5f, views[v].w = views[v].h = 0.5f;
   int nv = k >= 2 ? k : 0;
   cw_pipeline_set_views(cw_pipeline_of(t), views, nv);
   if (nv != G.nviews) {
     G.nviews = nv;
     apply_quality();
   }
+}
+/* before each split-screen view draws: the pugs and the cat far from its
+ * camera in their light meshes, the grass and the crowd thinned with distance */
+static void view_hook(int view, void *user) {
+  (void)user;
+  const cw_view *vs = NULL;
+  int n = cw_pipeline_views(cw_pipeline_of(cw_scene_app_tree()), &vs);
+  if (view >= n || !cw_node_valid(vs[view].camera)) return;
+  const t3_mat4 *m = cw_node3d_global_transform(vs[view].camera);
+  t3_vec3 eye = { m->e[12], m->e[13], m->e[14] };
+  world_view_detail(eye, false);
+  scenery_view_detail(eye);
 }
 static void cmd_camtrace(int argc, const char **argv, cw_reply *r) {
   G.camtrace = argc > 1 ? atoi(argv[1]) : !G.camtrace;
@@ -1355,8 +1436,17 @@ static void sheet_rebuild_pugs(void) {
 static void sheet_change(int i, int col, int dx) {
   bool rebuild = false;
   if (col == 0) {
-    G.slot[i] = (G.slot[i] + dx + SLOT_KINDS) % SLOT_KINDS;
-    if (i == 0 && G.slot[0] == SLOT_OFF) G.slot[0] = dx > 0 ? SLOT_HUMAN : SLOT_ALLSTAR;
+    int was = G.slot[i];
+    G.slot[i] = SLOT_OFF; /* its pad is free while it changes */
+    int v = was, pad = free_pad();
+    for (int k = 0; k < SLOT_KINDS; k++) {
+      v = (v + dx + SLOT_KINDS) % SLOT_KINDS;
+      if (v == SLOT_OFF && i == 0) continue; /* the Biscuits always have a pug */
+      if (v == SLOT_HUMAN && pad < 0) continue; /* four players already */
+      break;
+    }
+    G.slot[i] = v;
+    if (v == SLOT_HUMAN) G.pad_of[i] = was == SLOT_HUMAN ? G.pad_of[i] : pad;
     rebuild = true;
   } else if (col == 1) {
     G.look[i].coat = (G.look[i].coat + dx + PUG_KINDS) % PUG_KINDS;
@@ -1385,6 +1475,49 @@ static cw_rect cell_rect(cw_rect card, int c, float s) {
   return cw_rect_make(card.x + 73 * s + (c % 2) * 108 * s, card.y + 34 * s + (c / 2) * 26 * s, 104 * s, 24 * s);
 }
 
+
+/* pad p takes a pug on the side with fewer players: a CPU's first, else an
+ * empty slot (then it plays a side one bigger) */
+static bool sheet_join(int p) {
+  int hum[2] = { 0, 0 };
+  for (int i = 0; i < MAXP; i++) hum[i & 1] += G.slot[i] == SLOT_HUMAN;
+  int first = hum[TEAM_RED] < hum[TEAM_BLUE] ? TEAM_RED : TEAM_BLUE;
+  for (int pass = 0; pass < 4; pass++) {
+    int team = pass & 1 ? 1 - first : first;
+    bool want_cpu = pass < 2;
+    for (int i = team; i < MAXP; i += 2)
+      if (want_cpu ? G.slot[i] >= SLOT_ROOKIE : G.slot[i] == SLOT_OFF) {
+        G.slot[i] = SLOT_HUMAN;
+        G.pad_of[i] = p;
+        sheet_rebuild_pugs();
+        return true;
+      }
+  }
+  return false;
+}
+/* a player's pug changes sides: it trades places (and looks) with the other
+ * side's first CPU, else its first empty slot */
+static bool sheet_switch(int me) {
+  int other = 1 - (me & 1), to = -1;
+  for (int i = other; i < MAXP && to < 0; i += 2)
+    if (G.slot[i] >= SLOT_ROOKIE) to = i;
+  for (int i = other; i < MAXP && to < 0; i += 2)
+    if (G.slot[i] == SLOT_OFF) to = i;
+  if (to < 0) return false;
+  int was = G.slot[to];
+  pug_look lk = G.look[to];
+  G.slot[to] = SLOT_HUMAN;
+  G.pad_of[to] = G.pad_of[me];
+  G.look[to] = G.look[me];
+  G.look[me] = lk;
+  G.slot[me] = was;
+  /* a side left with nobody keeps a CPU */
+  int left = 0;
+  for (int i = me & 1; i < MAXP; i += 2) left += G.slot[i] != SLOT_OFF;
+  if (!left) G.slot[me] = SLOT_PRO;
+  sheet_rebuild_pugs();
+  return true;
+}
 
 static void fixed_body(void);
 static void fixed(void *u, double dt) {
@@ -1436,13 +1569,18 @@ static void fixed_body(void) {
   case GS_SHEET: {
     /* rows: the six slots (cursor 0..5 walks blue / red, row by row), then
      * the clock and KICK OFF. Left / right on a slot changes the column
-     * value under the column cursor: who plays, coat, hat, trail. */
+     * value under the column cursor: who plays, coat, hat, trail. Player 1
+     * (pad 1, the keyboard, the mouse) works the cursor; pads 2-4 join. */
     int rows = MAXP + 1;
+    dx = (cw_action_just_pressed(0, G.m_right) ? 1 : 0) - (cw_action_just_pressed(0, G.m_left) ? 1 : 0);
+    dy = (cw_action_just_pressed(0, G.m_down) ? 1 : 0) - (cw_action_just_pressed(0, G.m_up) ? 1 : 0);
+    confirm = cw_action_just_pressed(0, G.m_ok);
+    back = cw_action_just_pressed(0, G.a_esc);
     if (dy) { /* the slots in reading order (blue 1, red 1, blue 2, ...), then KICK OFF */
       G.cursor = (G.cursor + dy + rows) % rows;
       sfx(SFX_MOVE, 0.5f);
     }
-    if (any_pressed(G.m_alt) && G.cursor < MAXP) {
+    if (cw_action_just_pressed(0, G.m_alt) && G.cursor < MAXP) {
       G.col = (G.col + 1) % 4;
       sfx(SFX_MOVE, 0.6f);
     }
@@ -1451,20 +1589,24 @@ static void fixed_body(void) {
       G.secs_i = CW_CLAMP(G.secs_i + dx, 0, 2);
       sfx(SFX_MOVE, 0.6f);
     }
-    /* another pad pressing (A) takes the next free slot as a player */
-    for (int p = 1; p < 4; p++)
-      if (cw_action_just_pressed(p, G.m_ok)) {
-        int taken = 0;
-        for (int i = 0; i < MAXP; i++) taken += G.slot[i] == SLOT_HUMAN;
-        if (taken <= p)
-          for (int i = 1; i < MAXP; i++)
-            if (G.slot[i] != SLOT_HUMAN) {
-              G.slot[i] = SLOT_HUMAN;
-              sfx(SFX_SELECT, 0.8f);
-              sheet_rebuild_pugs();
-              break;
-            }
+    /* every pad: (A) joins (pads 2-4), a bumper (or left / right on pads
+     * 2-4) takes its pug to the other side, (B) leaves (pads 2-4) */
+    for (int p = 0; p < 4; p++) {
+      int me = slot_of_pad(p);
+      bool side = cw_action_just_pressed(p, G.m_team) ||
+                  (p > 0 && (cw_action_just_pressed(p, G.m_left) || cw_action_just_pressed(p, G.m_right)));
+      if (p > 0 && me < 0 && cw_action_just_pressed(p, G.m_ok)) {
+        if (sheet_join(p)) sfx(SFX_SELECT, 0.8f);
+        else sfx(SFX_LOCKED, 0.8f);
+      } else if (me >= 0 && side) {
+        if (sheet_switch(me)) sfx(SFX_SELECT, 0.7f);
+        else sfx(SFX_LOCKED, 0.8f);
+      } else if (p > 0 && me >= 0 && cw_action_just_pressed(p, G.m_leave)) {
+        G.slot[me] = SLOT_PRO; /* a CPU takes the pug back */
+        sfx(SFX_MOVE, 0.7f);
+        sheet_rebuild_pugs();
       }
+    }
     int hover = -1;
     for (int i = 0; i < MAXP; i++)
       if (in_rect(m, slot_rect(i, cs.x, cs.y))) hover = i;
@@ -1502,6 +1644,7 @@ static void fixed_body(void) {
       }
       SAVE.secs_i = (uint8_t)G.secs_i;
       save_write();
+      memcpy(sheet_pad, G.pad_of, sizeof sheet_pad);
       sfx(SFX_SELECT, 1);
       G.cursor = 0;
       enter_stadium_select();
@@ -1551,14 +1694,10 @@ static void fixed_body(void) {
       if (i == 1) in[i] = (pin){ 0 }; /* the parked pug waits to be flattened */
 #endif
     }
-    int me = focus_slot();
-    for (int i = 0, k = 0; i < MAXP; i++) /* each human toggles their own ball cam */
-      if (G.human_of[i] >= 0) {
-        if (k < 4 && cw_action_just_pressed(G.human_of[i], G.a_ballcam)) G.ballcam_h[k] = !G.ballcam_h[k];
-        k++;
-      }
-    G.ballcam = G.ballcam_h[0];
-    (void)me;
+    for (int i = 0; i < MAXP; i++) /* each human toggles their own ball cam */
+      if (G.human_of[i] >= 0 && cw_action_just_pressed(G.human_of[i], G.a_ballcam)) G.ballcam_h[G.human_of[i]] ^= 1;
+    G.ballcam = 0;
+    for (int p = 0; p < 4; p++) G.ballcam |= G.ballcam_h[p] << p;
     sim_step(&G.S, in);
     replay_record(&G.S);
     static FILE *rec; /* dev aid: PUG_RECORD=file logs every tick's input (tools/make-gate-script.mjs) */
@@ -1593,6 +1732,7 @@ static void fixed_body(void) {
       bool cup = G.mode == MODE_CUP, won = cup && G.S.winner == TEAM_BLUE;
       int st = G.stadium;
       for (int i = 0; i < MAXP; i++) G.slot[i] = SAVE.slot[i];
+      memcpy(G.pad_of, sheet_pad, sizeof G.pad_of);
       enter_title();
       if (cup) {
         G.cursor = won && st < STADIUMS ? st : st - 1;
@@ -1789,7 +1929,7 @@ static const char *menu_prompt(void) {
   case GS_TITLE: return last_device == DEV_TOUCH ? "tap to choose" : last_device == DEV_MOUSE ? "click to choose" : last_device == DEV_PAD ? "d-pad: choose   (A): go" : "A / D: choose   Space: go";
   case GS_SHEET:
     return last_device == DEV_MOUSE || last_device == DEV_TOUCH ? "pick a pug, then click / tap a setting to change it   KICK OFF to play"
-         : last_device == DEV_PAD   ? "up / down: pug   left / right: change   (X): next setting   START: kick off   pads 2-4: (A) joins"
+         : last_device == DEV_PAD   ? "up / down: pug   left / right: change   (X): next setting   LB / RB: switch sides   START: kick off"
                                     : "W / S: pug   A / D: change   E: next setting   Enter: kick off   Esc: back";
   case GS_STADIUM:
     return last_device == DEV_TOUCH ? "tap a stadium" : last_device == DEV_MOUSE ? "click a stadium" : last_device == DEV_PAD ? "left / right: choose   (A): go   BACK: back"
@@ -1865,8 +2005,7 @@ static void draw_sheet(float W, float H, float s) {
       (void)COL;
     }
     if (G.slot[i] == SLOT_HUMAN) {
-      int k = 0;
-      for (int j = 0; j < i; j++) k += G.slot[j] == SLOT_HUMAN;
+      int k = G.pad_of[i];
       snprintf(buf, sizeof buf, k == 0 ? "P1  pad / keys" : "P%d  pad %d", k + 1, k + 1);
       text(buf, r.x, r.y + 8 * s, 12 * s, rgba(0.6f, 1, 0.65f, 0.95f), CW_ALIGN_RIGHT, r.w - 10 * s);
     }
@@ -1876,6 +2015,8 @@ static void draw_sheet(float W, float H, float s) {
   panel(gr, 1, rgba(1, 1, 1, 0.75f), rgba(0.95f, 0.45f, 0.2f, 0.94f));
   snprintf(buf, sizeof buf, "KICK OFF THE CAT   %d:00", MATCH_SECS[G.secs_i] / 60);
   bold(buf, gr.x, gr.y + 9 * s, 24 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, gr.w);
+  if (last_device == DEV_PAD || last_device == DEV_KEYS)
+    prompt_line("pads 2-4: (A) joins   left / right: switch sides   (B) leaves", W, H * 0.17f + 3 * 102 * s + 10 * s, 12 * s);
   prompt_line(menu_prompt(), W, H * 0.935f, 13 * s);
 }
 
@@ -2072,86 +2213,188 @@ static void draw_touch(float W, float H, float s) {
   touch_button(TOUCH_CAM, "CAM", rgba(0.6f, 0.45f, 0.9f, 1), s);
 }
 
-static void draw_hud(float W, float H, float s) {
+/* the scoreboard: blue score | clock | red score, centred on cx from y down
+ * (k scales it: 1 alone on the screen, smaller where the split views meet) */
+static void scoreboard(float cx, float y, float k) {
   const sim *S = &G.S;
-  char buf[96];
-  /* the scoreboard: blue score | clock | red score */
-  float bw = 120 * s, bh = 54 * s, cwid = 130 * s, y = 10 * s, x0 = W * 0.5f - cwid * 0.5f - bw;
+  char buf[32];
+  float bw = 120 * k, bh = 54 * k, cwid = 130 * k, x0 = cx - cwid * 0.5f - bw;
   for (int t = 0; t < 2; t++) {
-    cw_rect r = cw_rect_make(t ? W * 0.5f + cwid * 0.5f : x0, y, bw, bh);
-    round_rect(r, 12 * s, rgba(TEAM_RGB[t][0] * 0.8f, TEAM_RGB[t][1] * 0.8f, TEAM_RGB[t][2] * 0.8f, 0.92f));
+    cw_rect r = cw_rect_make(t ? cx + cwid * 0.5f : x0, y, bw, bh);
+    round_rect(r, 12 * k, rgba(TEAM_RGB[t][0] * 0.8f, TEAM_RGB[t][1] * 0.8f, TEAM_RGB[t][2] * 0.8f, 0.92f));
     snprintf(buf, sizeof buf, "%d", S->score[t]);
-    digits(buf, r.x, r.y + 4 * s, 38 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, r.w);
-    text(TEAM_NAMES[t], r.x, r.y + bh + 2 * s, 12 * s, rgba(1, 1, 1, 0.9f), CW_ALIGN_CENTER, r.w);
+    digits(buf, r.x, r.y + 4 * k, 38 * k, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, r.w);
+    text(TEAM_NAMES[t], r.x, r.y + bh + 2 * k, fmaxf(12 * k, 9), rgba(1, 1, 1, 0.9f), CW_ALIGN_CENTER, r.w);
   }
-  cw_rect cr = cw_rect_make(W * 0.5f - cwid * 0.5f, y - 2 * s, cwid, bh + 4 * s);
-  round_rect(cr, 12 * s, rgba(0.06f, 0.05f, 0.14f, 0.9f));
+  cw_rect cr = cw_rect_make(cx - cwid * 0.5f, y - 2 * k, cwid, bh + 4 * k);
+  round_rect(cr, 12 * k, rgba(0.06f, 0.05f, 0.14f, 0.9f));
   int secs = S->overtime ? S->clock / 60 : (S->clock + 59) / 60;
   snprintf(buf, sizeof buf, "%s%d:%02d", S->overtime ? "+" : "", secs / 60, secs % 60);
   bool hurry = !S->overtime && secs <= 30 && S->phase == PH_PLAY;
-  digits(buf, cr.x, cr.y + 10 * s, 30 * s, hurry && (G.ticks / 20) % 2 ? rgba(1, 0.5f, 0.3f, 1) : rgba(1, 1, 1, 1), CW_ALIGN_CENTER, cr.w);
-  if (S->overtime) text("OVERTIME", cr.x, cr.y + cr.h + 2 * s, 12 * s, rgba(1, 0.8f, 0.3f, 1), CW_ALIGN_CENTER, cr.w);
-  /* the humans' markers (always: they read through everything), and the
-   * cat's edge arrow when it is off screen */
+  digits(buf, cr.x, cr.y + 10 * k, 30 * k, hurry && (G.ticks / 20) % 2 ? rgba(1, 0.5f, 0.3f, 1) : rgba(1, 1, 1, 1), CW_ALIGN_CENTER, cr.w);
+  if (S->overtime) text("OVERTIME", cr.x, cr.y + cr.h + 2 * k, fmaxf(12 * k, 9), rgba(1, 0.8f, 0.3f, 1), CW_ALIGN_CENTER, cr.w);
+}
+
+/* the pitch from above in r: both goals, the cat and every pug in its team's
+ * colour (the players' labelled). The pitch's length runs across, the
+ * Biscuits' goal on the left */
+static void minimap(cw_rect r, float s) {
+  const sim *S = &G.S;
+  float k = fminf(r.w / (2 * (AL + GD) + 2), r.h / (2 * AW + 2));
+  float cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
+#define MAP(p) cw_v2(cx + (p).z * k, cy - (p).x * k)
+  const float *tc = THEME_RGB[G.info ? G.info->theme : 0];
+  cw_color line = rgba(1, 1, 1, 0.55f);
+  /* the goals behind their lines, then the pitch over them */
+  for (int t = 0; t < 2; t++) {
+    float side = t == TEAM_BLUE ? -1.0f : 1.0f;
+    float gx = side < 0 ? cx - (AL + GD) * k : cx + AL * k;
+    round_rect(cw_rect_make(gx, cy - GW * k, GD * k, 2 * GW * k), 3 * s,
+               rgba(TEAM_RGB[t][0] * 0.7f, TEAM_RGB[t][1] * 0.7f, TEAM_RGB[t][2] * 0.7f, 0.95f));
+  }
+  cw_rect pr = cw_rect_make(cx - AL * k, cy - AW * k, 2 * AL * k, 2 * AW * k);
+  round_rect(cw_rect_make(pr.x - 2 * s, pr.y - 2 * s, pr.w + 4 * s, pr.h + 4 * s), AC * k + 2 * s, rgba(0.9f, 0.92f, 1, 0.75f));
+  round_rect(pr, AC * k, rgba(0.1f + tc[0] * 0.18f, 0.22f + tc[1] * 0.2f, 0.12f + tc[2] * 0.15f, 0.95f));
+  cw_r2d_line(cw_v2(cx, pr.y), cw_v2(cx, pr.y + pr.h), 1.5f * s, line);
+  cw_r2d_circle_lines(cw_v2(cx, cy), 6 * k, 1.5f * s, 32, line);
+  for (int t = 0; t < 2; t++) { /* the goal mouths */
+    float gx = t == TEAM_BLUE ? pr.x : pr.x + pr.w;
+    cw_r2d_line(cw_v2(gx, cy - GW * k), cw_v2(gx, cy + GW * k), 3 * s, rgba(TEAM_RGB[t][0] * 0.5f + 0.5f, TEAM_RGB[t][1] * 0.5f + 0.5f, TEAM_RGB[t][2] * 0.5f + 0.5f, 1));
+  }
+  /* the pugs: a dot with a nose pointing where it faces */
+  cw_color dark = rgba(0.04f, 0.03f, 0.1f, 0.9f);
+  for (int i = 0; i < MAXP; i++) {
+    const pug *u = &S->p[i];
+    if (!u->on || u->dead) continue;
+    cw_vec2 c = MAP(u->p);
+    t3_vec3 f = pug_fwd(u);
+    float fl = sqrtf(f.x * f.x + f.z * f.z), rr = (G.human_of[i] >= 0 ? 6.5f : 5) * s;
+    cw_color col = rgba(TEAM_RGB[u->team][0], TEAM_RGB[u->team][1], TEAM_RGB[u->team][2], 1);
+    if (fl > 0.1f) {
+      cw_vec2 tip = cw_v2(c.x + f.z / fl * rr * 1.9f, c.y - f.x / fl * rr * 1.9f);
+      cw_r2d_line(c, tip, 3.5f * s, dark);
+      cw_r2d_line(c, tip, 2 * s, col);
+    }
+    cw_r2d_circle(c, rr + 1.5f * s, 16, G.human_of[i] >= 0 ? rgba(1, 1, 1, 1) : dark);
+    cw_r2d_circle(c, rr, 16, col);
+    if (G.human_of[i] >= 0) {
+      char lb[12];
+      snprintf(lb, sizeof lb, "P%d", G.human_of[i] + 1);
+      text(lb, c.x - 20 * s, c.y - rr - 17 * s, 13 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, 40 * s);
+    }
+  }
+  /* the cat, over everything */
+  cw_vec2 b = MAP(S->ball);
+  float br = fmaxf(RB * k, 5 * s);
+  cw_r2d_circle(b, br + 2 * s, 20, dark);
+  cw_r2d_circle(b, br, 20, rgba(1, 0.68f, 0.3f, 1));
+#undef MAP
+}
+
+/* one human's corner of the HUD in its view: the boost gauge and which
+ * camera it has at the bottom, its name at the top, on the view's outer side
+ * (clear of the scoreboard where the views meet) */
+static void view_hud(int i, float W, float s) {
+  const sim *S = &G.S;
+  char buf[16];
+  int t = S->p[i].team, pad = G.human_of[i];
+  cw_color tc = rgba(TEAM_RGB[t][0] * 0.6f + 0.4f, TEAM_RGB[t][1] * 0.6f + 0.4f, TEAM_RGB[t][2] * 0.6f + 0.4f, 1);
+  snprintf(buf, sizeof buf, "P%d", pad + 1);
+  bool left = HV.x < 1 && HV.w < W * 0.9f; /* the left column of the quadrants */
+  float r = 34 * s, gx = left ? HV.x + r + 14 * s : HV.x + HV.w - r - 14 * s, gy = HV.y + HV.h - r - 12 * s;
+  boost_gauge(gx, gy, r, S->p[i].boost, t, s);
+  bool bc = G.ballcam_h[pad];
+  const char *cam = bc ? "BALL CAM" : "CAR CAM";
+  chip(cam, gx, gy - r - 24 * s, 11 * s, 1);
+  text(cam, gx - r - 10 * s, gy - r - 24 * s, 11 * s, bc ? rgba(1, 0.85f, 0.35f, 1) : rgba(0.75f, 0.9f, 1, 1), CW_ALIGN_CENTER, 2 * r + 20 * s);
+  if (left) text(buf, HV.x + 12 * s, HV.y + 8 * s, 22 * s, tc, CW_ALIGN_LEFT, 0);
+  else text(buf, HV.x, HV.y + 8 * s, 22 * s, tc, CW_ALIGN_RIGHT, HV.w - 12 * s);
+}
+
+static void draw_hud(float W, float H, float s) {
+  const sim *S = &G.S;
+  char buf[96];
   const cw_view *vs = NULL;
   int nv = G.nviews ? cw_pipeline_views(cw_pipeline_of(cw_scene_app_tree()), &vs) : 0;
-  if (nv >= 2 && (G.state == GS_MATCH || G.state == GS_PAUSE)) {
-    /* split screen: in each view its own pug's chevron, the cat's edge arrow,
-     * a boost gauge in its corner and a seam between the views */
-    for (int v = 0, i = 0; v < nv; v++, i++) {
-      while (i < MAXP && G.human_of[i] < 0) i++;
-      if (i >= MAXP) break;
+  bool split = nv >= 2 && (G.state == GS_MATCH || G.state == GS_PAUSE);
+  if (split) {
+    /* each view: its own pug's chevron, the cat's edge arrow, its corner of
+     * the HUD and, at a kickoff, the countdown */
+    for (int v = 0; v < nv; v++) {
+      int i = G.view_slot[v];
       HV.cam = vs[v].camera, HV.x = vs[v].x * W, HV.y = vs[v].y * H, HV.w = vs[v].w * W, HV.h = vs[v].h * H;
       int t = S->p[i].team;
       cw_color tc = rgba(TEAM_RGB[t][0] * 0.6f + 0.4f, TEAM_RGB[t][1] * 0.6f + 0.4f, TEAM_RGB[t][2] * 0.6f + 0.4f, 1);
       snprintf(buf, sizeof buf, "P%d", G.human_of[i] + 1);
       if (!S->p[i].dead) marker(v3add(S->p[i].p, (t3_vec3){ 0, 1.15f, 0 }), buf, tc, W, H, s, true);
       marker(S->ball, "CAT", rgba(1, 0.68f, 0.3f, 1), W, H, s, false);
-      float r = 34 * s, gx = HV.x + HV.w - r - 14 * s, gy = HV.y + HV.h - r - 12 * s;
-      boost_gauge(gx, gy, r, S->p[i].boost, t, s);
-      text(buf, HV.x + 10 * s, HV.y + HV.h - 30 * s, 20 * s, tc, CW_ALIGN_LEFT, 0);
+      view_hud(i, W, s);
+      float vk = HV.h / H; /* the view's share of the height */
+      if (S->phase == PH_KICKOFF) {
+        int n = 3 - S->phase_ticks / 60;
+        float f = (S->phase_ticks % 60) / 60.0f, pop = 1 + 0.35f * (1 - f) * (1 - f);
+        snprintf(buf, sizeof buf, "%d", n < 1 ? 1 : n);
+        digits(buf, HV.x, HV.y + HV.h * 0.2f, 96 * s * vk * pop, rgba(1, 0.9f, 0.4f, 1 - f * 0.3f), CW_ALIGN_CENTER, HV.w);
+      } else if (S->phase == PH_PLAY && S->phase_ticks < 50 && S->tick > 200) {
+        float f = S->phase_ticks / 50.0f;
+        bold("GO!", HV.x, HV.y + HV.h * 0.16f, 110 * s * vk * (1 + 0.3f * (1 - f)), rgba(1, 0.75f, 0.2f, 1 - f), CW_ALIGN_CENTER, HV.w);
+      }
       HV.cam = (cw_node){ 0 };
     }
     cw_r2d_rect(cw_rect_make(0, H * 0.5f - 1.5f * s, W, 3 * s), rgba(0.05f, 0.03f, 0.1f, 0.9f));
     if (nv >= 3) cw_r2d_rect(cw_rect_make(W * 0.5f - 1.5f * s, 0, 3 * s, H), rgba(0.05f, 0.03f, 0.1f, 0.9f));
-  } else if (G.state == GS_MATCH || G.state == GS_PAUSE) {
+    /* the shared scoreboard: on the seam (2), atop the free quadrant with the
+     * mini map under it (3), where the four views meet (4) */
+    if (nv == 2) scoreboard(W * 0.5f, H * 0.5f - 27 * 0.62f * s, 0.62f * s);
+    else if (nv == 4) scoreboard(W * 0.5f, H * 0.5f - 27 * 0.55f * s, 0.55f * s);
+    else {
+      cw_rect q = cw_rect_make(W * 0.5f + 1.5f * s, 0, W * 0.5f - 1.5f * s, H * 0.5f - 1.5f * s);
+      cw_r2d_rect(q, rgba(0.07f, 0.06f, 0.16f, 1));
+      scoreboard(q.x + q.w * 0.5f, q.y + 10 * s, 0.75f * s);
+      minimap(cw_rect_make(q.x + 12 * s, q.y + 72 * s, q.w - 24 * s, q.h - 108 * s), s); /* the news feed under it */
+    }
+  } else {
+    scoreboard(W * 0.5f, 10 * s, s);
+    if (G.state == GS_MATCH || G.state == GS_PAUSE) {
+      /* the humans' markers (always: they read through everything), and the
+       * cat's edge arrow when it is off screen */
+      for (int i = 0; i < MAXP; i++) {
+        if (G.human_of[i] < 0 || S->p[i].dead) continue;
+        snprintf(buf, sizeof buf, "P%d", G.human_of[i] + 1);
+        int t = S->p[i].team;
+        marker(v3add(S->p[i].p, (t3_vec3){ 0, 1.15f, 0 }), buf, rgba(TEAM_RGB[t][0] * 0.6f + 0.4f, TEAM_RGB[t][1] * 0.6f + 0.4f, TEAM_RGB[t][2] * 0.6f + 0.4f, 1),
+               W, H, s, true);
+      }
+      marker(S->ball, "CAT", rgba(1, 0.68f, 0.3f, 1), W, H, s, false);
+    }
+    /* the boost gauges (one human: big, with the camera it has) */
+    int nh = humans(), k = 0;
     for (int i = 0; i < MAXP; i++) {
-      if (G.human_of[i] < 0 || S->p[i].dead) continue;
-      t3_vec3 p = S->p[i].p;
-      snprintf(buf, sizeof buf, "P%d", G.human_of[i] + 1);
-      int t = S->p[i].team;
-      marker(v3add(p, (t3_vec3){ 0, 1.15f, 0 }), buf, rgba(TEAM_RGB[t][0] * 0.6f + 0.4f, TEAM_RGB[t][1] * 0.6f + 0.4f, TEAM_RGB[t][2] * 0.6f + 0.4f, 1), W, H,
-             s, true);
+      if (G.human_of[i] < 0) continue;
+      float r = nh == 1 ? 58 * s : 38 * s;
+      float cx = nh == 1 ? W - 84 * s : (k % 2 ? W - 60 * s : 60 * s), cy = nh == 1 ? H - 84 * s : H - 60 * s - (k / 2) * 92 * s;
+      if (last_device == DEV_TOUCH && nh == 1) cx = 70 * s, cy = 120 * s, r = 46 * s; /* the thumbs have the bottom corners */
+      boost_gauge(cx, cy, r, S->p[i].boost, S->p[i].team, s);
+      if (nh == 1) {
+        bool bc = G.ballcam_h[G.human_of[i]];
+        const char *cam = bc ? "BALL CAM" : "CAR CAM";
+        chip(cam, cx, cy - r - 30 * s, 12 * s, 1);
+        text(cam, cx - r, cy - r - 30 * s, 12 * s, bc ? rgba(1, 0.85f, 0.35f, 1) : rgba(0.75f, 0.9f, 1, 1), CW_ALIGN_CENTER, r * 2);
+      } else {
+        snprintf(buf, sizeof buf, "P%d", G.human_of[i] + 1);
+        text(buf, cx - r, cy - r - 20 * s, 14 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, r * 2);
+      }
+      k++;
     }
-    marker(S->ball, "CAT", rgba(1, 0.68f, 0.3f, 1), W, H, s, false);
   }
-  /* boost gauges for the humans (split screen drew its own per view) */
-  int nh = humans(), k = 0;
-  for (int i = 0; i < MAXP && nv < 2; i++) {
-    if (G.human_of[i] < 0) continue;
-    float r = nh == 1 ? 58 * s : 38 * s;
-    float cx = nh == 1 ? W - 84 * s : (k % 2 ? W - 60 * s : 60 * s), cy = nh == 1 ? H - 84 * s : H - 60 * s - (k / 2) * 92 * s;
-    if (last_device == DEV_TOUCH && nh == 1) cx = 70 * s, cy = 120 * s, r = 46 * s; /* the thumbs have the bottom corners */
-    boost_gauge(cx, cy, r, S->p[i].boost, S->p[i].team, s);
-    if (nh == 1) {
-      const char *bc = G.ballcam ? "BALL CAM" : "CAR CAM";
-      chip(bc, cx, cy - r - 30 * s, 12 * s, 1);
-      text(bc, cx - r, cy - r - 30 * s, 12 * s, G.ballcam ? rgba(1, 0.85f, 0.35f, 1) : rgba(0.75f, 0.9f, 1, 1), CW_ALIGN_CENTER, r * 2);
-    }
-    if (nh > 1) {
-      snprintf(buf, sizeof buf, "P%d", G.human_of[i] + 1);
-      text(buf, cx - r, cy - r - 20 * s, 14 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, r * 2);
-    }
-    k++;
-  }
-  /* the kickoff countdown */
-  if (S->phase == PH_KICKOFF) {
+  /* the kickoff countdown (split screen: in each view, above) */
+  if (!split && S->phase == PH_KICKOFF) {
     int n = 3 - S->phase_ticks / 60;
     float f = (S->phase_ticks % 60) / 60.0f, pop = 1 + 0.35f * (1 - f) * (1 - f);
     snprintf(buf, sizeof buf, "%d", n < 1 ? 1 : n);
     digits(buf, 0, H * 0.17f, 96 * s * pop, rgba(1, 0.9f, 0.4f, 1 - f * 0.3f), CW_ALIGN_CENTER, W);
     prompt_line(S->overtime ? "golden goal: next one wins" : "kick off the cat!", W, H * 0.4f, 18 * s);
-  } else if (S->phase == PH_PLAY && S->phase_ticks < 50 && S->tick > 200) {
+  } else if (!split && S->phase == PH_PLAY && S->phase_ticks < 50 && S->tick > 200) {
     float f = S->phase_ticks / 50.0f;
     bold("GO!", 0, H * 0.15f, 110 * s * (1 + 0.3f * (1 - f)), rgba(1, 0.75f, 0.2f, 1 - f), CW_ALIGN_CENTER, W);
   }
@@ -2173,12 +2416,14 @@ static void draw_hud(float W, float H, float s) {
     float a = cw_clampf(S->phase_ticks / 15.0f, 0, 1);
     bold("FULL TIME!", 0, H * 0.32f, 84 * s, rgba(1, 0.9f, 0.4f, a), CW_ALIGN_CENTER, W);
   }
-  if (G.feed_ticks > 0) {
-    float a = cw_clampf(G.feed_ticks / 20.0f, 0, 1);
-    chip(G.feed, W * 0.5f, H * 0.2f, 16 * s, a);
-    text(G.feed, 0, H * 0.2f, 16 * s, rgba(1, 0.85f, 0.6f, a), CW_ALIGN_CENTER, W);
+  if (G.feed_ticks > 0) { /* split screen: under the scoreboard */
+    float a = cw_clampf(G.feed_ticks / 20.0f, 0, 1), fx = 0, fw = W, fy = H * 0.2f;
+    if (split && nv == 3) fx = W * 0.5f, fw = W * 0.5f, fy = H * 0.5f - 28 * s;
+    else if (split) fy = H * 0.5f + 30 * s;
+    chip(G.feed, fx + fw * 0.5f, fy, 16 * s, a);
+    text(G.feed, fx, fy, 16 * s, rgba(1, 0.85f, 0.6f, a), CW_ALIGN_CENTER, fw);
   }
-  if (S->phase == PH_KICKOFF && S->tick < 200) {
+  if (S->phase == PH_KICKOFF && S->tick < 200 && !split) {
     const char *how = last_device == DEV_TOUCH ? "left thumb: steer and go   right thumb: jump, boost, slide"
                     : last_device == DEV_PAD ? "RT: go   LT: back   (A): jump   (B): boost   (X): powerslide   (Y): ball cam"
                                              : "W / S: go   A / D: steer   Space: jump   Shift: boost   Ctrl: powerslide   C: ball cam";

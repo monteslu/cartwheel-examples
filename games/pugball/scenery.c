@@ -40,6 +40,11 @@ static struct {
     t3_vec3 c;                  /* where the section's meshes sit (instances are relative to it) */
   } ch[CROWD_CHUNKS];
   int nchunks;
+  /* the fans' meshes (body, head, arms, scarf): [0] as built, [1] the light
+   * ones split screen draws (its views are a half or a quarter of the
+   * screen, where the detail is under a pixel), and which the crowd has */
+  t3_geometry *fgeo[2][4];
+  int flod;
   float *fan_x, *fan_y, *fan_z, *fan_yaw, *fan_phase;
   uint8_t *fan_team, *fan_kind; /* kind: 0 sits, 1 claps and waves, 2 holds a scarf up */
   float t, ex;                  /* this tick's crowd time and excitement (crowd_range) */
@@ -50,6 +55,8 @@ static struct {
    * InstancedMesh each so the views cull the bands they cannot see; the
    * clumps in band order, band b holding [start, start + n) */
   struct { t3_instanced_mesh *im; int start, n; } gband[GRASS_BANDS];
+  int gband_shown[GRASS_BANDS]; /* clumps drawn at the current quality */
+  float gband_c[GRASS_BANDS][3]; /* each band's middle (x, z) and half its length */
   uint8_t *gband_of;
   float *gx, *gz, *gyaw, *gs, *gsy;
   int nclumps;
@@ -331,6 +338,7 @@ static void build_grass(float tint_r, float tint_g, float tint_b) {
      * not recomputed as the breeze bends them */
     float dx = (x1 - x0) * 0.5f + 0.4f, dz = (z1 - z0) * 0.5f + 0.4f;
     t3_instanced_mesh_set_bounding_sphere(im, &(t3_sphere){ { (x0 + x1) * 0.5f, 0.15f, (z0 + z1) * 0.5f }, sqrtf(dx * dx + dz * dz + 0.35f * 0.35f) });
+    SC.gband_c[b][0] = (x0 + x1) * 0.5f, SC.gband_c[b][1] = (z0 + z1) * 0.5f, SC.gband_c[b][2] = dz;
     im->mesh.base.receive_shadow = true;
     im->mesh.base.cast_shadow = false;
     SC.gband[b].im = im;
@@ -532,6 +540,20 @@ static void build_stands(int theme) {
   fm->sheen_color = lin(1, 0.95f, 0.85f);
   fm->sheen_roughness = 0.5f;
   t3_geometry *fgeo[4] = { mb_done(&bb, true), mb_done(&hb, true), mb_done(&ab, true), mb_done(&sb, true) };
+  /* the light fan: the same shapes in a third of the triangles (no
+   * collar, nose, eyes or paws; coarser blobs) */
+  mb lb = { 0 }, lh = { 0 }, la = { 0 };
+  mb_blob(&lb, (t3_vec3){ 0, 0.3f, 0 }, (t3_vec3){ 0.18f, 0.22f, 0.14f }, 6, 3, 1);
+  mb_blob(&lb, (t3_vec3){ 0, 0.47f, 0 }, (t3_vec3){ 0.24f, 0.08f, 0.14f }, 6, 2, 1);
+  for (int sd = -1; sd <= 1; sd += 2) mb_blob(&lb, (t3_vec3){ sd * 0.1f, 0.1f, 0.14f }, (t3_vec3){ 0.08f, 0.07f, 0.17f }, 4, 2, 0.75f);
+  mb_blob(&lh, (t3_vec3){ 0, 0.74f, 0 }, (t3_vec3){ 0.15f, 0.14f, 0.14f }, 6, 3, 1);
+  mb_blob(&lh, (t3_vec3){ 0, 0.69f, 0.13f }, (t3_vec3){ 0.075f, 0.06f, 0.08f }, 4, 2, 0.8f);
+  for (int sd = -1; sd <= 1; sd += 2) mb_blob(&lh, (t3_vec3){ sd * 0.14f, 0.7f, 0 }, (t3_vec3){ 0.04f, 0.1f, 0.06f }, 3, 2, 0.55f);
+  for (int sd = -1; sd <= 1; sd += 2) mb_blob(&la, (t3_vec3){ sd * 0.21f, -0.22f, 0 }, (t3_vec3){ 0.06f, 0.25f, 0.06f }, 4, 2, 1);
+  SC.fgeo[1][0] = mb_done(&lb, true), SC.fgeo[1][1] = mb_done(&lh, true), SC.fgeo[1][2] = mb_done(&la, true);
+  SC.fgeo[1][3] = t3_retain(fgeo[3]); /* the scarf is a strip already */
+  for (int q = 0; q < 4; q++) SC.fgeo[0][q] = t3_retain(fgeo[q]);
+  SC.flod = 0;
   t3_release(jm);
   /* the fans as the rows fill, then sorted into sections below */
   float *fx = malloc(sizeof(float) * MAX_FANS), *fy = malloc(sizeof(float) * MAX_FANS), *fz = malloc(sizeof(float) * MAX_FANS);
@@ -740,6 +762,95 @@ static void ground(int tex, float r, float g, float b, float rough, float rep) {
   t3_release(m);
 }
 
+/* the trees round the stadium: a few hundred small meshes, merged by sector
+ * of the ring and by material (tb_add, then tb_flush): a view draws the few
+ * sectors it faces instead of every trunk and every ball of leaves */
+#define TREE_SECTORS 8
+#define TREE_MATS 4
+typedef struct tbatch { t3_material *m; float *pos, *nor, *uv; uint32_t *idx; int nv, ni, cv, ci; } tbatch;
+static tbatch TB[TREE_SECTORS][TREE_MATS];
+static void tb_put(tbatch *b, const t3_geometry *g, const t3_mat4 *m) {
+  const t3_attribute *pa = g->attributes[T3_ATTR_POSITION], *na = g->attributes[T3_ATTR_NORMAL], *ua = g->attributes[T3_ATTR_UV], *ia = g->index;
+  if (!pa || !na || !ia) return;
+  if (b->nv + pa->count > b->cv) {
+    b->cv = (b->nv + pa->count) * 2;
+    b->pos = realloc(b->pos, sizeof(float) * 3 * (size_t)b->cv);
+    b->nor = realloc(b->nor, sizeof(float) * 3 * (size_t)b->cv);
+    b->uv = realloc(b->uv, sizeof(float) * 2 * (size_t)b->cv);
+  }
+  if (b->ni + ia->count > b->ci) {
+    b->ci = (b->ni + ia->count) * 2;
+    b->idx = realloc(b->idx, sizeof(uint32_t) * (size_t)b->ci);
+  }
+  const float *e = m->e;
+  t3_mat3 nm;
+  t3_mat3_normal_matrix(&nm, m);
+  const float *q = nm.e, *P = pa->array, *N = na->array, *U = ua ? ua->array : NULL;
+  for (int i = 0; i < pa->count; i++) {
+    float x = P[i * 3], y = P[i * 3 + 1], z = P[i * 3 + 2], a = N[i * 3], bb = N[i * 3 + 1], c = N[i * 3 + 2];
+    float *d = b->pos + (size_t)(b->nv + i) * 3, *dn = b->nor + (size_t)(b->nv + i) * 3, *du = b->uv + (size_t)(b->nv + i) * 2;
+    d[0] = e[0] * x + e[4] * y + e[8] * z + e[12];
+    d[1] = e[1] * x + e[5] * y + e[9] * z + e[13];
+    d[2] = e[2] * x + e[6] * y + e[10] * z + e[14];
+    float nx = q[0] * a + q[3] * bb + q[6] * c, ny = q[1] * a + q[4] * bb + q[7] * c, nz = q[2] * a + q[5] * bb + q[8] * c;
+    float l = sqrtf(nx * nx + ny * ny + nz * nz);
+    if (l > 0) nx /= l, ny /= l, nz /= l;
+    dn[0] = nx, dn[1] = ny, dn[2] = nz;
+    du[0] = U ? U[i * 2] : 0, du[1] = U ? U[i * 2 + 1] : 0;
+  }
+  for (int i = 0; i < ia->count; i++)
+    b->idx[b->ni + i] = (uint32_t)b->nv + (ia->type == T3_UINT16 ? ((const uint16_t *)ia->array)[i] : ((const uint32_t *)ia->array)[i]);
+  b->nv += pa->count;
+  b->ni += ia->count;
+}
+/* a tree (a group of meshes, posed) into its sector's batches; the group is the caller's */
+static void tb_add(t3_object *g) {
+  float a = cw_atan2(g->position.z, g->position.x);
+  int sec = (int)((a + 3.1415927f) / 6.2831853f * TREE_SECTORS) % TREE_SECTORS;
+  t3_object_update_matrix(g);
+  for (int i = 0; i < g->child_count; i++) {
+    t3_object *o = g->children[i];
+    if (o->type != T3_MESH) continue;
+    t3_mesh *me = (t3_mesh *)o;
+    tbatch *b = NULL;
+    for (int k = 0; k < TREE_MATS && !b; k++)
+      if (!TB[sec][k].m || TB[sec][k].m == me->materials[0]) b = &TB[sec][k];
+    if (!b) continue;
+    if (!b->m) b->m = t3_retain(me->materials[0]);
+    t3_object_update_matrix(o);
+    t3_mat4 w;
+    t3_mat4_multiply(&w, &g->matrix, &o->matrix);
+    tb_put(b, me->geometry, &w);
+  }
+}
+static void tb_flush(void) {
+  for (int s = 0; s < TREE_SECTORS; s++)
+    for (int k = 0; k < TREE_MATS; k++) {
+      tbatch *b = &TB[s][k];
+      if (b->m && b->nv) {
+        t3_geometry *g = t3_geometry_new();
+        float *data[3] = { b->pos, b->nor, b->uv };
+        static const int slot[3] = { T3_ATTR_POSITION, T3_ATTR_NORMAL, T3_ATTR_UV }, size[3] = { 3, 3, 2 };
+        for (int q = 0; q < 3; q++) {
+          t3_attribute *at = t3_attribute_new(T3_FLOAT32, data[q], b->nv, size[q]);
+          t3_geometry_set_attribute(g, slot[q], at);
+          t3_release(at);
+        }
+        t3_attribute *ia = t3_attribute_new(T3_UINT32, b->idx, b->ni, 1);
+        t3_geometry_set_index(g, ia);
+        t3_release(ia);
+        t3_mesh *me = t3_mesh_new(g, b->m);
+        me->base.cast_shadow = me->base.receive_shadow = true;
+        hang(&me->base);
+        t3_release(me);
+        t3_release(g);
+      }
+      if (b->m) t3_release(b->m);
+      free(b->pos), free(b->nor), free(b->uv), free(b->idx);
+      memset(b, 0, sizeof *b);
+    }
+}
+
 static void tree(t3_vec3 p, float s, t3_material *bark, t3_material *leaves) {
   t3_object *g = t3_group_new();
   t3_geometry *trunk = t3_cylinder_geometry_new(0.25f, 0.4f, 3.2f, 10, 1, false);
@@ -755,7 +866,7 @@ static void tree(t3_vec3 p, float s, t3_material *bark, t3_material *leaves) {
   t3_release(ball);
   g->position = p;
   g->scale = (t3_vec3){ s, s, s };
-  hang(g);
+  tb_add(g);
   t3_release(g);
 }
 
@@ -778,7 +889,7 @@ static void palm(t3_vec3 p, float s, t3_material *bark, t3_material *frond) {
   t3_release(leaf);
   g->position = p;
   g->scale = (t3_vec3){ s, s, s };
-  hang(g);
+  tb_add(g);
   t3_release(g);
 }
 
@@ -798,7 +909,7 @@ static void pine(t3_vec3 p, float s, t3_material *needles, t3_material *snow, t3
   t3_release(trunk);
   g->position = p;
   g->scale = (t3_vec3){ s, s, s };
-  hang(g);
+  tb_add(g);
   t3_release(g);
 }
 
@@ -978,6 +1089,7 @@ static void build_outside(int theme) {
   }
   default: break;
   }
+  tb_flush();
   t3_release(bark);
 }
 
@@ -985,6 +1097,9 @@ static void build_outside(int theme) {
 
 void scenery_reset(void) {
   if (SC.ready) {
+    for (int l = 0; l < 2; l++)
+      for (int q = 0; q < 4; q++)
+        if (SC.fgeo[l][q]) t3_release(SC.fgeo[l][q]), SC.fgeo[l][q] = NULL;
     for (int c = 0; c < SC.nchunks; c++)
       for (int q = 0; q < 4; q++)
         if (SC.ch[c].im[q]) t3_release(SC.ch[c].im[q]);
@@ -1023,12 +1138,49 @@ void scenery_build(cw_node scene, int theme, uint32_t seed) {
   SC.ready = true;
 }
 
+/* split screen, before each view draws: the grass thins out with distance
+ * from its camera (eye). A view is a half or a quarter of the screen, so a
+ * far blade is under a pixel there; the near ones stay as dense as the
+ * quality allows. (The crowd stays whole: split screen draws its light fans.) */
+static float view_share(float d, float near, float far, float least) {
+  if (d <= near) return 1;
+  if (d >= far) return least;
+  return 1 - (1 - least) * (d - near) / (far - near);
+}
+void scenery_view_detail(t3_vec3 eye) {
+  if (!SC.ready) return;
+  for (int b = 0; b < GRASS_BANDS; b++) {
+    t3_instanced_mesh *im = SC.gband[b].im;
+    if (!im) continue;
+    /* across the pitch the band is all near or all far: its distance along it */
+    float dz = fabsf(SC.gband_c[b][1] - eye.z) - SC.gband_c[b][2];
+    float d = dz > 0 ? dz : 0;
+    im->count = (int)(SC.gband_shown[b] * view_share(d, 8, 30, 0.2f));
+  }
+}
+
+/* the crowd's fans as built (light false) or the light ones */
+void scenery_light_crowd(bool light) {
+  int l = light ? 1 : 0;
+  if (!SC.ready || SC.flod == l || !SC.fgeo[l][0]) return;
+  SC.flod = l;
+  for (int c = 0; c < SC.nchunks; c++)
+    for (int q = 0; q < 4; q++) {
+      t3_instanced_mesh *im = SC.ch[c].im[q];
+      if (!im) continue;
+      t3_geometry *old = im->mesh.geometry;
+      im->mesh.geometry = t3_retain(SC.fgeo[l][q]);
+      t3_release(old);
+    }
+}
+
 /* the share of the crowd and grass drawn (cw_quality_density: 1 full) */
-void scenery_quality(float k) {
+void scenery_quality(float k, float grass) {
   if (!SC.ready) return;
   k = k < 0.05f ? 0.05f : k > 1 ? 1 : k;
+  grass = grass < 0.05f ? 0.05f : grass > 1 ? 1 : grass;
   for (int b = 0; b < GRASS_BANDS; b++)
-    if (SC.gband[b].im) SC.gband[b].im->count = (int)(SC.gband[b].n * k);
+    if (SC.gband[b].im) SC.gband[b].im->count = SC.gband_shown[b] = (int)(SC.gband[b].n * grass);
   for (int c = 0; c < SC.nchunks; c++) {
     struct crowd_chunk *C = &SC.ch[c];
     if (!C->n) continue;
