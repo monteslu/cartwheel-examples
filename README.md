@@ -80,16 +80,27 @@ rain makes the paper wraps slick and sends water down the spout, so brace
 or be washed back to the last bracket. Five spouts, each opening the next.
 `games/spout/`
 
-## Play the carts
+## Play
 
 Tagged versions are on the
-[Releases](https://github.com/monteslu/cartwheel-examples/releases) page, with
-all five carts attached. Every push also builds them: the repository's
+[Releases](https://github.com/monteslu/cartwheel-examples/releases) page: the
+five carts and each game's native builds.
+
+| File | Platform | Notes |
+|---|---|---|
+| `<game>.wasc` | any wasmcart host | GL and WebGPU in one cart: WebGPU where the host has it, GL otherwise |
+| `<game>-<v>-linux-x64.tar.gz`, `.AppImage` | Linux x64 | needs glibc 2.34 or newer |
+| `<game>-<v>-linux-arm64.tar.gz`, `.AppImage` | Linux arm64 | the same |
+| `<game>-<v>-windows-x64.zip` | Windows 10 or later, x64 | unzip and run `<game>.exe` |
+| `<game>-<v>-macos-arm64.zip` | macOS 11 or later, Apple silicon | signed ad hoc, not notarized: the first time, right-click the app and choose Open |
+| `<game>-<v>-android-arm64-debug.apk` | Android 7 or later, arm64 | signed with a debug key, for sideloading |
+
+The native builds render with WebGPU (Dawn) and fall back to OpenGL ES 3.0
+when WebGPU does not start; `CW_GPU=gl` or `CW_GPU=webgpu` in the environment
+picks one. Every push also builds everything: the repository's
 [Actions](https://github.com/monteslu/cartwheel-examples/actions) tab, the
-latest green run on `main`, then **Artifacts** at the bottom of the run
-page: `carts-<commit>` is a zip of all five. Each `<game>.wasc` carries GL
-and WebGPU in one cart: it uses WebGPU where the host has it and GL
-otherwise.
+latest green run on `main`, then **Artifacts** (`release-carts`,
+`release-<platform>`).
 
 Hosts that run them:
 
@@ -102,37 +113,49 @@ Hosts that run them:
 
 ## Build
 
-You need Linux with cmake, ninja, a C17 compiler, SDL2, EGL and GLESv2
-development packages, Node.js, git, curl and unzip. On Ubuntu:
+The games build against cartwheel-engine's prebuilt SDKs: the engine,
+three.c, Box2D, Box3D, SDL2, Dawn and the rest come compiled (one SDK per
+target, attached to the engine's release; see the engine's
+[docs/sdk.md](https://github.com/monteslu/cartwheel-engine/blob/main/docs/sdk.md)),
+so a build compiles only the games. You need cmake, ninja, a C17 compiler,
+Node.js, git and curl; on Linux also the EGL and GLESv2 runtime (Mesa). On
+Ubuntu:
 
 ```sh
-sudo apt-get install cmake ninja-build libsdl2-dev libegl-dev libgles-dev nodejs npm curl unzip
+sudo apt-get install cmake ninja-build clang nodejs npm curl libegl1 libgles2
 ```
 
 Then:
 
 ```sh
-scripts/fetch-deps.sh   # cartwheel-engine at the commit in scripts/deps.lock, and the engine's own dependencies
+scripts/fetch-deps.sh   # the SDKs for this machine and for carts, pinned with sha256 in scripts/deps.lock
 scripts/build.sh        # build/native, build/cart and build/cart-wgpu
 ```
 
-`scripts/fetch-deps.sh` checks out cartwheel-engine into
-`deps/cartwheel-engine` and runs its `scripts/fetch-deps.sh`, which fetches
-three.c, Box2D, Box3D, wasi-sdk, wasmcart and the rest into
-`deps/cartwheel-engine/deps/`. Everything it fetches is pinned.
-
-`scripts/build.sh` builds three trees:
+`scripts/build.sh` builds these trees:
 
 | Tree | What | Where |
 |---|---|---|
-| `build/native` | native executables | `build/native/project/games/<game>/<app>` |
+| `build/native` | native executables, this machine's compiler | `build/native/games/<game>/<app>` |
 | `build/cart` | GL carts | `build/cart/carts/<app>.wasc` |
 | `build/cart-wgpu` | dual GL + WebGPU carts | `build/cart-wgpu/carts/<app>.wasc` |
+| `build/<target>` | a platform's release build, with the target's SDK and toolchain: `linux-x64`, `linux-arm64`, `windows-x64` (cross-compiled), `android-arm64`, `macos-arm64` (on a Mac) | `build/<target>/games/<game>/<app>` |
 
-`TARGETS="native"` (or `cart`, `cart-wgpu`) builds one tree,
+`TARGETS="native"` (or any of the trees) builds some trees,
 `BUILD_TYPE=Debug` makes a debug build, and any arguments are ninja targets:
-`scripts/build.sh pugball` builds only pugball in each tree. The cart trees
-pack assets with the native tree's `cwpack`, so build native first.
+`scripts/build.sh pugball` builds only pugball in each tree. A platform tree
+needs its SDK and toolchain: `CW_SDK_TARGETS=windows-x64 CW_TOOLCHAINS=1
+scripts/fetch-deps.sh`. Each game's `project.cwproj` holds its export
+presets; `node deps/cartwheel-sdk/<host>/tools/cwexport.mjs --project
+games/<game> --preset <target> --build build/<target>` packages a built tree
+as the releases do.
+
+To build the engine from source instead (to work on it, or on a machine no
+SDK runs on), fetch with `CARTWHEEL_ENGINE_SOURCE=1 scripts/fetch-deps.sh`
+(the engine at the pinned commit and its own dependencies) or
+`CARTWHEEL_ENGINE=../cartwheel-engine scripts/fetch-deps.sh` (a checkout);
+`scripts/build.sh` then builds the engine with the games, as the engine's
+project.
 
 ## Run
 
@@ -224,15 +247,28 @@ node deps/cartwheel-engine/tools/with-gpu-suite.mjs derby-split-bench node tests
 ## CI
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push to
-`main`, on pull requests and by hand (workflow_dispatch), in two jobs. The
-first builds the five carts and uploads them as the `carts-<commit>` artifact,
-kept for 30 days. The second runs each game's `_auto` gate natively on GL
-and then on WebGPU, with Mesa's software renderers at the games' own 960x540
-(`CW_RENDER_SCALE=1`). Both cache `deps/`. The full gate set runs locally
-with `tests/gate.mjs`.
+`main`, on pull requests and by hand (workflow_dispatch). Every job builds
+against the pinned SDKs.
 
-Pushing a `v*` tag runs the same jobs and publishes the five carts as a GitHub
-release: `git tag v0.2.0 && git push origin v0.2.0`.
+- **Carts**: the five dual carts.
+- **Gates**: each game's `_auto` gate natively on GL and then on WebGPU,
+  with Mesa's software renderers at the games' own 960x540
+  (`CW_RENDER_SCALE=1`). The full gate set runs locally with `tests/gate.mjs`.
+- **Native** (one job per platform): the games built with the target's SDK
+  and toolchain and packaged with cwexport. Where the runner can run them
+  (Linux x64 and arm64 on Mesa's software renderers, macOS on the runner's
+  Metal device), each game's `_auto` replay runs on GL and on WebGPU
+  (`tests/native-replay.mjs`). Windows builds cross-compile on Linux and run
+  on a Windows runner (ANGLE on Direct3D 11, Dawn on Direct3D 12); that job
+  also adds Microsoft's Visual C++ runtime, which Dawn links, beside each
+  game. The Android APKs are launched on an emulator (an x86_64 image
+  running arm64 code).
+- **Replays across platforms**: every platform's and API's replay state must
+  equal Linux x64 GL's, field for field (`tests/compare-replays.mjs`).
+
+Pushing a `v*` tag runs the same jobs and publishes a GitHub release with the
+five carts and each game's native builds: `git tag v0.6.0 && git push origin
+v0.6.0`.
 
 ## Layout
 
@@ -245,9 +281,10 @@ release: `git tag v0.2.0 && git push origin v0.2.0`.
 | `tests/gates.json` | every gate |
 | `tests/<game>-*.json` | input scripts for the gates |
 | `tests/gate.mjs` | runs the gates |
-| `scripts/deps.lock` | the pinned cartwheel-engine commit |
-| `scripts/fetch-deps.sh`, `scripts/build.sh` | fetch the engine and build |
-| `CMakeLists.txt` | adds each game; the engine's CMakeLists.txt is the top of the build |
+| `scripts/deps.lock` | the pinned cartwheel-engine commit and its SDKs (sha256) |
+| `scripts/fetch-deps.sh`, `scripts/build.sh` | fetch the SDKs (or the engine) and build |
+| `tests/native-replay.mjs`, `tests/compare-replays.mjs` | the `_auto` replays on any platform's build, and their comparison |
+| `CMakeLists.txt` | the top of the build against an SDK (`find_package(cartwheel)`), adding each game; with the engine from source, the engine's project |
 | `deps/`, `build/`, `out/` | fetched dependencies, build trees, test output (all gitignored) |
 
 ## Working on the games
@@ -266,8 +303,9 @@ release: `git tag v0.2.0 && git push origin v0.2.0`.
   rerun it and commit both. The audio scripts need ffmpeg.
 - When a game draws a new material state, the gates fail and name it. Add it
   to the game's program table with the engine's tool,
-  `node deps/cartwheel-engine/tools/programs.mjs <app> --build build/native`,
-  and commit the generated files.
+  `node deps/cartwheel-sdk/<host>/tools/programs.mjs <app> --build build/native`
+  (or `deps/cartwheel-engine/tools/programs.mjs` with the engine from
+  source), and commit the generated files.
 - To work on the engine and the games together, link an engine checkout:
   `CARTWHEEL_ENGINE=../cartwheel-engine scripts/fetch-deps.sh`. Engine
   changes go into cartwheel-engine first; then pin its new commit in
