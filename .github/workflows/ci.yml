@@ -42,7 +42,7 @@ jobs:
       - name: Fetch the SDKs
         run: scripts/fetch-deps.sh
       - name: Build the carts (GL and WebGPU in one cart each)
-        run: TARGETS=cart-wgpu scripts/build.sh $GAMES
+        run: RELEASE=1 TARGETS=cart-wgpu scripts/build.sh $GAMES
       - name: Collect carts
         run: |
           mkdir -p carts
@@ -111,7 +111,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends cmake ninja-build squashfs-tools zip \
-            libegl-mesa0 libgles2 libgl1-mesa-dri mesa-vulkan-drivers libvulkan1
+            libegl1 libegl-mesa0 libgles2 libgl1-mesa-dri mesa-vulkan-drivers libvulkan1
       - name: System packages (macOS)
         if: runner.os == 'macOS'
         run: brew install ninja

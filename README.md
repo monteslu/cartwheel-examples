@@ -142,6 +142,8 @@ scripts/build.sh        # build/native, build/cart and build/cart-wgpu
 | `build/<target>` | a platform's release build, with the target's SDK and toolchain: `linux-x64`, `linux-arm64`, `windows-x64` (cross-compiled), `android-arm64`, `macos-arm64` (on a Mac) | `build/<target>/games/<game>/<app>` |
 
 `TARGETS="native"` (or any of the trees) builds some trees,
+Carts link as dev carts by default (no ThinLTO, no wasm-opt: seconds instead
+of a minute, the same simulation); `RELEASE=1` links them as releases ship.
 `BUILD_TYPE=Debug` makes a debug build, and any arguments are ninja targets:
 `scripts/build.sh pugball` builds only pugball in each tree. A platform tree
 needs its SDK and toolchain: `CW_SDK_TARGETS=windows-x64 CW_TOOLCHAINS=1

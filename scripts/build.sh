@@ -10,6 +10,9 @@
 #                                           builds) an export target: linux-x64, linux-arm64,
 #                                           windows-x64, android-arm64, macos-arm64
 #   BUILD_TYPE=Debug scripts/build.sh
+#   RELEASE=1 scripts/build.sh              carts as releases ship them (ThinLTO and
+#                                           wasm-opt); by default carts link as dev
+#                                           carts, in seconds, with the same simulation
 #   scripts/build.sh bikemesa derby_auto    only these apps (ninja targets)
 #
 # Trees: build/native (this machine's compiler; the gates run it), build/cart,
@@ -44,13 +47,17 @@ if [ -z "${CARTWHEEL_ENGINE_SOURCE:-}" ] && [ ! -L "$ENGINE" ] && [ -d "$SDKS" ]
   [ -f "$HSDK/lib/cmake/cartwheel/cartwheelConfig.cmake" ] || { echo "no $HOST SDK in deps/cartwheel-sdk: run scripts/fetch-deps.sh" >&2; exit 1; }
   CWPACK="$HSDK/bin/cwpack"
   COMMON=(-G Ninja -DCMAKE_BUILD_TYPE="$BT")
+  # carts: dev carts (no ThinLTO, no wasm-opt: seconds to link, the same
+  # simulation) unless RELEASE=1, which links them as releases ship
+  DEV=ON
+  [ -n "${RELEASE:-}" ] && DEV=OFF
   DEFAULT="native"
   [ -d "$SDKS/cart" ] && DEFAULT="$DEFAULT cart"
   [ -d "$SDKS/cart-wgpu" ] && DEFAULT="$DEFAULT cart-wgpu"
   for t in ${TARGETS:-$DEFAULT}; do
     case "$t" in
       native) sdk=$HOST; args=() ;;
-      cart|cart-wgpu) sdk=$t; args=(-DCMAKE_TOOLCHAIN_FILE="$SDKS/$t/cmake/cart.cmake" ${JOBS[@]+"${JOBS[@]}"}) ;;
+      cart|cart-wgpu) sdk=$t; args=(-DCMAKE_TOOLCHAIN_FILE="$SDKS/$t/cmake/cart.cmake" ${JOBS[@]+"${JOBS[@]}"} -DCW_CART_DEV="$DEV") ;;
       linux-x64|linux-arm64|windows-x64|android-arm64|macos-arm64)
         sdk=$t; args=(-DCMAKE_TOOLCHAIN_FILE="$SDKS/$t/cmake/export/$t.cmake" -DCW_EXPORT_DEPS="$HSDK/deps/export") ;;
       *) echo "unknown target tree: $t (native, cart, cart-wgpu, linux-x64, linux-arm64, windows-x64, android-arm64, macos-arm64)" >&2; exit 2 ;;
@@ -67,6 +74,8 @@ fi
 # ── the engine from source ──
 [ -f "$ENGINE/CMakeLists.txt" ] || { echo "no cartwheel-engine in deps/: run scripts/fetch-deps.sh" >&2; exit 1; }
 COMMON=(-G Ninja -DCMAKE_BUILD_TYPE="$BT" -DCW_ENGINE_ONLY=ON -DCW_PROJECT_DIR="$ROOT")
+DEV=ON
+[ -n "${RELEASE:-}" ] && DEV=OFF
 CWPACK="$ROOT/build/native/tools/cwpack/cwpack"
 for t in ${TARGETS:-native cart cart-wgpu}; do
   if [ "$t" != native ] && [ ! -x "$CWPACK" ]; then
@@ -75,9 +84,9 @@ for t in ${TARGETS:-native cart cart-wgpu}; do
   fresh "$ROOT/build/$t" "$ENGINE" "$(cd "$ENGINE" && pwd -P)"
   case "$t" in
     native) cmake -S "$ENGINE" -B "$ROOT/build/native" "${COMMON[@]}" >/dev/null ;;
-    cart) cmake -S "$ENGINE" -B "$ROOT/build/cart" "${COMMON[@]}" ${JOBS[@]+"${JOBS[@]}"} \
+    cart) cmake -S "$ENGINE" -B "$ROOT/build/cart" "${COMMON[@]}" ${JOBS[@]+"${JOBS[@]}"} -DCW_CART_DEV="$DEV" \
             -DCMAKE_TOOLCHAIN_FILE="$ENGINE/cmake/cart.cmake" -DCW_CWPACK="$CWPACK" >/dev/null ;;
-    cart-wgpu) cmake -S "$ENGINE" -B "$ROOT/build/cart-wgpu" "${COMMON[@]}" ${JOBS[@]+"${JOBS[@]}"} \
+    cart-wgpu) cmake -S "$ENGINE" -B "$ROOT/build/cart-wgpu" "${COMMON[@]}" ${JOBS[@]+"${JOBS[@]}"} -DCW_CART_DEV="$DEV" \
                  -DCMAKE_TOOLCHAIN_FILE="$ENGINE/cmake/cart.cmake" -DCW_WGPU=ON -DCW_CWPACK="$CWPACK" >/dev/null ;;
     *) echo "unknown target tree: $t (native, cart, cart-wgpu; export targets build against the SDKs)" >&2; exit 2 ;;
   esac
