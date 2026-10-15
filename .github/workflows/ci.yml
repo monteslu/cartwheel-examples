@@ -91,7 +91,7 @@ jobs:
   native:
     name: Native ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 120
+    timeout-minutes: 240 # Linux replays run on Mesa's software renderers
     strategy:
       fail-fast: false
       matrix:
