@@ -20,3 +20,13 @@ physical+instbig+shadow+senv+l1301+s100
 physical+shadow+senv+l1301+s100
 physical+shadow+senv+ds+sheen+l1301+s100
 physical+instbig+shadow+senv+ds+sheen+l1001
+physical+map+rep+nmap+ao+rmap+shadow+skin+senv+cc+l1301+s100
+physical+map+rep+nmap+ao+rmap+shadow+skin+senv+sheen+l1301+s100
+physical+shadow+skin+senv+cc+l1301+s100
+physical+shadow+skin+senv+l1301+s100
+physical+shadow+skin+senv+sheen+l1301+s100
+standard+map+rep+nmap+ao+rmap+shadow+skin+senv+l1301+s100
+standard+shadow+skin+senv+l1301+s100
+standard+vcol+shadow+skin+senv+l1301+s100
+physical+shadow+senv+irid+l1001
+physical+vcol+shadow+senv+sheen+l1001

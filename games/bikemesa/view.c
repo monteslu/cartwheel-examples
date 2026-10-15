@@ -2185,28 +2185,29 @@ void view_frame(float alpha) {
   }
 }
 
-/* ── the still scenery, instanced ─────────────────────────────────────
+/* ── the still scenery, merged ───────────────────────────────────────
  * The landforms, rocks and theme props are thousands of single meshes,
- * most of them repeats of a few shapes and far off screen. Each run of
- * repeats (one geometry and material, the same shadow flags) is gathered
- * per STILL_CHUNK metres of track into one InstancedMesh with those meshes'
- * matrices: the renderer culls a chunk off screen (camera and shadow map) on
- * its instances' bounds, as it culled each mesh, at a fraction of the
- * per-object cost. Only
- * meshes nothing animates (the pumpkins' flames are left alone), opaque. */
-#define STILL_CHUNK 48.0f
+ * most of them a few shapes in a few materials, and far off screen. The
+ * meshes of each material (and shadow flags) are merged per STILL_CHUNK
+ * metres of track into one mesh, their placement baked in: the renderer
+ * culls a chunk off screen (camera and shadow map) on its bounds, as it
+ * culled each mesh, and draws what is left in one draw per material. Every
+ * view in split screen draws the scenery again, so this is most of what
+ * keeps four views cheap. Only meshes nothing animates (the pumpkins'
+ * flames are left alone), opaque. */
+#define STILL_CHUNK 128.0f
 static bool still_ok(t3_object *o) {
   if (o->type != T3_MESH || o->child_count || !o->visible) return false;
   t3_mesh *m = (t3_mesh *)o;
-  if (m->material_count != 1 || m->geometry->group_count || m->geometry->morph_count) return false;
+  if (m->material_count != 1 || !geo_mergeable(m->geometry)) return false;
   const t3_material *mt = m->materials[0];
   if (mt->transparent || mt->transmission > 0) return false;
   for (int i = 0; i < n_pk; i++)
     if (pks[i].flame == m) return false;
   return true;
 }
-static void instance_still(t3_object *root, int a, int b) {
-  typedef struct { t3_geometry *g; t3_material *m; bool cast, recv; int chunk, n, first; } run;
+static void merge_still(t3_object *root, int a, int b) {
+  typedef struct { t3_material *m; unsigned mask; bool cast, recv; int chunk, n, first; } run;
   int nc = b - a;
   if (nc <= 0) return;
   run *runs = malloc(sizeof *runs * (size_t)nc);
@@ -2218,33 +2219,41 @@ static void instance_still(t3_object *root, int a, int b) {
     if (!still_ok(o)) continue;
     t3_mesh *m = (t3_mesh *)o;
     int chunk = (int)floorf(o->position.x / STILL_CHUNK);
+    unsigned mask = geo_merge_mask(m->geometry);
     int r = 0;
-    while (r < nr && !(runs[r].g == m->geometry && runs[r].m == m->materials[0] && runs[r].cast == o->cast_shadow &&
+    while (r < nr && !(runs[r].m == m->materials[0] && runs[r].mask == mask && runs[r].cast == o->cast_shadow &&
                        runs[r].recv == o->receive_shadow && runs[r].chunk == chunk))
       r++;
-    if (r == nr) runs[nr++] = (run){ m->geometry, m->materials[0], o->cast_shadow, o->receive_shadow, chunk, 0, i };
+    if (r == nr) runs[nr++] = (run){ m->materials[0], mask, o->cast_shadow, o->receive_shadow, chunk, 0, i };
     runs[r].n++;
     run_of[i] = r;
   }
   t3_object **gone = malloc(sizeof *gone * (size_t)nc);
+  const t3_geometry **gs = malloc(sizeof *gs * (size_t)nc);
+  const t3_mat4 **ms = malloc(sizeof *ms * (size_t)nc);
   int ngone = 0;
   for (int r = 0; r < nr; r++) {
     if (runs[r].n < 2) continue;
-    t3_instanced_mesh *im = t3_instanced_mesh_new(runs[r].g, runs[r].m, runs[r].n);
-    im->mesh.base.cast_shadow = runs[r].cast;
-    im->mesh.base.receive_shadow = runs[r].recv;
     int k = 0;
     for (int i = runs[r].first; i < nc; i++) {
       if (run_of[i] != r) continue;
       t3_object *o = root->children[a + i];
       t3_object_update_matrix(o);
-      t3_instanced_mesh_set_matrix_at(im, k++, &o->matrix);
+      gs[k] = ((t3_mesh *)o)->geometry;
+      ms[k++] = &o->matrix;
       gone[ngone++] = o;
     }
-    t3_object_add(root, im);
-    t3_release(im);
+    t3_geometry *g = geo_merge(gs, ms, k, runs[r].mask);
+    t3_mesh *mm = t3_mesh_new(g, runs[r].m);
+    t3_release(g);
+    mm->base.cast_shadow = runs[r].cast;
+    mm->base.receive_shadow = runs[r].recv;
+    t3_object_add(root, mm);
+    t3_release(mm);
   }
   for (int i = 0; i < ngone; i++) t3_object_remove(root, gone[i]);
+  free(ms);
+  free(gs);
   free(gone);
   free(run_of);
   free(runs);
@@ -2282,7 +2291,7 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
   fill(root, t, th);
   props(root, t, th);
   props2(root, t, th);
-  instance_still(root, still0, root->child_count);
+  merge_still(root, still0, root->child_count);
   ice_patches(root, t);
   planks_build(root);
   movers_build(root);

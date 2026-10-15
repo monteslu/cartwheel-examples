@@ -24,8 +24,11 @@ A downhill bike game. A 2D Box2D bicycle and rider ride hand-shaped lines
 through thirteen 3D worlds, from a red rock canyon and a snowy slope to a
 neon rooftop run, a haunted town, the Moon and Mars.
 Pedal, hop, lean into flips, hold poses in the air and land clean; get it
-wrong and the rider tumbles through a full 3D crash. Two players can race
-split screen in four lanes. Pick your rider and bike before each run.
+wrong and the rider tumbles through a full 3D crash. Up to four players race
+split screen in four lanes, one pad each: two share the screen top and
+bottom, three or four take its quarters (with three, the last quarter holds
+the race clock, a mini map of the course and the standings). Each player
+picks a rider and a bike before the run.
 `games/bikemesa/`
 
 ### BomberDude
@@ -170,6 +173,19 @@ renderers (llvmpipe for GL, lavapipe for WebGPU), as CI does:
 ```sh
 CW_TEST_GPU=software node tests/gate.mjs bikemesa-auto --hosts native
 CW_TEST_GPU=software node tests/gate.mjs bikemesa-auto --hosts native --gpu webgpu
+```
+
+### Split-screen cost
+
+`tests/bikemesa-split-bench.mjs` measures what each extra player costs:
+the self-playing BikeMesa on the same ride with one to four riders, native,
+GL and WebGPU, on the test GPU. Per player count it prints the CPU per frame
+on the main thread's clock (simulation and render submission), the GPU time
+per frame by pass, the draw calls, and each against one player in percent.
+
+```sh
+node tests/bikemesa-split-bench.mjs                         # GL and WebGPU, 1-4 players, 3 runs each
+node tests/bikemesa-split-bench.mjs --gpus webgpu --runs 5
 ```
 
 ## CI

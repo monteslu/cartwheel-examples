@@ -1,7 +1,7 @@
 # BikeMesa: a downhill bike game. A 2D Box2D bicycle and rider through 3D
-# worlds: jumps, flips, crashes, two-player split screen.
+# worlds: jumps, flips, crashes, split screen for up to four players.
 #   bikemesa           the game
-#   bikemesa_auto      plays the gate's pad script by itself (for hosts that send no input)
+#   bikemesa_auto      plays a session by itself (for hosts that send no input)
 #   bikemesa_unlocked  starts with every track open (the progression gates)
 set(SRC main.c bike.c crash.c models.c view.c textures.c)
 set(CW_PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/programs/bikemesa.txt)

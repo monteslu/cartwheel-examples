@@ -16,5 +16,6 @@
   {"frame":270,"buttons":["south"],"pad2":{"buttons":[]},"pad3":{"buttons":[]},"pad4":{"buttons":[]}},
   {"frame":300,"buttons":["south"],"pad2":{"buttons":["south"]},"pad3":{"buttons":[]},"pad4":{"buttons":[]}},
   {"frame":330,"buttons":["south"],"pad2":{"buttons":["south"]},"pad3":{"buttons":["south"]},"pad4":{"buttons":[]}},
-  {"frame":360,"buttons":["south"],"pad2":{"buttons":["south"]},"pad3":{"buttons":["south"]},"pad4":{"buttons":["south"]}}
+  {"frame":360,"buttons":["south"],"pad2":{"buttons":["south"]},"pad3":{"buttons":["south"]},"pad4":{"buttons":["south"]}},
+  {"frame":3390,"buttons":["south"],"pad2":{"buttons":["north"]},"pad3":{"buttons":["west"]},"pad4":{"buttons":["east","north"]}}
 ]

@@ -31,6 +31,10 @@ typedef struct model_t {
   t3_object *limb[RAG_COUNT];  /* each a group placed by its 2D xform; the mesh inside runs along +x */
   t3_object *limb_r[RAG_COUNT]; /* the right arm / leg copies while riding (same pose, other side) */
   t3_object *foot[2];         /* ankle hinges: shoes turn independently of the shins */
+  /* what is drawn: skinned meshes over the parts above (their bones), one per
+   * material, and the far look, one for the bike and one for the rider */
+  t3_object *near_mesh[24], *far_mesh[2];
+  int near_n;
   cw_node node;
 } model_t;
 static model_t MS[MAX_RIDERS];
@@ -560,6 +564,208 @@ static t3_object *build_crank(const mats *m) {
   return c;
 }
 
+/* ── one draw per material ────────────────────────────────────────────
+ * The rider and the bike are built as a hundred-odd small meshes in a couple
+ * of dozen moving parts (the frame, the wheels, the crank, each limb...).
+ * They are drawn as skinned meshes instead, one per material, each part a
+ * bone: the same picture in a fifth of the draws. The far look (split
+ * screen's other riders) is two: the bike and the rider, each part in its
+ * material's colour. Every view of every rider costs draws, so this is
+ * what keeps split screen cheap. */
+#define MAX_BONES 32
+typedef struct part { t3_mesh *m; int bone; } part;
+/* geometries placed by their matrices, as one indexed geometry: the
+ * attributes in mask (bits of MERGE_SLOTS, float32 in every one) */
+static const t3_attr_slot MERGE_SLOTS[] = { T3_ATTR_POSITION, T3_ATTR_NORMAL, T3_ATTR_UV, T3_ATTR_COLOR, T3_ATTR_UV1 };
+enum { MERGE_SLOT_COUNT = (int)CW_ARRAY_LEN(MERGE_SLOTS) };
+unsigned geo_merge_mask(const t3_geometry *g) {
+  unsigned m = 0;
+  for (int k = 0; k < MERGE_SLOT_COUNT; k++)
+    if (g->attributes[MERGE_SLOTS[k]]) m |= 1u << k;
+  return m;
+}
+bool geo_mergeable(const t3_geometry *g) {
+  if (!g->attributes[T3_ATTR_POSITION] || g->morph_count || g->named_count || g->attributes[T3_ATTR_TANGENT] || g->draw_start != 0 ||
+      (g->draw_count >= 0 && g->draw_count != (g->index ? g->index->count : g->attributes[T3_ATTR_POSITION]->count)))
+    return false;
+  for (int k = 0; k < MERGE_SLOT_COUNT; k++)
+    if (g->attributes[MERGE_SLOTS[k]] && g->attributes[MERGE_SLOTS[k]]->type != T3_FLOAT32) return false;
+  return true;
+}
+t3_geometry *geo_merge(const t3_geometry *const *gs, const t3_mat4 *const *mats, int n, unsigned mask) {
+  int nv = 0, ni = 0;
+  for (int i = 0; i < n; i++) {
+    int c = gs[i]->attributes[T3_ATTR_POSITION]->count;
+    nv += c;
+    ni += gs[i]->index ? gs[i]->index->count : c;
+  }
+  float *data[MERGE_SLOT_COUNT] = { 0 };
+  int size[MERGE_SLOT_COUNT] = { 0 };
+  for (int k = 0; k < MERGE_SLOT_COUNT; k++)
+    if (mask & (1u << k)) {
+      size[k] = gs[0]->attributes[MERGE_SLOTS[k]]->item_size;
+      data[k] = malloc(sizeof(float) * (size_t)(nv * size[k]));
+    }
+  uint32_t *idx = malloc(sizeof(uint32_t) * (size_t)ni);
+  int v0 = 0, i0 = 0;
+  for (int i = 0; i < n; i++) {
+    const t3_geometry *src = gs[i];
+    int c = src->attributes[T3_ATTR_POSITION]->count;
+    t3_geometry *g = t3_geometry_new(); /* a copy to place */
+    for (int k = 0; k < MERGE_SLOT_COUNT; k++)
+      if (mask & (1u << k)) {
+        const t3_attribute *at = src->attributes[MERGE_SLOTS[k]];
+        set_attr(g, MERGE_SLOTS[k], t3_attribute_new(T3_FLOAT32, at->array, at->count, at->item_size));
+      }
+    t3_geometry_apply_matrix4(g, mats[i]);
+    for (int k = 0; k < MERGE_SLOT_COUNT; k++)
+      if (mask & (1u << k)) memcpy(data[k] + (size_t)v0 * size[k], g->attributes[MERGE_SLOTS[k]]->array, sizeof(float) * (size_t)(c * size[k]));
+    t3_release(g);
+    const float *e = mats[i]->e; /* a mirrored piece's triangles turn the other way */
+    float det = e[0] * (e[5] * e[10] - e[9] * e[6]) - e[4] * (e[1] * e[10] - e[9] * e[2]) + e[8] * (e[1] * e[6] - e[5] * e[2]);
+    int m = src->index ? src->index->count : c;
+    for (int t = 0; t < m; t++) {
+      uint32_t v = !src->index ? (uint32_t)t
+                 : src->index->type == T3_UINT16 ? ((const uint16_t *)src->index->array)[t] : ((const uint32_t *)src->index->array)[t];
+      idx[i0 + t] = (uint32_t)v0 + v;
+    }
+    if (det < 0)
+      for (int t = 0; t + 2 < m; t += 3) {
+        uint32_t tmp = idx[i0 + t + 1];
+        idx[i0 + t + 1] = idx[i0 + t + 2];
+        idx[i0 + t + 2] = tmp;
+      }
+    v0 += c;
+    i0 += m;
+  }
+  t3_geometry *g = t3_geometry_new();
+  for (int k = 0; k < MERGE_SLOT_COUNT; k++)
+    if (mask & (1u << k)) {
+      set_attr(g, MERGE_SLOTS[k], t3_attribute_new(T3_FLOAT32, data[k], nv, size[k]));
+      free(data[k]);
+    }
+  set_index(g, t3_attribute_new(T3_UINT32, idx, ni, 1));
+  free(idx);
+  return g;
+}
+
+/* the parts' meshes as one skinned geometry (world space at the bind pose,
+ * each vertex on its part's bone); far: position and normal, and each
+ * part's material colour */
+static t3_geometry *skin_geometry(const part *ps, int n, bool far) {
+  const t3_geometry *gs[256];
+  const t3_mat4 *ms[256];
+  n = CW_MIN(n, 256);
+  for (int i = 0; i < n; i++) gs[i] = ps[i].m->geometry, ms[i] = &ps[i].m->base.matrix_world;
+  t3_geometry *g = geo_merge(gs, ms, n, far ? 3u : geo_merge_mask(gs[0]));
+  int nv = g->attributes[T3_ATTR_POSITION]->count, v0 = 0;
+  float *col = far ? malloc(sizeof(float) * (size_t)nv * 3) : NULL;
+  float *si = calloc((size_t)nv * 4, sizeof(float)), *sw = calloc((size_t)nv * 4, sizeof(float));
+  for (int i = 0; i < n; i++) {
+    int c = gs[i]->attributes[T3_ATTR_POSITION]->count;
+    t3_color mc = ps[i].m->materials[0]->color;
+    for (int v = v0; v < v0 + c; v++) {
+      si[v * 4] = (float)ps[i].bone;
+      sw[v * 4] = 1;
+      if (col) col[v * 3] = mc.r, col[v * 3 + 1] = mc.g, col[v * 3 + 2] = mc.b;
+    }
+    v0 += c;
+  }
+  if (col) set_attr(g, T3_ATTR_COLOR, t3_attribute_new(T3_FLOAT32, col, nv, 3));
+  set_attr(g, T3_ATTR_SKIN_INDEX, t3_attribute_new(T3_FLOAT32, si, nv, 4));
+  set_attr(g, T3_ATTR_SKIN_WEIGHT, t3_attribute_new(T3_FLOAT32, sw, nv, 4));
+  free(col), free(si), free(sw);
+  return g;
+}
+static t3_object *skin_mesh(t3_geometry *g, t3_material *mat, t3_skeleton *sk, const t3_object *like) {
+  t3_skinned_mesh *sm = t3_skinned_mesh_new(g, mat);
+  t3_release(g);
+  /* the parts carry the rider's place in the world: bounds at the bind pose mean nothing */
+  sm->mesh.base.frustum_culled = false;
+  sm->mesh.base.cast_shadow = like->cast_shadow;
+  sm->mesh.base.receive_shadow = like->receive_shadow;
+  sm->mesh.base.render_order = like->render_order;
+  t3_object_add(M.root, sm);
+  t3_release(sm);
+  t3_object_update_world_matrix(sm, false, false);
+  t3_skinned_mesh_bind(sm, sk, NULL);
+  return &sm->mesh.base;
+}
+static void skin_build(void) {
+  t3_object *bones[MAX_BONES];
+  int nb = 0;
+  bones[nb++] = M.root; /* for the pieces no part moves */
+  t3_object *moving[] = { M.frame, M.rear, M.front, M.rear_guard, M.front_guard, M.crank, M.cap, M.neck, M.foot[0], M.foot[1] };
+  int bike_bones = 7; /* the root and the bike's six parts */
+  for (int i = 0; i < (int)CW_ARRAY_LEN(moving); i++)
+    if (moving[i]) bones[nb++] = moving[i];
+  for (int i = 0; i < RAG_COUNT; i++) {
+    if (M.limb[i]) bones[nb++] = M.limb[i];
+    if (M.limb_r[i]) bones[nb++] = M.limb_r[i];
+  }
+  t3_object_update_world_matrix(M.root, false, true);
+  /* every mesh, on the bone of the nearest part that holds it */
+  part *ps = malloc(sizeof *ps * 256);
+  int np = 0;
+  t3_object *st[256];
+  int sp = 0;
+  for (int c = M.root->child_count - 1; c >= 0; c--) st[sp++] = M.root->children[c];
+  while (sp) {
+    t3_object *o = st[--sp];
+    for (int c = o->child_count - 1; c >= 0 && sp < 256; c--) st[sp++] = o->children[c];
+    if (o->type != T3_MESH || !o->visible || np == 256 || !geo_mergeable(((t3_mesh *)o)->geometry) || ((t3_mesh *)o)->material_count != 1) continue;
+    int bone = 0;
+    for (const t3_object *a = o; a && a != M.root && !bone; a = a->parent)
+      for (int k = 1; k < nb; k++)
+        if (bones[k] == a) bone = k;
+    ps[np++] = (part){ (t3_mesh *)o, bone };
+  }
+  t3_skeleton *sk = t3_skeleton_new(bones, nb, NULL);
+  /* near: a skinned mesh per material (and shadow flags, attribute set) */
+  part *run = malloc(sizeof *run * (size_t)np);
+  bool *done = calloc((size_t)np, 1);
+  M.near_n = 0;
+  for (int i = 0; i < np; i++) {
+    if (done[i]) continue;
+    int nr = 0;
+    for (int j = i; j < np; j++) {
+      const t3_object *a = &ps[i].m->base, *b = &ps[j].m->base;
+      if (!done[j] && ps[j].m->materials[0] == ps[i].m->materials[0] && a->cast_shadow == b->cast_shadow && a->receive_shadow == b->receive_shadow &&
+          a->render_order == b->render_order && geo_merge_mask(ps[j].m->geometry) == geo_merge_mask(ps[i].m->geometry))
+        run[nr++] = ps[j], done[j] = true;
+    }
+    if (M.near_n < (int)CW_ARRAY_LEN(M.near_mesh))
+      M.near_mesh[M.near_n++] = skin_mesh(skin_geometry(run, nr, false), ps[i].m->materials[0], sk, &ps[i].m->base);
+  }
+  /* far: the bike, the rider */
+  for (int f = 0; f < 2; f++) {
+    int nr = 0;
+    for (int i = 0; i < np; i++)
+      if ((ps[i].bone > 0 && ps[i].bone < bike_bones) == (f == 0)) run[nr++] = ps[i];
+    t3_material *mat = t3_mesh_standard_material_new(0xffffff);
+    mat->vertex_colors = true;
+    mat->roughness = f == 0 ? 0.4f : 0.8f;
+    mat->metalness = f == 0 ? 0.3f : 0;
+    M.far_mesh[f] = nr ? skin_mesh(skin_geometry(run, nr, true), mat, sk, &run[0].m->base) : NULL;
+    if (M.far_mesh[f]) M.far_mesh[f]->visible = false;
+    t3_release(mat);
+  }
+  for (int i = 0; i < np; i++) ps[i].m->base.visible = false; /* the parts stay, as bones */
+  t3_release(sk);
+  free(done);
+  free(run);
+  free(ps);
+}
+
+/* rider idx near (every material) or far (two draws) */
+void models_far(int idx, bool far) {
+  model_t *mm = &MS[CW_CLAMP(idx, 0, MAX_RIDERS - 1)];
+  if (!mm->root) return;
+  for (int i = 0; i < mm->near_n; i++) mm->near_mesh[i]->visible = !far;
+  for (int f = 0; f < 2; f++)
+    if (mm->far_mesh[f]) mm->far_mesh[f]->visible = far;
+}
+
 void models_build(cw_node parent) { models_build_rider(parent, 0); }
 
 void models_build_rider(cw_node parent, int idx) {
@@ -741,6 +947,7 @@ void models_build_rider(cw_node parent, int idx) {
   t3_release(button);
   }
 
+  skin_build();
   char nm[16];
   snprintf(nm, sizeof nm, rider_ix ? "Bike%d" : "Bike", rider_ix + 1);
   M.node = cw_node_new("Node3D", nm);
@@ -787,9 +994,16 @@ static void neck_between(t3_vec3 a, t3_vec3 b) {
 void models_sync(const bike_pose *p) { models_sync_rider(0, p, p->z); }
 
 /* rider idx's model at its pose, its lane z across the track */
+static void models_sync_rider_(const bike_pose *p, float z);
 void models_sync_rider(int idx, const bike_pose *p, float z) {
   Mc = &MS[CW_CLAMP(idx, 0, MAX_RIDERS - 1)];
   if (!M.root) return;
+  models_sync_rider_(p, z);
+  /* split screen poses a rider again between views (its replay in its own
+   * view), after the scene's matrices were updated for the frame */
+  t3_object_update_world_matrix(M.root, true, true);
+}
+static void models_sync_rider_(const bike_pose *p, float z) {
   if (p->ragdoll) { /* a crash: every piece where the crash world has it (world space) */
     if (cw_node_valid(M.node)) cw_node3d_set_position(M.node, (t3_vec3){ 0, 0, 0 });
     put3(M.frame, p->frame3);

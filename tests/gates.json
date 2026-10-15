@@ -1181,6 +1181,163 @@
     "note": "Pugball (games/pugball): the match runs on Box3D (cartwheel's world3d and vehicle3d), deterministic at any worker count, so the named state must match exactly on every host; pixels within the usual tolerance (sub-pixel grass blades, crowd and particles). pugball_cup (a fresh save, Pug Cup matches cut to 6 s): PUG CUP, fixture 1 (1v1 against a Rookie in Barkley Park), the kickoff goal, the replay, held to full time: FIXTURE WON and stadium 2 (Neon Kennel Bowl) unlocks in the save (save.unlocked 2, save.won 1). The control never jumps, loses in overtime and unlocks nothing."
   },
   {
+    "name": "pugball-split3",
+    "app": "pugball",
+    "frames": 400,
+    "input": "pugball-split3.json",
+    "maxGt16": 0.05,
+    "fields": [
+      "game.state",
+      "game.mode",
+      "game.stadium",
+      "match.phase",
+      "match.clock",
+      "match.score",
+      "match.winner",
+      "ball.pos",
+      "players.pos",
+      "players.slot",
+      "players.goals",
+      "players.points",
+      "players.boost",
+      "count.hits",
+      "count.demos",
+      "count.jumps",
+      "count.dodges",
+      "count.pads",
+      "count.bounces",
+      "sim.hash",
+      "state.hash",
+      "ticks",
+      "save.unlocked",
+      "save.won",
+      "tex.hash",
+      "scenery.hash",
+      "cam.views",
+      "cam.ballcam",
+      "match.replays",
+      "cw.pad0.buttons",
+      "cw.pad0.connected",
+      "cw.pad1.buttons",
+      "cw.pad1.connected",
+      "cw.pad2.buttons",
+      "cw.pad2.connected",
+      "cw.pad3.buttons",
+      "cw.pad3.connected"
+    ],
+    "expect": {
+      "game.state": 3,
+      "players.slot": [
+        1,
+        1,
+        3,
+        1,
+        0,
+        0
+      ],
+      "cam.views": 3,
+      "cam.ballcam": 15,
+      "cw.pad0.buttons": 1026,
+      "cw.pad1.buttons": 1024,
+      "cw.pad2.buttons": 1030,
+      "cw.pad0.connected": 1,
+      "cw.pad1.connected": 1,
+      "cw.pad2.connected": 1,
+      "cw.pad3.connected": 0
+    },
+    "controlInput": "pugball-split3-idle.json",
+    "webgpu": {
+      "vsGl": 0.25,
+      "maxGt16": 0.05,
+      "hosts": [
+        "native",
+        "romdev",
+        "chromium"
+      ],
+      "note": "WebGPU on every host: the same dual cart on romdev and Chromium against native WebGPU."
+    },
+    "note": "Pugball (games/pugball): the match runs on Box3D (cartwheel's world3d and vehicle3d), deterministic at any worker count, so the named state must match exactly on every host; pixels within the usual tolerance (sub-pixel grass blades, crowd and particles). Three-player split screen: pads 2 and 3 join on the team sheet ((A)), pad 3 switches sides (right), so P1 and a CPU Pro play P2 and P3. Three views (upper left, lower left, lower right) and the shared quadrant upper right (the scoreboard and the mini map); every pad drives at the cat from GO, steering its own way, and ends holding its own buttons (P1 R1 + (B), P2 R1, P3 R1 + (B) + (X)), read back per pad (cw.padN). The control joins the same way and never drives."
+  },
+  {
+    "name": "pugball-split4",
+    "app": "pugball",
+    "frames": 400,
+    "input": "pugball-split4.json",
+    "maxGt16": 0.05,
+    "fields": [
+      "game.state",
+      "game.mode",
+      "game.stadium",
+      "match.phase",
+      "match.clock",
+      "match.score",
+      "match.winner",
+      "ball.pos",
+      "players.pos",
+      "players.slot",
+      "players.goals",
+      "players.points",
+      "players.boost",
+      "count.hits",
+      "count.demos",
+      "count.jumps",
+      "count.dodges",
+      "count.pads",
+      "count.bounces",
+      "sim.hash",
+      "state.hash",
+      "ticks",
+      "save.unlocked",
+      "save.won",
+      "tex.hash",
+      "scenery.hash",
+      "cam.views",
+      "cam.ballcam",
+      "match.replays",
+      "cw.pad0.buttons",
+      "cw.pad0.connected",
+      "cw.pad1.buttons",
+      "cw.pad1.connected",
+      "cw.pad2.buttons",
+      "cw.pad2.connected",
+      "cw.pad3.buttons",
+      "cw.pad3.connected"
+    ],
+    "expect": {
+      "game.state": 3,
+      "players.slot": [
+        1,
+        1,
+        1,
+        1,
+        0,
+        0
+      ],
+      "cam.views": 4,
+      "cam.ballcam": 5,
+      "cw.pad0.buttons": 1026,
+      "cw.pad1.buttons": 1024,
+      "cw.pad2.buttons": 1030,
+      "cw.pad3.buttons": 2,
+      "cw.pad0.connected": 1,
+      "cw.pad1.connected": 1,
+      "cw.pad2.connected": 1,
+      "cw.pad3.connected": 1
+    },
+    "controlInput": "pugball-split4-idle.json",
+    "webgpu": {
+      "vsGl": 0.25,
+      "maxGt16": 0.05,
+      "hosts": [
+        "native",
+        "romdev",
+        "chromium"
+      ],
+      "note": "WebGPU on every host: the same dual cart on romdev and Chromium against native WebGPU."
+    },
+    "note": "Pugball (games/pugball): the match runs on Box3D (cartwheel's world3d and vehicle3d), deterministic at any worker count, so the named state must match exactly on every host; pixels within the usual tolerance (sub-pixel grass blades, crowd and particles). Four-player split screen, 2v2 with no CPUs: pads 2-4 join on the team sheet ((A)) and take the sides with fewer players. Four views and the scoreboard where they meet; every pad drives at the cat from GO, steering its own way, P2 and P4 turn ball cam off ((Y): cam.ballcam bits 0 and 2 left), and each pad ends holding its own buttons (P1 R1 + (B), P2 R1, P3 R1 + (B) + (X), P4 (B)), read back per pad (cw.padN). The control joins the same way and never drives."
+  },
+  {
     "name": "derby-title",
     "app": "derby",
     "frames": 150,
@@ -2796,7 +2953,15 @@
       "race.bumps",
       "race.lane_changes",
       "race.x",
-      "race.crashes"
+      "race.crashes",
+      "cw.pad0.buttons",
+      "cw.pad0.connected",
+      "cw.pad1.buttons",
+      "cw.pad1.connected",
+      "cw.pad2.buttons",
+      "cw.pad2.connected",
+      "cw.pad3.buttons",
+      "cw.pad3.connected"
     ],
     "maxGt16": 0.05,
     "webgpu": {
@@ -2809,7 +2974,7 @@
       ],
       "note": "WebGPU on every host against the GL reference: the canyon's grass tufts are sub-pixel blades whose edges rasterize a pixel apart across backends."
     },
-    "note": "Three-player split screen, each rider on its own pad: pads 2 and 3 join on the player select and pick a rider and a bike each; three views (top left, bottom left, bottom right) and the race's own quadrant top right (the clock, the mini map, the standings). P1 pedals from frame 270, P3 from 300, P2 from 330; P3 alone presses down and slides from lane 2 to lane 3 (race.lanes, race.lane_changes 1). The control is the same but P3 never changes lane.",
+    "note": "Three-player split screen, each rider on its own pad: pads 2 and 3 join on the player select and pick a rider and a bike each; three views (top left, bottom left, bottom right) and the race's own quadrant top right (the clock, the mini map, the standings). P1 pedals from frame 270, P3 from 300, P2 from 330; P3 alone presses down and slides from lane 2 to lane 3 (race.lanes, race.lane_changes 1). The control is the same but P3 never changes lane. The last frames hold a different set of buttons on each pad (P1 (A), P2 (A)+(Y), P3 (B)), read back from the platform per pad (cw.padN).",
     "name": "bikemesa-split3",
     "app": "bikemesa",
     "frames": 700,
@@ -2830,7 +2995,13 @@
         0,
         0,
         0
-      ]
+      ],
+      "cw.pad0.buttons": 1,
+      "cw.pad1.buttons": 9,
+      "cw.pad2.buttons": 2,
+      "cw.pad1.connected": 1,
+      "cw.pad2.connected": 1,
+      "cw.pad3.connected": 0
     }
   },
   {
@@ -2875,7 +3046,15 @@
       "race.bumps",
       "race.lane_changes",
       "race.x",
-      "race.crashes"
+      "race.crashes",
+      "cw.pad0.buttons",
+      "cw.pad0.connected",
+      "cw.pad1.buttons",
+      "cw.pad1.connected",
+      "cw.pad2.buttons",
+      "cw.pad2.connected",
+      "cw.pad3.buttons",
+      "cw.pad3.connected"
     ],
     "maxGt16": 0.05,
     "webgpu": {
@@ -2888,7 +3067,7 @@
       ],
       "note": "WebGPU on every host against the GL reference: the canyon's grass tufts are sub-pixel blades whose edges rasterize a pixel apart across backends."
     },
-    "note": "A whole four-player race, each rider on its own pad: pads 2-4 join on the player select, four views in a 2x2 grid. Pedalling starts staggered (P1 270, P2 300, P3 330, P4 360); P4 alone presses up and moves from lane 3 to lane 2 (race.lanes); P1 stays in lane 0, wipes out twice where Red Rock narrows to lanes 1-2 (each crash replayed in P1's own view while the others ride on) and is not home when the race ends: the results list all four (race.places). The control is the same but P4 never changes lane.",
+    "note": "A whole four-player race, each rider on its own pad: pads 2-4 join on the player select, four views in a 2x2 grid. Pedalling starts staggered (P1 270, P2 300, P3 330, P4 360); P4 alone presses up and moves from lane 3 to lane 2 (race.lanes); P1 stays in lane 0, wipes out twice where Red Rock narrows to lanes 1-2 (each crash replayed in P1's own view while the others ride on) and is not home when the race ends: the results list all four (race.places). The control is the same but P4 never changes lane. On the results screen each pad holds its own buttons (P1 (A), P2 (Y), P3 (X), P4 (B)+(Y)), read back from the platform per pad (cw.padN).",
     "name": "bikemesa-split4",
     "app": "bikemesa",
     "frames": 3400,
@@ -2915,7 +3094,14 @@
         0,
         0,
         0
-      ]
+      ],
+      "cw.pad0.buttons": 1,
+      "cw.pad1.buttons": 8,
+      "cw.pad2.buttons": 4,
+      "cw.pad3.buttons": 10,
+      "cw.pad1.connected": 1,
+      "cw.pad2.connected": 1,
+      "cw.pad3.connected": 1
     }
   },
   {

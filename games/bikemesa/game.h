@@ -198,7 +198,13 @@ void models_turntable(int idx, float angle, float center_x);
 void models_sync(const bike_pose *p);
 void models_build_rider(cw_node parent, int idx); /* rider idx's bike and rider, in its colours */
 void models_sync_rider(int idx, const bike_pose *p, float z);
+void models_far(int idx, bool far); /* the far look: two draws (split screen's other riders) */
 void models_forget(void);
+/* geometries placed by their matrices merged into one (positions, normals,
+ * uvs, colours: the attributes in mask, geo_merge_mask's bits) */
+bool geo_mergeable(const t3_geometry *g);
+unsigned geo_merge_mask(const t3_geometry *g);
+t3_geometry *geo_merge(const t3_geometry *const *gs, const t3_mat4 *const *mats, int n, unsigned mask);
 
 /* crash.c: the 3D world a crash tumbles in, built once a track's scenery is:
  * static shapes from the same track data view.c draws (the ribbon and its

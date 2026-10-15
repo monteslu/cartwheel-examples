@@ -18,5 +18,6 @@
   {"frame":330,"buttons":["south"],"pad2":{"buttons":["south"]},"pad3":{"buttons":["south"]},"pad4":{"buttons":[]}},
   {"frame":360,"buttons":["south"],"pad2":{"buttons":["south"]},"pad3":{"buttons":["south"]},"pad4":{"buttons":["south"]}},
   {"frame":450,"buttons":["south"],"pad2":{"buttons":["south"]},"pad3":{"buttons":["south"]},"pad4":{"buttons":["south"],"axes":{"ly":-1}}},
-  {"frame":460,"buttons":["south"],"pad2":{"buttons":["south"]},"pad3":{"buttons":["south"]},"pad4":{"buttons":["south"]}}
+  {"frame":460,"buttons":["south"],"pad2":{"buttons":["south"]},"pad3":{"buttons":["south"]},"pad4":{"buttons":["south"]}},
+  {"frame":3390,"buttons":["south"],"pad2":{"buttons":["north"]},"pad3":{"buttons":["west"]},"pad4":{"buttons":["east","north"]}}
 ]

@@ -2,7 +2,8 @@
  * 2D Box2D bicycle and rider ride hand-shaped lines through 3D worlds:
  * killer jumps, rollers, drops, flips and ridiculous crashes.
  *
- *   flow      title (the rider riding by) -> track select -> 3-2-1 -> ride
+ *   flow      title (the rider riding by) -> player select (a rider and a
+ *             bike each; pads 2-4 join here) -> track select -> 3-2-1 -> ride
  *             (crash: the rider tumbles, back at the last checkpoint) ->
  *             finish: time, medal, tricks, best
  *   input     gamepad first, nothing past a d-pad, four face buttons, Start
@@ -146,7 +147,7 @@ static struct {
   int32_t finish_count, race_over_ticks;
   int32_t places[MAX_RIDERS]; /* debug field: each rider's place at the line (0: not finished) */
   /* flow */
-  cw_node scene, camera, sun;
+  cw_node scene, camera, sun, post;
   const track_desc *t;
   bool attract;              /* the title's ride-by: the autopilot rides */
   int select_cursor;
@@ -398,6 +399,7 @@ static bool find_nodes(cw_node n, void *user) {
   (void)user;
   if (CW_HANDLE_IS_NULL(G.camera) && cw_node_is(n, "Camera3D")) G.camera = n;
   if (CW_HANDLE_IS_NULL(G.sun) && cw_node_is(n, "DirectionalLight3D")) G.sun = n;
+  if (CW_HANDLE_IS_NULL(G.post) && cw_node_is(n, "PostProcess")) G.post = n;
   return true;
 }
 
@@ -417,7 +419,7 @@ static bool load_track(int index, bool attract, int riders) {
   view_forget();
   models_forget();
   bike_world_destroy();
-  G.camera = G.sun = (cw_node){ 0 };
+  G.camera = G.sun = G.post = (cw_node){ 0 };
   G.t = next_track;
   G.track = index + 1;
   G.scene = next_scene;
@@ -525,8 +527,8 @@ static void respawn(void) {
 static int32_t dbg_hops, dbg_loops, dbg_pose, dbg_poses, dbg_quality;
 
 /* ── local multiplayer: the riders, their lanes and views ────────────────
- * Pads 2-4 join on the title or the track select with (A) and leave with
- * (B); the keyboard (and touch) is P1's. Each rider has a bike in the one
+ * Pads 2-4 join on the player select with (A) and leave with (B); the
+ * keyboard (and touch) is P1's. Each rider has a bike in the one
  * world on a lane of its own across the track (a collision layer: riders in
  * one lane bump, in different lanes pass through), a camera and a view of
  * the screen, a HUD in it, and an audio listener. Up / down change lane on
@@ -673,6 +675,14 @@ static void race_check_end(void) {
 static void views_setup(void) {
   cw_pipeline *pl = cw_pipeline_of(cw_scene_app_tree());
   RD[0].cam = G.camera;
+  /* split screen: the post chain past the views' own passes (bloom, tone
+   * mapping, the grade, anti-aliasing) runs once over the whole screen */
+  cw_pipeline_set_views_shared_post(pl, NRID > 1);
+  if (NRID > 1 && cw_node_valid(G.post)) { /* and what is left per view, scaled to small views (each track load sets the scene's own again) */
+    cw_node_set(G.post, "ssao", cw_val_bool(false)); /* contact shadows too fine to see at this size */
+    static const char *const LENS[] = { "vignette", "grain", "chromatic_aberration" }; /* a lens darkens a screen's corners, not a view's */
+    for (int k = 0; k < 3; k++) cw_node_set(G.post, LENS[k], cw_val_bool(false));
+  }
   if (NRID < 2 || !cw_node_valid(G.camera)) {
     cw_pipeline_set_views(pl, NULL, 0);
     return;
@@ -863,10 +873,13 @@ static void replay_camera(cw_node cam, const bike_pose *p, float u) {
   cw_node3d_look_at(cam, at, (t3_vec3){ 0, 1, 0 });
 }
 
-/* split screen: before each view draws, a rider whose wipeout replays is
- * posed in the replay in its own view and where it really is in the others */
+/* split screen: before each view draws, its own rider is drawn in full (two
+ * players; in a quarter of the screen it too is far) and the others in their
+ * far look (each view draws every rider: this keeps it cheap); a rider whose wipeout replays is posed in the replay in its own
+ * view and where it really is in the others */
 static void view_hook(int view, void *u) {
   (void)u;
+  for (int i = 0; i < NRID; i++) models_far(i, i != view || NRID > 2); /* a quarter of the screen: every rider far */
   for (int i = 0; i < NRID; i++)
     if (RD[i].replay_t > 0) models_sync_rider(i, i == view ? &RD[i].replay : &RD[i].live, i == view ? RD[i].replay.z : RD[i].live.z);
 }
@@ -1606,6 +1619,7 @@ static void players_tick(cw_vec2 m, cw_vec2 cs, bool ok1) {
     enter(GS_SELECT);
   } else if (changed) preview_load();
 }
+
 
 static void fixed(void *u, double dt) {
   (void)u;
