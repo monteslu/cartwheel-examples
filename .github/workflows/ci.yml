@@ -21,7 +21,7 @@ env:
   GAMES: bikemesa bomberdude derby pugball spout
   # pushes replay each game's first SLICE frames on every platform and API and
   # hold them to Linux x64 GL's state, bit for bit; the full replays run nightly
-  SLICE: 300
+  SLICE: 200
 
 # Every job builds against the prebuilt engine SDKs pinned in scripts/deps.lock
 # (cartwheel-engine's release assets): only the games compile.
@@ -226,10 +226,11 @@ jobs:
             Pop-Location
           }
           Get-ChildItem packages
+      # the runner draws with WARP (Direct3D on the CPU): one game's slice
       - name: Replays on GL (ANGLE, Direct3D 11)
-        run: node tests/native-replay.mjs --bin bundle --out out/replay/windows-x64-gl --gpu gl --frames ${{ env.SLICE }}
+        run: node tests/native-replay.mjs --bin bundle --out out/replay/windows-x64-gl --gpu gl --frames ${{ env.SLICE }} spout
       - name: Replays on WebGPU (Dawn, Direct3D 12)
-        run: node tests/native-replay.mjs --bin bundle --out out/replay/windows-x64-webgpu --gpu webgpu --frames ${{ env.SLICE }}
+        run: node tests/native-replay.mjs --bin bundle --out out/replay/windows-x64-webgpu --gpu webgpu --frames ${{ env.SLICE }} spout
       - uses: actions/upload-artifact@v7
         if: always()
         with:

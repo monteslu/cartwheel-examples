@@ -260,11 +260,12 @@ against the pinned SDKs.
 - **Native** (one job per platform): the games built with the target's SDK
   and toolchain and packaged with cwexport. Where the runner can run them
   (Linux x64 and arm64 on Mesa's software renderers, macOS on the runner's
-  Metal device), the first 300 frames of each game's `_auto` replay run on
-  GL and on WebGPU (`tests/native-replay.mjs --frames 300`; macOS runners draw
+  Metal device), the first 200 frames of each game's `_auto` replay run on
+  GL and on WebGPU (`tests/native-replay.mjs --frames 200`; macOS runners draw
   GL at seconds a frame, so there the replays run on WebGPU and GL is
   launch-checked on one game). Windows builds cross-compile on Linux and run
-  on a Windows runner (ANGLE on Direct3D 11, Dawn on Direct3D 12); that job
+  on a Windows runner (ANGLE on Direct3D 11, Dawn on Direct3D 12; the
+  runner renders on the CPU, so one game's slice is replayed there); that job
   also adds Microsoft's Visual C++ runtime, which Dawn links, beside each
   game. The Android APKs are launched on an emulator (an x86_64 image
   running arm64 code).
