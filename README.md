@@ -49,7 +49,12 @@ the same game. `games/bomberdude/` (its
 
 A demolition derby. Six cars on Box3D wheels in a walled dirt bowl; hits
 dent the bodywork, then come smoke and fire, and the last car running wins.
-Up to four players split screen. `games/derby/`
+Up to four players split screen, one pad each: players 2-4 join on the
+title with (A), and CPU cars fill the bout to six. Two players share the
+screen top and bottom; three or four take its quarters (with three, the
+last quarter holds the clock, the standings and a map of the arena with
+every car on it). Each player has their own chase camera and HUD.
+`games/derby/`
 
 ### pugball
 
@@ -202,6 +207,15 @@ the GPU numbers from runs with them.
 ```sh
 node tests/pugball-split-bench.mjs                          # GL and WebGPU, 1-4 players, 5 rounds
 node tests/pugball-split-bench.mjs --gpus gl --players 1,4 --runs 3
+```
+
+`tests/derby-split-bench.mjs` plays one Derby bout at 1920x1080 with one to
+four players, every pad joining on the title and then driving its own line
+into the same pile-up. Run it through the engine's GPU suite wrapper:
+
+```sh
+node deps/cartwheel-engine/tools/with-gpu-suite.mjs derby-split-bench node tests/derby-split-bench.mjs
+node deps/cartwheel-engine/tools/with-gpu-suite.mjs derby-split-bench node tests/derby-split-bench.mjs --gpus webgpu --players 1,4 --shots out/shots
 ```
 
 ## CI
