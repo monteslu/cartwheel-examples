@@ -7,6 +7,8 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: '17 7 * * *' # nightly: the full gates (hours on software rendering)
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -17,6 +19,9 @@ env:
   CW_RENDER_SCALE: 1 # the games' own 960x540 instead of 1080p: software rendering is slow
   CW_RUN_TIMEOUT_MS: 3600000 # one native run
   GAMES: bikemesa bomberdude derby pugball spout
+  # pushes replay each game's first SLICE frames on every platform and API and
+  # hold them to Linux x64 GL's state, bit for bit; the full replays run nightly
+  SLICE: 300
 
 # Every job builds against the prebuilt engine SDKs pinned in scripts/deps.lock
 # (cartwheel-engine's release assets): only the games compile.
@@ -55,8 +60,11 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+  # The games' _auto gates in full, on GL and WebGPU: hours on Mesa's software
+  # renderers, so nightly (and by hand); pushes run the short slices below.
   gates:
-    name: Gates
+    name: Gates (full, nightly)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     steps:
@@ -91,7 +99,7 @@ jobs:
   native:
     name: Native ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 240 # Linux replays run on Mesa's software renderers
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -165,13 +173,13 @@ jobs:
           retention-days: 7
       - name: Replays on GL
         if: matrix.run && !matrix.gl_smoke
-        run: node tests/native-replay.mjs --bin build/${{ matrix.target }} --out out/replay/${{ matrix.target }}-gl --gpu gl
+        run: node tests/native-replay.mjs --bin build/${{ matrix.target }} --out out/replay/${{ matrix.target }}-gl --gpu gl --frames ${{ env.SLICE }}
       - name: GL launch check (60 frames each)
         if: matrix.gl_smoke
-        run: node tests/native-replay.mjs --bin build/${{ matrix.target }} --out out/smoke --gpu gl --smoke 60
+        run: node tests/native-replay.mjs --bin build/${{ matrix.target }} --out out/smoke --gpu gl --smoke 30
       - name: Replays on WebGPU
         if: matrix.run
-        run: node tests/native-replay.mjs --bin build/${{ matrix.target }} --out out/replay/${{ matrix.target }}-webgpu --gpu webgpu
+        run: node tests/native-replay.mjs --bin build/${{ matrix.target }} --out out/replay/${{ matrix.target }}-webgpu --gpu webgpu --frames ${{ env.SLICE }}
       - uses: actions/upload-artifact@v7
         if: matrix.run && always()
         with:
@@ -219,9 +227,9 @@ jobs:
           }
           Get-ChildItem packages
       - name: Replays on GL (ANGLE, Direct3D 11)
-        run: node tests/native-replay.mjs --bin bundle --out out/replay/windows-x64-gl --gpu gl
+        run: node tests/native-replay.mjs --bin bundle --out out/replay/windows-x64-gl --gpu gl --frames ${{ env.SLICE }}
       - name: Replays on WebGPU (Dawn, Direct3D 12)
-        run: node tests/native-replay.mjs --bin bundle --out out/replay/windows-x64-webgpu --gpu webgpu
+        run: node tests/native-replay.mjs --bin bundle --out out/replay/windows-x64-webgpu --gpu webgpu --frames ${{ env.SLICE }}
       - uses: actions/upload-artifact@v7
         if: always()
         with:

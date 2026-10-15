@@ -253,20 +253,23 @@ node deps/cartwheel-engine/tools/with-gpu-suite.mjs derby-split-bench node tests
 against the pinned SDKs.
 
 - **Carts**: the five dual carts.
-- **Gates**: each game's `_auto` gate natively on GL and then on WebGPU,
-  with Mesa's software renderers at the games' own 960x540
-  (`CW_RENDER_SCALE=1`). The full gate set runs locally with `tests/gate.mjs`.
+- **Gates** (nightly, and by hand): each game's `_auto` gate in full,
+  natively on GL and then on WebGPU, with Mesa's software renderers at the
+  games' own 960x540 (`CW_RENDER_SCALE=1`): hours of software rendering. The
+  full gate set runs locally with `tests/gate.mjs`.
 - **Native** (one job per platform): the games built with the target's SDK
   and toolchain and packaged with cwexport. Where the runner can run them
   (Linux x64 and arm64 on Mesa's software renderers, macOS on the runner's
-  Metal device), each game's `_auto` replay runs on GL and on WebGPU
-  (`tests/native-replay.mjs`). Windows builds cross-compile on Linux and run
+  Metal device), the first 300 frames of each game's `_auto` replay run on
+  GL and on WebGPU (`tests/native-replay.mjs --frames 300`; macOS runners draw
+  GL at about a second a frame, so there the replays run on WebGPU and GL is
+  launch-checked). Windows builds cross-compile on Linux and run
   on a Windows runner (ANGLE on Direct3D 11, Dawn on Direct3D 12); that job
   also adds Microsoft's Visual C++ runtime, which Dawn links, beside each
   game. The Android APKs are launched on an emulator (an x86_64 image
   running arm64 code).
-- **Replays across platforms**: every platform's and API's replay state must
-  equal Linux x64 GL's, field for field (`tests/compare-replays.mjs`).
+- **Replays across platforms**: every platform's and API's state after those
+  frames must equal Linux x64 GL's, field for field (`tests/compare-replays.mjs`).
 
 Pushing a `v*` tag runs the same jobs and publishes a GitHub release with the
 five carts and each game's native builds: `git tag v0.6.0 && git push origin
