@@ -75,7 +75,7 @@ every car on it). Each player has their own chase camera and HUD.
 ### pugball
 
 
-![pugball: the cat ball in play during a match](docs/screenshots/pugball.jpg)
+![pugball: the cat ball in the back of the net, the stands' shadows across the pitch](docs/screenshots/pugball.jpg)
 
 Soccer with jet-pack pugs and a fat, cross cat for a ball. 1v1 to 3v3 with
 players and CPUs, five stadiums and the Pug Cup to unlock them. Up to four
@@ -83,7 +83,11 @@ players share the screen, one pad each: pads 2-4 join on the team sheet and
 pick their side, and CPUs fill the other slots. Two players split the screen
 top and bottom, three or four take its quarters (with three, the last
 quarter holds the score, the clock and a mini map of the pitch). Each player
-has a chase camera with its own ball cam and boost gauge. The match runs on
+has a chase camera with its own ball cam and boost gauge. The sun casts
+cascaded shadows; at night the floodlight ring lights the pitch (clustered
+spot lights, the corner pylons casting shadows). The goal nets are cloth that
+billows when the cat hits them, and the stands ring with each stadium's
+reverb (headphones get 3D sound, from the pause screen). The match runs on
 Box3D. `games/pugball/`
 
 ### spout
