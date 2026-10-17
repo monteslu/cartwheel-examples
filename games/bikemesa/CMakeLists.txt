@@ -3,7 +3,7 @@
 #   bikemesa           the game
 #   bikemesa_auto      plays a session by itself (for hosts that send no input)
 #   bikemesa_unlocked  starts with every track open (the progression gates)
-set(SRC main.c bike.c crash.c models.c view.c textures.c)
+set(SRC main.c bike.c crash.c models.c view.c textures.c backdrop.c)
 set(CW_PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/programs/bikemesa.txt)
 cw_add_app(bikemesa SOURCES ${SRC} PACK ${CMAKE_CURRENT_SOURCE_DIR}/assets/roots.txt)
 cw_add_app(bikemesa_auto SOURCES ${SRC} PACK ${CMAKE_CURRENT_SOURCE_DIR}/assets/roots.txt)

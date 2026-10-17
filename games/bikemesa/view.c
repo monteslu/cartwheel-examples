@@ -3,8 +3,9 @@
  * ramps as plank decks), and the scenery each theme stands in, all built in C
  * from the track data:
  *
- *   canyon   red sandstone mesas and buttes far behind, boulders, dry grass
- *            tufts swaying along the edges, drifting dust
+ *   canyon   red sandstone mesas and buttes far behind (a Terrain3D:
+ *            backdrop.c), boulders, dry grass tufts swaying along the
+ *            edges, drifting dust
  *   (others) their own palettes on the same pieces (view.c: THEME)
  *
  * Placement uses an integer hash of the track's seed, never rand(): the same
@@ -496,8 +497,10 @@ static t3_geometry *geo_peak(float r, float h) {
   return t3_lathe_geometry_new(p, (int)CW_ARRAY_LEN(p), 7, 0, 6.2831853f);
 }
 
-static void landforms(t3_object *root, const track_desc *t, const theme *th) {
-  t3_material *m = far_mat(mat(th->far_tex, th->far, 3, 3, 1.4f, 0.95f));
+/* draw false: the backdrop terrain stands in (backdrop.c); the placement
+ * draws are made all the same, so everything placed after is where it was */
+static void landforms(t3_object *root, const track_desc *t, const theme *th, bool draw) {
+  t3_material *m = draw ? far_mat(mat(th->far_tex, th->far, 3, 3, 1.4f, 0.95f)) : NULL;
   float x0 = -120, x1 = t->length + 160;
   for (int layer = 0; layer < 3; layer++) {
     float z = -70 - layer * 70, spacing = 38 + layer * 22;
@@ -505,19 +508,21 @@ static void landforms(t3_object *root, const track_desc *t, const theme *th) {
       float jx = (rnd() - 0.5f) * spacing * 0.6f, r = 14 + rnd() * 18 + layer * 8, h = 18 + rnd() * 26 + layer * 12;
       float base = track_height_at(cw_clampf(x, 0, t->length), NULL) - 25 - layer * 6;
       float yaw = rnd() * 6.2831853f, sq = 0.6f + rnd() * 0.5f;
+      float jz = (rnd() - 0.5f) * 30;
+      if (!draw) continue;
       t3_geometry *g = th->far_kind == 1 ? geo_peak(r, h * 1.6f) : th->far_kind == 3 ? geo_peak(r * 1.6f, h * 0.45f) : geo_mesa(r, h);
       if (th->far_kind == 2) {
         t3_release(g);
         g = t3_box_geometry_new(r * 0.8f, h * 2.2f, r * 0.8f, 1, 1, 1);
       }
       t3_mesh *me = add(root, g, m, false);
-      me->base.position = (t3_vec3){ x + jx, base + (th->far_kind == 2 ? h * 1.1f : 0), z + (rnd() - 0.5f) * 30 };
+      me->base.position = (t3_vec3){ x + jx, base + (th->far_kind == 2 ? h * 1.1f : 0), z + jz };
       me->base.scale = (t3_vec3){ 1, 1, sq };
       t3_object_set_rotation(&me->base, 0, yaw, 0);
       t3_release(g);
     }
   }
-  t3_release(m);
+  if (m) t3_release(m);
 }
 
 
@@ -593,6 +598,8 @@ static float bank_y(float x, float z, int kind) {
   float rise = kind == 1 ? dd * 0.4f + far * 0.25f : kind == 2 ? d * 0.04f : dd * 0.22f + far * 0.06f;
   return base - 0.06f + rise + und * cw_clampf(d / 6, 0, 1) + (d > 0 ? cw_clampf(d * 0.6f, 0, 0.3f) : 0);
 }
+
+float view_ground_at(float x) { return ground_at(x); }
 
 static int bank_kind; /* the theme's bank (bank_y's kind) */
 float view_bank_y(float x, float z) { return bank_y(x, z, bank_kind); }
@@ -2341,7 +2348,7 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
   bank(root, t, th);
   markers(root, t);
   int still0 = root->child_count;
-  landforms(root, t, th);
+  landforms(root, t, th, !backdrop_build(parent, t, track_index));
   fill(root, t, th);
   props(root, t, th);
   props2(root, t, th);
@@ -2486,6 +2493,7 @@ void view_grass(const cw_node *cameras, int n) {
 }
 
 void view_forget(void) {
+  backdrop_forget();
   far_mats_free();
   n_flags = 0;
   n_pk = 0; /* the pumpkins' faces and lights went with the scene */

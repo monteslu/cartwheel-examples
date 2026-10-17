@@ -227,10 +227,16 @@ void view_grass(const cw_node *cameras, int n); /* the grass the cameras see, po
 void fx_dust(float x, float y, float amount);
 void fx_burst(float x, float y, int kind);
 float view_bank_y(float x, float z); /* the bank behind the track (z <= -TRACK_HALF_W - 0.3) */
+float view_ground_at(float x);      /* the bank's ground line: the track's height, bridged and smoothed */
 #define VIEW_ROCK_PTS 14
 typedef struct view_rock { t3_vec3 p[VIEW_ROCK_PTS]; } view_rock; /* a rock's hull points, in the world */
 int view_rocks(const view_rock **out);
 extern uint32_t wind_hash;
+
+/* backdrop.c: the distant land as a Terrain3D for the themes that have one
+ * (render only); false: none (view.c's landforms stand in) */
+bool backdrop_build(cw_node parent, const track_desc *t, int track_index);
+void backdrop_forget(void);
 
 /* textures.c: procedural PBR texture sets */
 enum { TEX_ROCK, TEX_DIRT, TEX_GRASS, TEX_SANDSTONE, TEX_SNOW, TEX_ASPHALT, TEX_WOOD, TEX_BARK, TEX_LEAVES, TEX_SAND,

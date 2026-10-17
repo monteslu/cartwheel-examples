@@ -31,7 +31,7 @@ hemi_energy = 0.3
 
 [node name="Fog" parent="." type="HeightFog"]
 density = 0.0035
-height_falloff = 0.08
+height_falloff = 0.04
 base_height = -39.2
 use_sky_color = true
 sun_scatter = 0.35
