@@ -107,8 +107,10 @@ typedef struct save_data {
   uint8_t shown[STADIUMS]; /* its unlock has played on the select screen */
   uint8_t slot[MAXP], coat[MAXP], hat[MAXP], trail[MAXP];
   uint8_t secs_i, cup_next, pad[2]; /* pad: the graphics settings (cw_quality_saved, 16 bits little-endian) */
+  uint8_t sound, spare;    /* sound: 0 speakers, 1 headphones (HRTF); the bytes that were the padding before best_margin */
   int32_t best_margin[STADIUMS];
 } save_data;
+_Static_assert(offsetof(save_data, best_margin) == 52, "the save keeps its layout");
 static save_data SAVE;
 
 static const int MATCH_SECS[3] = { 120, 180, 300 };
@@ -214,9 +216,11 @@ static void apply_quality(void) {
   }
   scenery_flood_quality();
 }
+static void sound_apply(void);
 static void quality_changed(cw_quality q, void *u) {
   (void)q, (void)u;
   apply_quality();
+  sound_apply();
 }
 
 static void perf_frame(double render_t0) {
@@ -335,6 +339,15 @@ static void music(int which) {
   A.music = cw_audio_play(s, &(cw_play_desc){ .loop = true, .fade_in = 1.0f, .bus = A.music_bus });
 }
 
+/* the player's output from the pause screen: headphones filter the nearest
+ * spatial voices with the HRTF (a hit behind you is heard behind you),
+ * speakers pan them. The HRTF's voice limit follows effects detail. */
+static void sound_apply(void) {
+  if (!A.on) return;
+  cw_audio_set_hrtf_voice_limit(cw_quality_count(16, "hrtf_voices"));
+  cw_audio_set_output(SAVE.sound ? CW_AUDIO_HEADPHONES : CW_AUDIO_SPEAKERS);
+}
+
 static void audio_init(void) {
   /* dev aid: PUG_AUDIO_WAV=file renders the mix offline, one frame of
    * samples per rendered frame, into a WAV (deterministic runs: checking the
@@ -360,6 +373,7 @@ static void audio_init(void) {
     A.sfx_res[i] = cw_res_load(SFX_FILES[i], 0);
     A.sfx[i] = cw_res_audio_sound(A.sfx_res[i], &(cw_sound_desc){ .mode = CW_SOUND_SAMPLE, .max_voices = 4, .bus = A.sfx_bus });
   }
+  sound_apply();
 }
 
 static void crowd_bed(bool on) {
@@ -2550,6 +2564,23 @@ static cw_rect gfx_rect(float W, float H) {
   float s = H / 540.0f;
   return cw_rect_make(W * 0.5f - 170 * s, H * 0.5f, 340 * s, 46 * s);
 }
+/* the sound row under it: X, H or a tap switches speakers / headphones */
+static cw_rect sound_rect(float W, float H) {
+  float s = H / 540.0f;
+  return cw_rect_make(W * 0.5f - 130 * s, H * 0.5f + 76 * s, 260 * s, 34 * s);
+}
+static void sound_input(void) {
+  const cw_raw_input *in = cw_input_raw();
+  bool hit = in->keys_pressed[11]; /* H */
+  for (int i = 0; i < CW_MAX_PADS; i++) hit |= (in->pads[i].pressed & (1u << CW_PAD_WEST)) != 0;
+  cw_vec2 cs = cw_r2d_canvas_size();
+  if ((in->mouse_pressed & 1) && in_rect(mouse_canvas(), sound_rect(cs.x, cs.y))) hit = true;
+  if (!hit) return;
+  SAVE.sound ^= 1;
+  sound_apply();
+  save_write();
+  sfx(SFX_SELECT, 0.6f);
+}
 static void gfx_input(void) {
   if (G.state != GS_PAUSE) {
     cw_quality_menu_close();
@@ -2564,6 +2595,7 @@ static void gfx_input(void) {
     return;
   }
   if (G.state_ticks < 5) return;
+  sound_input();
   const cw_raw_input *in = cw_input_raw();
   bool hit = in->keys_pressed[10]; /* G */
   for (int i = 0; i < CW_MAX_PADS; i++) hit |= (in->pads[i].pressed & (1u << CW_PAD_NORTH)) != 0;
@@ -2608,6 +2640,11 @@ static void draw_pause(float W, float H, float s) {
     bold(ITEMS[i], r.x, r.y + 12 * s, 26 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, r.w);
   }
   draw_gfx(W, H, s);
+  cw_rect r = sound_rect(W, H);
+  panel(r, 1, rgba(1, 1, 1, 0.45f), rgba(0.12f, 0.1f, 0.28f, 0.75f));
+  bold(SAVE.sound ? "SOUND: HEADPHONES" : "SOUND: SPEAKERS", r.x, r.y + 7 * s, 18 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, r.w);
+  bold(last_device == DEV_TOUCH ? "tap to switch" : "X / H to switch", r.x, r.y + r.h + 4 * s, 13 * s, rgba(1, 1, 1, 0.6f),
+       CW_ALIGN_CENTER, r.w);
 }
 
 static void render(void *u, double alpha) {

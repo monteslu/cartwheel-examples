@@ -40,6 +40,16 @@ shadow_distance = 120
 [node name="Lighting" parent="." type="LightingSettings"]
 mode = "CLUSTERED"
 
+[node name="Bowl" parent="." type="ReverbZone3D"]
+position = vec3(0, 14, 0)
+size = vec3(96, 40, 112)
+blend = 20
+decay = 2.2
+damping_hz = 5000
+predelay = 0.04
+room_size = 0.85
+level = 0.6
+
 [node name="Env" parent="." type="WorldEnvironment"]
 background = color(0.0732, 0.1706, 0.448, 1)
 ambient_color = color(0.448, 0.5225, 1, 1)
