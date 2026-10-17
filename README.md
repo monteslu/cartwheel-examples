@@ -109,7 +109,7 @@ or be washed back to the last bracket. Five spouts, each opening the next.
 
 Tagged versions are on the
 [Releases](https://github.com/monteslu/cartwheel-examples/releases) page: the
-five carts and each game's native builds.
+six carts and each game's native builds.
 
 | File | Platform | Notes |
 |---|---|---|
@@ -298,7 +298,7 @@ against the pinned SDKs.
   frames must equal Linux x64 GL's, field for field (`tests/compare-replays.mjs`).
 
 Pushing a `v*` tag runs the same jobs and publishes a GitHub release with the
-five carts and each game's native builds: `git tag v0.6.0 && git push origin
+six carts and each game's native builds: `git tag v0.6.0 && git push origin
 v0.6.0`.
 
 ## Layout
