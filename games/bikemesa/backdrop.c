@@ -106,7 +106,7 @@ static const bd_theme BD[] = {
   { "canyon", GEN_MESAS, 0.06f,
     { { TEX_DIRT, { 0.98f, 0.74f, 0.56f }, 0.12f }, { TEX_SANDSTONE, { 1, 0.6f, 0.42f }, 0.05f }, { TEX_SANDSTONE, { 0.86f, 0.5f, 0.36f }, 0.08f } },
     CW_SCATTER_ROCK, { 0.95f, 0.5f, 0.36f }, 0.004f, 1.5f, 5.0f, 1u | 4u,
-    CW_SCATTER_TREE, { 0.7f, 0.75f, 0.45f }, 0.003f, 0.3f, 0.55f },
+    -1, { 0 }, 0, 0, 0 },
   { "alpine", GEN_PEAKS, 0.25f,
     { { TEX_SNOW, { 1, 1, 1 }, 0.1f }, { TEX_ROCK, { 0.6f, 0.62f, 0.68f }, 0.06f }, { TEX_ROCK, { 0.78f, 0.8f, 0.86f }, 0.08f } },
     CW_SCATTER_TREE, { 0.42f, 0.55f, 0.48f }, 0.014f, 0.8f, 1.5f, 1u,
@@ -210,7 +210,7 @@ static void scatter(cw_terrain *tr, int shape, const float tint[3], float densit
   sd.scale_max = smax;
   sd.align_to_normal = shape != CW_SCATTER_TREE;
   sd.sink = shape == CW_SCATTER_ROCK ? 0.25f : 0.1f;
-  sd.visible_range = shape == CW_SCATTER_TREE ? 420 : 300;
+  sd.visible_range = shape == CW_SCATTER_TREE ? 420 : 240;
   sd.fade = 60;
   sd.lod_distance[0] = 90;
   sd.cast_shadow = false;
