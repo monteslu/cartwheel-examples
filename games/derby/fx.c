@@ -11,7 +11,13 @@
  *   crashes   sparks off the contact, chips of paint and glass, a flash,
  *             a shake that grows with the hit
  *   scrapes   a spray of sparks along a grind
- *   wrecks    a burst of flame, a scorch on the dirt under it */
+ *   wrecks    a burst of flame, a scorch on the dirt under it
+ *   lights    a flickering fire light over every burning wreck (clustered,
+ *             with the floodlights: cartwheel/lighting.h), an ember glow
+ *             while it smoulders, a flash on a big hit or a wreck
+ *   haze      with volumetric fog (fx_volumetric): low dust over the
+ *             whole bowl, and a pall of smoke over each smoking car that
+ *             the floodlights' beams and the fires light from inside */
 #include <stdio.h>
 #include <string.h>
 
@@ -30,6 +36,10 @@ static struct {
   int sparks_i, chips_i, glass_i, cloud_i, grind_i, boom_i;
   cw_node scorch[SCORCHES];
   int scorch_i;
+  cw_node fire_light[MAXC]; /* a burning wreck's light */
+  cw_node haze[MAXC];       /* the pall over a smoking car (volumetric fog) */
+  cw_node dust_haze;        /* low dust over the bowl (volumetric fog) */
+  bool vol;                 /* volumetric fog on: the haze shows */
   cw_node flash[3];
   int flash_age[3];
   float flash_e[3];
@@ -119,7 +129,11 @@ static const char *const BOOM[] = { "amount", "160", "lifetime", "0.9", "explosi
   "color_ramp", "\"0 1 0.95 0.7 1, 0.2 1 0.6 0.15 1, 0.55 0.6 0.18 0.04 0.8, 1 0.12 0.08 0.06 0\"", "energy", "4", "blend", "ADD",
   "turbulence", "1.5", "turbulence_scale", "0.5", NULL };
 
-void fx_reset(void) { memset(&FX, 0, sizeof FX); }
+void fx_reset(void) {
+  bool vol = FX.vol;
+  memset(&FX, 0, sizeof FX);
+  FX.vol = vol;
+}
 
 void fx_init(cw_node scene, int theme) {
   fx_reset();
@@ -142,8 +156,56 @@ void fx_init(cw_node scene, int theme) {
     char name[16];
     snprintf(name, sizeof name, "Flash%d", i);
     FX.flash[i] = cw_node_get(scene, name);
+    /* a flash is a blink: kept out of the fog's eight lights for the floods and the fires */
+    if (cw_node_valid(FX.flash[i])) cw_node_set(FX.flash[i], "fog_energy", cw_val_float(0));
   }
+  for (int i = 0; i < MAXC; i++) {
+    cw_node l = cw_node_new("OmniLight3D", "FireLight");
+    cw_node_add_child(FX.root, l);
+    cw_node_set(l, "color", cw_val_color(1, 0.46f, 0.16f, 1));
+    cw_node_set(l, "energy", cw_val_float(0));
+    cw_node_set(l, "range", cw_val_float(12));
+    cw_node_set(l, "decay", cw_val_float(2));
+    cw_node_set(l, "fog_energy", cw_val_float(0.7f));
+    cw_node_set(l, "visible", cw_val_bool(false));
+    FX.fire_light[i] = l;
+    cw_node h = cw_node_new("FogVolume3D", "Pall");
+    cw_node_add_child(FX.root, h);
+    cw_node_set(h, "shape", cw_val_enum("ELLIPSOID"));
+    cw_node_set(h, "size", cw_val_vec3(3.5f, 3, 3.5f));
+    cw_node_set(h, "albedo", cw_val_color(0.16f, 0.15f, 0.14f, 1)); /* oily smoke: it drinks the light */
+    cw_node_set(h, "edge_fade", cw_val_float(0.6f));
+    cw_node_set(h, "height_falloff", cw_val_float(0.25f));
+    cw_node_set(h, "noise", cw_val_float(0.75f));
+    cw_node_set(h, "noise_scale", cw_val_float(0.45f));
+    cw_node_set(h, "noise_wind", cw_val_vec3(0.3f, 0.9f, 0.1f));
+    cw_node_set(h, "visible", cw_val_bool(false));
+    FX.haze[i] = h;
+  }
+  /* the dust the bout has kicked up, hanging low in the bowl */
+  FX.dust_haze = cw_node_new("FogVolume3D", "DustHaze");
+  cw_node_add_child(FX.root, FX.dust_haze);
+  cw_node_set(FX.dust_haze, "shape", cw_val_enum("BOX"));
+  cw_node_set(FX.dust_haze, "size", cw_val_vec3(2 * AW + 6, 5, 2 * AL + 6));
+  cw_node3d_set_position(FX.dust_haze, (t3_vec3){ 0, 2.5f, 0 });
+  cw_node_set(FX.dust_haze, "density", cw_val_float(0.008f));
+  cw_node_set(FX.dust_haze, "albedo", cw_val_color(0.78f, 0.66f, 0.52f, 1));
+  cw_node_set(FX.dust_haze, "height_falloff", cw_val_float(0.55f));
+  cw_node_set(FX.dust_haze, "edge_fade", cw_val_float(0.25f));
+  cw_node_set(FX.dust_haze, "noise", cw_val_float(0.55f));
+  cw_node_set(FX.dust_haze, "noise_scale", cw_val_float(0.12f));
+  cw_node_set(FX.dust_haze, "noise_wind", cw_val_vec3(0.5f, 0.05f, 0.2f));
   FX.ready = true;
+  fx_volumetric(FX.vol);
+}
+
+/* the haze is volumetric fog's alone (the analytic fog carries the dusk without it) */
+void fx_volumetric(bool on) {
+  FX.vol = on;
+  if (!FX.ready) return;
+  cw_node_set(FX.dust_haze, "visible", cw_val_bool(on));
+  if (!on)
+    for (int i = 0; i < MAXC; i++) cw_node_set(FX.haze[i], "visible", cw_val_bool(false));
 }
 
 float fx_shake(void) { return FX.shake; }
@@ -270,6 +332,26 @@ void fx_tick(const sim *s) {
     cw_node3d_set_position(FX.fire[i], hood);
     int lvl = c->wrecked ? (c->wreck_ticks < 600 ? 3 : 4) : c->hp < 30 ? 2 : c->hp < 65 ? 1 : 0;
     if (c->respawn > 0 && c->respawn < 30) lvl = 0;
+    /* the fire's light flickers (hashed from the tick: every host the same), an
+     * ember glow while it smoulders; the pall over the car thickens with the smoke */
+    bool lit = lvl >= 3;
+    cw_node_set(FX.fire_light[i], "visible", cw_val_bool(lit));
+    if (lit) {
+      float t = (float)FX.ticks;
+      uint32_t hh = (uint32_t)(FX.ticks / 3) * 2654435761u ^ (uint32_t)i * 40503u;
+      hh = (hh ^ (hh >> 15)) * 2246822519u;
+      float jit = (float)((hh >> 8) & 0xffff) / 65535.0f - 0.5f;
+      float fl = 0.74f + 0.14f * cw_sin(t * 0.37f + i * 1.7f) + 0.08f * cw_sin(t * 1.13f + i) + 0.12f * jit;
+      float e = lvl == 3 ? 46 * fminf(1, (600 - c->wreck_ticks) / 150.0f + 0.15f) : 4.5f * (0.85f + 0.15f * cw_sin(t * 0.09f + i));
+      cw_node3d_set_position(FX.fire_light[i], (t3_vec3){ hood.x, hood.y + (lvl == 3 ? 0.9f : 0.35f), hood.z });
+      cw_node_set(FX.fire_light[i], "energy", cw_val_float(e * fl));
+    }
+    bool pall = FX.vol && lvl >= 2;
+    cw_node_set(FX.haze[i], "visible", cw_val_bool(pall));
+    if (pall) {
+      cw_node3d_set_position(FX.haze[i], (t3_vec3){ hood.x + 0.8f, hood.y + 2.2f, hood.z });
+      cw_node_set(FX.haze[i], "density", cw_val_float(lvl == 2 ? 0.08f : lvl == 3 ? 0.15f : 0.06f));
+    }
     if (lvl != FX.smoke_level[i]) {
       FX.smoke_level[i] = lvl;
       if (lvl >= 1) set_str(FX.smoke[i], "color_ramp", SMOKE_RAMP[lvl == 1 ? 0 : lvl == 2 ? 1 : 2]);

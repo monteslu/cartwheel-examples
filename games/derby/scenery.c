@@ -307,7 +307,7 @@ static void crowd_pose(int ticks) {
 }
 
 /* floodlight towers at the corners: a pole, a bank of lamps aimed in, a
- * beam through the haze */
+ * beam through the haze (a cone of its own where the fog is not volumetric) */
 static void floodlights(cw_node root) {
   t3_material *st = phys(lin(0.5f, 0.5f, 0.52f), 0.5f, 1);
   tex_apply(st, TEX_STEEL, 1, 0.5f, 1);
@@ -361,15 +361,24 @@ static void floodlights(cw_node root) {
     snprintf(name, sizeof name, "Tower%d", k);
     hang(root, name, g);
     t3_release(g);
-    /* the light itself: a sodium flood (no shadow: the sun's map covers the play) */
+    /* the light itself: a sodium flood, clustered (LightingSettings in the
+     * arena scene), its shadow a tile of the shadow atlas: the cars, the
+     * wall and the stands throw long shadows away from each corner. In the
+     * volumetric haze it draws its own beam (scenery_volumetric) */
     snprintf(name, sizeof name, "Flood%d", k);
     cw_node sp = cw_node_new("SpotLight3D", name);
     cw_node_add_child(root, sp);
     cw_node_set(sp, "color", cw_val_color(1, 0.66f, 0.36f, 1));
-    cw_node_set(sp, "energy", cw_val_float(9000));
+    cw_node_set(sp, "energy", cw_val_float(1000)); /* (Light3D's most) */
     cw_node_set(sp, "angle", cw_val_float(0.72f));
     cw_node_set(sp, "penumbra", cw_val_float(0.55f));
     cw_node_set(sp, "decay", cw_val_float(2));
+    cw_node_set(sp, "range", cw_val_float(160)); /* past the far corner: bounds its clusters and its shadow's depth */
+    cw_node_set(sp, "shadow", cw_val_bool(true));
+    cw_node_set(sp, "shadow_size", cw_val_int(1024));
+    cw_node_set(sp, "shadow_bias", cw_val_float(-0.0004f));
+    cw_node_set(sp, "shadow_normal_bias", cw_val_float(0.04f));
+    cw_node_set(sp, "fog_energy", cw_val_float(0.9f));
     cw_node3d_set_position(sp, (t3_vec3){ x * 0.97f, H - 0.4f, z * 0.97f });
     cw_node3d_look_at(sp, (t3_vec3){ x * 0.12f, 0, z * 0.12f }, (t3_vec3){ 0, 1, 0 });
   }
@@ -470,10 +479,16 @@ void scenery_build(cw_node scene, int theme, uint32_t seed) {
 /* a beam is only drawn from a distance: near its axis (under a tower, in
  * its pool of light) the camera would be in the haze, and the haze is
  * the fog's job */
+static bool real_shafts; /* volumetric fog draws the beams: the cones stay hidden */
+void scenery_volumetric(bool on) { real_shafts = on; }
 void scenery_beams(const t3_vec3 *eyes, int n) {
   if (!S.ready) return;
   for (int k = 0; k < 4; k++) {
     if (!S.shaft[k]) continue;
+    if (real_shafts) {
+      S.shaft[k]->visible = false;
+      continue;
+    }
     t3_vec3 a = S.shaft_a[k], b = S.shaft_b[k];
     float dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z, l2 = dx * dx + dy * dy + dz * dz, best = 1e9f;
     for (int v = 0; v < n; v++) {
