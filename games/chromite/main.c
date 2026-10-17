@@ -377,7 +377,6 @@ static void init(void *u) {
   cw_debug_u32("world.hash", &world_hash);
   cw_debug_i32("fx.lights", &fx_lights_live);
   cw_tree_add_hook(cw_scene_app_tree(), 2, 0, sync_hook, NULL);
-  probe_init(cw_scene_app_tree());
   cw_debug_i32("probe.refreshes", &probe_refreshes);
   cw_debug_i32("probe.every", &probe_every);
   G.variation = -1;

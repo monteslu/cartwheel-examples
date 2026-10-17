@@ -217,7 +217,6 @@ int fx_flashes(t3_vec3 *pos, t3_color *col, float *energy, int max);
 void fx_cheat_blasts(int n); /* n blasts across the screen (cheat.blasts) */
 
 /* probe.c: the live reflection probe the chrome mirrors (a ReflectionProbe3D) */
-void probe_init(cw_tree *tree);
 void probe_build(cw_node parent, t3_object *root);
 void probe_free(void);
 void probe_sync(float travel, bool title);

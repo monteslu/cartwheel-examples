@@ -51,27 +51,6 @@ static struct {
 int probe_refreshes;     /* (debug field) captures so far */
 int32_t probe_every = 2; /* (debug field) refresh every n frames; 0 = off (the fixed environment) */
 
-/* The capture is the frame's first render of the scene, so it draws the
- * sun's shadow map (the engine draws a frame's shadow maps once, on the
- * first render that uses them) with everything but the stand-in hidden:
- * the deck would lose its shadows on every capture frame. After a capture
- * (the "gi" pass, SHADOW phase order 150) the maps are marked stale again,
- * so the view draws them with the real casters. */
-static void shadows_exec(cw_pass_ctx *ctx, void *user) {
-  (void)user;
-  if (!ctx->renderer) return;
-  cw_gi_stats st;
-  cw_gi_get_stats(ctx->tree, &st);
-  if (st.captures > 0) t3_renderer_shadow_needs_update(ctx->renderer);
-}
-
-void probe_init(cw_tree *tree) {
-  cw_pipeline *pl = cw_pipeline_of(tree);
-  if (!cw_pipeline_has_pass(pl, "chromite_probe_shadows"))
-    cw_pipeline_add_pass(pl, &(cw_pass_desc){ .name = "chromite_probe_shadows", .phase = CW_PHASE_SHADOW, .order = 160,
-                                              .execute = shadows_exec, .webgpu = true });
-}
-
 static void stand_in(t3_object *o) {
   t3_object_set_layers(o, STAND_IN_LAYER);
   t3_object_add(P.stand_in, o);
