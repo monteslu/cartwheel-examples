@@ -30,7 +30,7 @@
 #define MAX_CLUMPS 8000
 #define CROWD_CHUNKS 12
 #define GRASS_BANDS 8
-#define FLOODS 18    /* spot lights in the floodlight ring at night */
+#define FLOODS 8     /* spot lights in the floodlight ring at night */
 
 static struct {
   bool ready;
@@ -1148,26 +1148,21 @@ void scenery_build(cw_node scene, int theme, uint32_t seed) {
   SC.ready = true;
 }
 
-/* night: the floodlight ring as real lights. Five lamps down each long side,
- * two at each end (clear of the goal) and one at each corner, every one a
- * spot light from under the roof's lip aimed into the pitch; with clustered
- * lighting each fragment loops only the lamps whose cones reach it. The
- * corner lamps (and on Ultra the middle of each side) cast shadows from the
- * shadow atlas, so a pug at night throws a shadow from each pylon. */
-typedef struct flood_at { float x, z; uint8_t shadow_rank; } flood_at; /* rank: 1 the first two, 2 four, 3 six, 0 never */
+/* night: the floodlight ring as real lights. Two banks down each long side
+ * and one at each corner, every one a spot light from under the roof's lip
+ * aimed into the pitch; with clustered lighting each fragment loops only the
+ * lamps whose cones and ranges reach it. The corner lamps cast shadows from
+ * the shadow atlas, so a pug at night throws a shadow from each pylon. */
+typedef struct flood_at { float x, z; uint8_t shadow_rank; } flood_at; /* rank: 1 the first two, 2 all four corners, 0 never */
 static flood_at flood_place(int k) {
   float d = SC.ring_d, hx = AW - AC, hz = AL - AC;
-  if (k < 10) { /* the long sides */
-    float side = k < 5 ? 1 : -1, z = (float)(k % 5 - 2) * 10;
-    return (flood_at){ side * (AW + d), z, (uint8_t)(k % 5 == 2 ? 3 : 0) };
+  if (k < 4) { /* the long sides */
+    float side = k < 2 ? 1 : -1, z = (k & 1) ? 12.0f : -12.0f;
+    return (flood_at){ side * (AW + d), z, 0 };
   }
-  if (k < 14) { /* the ends, either side of the goal */
-    float end = k < 12 ? 1 : -1, x = (k & 1) ? 9.5f : -9.5f;
-    return (flood_at){ x, end * (AL + d), 0 };
-  }
-  /* the corners: diagonal pairs first, so Low's two shadows sit across the pitch */
+  /* the corners: diagonal pairs first, so two shadows sit across the pitch */
   static const float CX[4] = { 1, -1, -1, 1 }, CZ[4] = { 1, -1, 1, -1 };
-  int c = k - 14;
+  int c = k - 4;
   float r = AC + d, q = 0.70710678f;
   return (flood_at){ CX[c] * (hx + r * q), CZ[c] * (hz + r * q), (uint8_t)(c < 2 ? 1 : 2) };
 }
@@ -1175,7 +1170,7 @@ void scenery_floodlights(float strength) {
   if (!SC.ready || strength <= 0) return;
   cw_node holder = cw_node_new("Node3D", "Floodlights");
   cw_node_add_child(SC.root, holder);
-  SC.flood_energy = 300 * strength;
+  SC.flood_energy = 560 * strength;
   for (int k = 0; k < FLOODS; k++) {
     flood_at f = flood_place(k);
     char name[16];
@@ -1185,7 +1180,7 @@ void scenery_floodlights(float strength) {
     cw_node3d_set_position(n, (t3_vec3){ f.x, SC.ring_y, f.z });
     cw_node_set(n, "color", cw_val_color(1, 0.95f, 0.86f, 1));
     cw_node_set(n, "energy", cw_val_float(SC.flood_energy));
-    cw_node_set(n, "range", cw_val_float(80));
+    cw_node_set(n, "range", cw_val_float(55));
     cw_node_set(n, "decay", cw_val_float(2));
     cw_node_set(n, "angle", cw_val_float(0.66f));
     cw_node_set(n, "penumbra", cw_val_float(0.5f));
@@ -1197,19 +1192,19 @@ void scenery_floodlights(float strength) {
   }
   scenery_flood_quality();
 }
-/* the floodlights at the graphics settings: Shadows picks how many lamps
- * cast (Low and Medium two, High four, Ultra six); effects detail Low lights
- * every other lamp at twice the energy (half the lights a pixel loops, the
- * same light on the pitch) */
+/* the floodlights at the graphics settings: Shadows picks how many corner
+ * lamps cast (two, four on Ultra); effects detail Low lights every other side
+ * lamp at twice the energy (fewer lights a pixel loops, the same light on the
+ * pitch) */
 void scenery_flood_quality(void) {
   if (!SC.ready || !cw_node_valid(SC.flood_light[0])) return;
-  static const int SHADOWS[4] = { 1, 1, 2, 3 };
+  static const int SHADOWS[4] = { 1, 1, 1, 2 };
   int rank = SHADOWS[CW_CLAMP(cw_gfx_get(CW_GFX_SHADOWS), 0, 3)];
   bool half = cw_gfx_get(CW_GFX_EFFECTS) == 0;
   for (int k = 0; k < FLOODS; k++) {
     flood_at f = flood_place(k);
-    bool on = !half || (k & 1) == 0 || k >= 14; /* the corners stay */
-    float e = !on ? 0 : half && k < 14 ? SC.flood_energy * 2 : SC.flood_energy;
+    bool on = !half || (k & 1) == 0 || k >= 4; /* the corners stay */
+    float e = !on ? 0 : half && k < 4 ? SC.flood_energy * 2 : SC.flood_energy;
     cw_node_set(SC.flood_light[k], "energy", cw_val_float(e));
     cw_node_set(SC.flood_light[k], "shadow", cw_val_bool(on && f.shadow_rank && f.shadow_rank <= rank));
   }

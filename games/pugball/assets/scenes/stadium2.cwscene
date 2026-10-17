@@ -34,8 +34,8 @@ shadow_extent = 28
 shadow_far = 140
 shadow_bias = -0.0003
 shadow_normal_bias = 0.03
-shadow_cascades = 4
-shadow_distance = 120
+shadow_cascades = 2
+shadow_distance = 90
 
 [node name="Lighting" parent="." type="LightingSettings"]
 mode = "CLUSTERED"
