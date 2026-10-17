@@ -13,6 +13,9 @@ shadow_far = 90
 shadow_bias = -0.0006
 shadow_normal_bias = 0.03
 
+[node name="Lighting" parent="." type="LightingSettings"]
+mode = "CLUSTERED"
+
 [node name="Env" parent="." type="WorldEnvironment"]
 background = color(0.004, 0.006, 0.012, 1)
 ambient_color = color(0.55, 0.62, 0.85, 1)

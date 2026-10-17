@@ -214,6 +214,7 @@ void fx_hero(const sim *S);
 void fx_update(float dt);
 extern int fx_lights_live;
 int fx_flashes(t3_vec3 *pos, t3_color *col, float *energy, int max);
+void fx_cheat_blasts(int n); /* n blasts across the screen (cheat.blasts) */
 
 /* probe.c: the live reflection probe the chrome mirrors (a ReflectionProbe3D) */
 void probe_init(cw_tree *tree);

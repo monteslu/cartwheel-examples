@@ -95,8 +95,10 @@ static int32_t input_mode;
 /* development jumps, written over the debug channel (romdev: wasm write):
  * cheat.level starts that level; cheat.boss jumps the level's clock to just
  * before its boss. Each clears itself once done. cheat.gallery (nonzero)
- * holds every craft still in a lineup over the deck, for model work. */
-static int32_t cheat_level, cheat_boss, cheat_gallery;
+ * holds every craft still in a lineup over the deck, for model work.
+ * cheat.blasts (n) sets off n blasts across the screen (effects only, the
+ * rules never see them), for lighting work. */
+static int32_t cheat_level, cheat_boss, cheat_gallery, cheat_blasts;
 static int32_t dbg_skill, dbg_hi0, dbg_armed;
 static uint32_t dbg_mouse;
 static bool device_used;
@@ -365,6 +367,7 @@ static void init(void *u) {
   cw_debug_i32("hero.armed", &dbg_armed);
   cw_debug_i32("cheat.boss", &cheat_boss);
   cw_debug_i32("cheat.gallery", &cheat_gallery);
+  cw_debug_i32("cheat.blasts", &cheat_blasts);
   cw_debug_i32("over.score", &G.final_score);
   cw_debug_u32("state.hash", &G.state_hash);
   cw_debug_u32("tex.hash", &tex_hash);
@@ -509,6 +512,7 @@ static void fixed(void *u, double dt) {
       }
     cheat_boss = 0;
   }
+  if (cheat_blasts > 0) fx_cheat_blasts(cheat_blasts), cheat_blasts = 0;
   switch (G.state) {
   case GS_TITLE: {
     G.prev = G.S;

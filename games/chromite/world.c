@@ -29,6 +29,7 @@ enum { BK_HERO0, BK_HERO1, BK_HERO2, BK_HEAVY, BK_FLAK, BK_SLUG, BK_BEAM, BK_NEE
 static const int BOLT_CAP[BOLT_KINDS] = { 256, 32, 64, 256, 512, 64, 512, 256 };
 
 #define POOL_MAX 128
+#define LAMPS_MAX 128
 typedef struct pool { t3_object *obj[POOL_MAX]; t3_object *spin[POOL_MAX][4]; int nspin[POOL_MAX]; t3_material *glow[POOL_MAX]; int n, used; } pool;
 
 static struct {
@@ -37,6 +38,9 @@ static struct {
   int variation;
   t3_material *deck_mat, *trim_mat, *dark_mat, *grate_mat, *lamp_mat[3], *pipe_mat;
   t3_material *lamp_halo[3];
+  t3_light *lamp_light[LAMPS_MAX]; /* the deck lamps' own light (clustered: cartwheel/lighting.h) */
+  float lamp_light_k[LAMPS_MAX];
+  int lamp_light_kind[LAMPS_MAX], lamps;
   t3_material *steel_mat;
   pool pools[CRAFT_KINDS];
   t3_object *hero, *hero_spin[4];
@@ -172,6 +176,21 @@ static t3_geometry *pipe_z(float r, float len, int seg) {
   return g;
 }
 
+/* a deck lamp's light: a small clustered point light just over the lens,
+ * its colour the lens's, breathing with it (world_sync), so each lamp pools
+ * its colour on the plating and the machinery round it */
+static void lamp_light(t3_object *s, float x, float y, float z, int which, float energy, float range) {
+  if (W.lamps >= LAMPS_MAX) return;
+  t3_light *l = t3_point_light_new(0xffffff, 0, range, 2);
+  l->color = W.lamp_mat[which]->emissive;
+  t3_object_set_position(l, x, y, z);
+  t3_object_add(s, l);
+  t3_release(l);
+  W.lamp_light[W.lamps] = l;
+  W.lamp_light_k[W.lamps] = energy;
+  W.lamp_light_kind[W.lamps++] = which;
+}
+
 /* a great round hatch: a raised collar, a chrome rim, a dark well with an
  * iris of plates, a lamp at its heart */
 static void hatch(t3_object *s, float x, float z, float r, int lamp) {
@@ -185,6 +204,7 @@ static void hatch(t3_object *s, float x, float z, float r, int lamp) {
     mesh(s, g, W.trim_mat, x, 0.7f, z, false, true);
   }
   mesh(s, cyl(r * 0.11f, r * 0.11f, 0.04f, 24), W.lamp_mat[lamp], x, 0.72f, z, false, false);
+  lamp_light(s, x, 1.2f, z, lamp, 6, r * 1.3f);
   mesh(s, torus(r * 0.3f, 0.06f, 24, 8), W.steel_mat, x, 0.78f, z, false, true);
   t3_sprite *h = t3_sprite_new(W.lamp_halo[lamp]);
   t3_object_set_position(h, x, 1.4f, z);
@@ -217,6 +237,7 @@ static void lamp(t3_object *s, float x, float z, int which) {
   /* a flush lens in a shallow bezel, as the original's deck lights were */
   mesh(s, cyl(0.26f, 0.3f, 0.08f, 20), W.dark_mat, x, 0.04f, z, false, true);
   mesh(s, cyl(0.15f, 0.15f, 0.03f, 20), W.lamp_mat[which], x, 0.09f, z, false, false);
+  lamp_light(s, x, 0.6f, z, which, 5, 5);
   t3_sprite *h = t3_sprite_new(W.lamp_halo[which]);
   t3_object_set_position(h, x, 0.3f, z);
   t3_object_set_scale(h, 0.8f, 0.8f, 0.8f);
@@ -232,6 +253,7 @@ static void pylon(t3_object *s, float x, float z, float h, uint32_t seed) {
   mesh(s, box(w + 0.2f, 0.3f, d + 0.2f), W.steel_mat, x, h * 0.7f, z, false, true);
   mesh(s, cyl(0.06f, 0.1f, 3, 8), W.steel_mat, x + w * 0.2f, h + 2.1f, z, true, true);
   mesh(s, t3_sphere_geometry_new(0.18f, 10, 8), W.lamp_mat[0], x + w * 0.2f, h + 3.6f, z, false, false);
+  lamp_light(s, x + w * 0.2f, h + 3.3f, z, 0, 4, 5);
 }
 
 /* a vent bank: a grate set into a frame */
@@ -575,6 +597,7 @@ void world_sync(const sim *prev, const sim *cur, float a, float t, int state) {
   }
   /* lamps breathe, as the original's ground lights did */
   for (int i = 0; i < 3; i++) W.lamp_mat[i]->emissive_intensity = 0.9f + 0.4f * (0.5f + 0.5f * sinf(t * (1.3f + i * 0.7f) + i * 2));
+  for (int i = 0; i < W.lamps; i++) W.lamp_light[i]->intensity = W.lamp_light_k[i] * W.lamp_mat[W.lamp_light_kind[i]]->emissive_intensity;
 
   /* craft */
   for (int k = 0; k < CRAFT_KINDS; k++) {

@@ -16,8 +16,9 @@
 #include "cartwheel/particles.h"
 #include "game.h"
 
-#define FLASHES 4
+#define FLASHES 32 /* clustered lights (cartwheel/lighting.h): a light a blast, many at once */
 #define QUEUE 160
+#define FLASH_RANGE 30.0f /* from the play plane down to the deck (15.5 below) and round it */
 
 enum { BOOM_S, BOOM_M, BOOM_L, SPARK, DEBRIS, SMOKE, RING_FX, SHIELD, HULL, PICK, FLASH, MUZZLE, KINDS_FX };
 static const int POOL_FX[KINDS_FX] = { 5, 4, 3, 6, 4, 5, 4, 2, 2, 2, 5, 3 };
@@ -143,11 +144,12 @@ void fx_init(cw_node parent) {
     snprintf(nm, sizeof nm, "exhaust%d", i);
     FX.exhaust[i] = pnode(nm, EXHAUST_R, 900 + i);
   }
-  /* flash lights: always present (a fixed light count keeps one program
-   * per material), dark until a blast lights them */
+  /* flash lights: clustered (the scene's LightingSettings), so a dark one
+   * costs nothing and a light per blast lights the craft round it and, out
+   * to its range, the deck far below */
   t3_object *grp = t3_group_new();
   for (int i = 0; i < FLASHES; i++) {
-    FX.flash[i] = t3_point_light_new(0xffaa55, 0, 16, 2);
+    FX.flash[i] = t3_point_light_new(0xffaa55, 0, FLASH_RANGE, 2);
     t3_object_add(grp, FX.flash[i]);
     t3_release(FX.flash[i]);
   }
@@ -193,7 +195,16 @@ static void burst(int kind, float x, float y, float lift) {
 }
 
 static void flash(float x, float y, float energy, float r, float g, float b) {
+  /* the next dark light, or the dimmest when every one is lit */
   int i = FX.next_flash;
+  for (int k = 0; k < FLASHES; k++) {
+    int j = (FX.next_flash + k) % FLASHES;
+    if (FX.flash_e[j] <= 0) {
+      i = j;
+      break;
+    }
+    if (FX.flash_e[j] < FX.flash_e[i]) i = j;
+  }
   FX.next_flash = (i + 1) % FLASHES;
   t3_vec3 p = to_world(x, y);
   t3_object_set_position(FX.flash[i], p.x, p.y + 1.5f, p.z);
@@ -341,4 +352,9 @@ void fx_update(float dt) {
     t3_object_set_scale(FX.rings[i], r, 1, r);
     FX.ring_mat[i]->opacity = (1 - t) * (1 - t);
   }
+}
+
+/* cheat.blasts: n blasts over the play field, a few frames apart */
+void fx_cheat_blasts(int n) {
+  for (int i = 0; i < n; i++) queue(1 + (i % 6) * 2, i % 3, jit(i, 1) * (FIELD_X - 1), jit(i, 2) * (FIELD_Y - 1), 0);
 }
