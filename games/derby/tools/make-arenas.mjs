@@ -1,7 +1,9 @@
 // Writes derby's arena scenes (assets/scenes/arena<n>.cwscene): the Arena
-// root, a low dusk sun through haze, the environment, dust fog, the post
-// stack (AgX, bloom, GTAO, SMAA, a warm worn grade, a vignette), the camera
-// and three crash-flash lights the effects borrow.
+// root, a low dusk sun through haze, clustered lighting (the floodlights and
+// fires, their shadows in the atlas), the environment, dust fog (volumetric
+// where the game turns it on: main.c apply_fog), the post stack (AgX, bloom,
+// GTAO, SMAA, a warm worn grade, a vignette), the camera and three
+// crash-flash lights the effects borrow.
 //
 //   node games/derby/tools/make-arenas.mjs
 import { writeFileSync, mkdirSync } from 'node:fs';
@@ -43,6 +45,7 @@ for (const m of ARENAS) {
   node('Sun', '.', 'DirectionalLight3D', {
     shadow: true, shadow_size: 2048, shadow_extent: 26, shadow_far: 140, shadow_bias: f(-0.0003), shadow_normal_bias: f(0.03),
   });
+  node('Lighting', '.', 'LightingSettings', { mode: str('CLUSTERED') });
   node('Env', '.', 'WorldEnvironment', {
     background: col(0.05, 0.07, 0.12), ambient_color: col(...m.ambient), ambient_energy: f(0.05), sky_color: col(...m.ambient),
     ground_color: col(...m.ground), hemi_energy: f(m.hemi),
@@ -50,6 +53,8 @@ for (const m of ARENAS) {
   node('Fog', '.', 'HeightFog', {
     density: f(m.fog), height_falloff: f(0.22), base_height: 0, use_sky_color: true, sun_scatter: f(0.55), sun_g: f(0.82),
     max_opacity: f(0.7), start_distance: 12, sky_distance: 300,
+    /* the volumetric grid over the bowl: dark ambient, so the floods' beams carry it */
+    ...(m.fog > 0 ? { volumetric_distance: 70, volumetric_ambient: f(0.2), volumetric_albedo: col(0.92, 0.84, 0.74) } : {}),
   });
   node('Post', '.', 'PostProcess', {
     tonemap: 'AGX', exposure: f(m.exposure), bloom: true, bloom_intensity: f(0.05), bloom_threshold: f(1.0), bloom_knee: f(0.6),

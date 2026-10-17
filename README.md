@@ -63,10 +63,13 @@ Mouse, keyboard, pad or touch. `games/chromite/`
 ### derby
 
 
-![derby: a dented car mid-bout in the dirt bowl](docs/screenshots/derby.jpg)
+![derby: a wreck burning against the wall under the floodlights, dust hanging in the bowl](docs/screenshots/derby.jpg)
 
 A demolition derby. Six cars on Box3D wheels in a walled dirt bowl; hits
 dent the bodywork, then come smoke and fire, and the last car running wins.
+Four floodlight towers light the bowl at dusk and throw the cars' shadows
+across the dirt, their beams hanging in the dust and smoke; a burning wreck
+lights the ground round it and scorches the dirt under it.
 Up to four players split screen, one pad each: players 2-4 join on the
 title with (A), and CPU cars fill the bout to six. Two players share the
 screen top and bottom; three or four take its quarters (with three, the
