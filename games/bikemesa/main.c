@@ -683,6 +683,7 @@ static void race_check_end(void) {
  * the top right to the race's shared HUD and the mini map */
 static void views_setup(void) {
   cw_pipeline *pl = cw_pipeline_of(cw_scene_app_tree());
+  view_fx(NRID);
   RD[0].cam = G.camera;
   /* split screen: the post chain past the views' own passes (bloom, tone
    * mapping, the grade, anti-aliasing) runs once over the whole screen */
@@ -824,6 +825,10 @@ static void camera_frame(double alpha) {
   t3_vec3 eye = { at.x - d * 0.16f, at.y + d * 0.36f, at.z + d }; /* tilted down a little: the four lanes read */
   if (getenv("BIKEMESA_CAM_34")) eye = (t3_vec3){ at.x - d * 0.75f, at.y + d * 0.5f, d * 0.7f }; /* dev aid: a three-quarter view from ahead */
   if (getenv("BIKEMESA_CAM_TOP")) eye = (t3_vec3){ at.x, at.y + 16, 0.5f }; /* dev aid: from above */
+  if (getenv("BIKEMESA_CAM_WIDE")) { /* dev aid: pulled back and level, the distant land in view */
+    eye = (t3_vec3){ at.x - 6, at.y + 9, 34 };
+    at = (t3_vec3){ at.x, at.y + 6, -60 };
+  }
   if (P->shake > 0) {
     float k = 0.01f * P->shake;
     eye.x += k * cw_sin(G.ticks * 1.9f);
@@ -1038,6 +1043,7 @@ static void quality_changed(cw_quality q, void *u) {
   (void)q, (void)u;
   view_density(cw_quality_density());
   view_ground_detail(cw_gfx_get(ground_setting) == 1);
+  view_fx(0);
 }
 
 static void init(void *u) {

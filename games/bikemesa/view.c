@@ -3,8 +3,9 @@
  * ramps as plank decks), and the scenery each theme stands in, all built in C
  * from the track data:
  *
- *   canyon   red sandstone mesas and buttes far behind, boulders, dry grass
- *            tufts swaying along the edges, drifting dust
+ *   canyon   red sandstone mesas and buttes far behind (a Terrain3D:
+ *            backdrop.c), boulders, dry grass tufts swaying along the
+ *            edges, drifting dust
  *   (others) their own palettes on the same pieces (view.c: THEME)
  *
  * Placement uses an integer hash of the track's seed, never rand(): the same
@@ -16,6 +17,7 @@
 
 #include "cartwheel/jobs.h"
 #include "cartwheel/particles.h"
+#include "cartwheel/quality.h"
 #include "game.h"
 
 static uint32_t sh(uint32_t x) {
@@ -496,8 +498,10 @@ static t3_geometry *geo_peak(float r, float h) {
   return t3_lathe_geometry_new(p, (int)CW_ARRAY_LEN(p), 7, 0, 6.2831853f);
 }
 
-static void landforms(t3_object *root, const track_desc *t, const theme *th) {
-  t3_material *m = far_mat(mat(th->far_tex, th->far, 3, 3, 1.4f, 0.95f));
+/* draw false: the backdrop terrain stands in (backdrop.c); the placement
+ * draws are made all the same, so everything placed after is where it was */
+static void landforms(t3_object *root, const track_desc *t, const theme *th, bool draw) {
+  t3_material *m = draw ? far_mat(mat(th->far_tex, th->far, 3, 3, 1.4f, 0.95f)) : NULL;
   float x0 = -120, x1 = t->length + 160;
   for (int layer = 0; layer < 3; layer++) {
     float z = -70 - layer * 70, spacing = 38 + layer * 22;
@@ -505,19 +509,21 @@ static void landforms(t3_object *root, const track_desc *t, const theme *th) {
       float jx = (rnd() - 0.5f) * spacing * 0.6f, r = 14 + rnd() * 18 + layer * 8, h = 18 + rnd() * 26 + layer * 12;
       float base = track_height_at(cw_clampf(x, 0, t->length), NULL) - 25 - layer * 6;
       float yaw = rnd() * 6.2831853f, sq = 0.6f + rnd() * 0.5f;
+      float jz = (rnd() - 0.5f) * 30;
+      if (!draw) continue;
       t3_geometry *g = th->far_kind == 1 ? geo_peak(r, h * 1.6f) : th->far_kind == 3 ? geo_peak(r * 1.6f, h * 0.45f) : geo_mesa(r, h);
       if (th->far_kind == 2) {
         t3_release(g);
         g = t3_box_geometry_new(r * 0.8f, h * 2.2f, r * 0.8f, 1, 1, 1);
       }
       t3_mesh *me = add(root, g, m, false);
-      me->base.position = (t3_vec3){ x + jx, base + (th->far_kind == 2 ? h * 1.1f : 0), z + (rnd() - 0.5f) * 30 };
+      me->base.position = (t3_vec3){ x + jx, base + (th->far_kind == 2 ? h * 1.1f : 0), z + jz };
       me->base.scale = (t3_vec3){ 1, 1, sq };
       t3_object_set_rotation(&me->base, 0, yaw, 0);
       t3_release(g);
     }
   }
-  t3_release(m);
+  if (m) t3_release(m);
 }
 
 
@@ -593,6 +599,8 @@ static float bank_y(float x, float z, int kind) {
   float rise = kind == 1 ? dd * 0.4f + far * 0.25f : kind == 2 ? d * 0.04f : dd * 0.22f + far * 0.06f;
   return base - 0.06f + rise + und * cw_clampf(d / 6, 0, 1) + (d > 0 ? cw_clampf(d * 0.6f, 0, 0.3f) : 0);
 }
+
+float view_ground_at(float x) { return ground_at(x); }
 
 static int bank_kind; /* the theme's bank (bank_y's kind) */
 float view_bank_y(float x, float z) { return bank_y(x, z, bank_kind); }
@@ -2313,6 +2321,52 @@ static void merge_still(t3_object *root, int a, int b) {
   free(runs);
 }
 
+/* ── fog: the scene's HeightFog, and the ground mist (scary) ───────────
+ * A scene whose HeightFog is volumetric (Scary Town's) is lit cell by cell
+ * near the camera, with the moon's shadows in it, and Scary Town adds a
+ * FogVolume3D of drifting ground mist that rides along with the rider. Both
+ * cost a pass per view: they are on from Medium effects detail up and with
+ * one or two views, and analytic fog stands in otherwise (view_fx). */
+static cw_node hfog, mist;
+static bool hfog_vol;
+static float mist_density;
+static int fx_views = 1;
+static bool find_fog(cw_node n, void *u) {
+  (void)u;
+  cw_value v;
+  if (CW_HANDLE_IS_NULL(hfog) && cw_node_is(n, "HeightFog")) {
+    hfog = n;
+    hfog_vol = cw_node_get_prop(n, "volumetric", &v) && v.b;
+  }
+  return true;
+}
+static void fog_build(cw_node parent, const theme *th) {
+  hfog = mist = (cw_node){ 0 };
+  hfog_vol = false;
+  cw_node_walk(parent, find_fog, NULL);
+  if (strcmp(th->name, "scary")) return;
+  mist = cw_node_new("FogVolume3D", "Mist");
+  mist_density = 0.35f;
+  cw_node_set(mist, "shape", cw_val_enum("BOX"));
+  cw_node_set(mist, "size", cw_val_vec3(90, 4, 46));
+  cw_node_set(mist, "density", cw_val_float(mist_density));
+  cw_node_set(mist, "albedo", cw_val_color(0.7f, 0.74f, 0.85f, 1));
+  cw_node_set(mist, "emission", cw_val_color(0.05f, 0.06f, 0.08f, 1));
+  cw_node_set(mist, "height_falloff", cw_val_float(0.6f));
+  cw_node_set(mist, "edge_fade", cw_val_float(0.35f));
+  cw_node_set(mist, "noise", cw_val_float(0.75f));
+  cw_node_set(mist, "noise_scale", cw_val_float(0.12f));
+  cw_node_set(mist, "noise_wind", cw_val_vec3(0.7f, 0.02f, 0.25f));
+  cw_node_add_child(parent, mist);
+}
+/* views: the views drawn (0: as before); the graphics settings are read here */
+void view_fx(int views) {
+  if (views > 0) fx_views = views;
+  bool vol = cw_gfx_get(CW_GFX_EFFECTS) >= 1 && fx_views <= 2;
+  if (cw_node_valid(hfog) && hfog_vol) cw_node_set(hfog, "volumetric", cw_val_bool(vol));
+  if (cw_node_valid(mist)) cw_node_set(mist, "density", cw_val_float(vol ? mist_density : 0));
+}
+
 /* ── particles ─────────────────────────────────────────────────────── */
 
 static cw_node dust, burst_n, motes;
@@ -2341,11 +2395,12 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
   bank(root, t, th);
   markers(root, t);
   int still0 = root->child_count;
-  landforms(root, t, th);
+  landforms(root, t, th, !backdrop_build(parent, t, track_index));
   fill(root, t, th);
   props(root, t, th);
   props2(root, t, th);
   merge_still(root, still0, root->child_count);
+  fog_build(parent, th);
   ice_patches(root, t);
   planks_build(root);
   movers_build(root);
@@ -2441,6 +2496,7 @@ void view_tick(float rider_x, float rider_y, float speed, bool grounded) {
     wind_hash = h;
   }
   if (cw_node_valid(motes)) cw_node3d_set_position(motes, (t3_vec3){ rider_x + 12, rider_y + wx_dy, wx_dz });
+  if (cw_node_valid(mist)) cw_node3d_set_position(mist, (t3_vec3){ rider_x + 18, rider_y + 1.2f, -14 }); /* its wisps are the world's: only the box moves */
   if (cw_node_valid(dust)) {
     bool on = grounded && speed > 2.5f;
     cw_node_set(dust, "emitting", cw_val_bool(on));
@@ -2486,6 +2542,7 @@ void view_grass(const cw_node *cameras, int n) {
 }
 
 void view_forget(void) {
+  backdrop_forget();
   far_mats_free();
   n_flags = 0;
   n_pk = 0; /* the pumpkins' faces and lights went with the scene */
@@ -2494,5 +2551,5 @@ void view_forget(void) {
   memset(chain_mesh, 0, sizeof chain_mesh);
   n_tch = 0;
   n_tufts = 0;
-  dust = burst_n = motes = (cw_node){ 0 };
+  dust = burst_n = motes = hfog = mist = (cw_node){ 0 };
 }

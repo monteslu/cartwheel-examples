@@ -222,15 +222,22 @@ void view_tick(float rider_x, float rider_y, float speed, bool grounded);
 void view_forget(void);
 void view_density(float k); /* share of the grass tufts drawn, 0..1 (cw_quality_density) */
 void view_ground_detail(bool full); /* distant ground with every map (true) or its colour map alone */
+void view_fx(int views); /* volumetric fog for this many views (0: as before) and the graphics settings */
 void view_frame(float alpha); /* moving scenery (the bridge planks) at the frame's alpha */
 void view_grass(const cw_node *cameras, int n); /* the grass the cameras see, posed once for the frame (after they are placed); none: no grass */
 void fx_dust(float x, float y, float amount);
 void fx_burst(float x, float y, int kind);
 float view_bank_y(float x, float z); /* the bank behind the track (z <= -TRACK_HALF_W - 0.3) */
+float view_ground_at(float x);      /* the bank's ground line: the track's height, bridged and smoothed */
 #define VIEW_ROCK_PTS 14
 typedef struct view_rock { t3_vec3 p[VIEW_ROCK_PTS]; } view_rock; /* a rock's hull points, in the world */
 int view_rocks(const view_rock **out);
 extern uint32_t wind_hash;
+
+/* backdrop.c: the distant land as a Terrain3D for the themes that have one
+ * (render only); false: none (view.c's landforms stand in) */
+bool backdrop_build(cw_node parent, const track_desc *t, int track_index);
+void backdrop_forget(void);
 
 /* textures.c: procedural PBR texture sets */
 enum { TEX_ROCK, TEX_DIRT, TEX_GRASS, TEX_SANDSTONE, TEX_SNOW, TEX_ASPHALT, TEX_WOOD, TEX_BARK, TEX_LEAVES, TEX_SAND,
