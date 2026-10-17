@@ -9,23 +9,28 @@
  *   stands   concrete tiers swept round the bowl, moulded seats in blocks
  *            of the team colours, and a crowd of dog fans in jerseys who
  *            bob along and leap up on a goal
- *   roof     a cantilevered canopy with a ring of floodlights under its lip
- *            (they blaze at night), on steel columns
+ *   roof     a cantilevered canopy with a ring of floodlights under its lip,
+ *            on steel columns; at night each lamp is a real spot light on
+ *            the pitch (clustered lighting, cartwheel/lighting.h), a few of
+ *            them casting shadows from the shadow atlas
  *   outside  per stadium: park trees, a beach with palms and the sea, a
  *            snowy yard of pines in falling snow, a rose garden with
  *            hedges and drifting petals, a neon city of lit towers */
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "cartwheel/jobs.h"
 #include "cartwheel/math.h"
 #include "cartwheel/particles.h"
+#include "cartwheel/quality.h"
 #include "world.h"
 
 #define MAX_FANS 5200
 #define MAX_CLUMPS 8000
 #define CROWD_CHUNKS 12
 #define GRASS_BANDS 8
+#define FLOODS 18    /* spot lights in the floodlight ring at night */
 
 static struct {
   bool ready;
@@ -61,6 +66,9 @@ static struct {
   float *gx, *gz, *gyaw, *gs, *gsy;
   int nclumps;
   t3_material *flood;
+  float ring_y, ring_d;         /* the floodlights: their height and distance out from the wall */
+  cw_node flood_light[FLOODS];  /* night: a spot light under each lamp (none by day) */
+  float flood_energy;
   int ticks;
 } SC;
 
@@ -450,6 +458,8 @@ static void build_stands(int theme) {
   add_mesh(arena_sweep(roof, 4, 4, 4, 0, false), rm, true);
   /* floodlights under the roof's lip */
   prof lamp[2] = { { TIER0 + 1.3f, ry - 0.05f, 0, -1 }, { TIER0 + 2.1f, ry + 0.05f, 0, -1 } };
+  SC.ring_y = ry - 0.2f;
+  SC.ring_d = TIER0 + 1.7f;
   SC.flood = glow(1, 0.97f, 0.9f, theme == TH_NEON ? 9 : 2.5f);
   t3_retain(SC.flood);
   add_mesh(arena_sweep(lamp, 2, 1, 1, 0, false), SC.flood, false);
@@ -1136,6 +1146,73 @@ void scenery_build(cw_node scene, int theme, uint32_t seed) {
   build_stands(theme);
   build_outside(theme);
   SC.ready = true;
+}
+
+/* night: the floodlight ring as real lights. Five lamps down each long side,
+ * two at each end (clear of the goal) and one at each corner, every one a
+ * spot light from under the roof's lip aimed into the pitch; with clustered
+ * lighting each fragment loops only the lamps whose cones reach it. The
+ * corner lamps (and on Ultra the middle of each side) cast shadows from the
+ * shadow atlas, so a pug at night throws a shadow from each pylon. */
+typedef struct flood_at { float x, z; uint8_t shadow_rank; } flood_at; /* rank: 1 the first two, 2 four, 3 six, 0 never */
+static flood_at flood_place(int k) {
+  float d = SC.ring_d, hx = AW - AC, hz = AL - AC;
+  if (k < 10) { /* the long sides */
+    float side = k < 5 ? 1 : -1, z = (float)(k % 5 - 2) * 10;
+    return (flood_at){ side * (AW + d), z, (uint8_t)(k % 5 == 2 ? 3 : 0) };
+  }
+  if (k < 14) { /* the ends, either side of the goal */
+    float end = k < 12 ? 1 : -1, x = (k & 1) ? 9.5f : -9.5f;
+    return (flood_at){ x, end * (AL + d), 0 };
+  }
+  /* the corners: diagonal pairs first, so Low's two shadows sit across the pitch */
+  static const float CX[4] = { 1, -1, -1, 1 }, CZ[4] = { 1, -1, 1, -1 };
+  int c = k - 14;
+  float r = AC + d, q = 0.70710678f;
+  return (flood_at){ CX[c] * (hx + r * q), CZ[c] * (hz + r * q), (uint8_t)(c < 2 ? 1 : 2) };
+}
+void scenery_floodlights(float strength) {
+  if (!SC.ready || strength <= 0) return;
+  cw_node holder = cw_node_new("Node3D", "Floodlights");
+  cw_node_add_child(SC.root, holder);
+  SC.flood_energy = 300 * strength;
+  for (int k = 0; k < FLOODS; k++) {
+    flood_at f = flood_place(k);
+    char name[16];
+    snprintf(name, sizeof name, "Flood%d", k);
+    cw_node n = cw_node_new("SpotLight3D", name);
+    cw_node_add_child(holder, n);
+    cw_node3d_set_position(n, (t3_vec3){ f.x, SC.ring_y, f.z });
+    cw_node_set(n, "color", cw_val_color(1, 0.95f, 0.86f, 1));
+    cw_node_set(n, "energy", cw_val_float(SC.flood_energy));
+    cw_node_set(n, "range", cw_val_float(80));
+    cw_node_set(n, "decay", cw_val_float(2));
+    cw_node_set(n, "angle", cw_val_float(0.66f));
+    cw_node_set(n, "penumbra", cw_val_float(0.5f));
+    cw_node_set(n, "shadow_size", cw_val_int(1024));
+    cw_node_set(n, "shadow_bias", cw_val_float(-0.0004f));
+    cw_node_set(n, "shadow_normal_bias", cw_val_float(0.04f));
+    cw_node3d_look_at(n, (t3_vec3){ f.x * 0.3f, 0, f.z * 0.3f }, (t3_vec3){ 0, 1, 0 });
+    SC.flood_light[k] = n;
+  }
+  scenery_flood_quality();
+}
+/* the floodlights at the graphics settings: Shadows picks how many lamps
+ * cast (Low and Medium two, High four, Ultra six); effects detail Low lights
+ * every other lamp at twice the energy (half the lights a pixel loops, the
+ * same light on the pitch) */
+void scenery_flood_quality(void) {
+  if (!SC.ready || !cw_node_valid(SC.flood_light[0])) return;
+  static const int SHADOWS[4] = { 1, 1, 2, 3 };
+  int rank = SHADOWS[CW_CLAMP(cw_gfx_get(CW_GFX_SHADOWS), 0, 3)];
+  bool half = cw_gfx_get(CW_GFX_EFFECTS) == 0;
+  for (int k = 0; k < FLOODS; k++) {
+    flood_at f = flood_place(k);
+    bool on = !half || (k & 1) == 0 || k >= 14; /* the corners stay */
+    float e = !on ? 0 : half && k < 14 ? SC.flood_energy * 2 : SC.flood_energy;
+    cw_node_set(SC.flood_light[k], "energy", cw_val_float(e));
+    cw_node_set(SC.flood_light[k], "shadow", cw_val_bool(on && f.shadow_rank && f.shadow_rank <= rank));
+  }
 }
 
 /* split screen, before each view draws: the grass thins out with distance

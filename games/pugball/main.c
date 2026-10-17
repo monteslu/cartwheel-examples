@@ -39,6 +39,7 @@
 #include "cartwheel/quality.h"
 #include "cartwheel/quality_menu.h"
 #include "cartwheel/input.h"
+#include "cartwheel/lighting.h"
 #include "cartwheel/math.h"
 #include "cartwheel/platform.h"
 #include "cartwheel/render2d.h"
@@ -75,7 +76,13 @@ static const cw_prop stadium_props[] = {
   CW_PROP_FIELD(stadium_info, match_secs, CW_T_INT, CW_PROP_DEFAULT, "The match clock."),
   CW_PROP_END,
 };
+/* every frame before the scene draws: the goal nets that moved, blended between their last two steps */
+static void stadium_pre_render(cw_node n, void *data, double alpha) {
+  (void)n, (void)data;
+  net_frame((float)alpha);
+}
 static cw_node_type stadium_type = { .name = "Stadium", .parent = "Node3D", .data_size = sizeof(stadium_info), .props = stadium_props,
+                                     .pre_render = stadium_pre_render,
                                      .doc = "Root of a pugball stadium: its name, theme and the Cup's opposition." };
 
 /* ── state ──────────────────────────────────────────────────────────── */
@@ -120,6 +127,8 @@ static struct {
   int unlock_tile, unlock_ticks, bump_tile, bump_ticks;
   cw_node scene, camera, sun;
   float sun_extent, sun_extent_set; /* the scene's shadow box half size; the one set now */
+  int sun_cascades;     /* the scene's cascaded sun shadows (split screen draws one shadow box instead) */
+  float sun_far;        /* the scene's shadow box depth (the one box split screen draws) */
   stadium_info *info;
   sim S;
   ai_mem ai[MAXP];
@@ -191,7 +200,19 @@ static void apply_quality(void) {
   if (!cw_node_valid(G.scene)) return;
   cw_node post = find_type(G.scene, "PostProcess");
 
-  if (cw_node_valid(G.sun)) cw_node_set(G.sun, "shadow_size", cw_val_int(2048));
+  if (cw_node_valid(G.sun)) {
+    cw_node_set(G.sun, "shadow_size", cw_val_int(2048));
+    /* one view: cascades fitted to its camera, crisp shadows near and far.
+     * Split screen keeps the one shadow box round every human (sun_follow):
+     * the views share the scene, and cascades fitted to each view would be
+     * redrawn once per view */
+    bool cascades = G.nviews < 2 && G.sun_cascades > 0;
+    cw_node_set(G.sun, "shadow_cascades", cw_val_int(cascades ? G.sun_cascades : 0));
+    /* a cascade's camera stands 200 m up the light from its slice (r186's
+     * lightMargin): its depth range has to reach past that */
+    cw_node_set(G.sun, "shadow_far", cw_val_float(cascades ? 420 : G.sun_far));
+  }
+  scenery_flood_quality();
 }
 static void quality_changed(cw_quality q, void *u) {
   (void)q, (void)u;
@@ -237,6 +258,8 @@ static void perf_frame(double render_t0) {
   PERF.fixed_acc = 0;
   PERF.steps = 0;
 }
+
+static struct { int32_t clustered, shadowed, cascades; } LIT; /* debug: the last frame's lighting */
 
 /* ── autopilot: a gate's pad script compiled in ───────────────────── */
 
@@ -533,8 +556,19 @@ static void load_scene(int index) {
   G.sun = cw_node_get(G.scene, "Sun");
   cw_value ext = { 0 };
   G.sun_extent = G.sun_extent_set = cw_node_valid(G.sun) && cw_node_get_prop(G.sun, "shadow_extent", &ext) ? (float)ext.f : 28;
+  G.sun_cascades = cw_node_valid(G.sun) && cw_node_get_prop(G.sun, "shadow_cascades", &ext) ? (int)ext.i : 0;
+  G.sun_far = cw_node_valid(G.sun) && cw_node_get_prop(G.sun, "shadow_far", &ext) ? (float)ext.f : 140;
   G.stadium = index;
   G.cam_snap = true;
+}
+
+/* how dark the stadium's sky is (its ProceduralSky's hour): 1 at night, when
+ * the floodlights carry the pitch; 0 by day */
+static float night(void) {
+  cw_node sky = find_type(G.scene, "ProceduralSky");
+  cw_value h = { 0 };
+  if (!cw_node_valid(sky) || !cw_node_get_prop(sky, "time_of_day", &h)) return 0;
+  return h.f >= 19.5 || h.f < 5.5 ? 1 : 0;
 }
 
 static int sheet_pad[MAXP]; /* the team sheet's pads, kept through a Cup fixture */
@@ -668,6 +702,7 @@ static void start_match(int stadium) {
   fx_init(G.scene, theme);
   for (int i = 0; i < MAXP; i++) fx_set_trail(i, G.look[i].trail);
   scenery_build(G.scene, theme, G.info ? (uint32_t)G.info->seed : 1u);
+  scenery_floodlights(night());
   G.state = GS_MATCH;
   G.state_ticks = 0;
   G.mvp = -1;
@@ -686,6 +721,7 @@ static void enter_title(void) {
   world_build(G.scene, &G.S, TH_PARK, looks);
   fx_init(G.scene, TH_PARK);
   scenery_build(G.scene, TH_PARK, 7);
+  apply_quality(); /* the sun's cascades */
   G.state = GS_TITLE;
   G.state_ticks = 0;
   music(TH_KINDS);
@@ -875,6 +911,10 @@ static void init(void *u) {
   cw_debug_i32("match.winner", &G.winner);
   cw_debug_i32("match.mvp", &G.mvp);
   cw_debug_i32("match.replays", &RP.count);
+  /* the lighting the last frame drew (render side, not gate fields) */
+  cw_debug_i32("light.clustered", &LIT.clustered);
+  cw_debug_i32("light.shadowed", &LIT.shadowed);
+  cw_debug_i32("light.cascades", &LIT.cascades);
   cw_debug_field("ball.pos", G.ball_pos, CW_DBG_I32, 3);
   cw_debug_field("players.pos", G.pos, CW_DBG_I32, MAXP * 3);
   cw_debug_field("players.slot", G.slots, CW_DBG_I32, MAXP);
@@ -1758,7 +1798,9 @@ static void fixed_body(void) {
     start_match(a);
   }
   if (G.state == GS_REPLAY) {
+    net_time_scale(REPLAY_SPEED); /* the nets in slow motion too */
     world_tick(&RP.view);
+    net_time_scale(1);
     fx_tick(&RP.view);
     fx_events(&RP.view);
     scenery_tick(&RP.view, G.ticks, 0);
@@ -1802,6 +1844,9 @@ static void update(void *u, double dt) {
   (void)dt;
   render_t0 = wall_ms();
   gfx_input();
+  cw_lighting_stats ls;
+  cw_lighting_get_stats(cw_scene_app_tree(), &ls);
+  LIT.clustered = ls.clustered, LIT.shadowed = ls.shadowed, LIT.cascades = ls.cascades;
   if (!A.on) return;
   /* a listener per view (split screen: each spatial sound heard from the nearest pug's camera) */
   const cw_view *vs = NULL;

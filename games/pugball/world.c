@@ -1,7 +1,8 @@
 /* pugball's arena in 3D: the pitch (mown stripes and chalk), the ramped
  * bowl swept round the arena's plan (turf ramps, padded boards in the team
  * colours, glass up to the rim on steel mullions), the goals (posts, a
- * glowing frame, nets), the boost pads, the pugs and the cat.
+ * glowing frame; their cloth nets are net.c's), the boost pads, the pugs and
+ * the cat.
  *
  * Everything is placed from the simulation on the fixed tick, so every host
  * draws the same frame; nothing here feeds back into the rules. The pugs
@@ -431,42 +432,7 @@ static void build_goals(cw_node root) {
     t3_object_add(g, f2);
     t3_release(f2);
     t3_release(fr);
-    /* the net: a mesh of cords over the sides, the back and the roof */
-    mesh_build b = { 0 };
-    const float c = 0.025f;
-    t3_vec3 n = { 0, 1, 0 };
-#define CORD(ax, ay, az, bx, by, bz)                                                                                   \
-  do {                                                                                                                 \
-    int v0 = mb_vert(&b, (t3_vec3){ ax, ay, az }, n, 0, 0), v1 = mb_vert(&b, (t3_vec3){ bx, by, bz }, n, 1, 0);           \
-    int v2 = mb_vert(&b, (t3_vec3){ (bx), (by) + c, (bz) + c }, n, 1, 1), v3 = mb_vert(&b, (t3_vec3){ ax, (ay) + c, (az) + c }, n, 0, 1); \
-    mb_quad(&b, v0, v1, v2, v3);                                                                                       \
-    mb_quad(&b, v0, v3, v2, v1);                                                                                       \
-  } while (0)
-    float z0 = s * AL, z1 = s * (AL + GD);
-    for (float y = 0.4f; y < GH; y += 0.4f) { /* horizontal cords round three sides */
-      CORD(-GW, y, z0, -GW, y, z1);
-      CORD(GW, y, z0, GW, y, z1);
-      CORD(-GW, y, z1, GW, y, z1);
-    }
-    for (float x = -GW; x <= GW + 1e-3f; x += 0.4f) { /* verticals on the back, cords over the roof */
-      CORD(x, 0, z1, x, GH, z1);
-      CORD(x, GH, z0, x, GH, z1);
-    }
-    for (float d = 0; d <= GD + 1e-3f; d += 0.4f) {
-      float z = s * (AL + d);
-      CORD(-GW, 0, z, -GW, GH, z);
-      CORD(GW, 0, z, GW, GH, z);
-      CORD(-GW, GH, z, GW, GH, z);
-    }
-#undef CORD
-    t3_material *net = phys(lin(0.95f, 0.95f, 0.95f), 0.8f, 0);
-    t3_mesh *nm = t3_mesh_new(mb_finish(&b), net);
-    nm->base.cast_shadow = true;
-    nm->base.receive_shadow = true;
-    t3_object_add(g, nm);
-    t3_release(nm->geometry);
-    t3_release(nm);
-    t3_release(net);
+    /* the net: cloth (net.c) */
     hang(root, s < 0 ? "GoalBlue" : "GoalRed", g);
     t3_release(g);
     t3_release(white);
@@ -576,6 +542,7 @@ void world_reset(void) {
     if (W.cat_ring) t3_release(W.cat_ring);
     if (W.ring_mat) t3_release(W.ring_mat);
   }
+  net_reset();
   memset(&W, 0, sizeof W);
 }
 
@@ -588,6 +555,7 @@ void world_build(cw_node scene, const sim *s, int theme, const pug_look looks[MA
   build_pitch(W.root, L);
   build_bowl(W.root, L);
   build_goals(W.root);
+  net_build(W.root, s);
   build_pads(W.root, s);
   for (int i = 0; i < MAXP; i++) {
     W.on[i] = s->p[i].on;
@@ -727,6 +695,7 @@ static void place_node(cw_node n, t3_vec3 p, t3_quat q) {
 void world_tick(const sim *s) {
   if (!W.ready) return;
   W.ticks++;
+  net_tick(s);
   /* landings squash, hits jolt */
   for (int e = 0; e < s->ev_n; e++) {
     const struct sim_event *ev = &s->ev[e];

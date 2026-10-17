@@ -6,7 +6,7 @@
 #   pugball_unlocked  starts with the whole Cup won (the progression gates)
 #   pugball_demo      the first kickoff parks the red pug in blue 1's path (the demolition gate)
 #   pugball_cup       a fresh save with Cup matches cut to 6 s (wins fixture 1, unlocks stadium 2)
-set(SRC main.c sim.c arena.c ai.c world.c models.c fx.c scenery.c textures.c)
+set(SRC main.c sim.c arena.c ai.c world.c net.c models.c fx.c scenery.c textures.c)
 set(CW_PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/programs/pugball.txt)
 set(PACK ${CMAKE_CURRENT_SOURCE_DIR}/assets/roots.txt)
 cw_add_app(pugball SOURCES ${SRC} PACK ${PACK})

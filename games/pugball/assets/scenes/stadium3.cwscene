@@ -29,6 +29,8 @@ shadow_extent = 28
 shadow_far = 140
 shadow_bias = -0.0003
 shadow_normal_bias = 0.03
+shadow_cascades = 4
+shadow_distance = 120
 
 [node name="Env" parent="." type="WorldEnvironment"]
 background = color(0.0732, 0.1706, 0.448, 1)
