@@ -17,6 +17,7 @@
 
 #include "cartwheel/jobs.h"
 #include "cartwheel/particles.h"
+#include "cartwheel/quality.h"
 #include "game.h"
 
 static uint32_t sh(uint32_t x) {
@@ -2320,6 +2321,52 @@ static void merge_still(t3_object *root, int a, int b) {
   free(runs);
 }
 
+/* ── fog: the scene's HeightFog, and the ground mist (scary) ───────────
+ * A scene whose HeightFog is volumetric (Scary Town's) is lit cell by cell
+ * near the camera, with the moon's shadows in it, and Scary Town adds a
+ * FogVolume3D of drifting ground mist that rides along with the rider. Both
+ * cost a pass per view: they are on from Medium effects detail up and with
+ * one or two views, and analytic fog stands in otherwise (view_fx). */
+static cw_node hfog, mist;
+static bool hfog_vol;
+static float mist_density;
+static int fx_views = 1;
+static bool find_fog(cw_node n, void *u) {
+  (void)u;
+  cw_value v;
+  if (CW_HANDLE_IS_NULL(hfog) && cw_node_is(n, "HeightFog")) {
+    hfog = n;
+    hfog_vol = cw_node_get_prop(n, "volumetric", &v) && v.b;
+  }
+  return true;
+}
+static void fog_build(cw_node parent, const theme *th) {
+  hfog = mist = (cw_node){ 0 };
+  hfog_vol = false;
+  cw_node_walk(parent, find_fog, NULL);
+  if (strcmp(th->name, "scary")) return;
+  mist = cw_node_new("FogVolume3D", "Mist");
+  mist_density = 0.35f;
+  cw_node_set(mist, "shape", cw_val_enum("BOX"));
+  cw_node_set(mist, "size", cw_val_vec3(90, 4, 46));
+  cw_node_set(mist, "density", cw_val_float(mist_density));
+  cw_node_set(mist, "albedo", cw_val_color(0.7f, 0.74f, 0.85f, 1));
+  cw_node_set(mist, "emission", cw_val_color(0.05f, 0.06f, 0.08f, 1));
+  cw_node_set(mist, "height_falloff", cw_val_float(0.6f));
+  cw_node_set(mist, "edge_fade", cw_val_float(0.35f));
+  cw_node_set(mist, "noise", cw_val_float(0.75f));
+  cw_node_set(mist, "noise_scale", cw_val_float(0.12f));
+  cw_node_set(mist, "noise_wind", cw_val_vec3(0.7f, 0.02f, 0.25f));
+  cw_node_add_child(parent, mist);
+}
+/* views: the views drawn (0: as before); the graphics settings are read here */
+void view_fx(int views) {
+  if (views > 0) fx_views = views;
+  bool vol = cw_gfx_get(CW_GFX_EFFECTS) >= 1 && fx_views <= 2;
+  if (cw_node_valid(hfog) && hfog_vol) cw_node_set(hfog, "volumetric", cw_val_bool(vol));
+  if (cw_node_valid(mist)) cw_node_set(mist, "density", cw_val_float(vol ? mist_density : 0));
+}
+
 /* ── particles ─────────────────────────────────────────────────────── */
 
 static cw_node dust, burst_n, motes;
@@ -2353,6 +2400,7 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
   props(root, t, th);
   props2(root, t, th);
   merge_still(root, still0, root->child_count);
+  fog_build(parent, th);
   ice_patches(root, t);
   planks_build(root);
   movers_build(root);
@@ -2448,6 +2496,7 @@ void view_tick(float rider_x, float rider_y, float speed, bool grounded) {
     wind_hash = h;
   }
   if (cw_node_valid(motes)) cw_node3d_set_position(motes, (t3_vec3){ rider_x + 12, rider_y + wx_dy, wx_dz });
+  if (cw_node_valid(mist)) cw_node3d_set_position(mist, (t3_vec3){ rider_x + 18, rider_y + 1.2f, -14 }); /* its wisps are the world's: only the box moves */
   if (cw_node_valid(dust)) {
     bool on = grounded && speed > 2.5f;
     cw_node_set(dust, "emitting", cw_val_bool(on));
@@ -2502,5 +2551,5 @@ void view_forget(void) {
   memset(chain_mesh, 0, sizeof chain_mesh);
   n_tch = 0;
   n_tufts = 0;
-  dust = burst_n = motes = (cw_node){ 0 };
+  dust = burst_n = motes = hfog = mist = (cw_node){ 0 };
 }

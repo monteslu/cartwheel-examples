@@ -222,6 +222,7 @@ void view_tick(float rider_x, float rider_y, float speed, bool grounded);
 void view_forget(void);
 void view_density(float k); /* share of the grass tufts drawn, 0..1 (cw_quality_density) */
 void view_ground_detail(bool full); /* distant ground with every map (true) or its colour map alone */
+void view_fx(int views); /* volumetric fog for this many views (0: as before) and the graphics settings */
 void view_frame(float alpha); /* moving scenery (the bridge planks) at the frame's alpha */
 void view_grass(const cw_node *cameras, int n); /* the grass the cameras see, posed once for the frame (after they are placed); none: no grass */
 void fx_dust(float x, float y, float amount);
