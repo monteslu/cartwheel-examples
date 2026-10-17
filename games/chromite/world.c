@@ -201,7 +201,9 @@ static void hatch(t3_object *s, float x, float z, float r, int lamp) {
     t3_geometry *g = box(r * 0.5f, 0.12f, r * 0.9f);
     t3_geometry_translate(g, 0, 0, r * 0.4f);
     t3_geometry_rotate_y(g, i * 1.0471976f + 0.3f);
-    mesh(s, g, W.trim_mat, x, 0.7f, z, false, true);
+    /* each blade a little above the last, as an iris stacks: blades that met at
+     * one height z-fought where they overlap round the lamp */
+    mesh(s, g, W.trim_mat, x, 0.7f + i * 0.012f, z, false, true);
   }
   mesh(s, cyl(r * 0.11f, r * 0.11f, 0.04f, 24), W.lamp_mat[lamp], x, 0.72f, z, false, false);
   lamp_light(s, x, 1.2f, z, lamp, 6, r * 1.3f);
