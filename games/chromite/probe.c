@@ -1,109 +1,93 @@
 /* chromite reflection probe: what the chrome craft mirror, kept live.
  *
- * A small proxy scene stands in for the world below and around the play
- * plane: the sky (the horizon environment as the background), a wide plate
- * of the deck's plating far below that scrolls with the real deck, and a
- * glow on that plate under every explosion flash. Every other frame a pass
- * in the pipeline's SHADOW phase renders it from the middle of the play
- * plane into a 128 cube-UV probe (three.c's PMREMGenerator.fromScene with
- * r186's options: size, position, and the probe's own target, so nothing is
- * allocated after the first), and the craft materials take that probe as
- * their envMap. So the hulls carry the deck sliding by underneath and light
- * up orange when something blows up beside them.
+ * The engine's ReflectionProbe3D (cartwheel/gi.h) does the capturing: every
+ * other frame it renders the scene around the middle of the play plane into
+ * a 128 cube-UV radiance map (three.js r186's PMREMGenerator.fromScene), and
+ * every Standard and Physical surface inside its box reflects that, and
+ * takes its diffuse ambient from it, in place of the fixed environment.
  *
- * Cost per refresh: six 128 x 128 renders of four or five draws, and the
- * GGX filter's small passes. GL and WebGPU alike. Render-only. */
+ * What it captures is a stand-in on a layer of its own (the view camera
+ * never draws it; the probe's cull_mask sees only it): the sky (the horizon
+ * environment on a dome), a wide plate of the deck's plating far below that
+ * scrolls with the real deck, and a glow on that plate under every
+ * explosion flash. So the hulls carry the deck sliding by underneath and
+ * light up orange when something blows up beside them, for six 128 x 128
+ * renders of a handful of draws a refresh rather than the whole fortress.
+ *
+ * The box is the slab the craft fly in. On the title it shrinks to the ship
+ * idling under the menu, so the chrome wordmark keeps its own studio light.
+ * The deck, far below the slab, keeps the fixed environment.
+ *
+ * Quality: the engine halves a probe's capture size on Low and Medium and
+ * refreshes it less often; Chromite's chrome is the point of the game, so
+ * the probe asks for twice the size there (128 again) and is refreshed on
+ * demand every other frame at every preset. Ultra captures at 256.
+ * Render-only: nothing here reaches the simulation. */
 #include <stdlib.h>
 #include <string.h>
 
+#include "cartwheel/gi.h"
 #include "cartwheel/pipeline.h"
-#include "cartwheel/gpu.h"
+#include "cartwheel/quality.h"
 #include "game.h"
 
-#define GLOWS 4
+#define GLOWS 8
 #define PROBE_SIZE 128
 #define DECK_TILE 12.0f
+#define STAND_IN_LAYER (1u << 20) /* the stand-in's three.c layer: no camera draws it */
 
 static struct {
   bool ready;
-  t3_scene *scene;
+  cw_node node;
+  t3_object *stand_in;
   t3_mesh *deck;
   t3_material *deck_mat, *glow_mat[GLOWS], *sky_mat;
   t3_texture *deck_map;
   t3_sprite *glow[GLOWS];
-  t3_pmrem_generator *pmrem;
-  t3_render_target *rt;
-  int every;          /* refresh every n frames (render-only; 0 = off) */
   uint64_t frames;
-  int refreshes;
+  int resolution, title, on;
 } P;
 
-int probe_refreshes; /* (debug field) */
+int probe_refreshes;     /* (debug field) captures so far */
 int32_t probe_every = 2; /* (debug field) refresh every n frames; 0 = off (the fixed environment) */
 
-static void restore_env(void);
-static void probe_exec(cw_pass_ctx *ctx, void *user) {
+/* The capture is the frame's first render of the scene, so it draws the
+ * sun's shadow map (the engine draws a frame's shadow maps once, on the
+ * first render that uses them) with everything but the stand-in hidden:
+ * the deck would lose its shadows on every capture frame. After a capture
+ * (the "gi" pass, SHADOW phase order 150) the maps are marked stale again,
+ * so the view draws them with the real casters. */
+static void shadows_exec(cw_pass_ctx *ctx, void *user) {
   (void)user;
-  if (!P.ready || !ctx->renderer) return;
-  if (probe_every <= 0) {
-    if (P.rt) restore_env(), t3_release(P.rt), P.rt = NULL;
-    return;
-  }
-  if (P.rt && (P.frames++ % (uint64_t)probe_every) != 0) return;
-  t3_renderer *r = ctx->renderer;
-  bool wgpu = cw_gpu_backend() == CW_GPU_WEBGPU;
-  /* three.c renders the probe on command buffers of its own (WebGPU) or
-   * with its own GL state: forget the cached state either way */
-  if (wgpu) t3_renderer_set_external_encoder(r, 0);
-  else t3_renderer_reset_bindings(r);
-  if (!P.pmrem) P.pmrem = t3_pmrem_generator_new(r);
-  t3_render_target *next = t3_pmrem_from_scene_ex(P.pmrem, P.scene, 0, 0.5f, 200,
-                                                  &(t3_pmrem_scene_options){ .size = PROBE_SIZE, .position = { 0, PLAY_Y, 0 }, .render_target = P.rt });
-  if (!wgpu) t3_renderer_reset_bindings(r);
-  if (!next) return;
-  if (next != P.rt) {
-    /* the first refresh (or a new size): every chrome material takes it */
-    static const int MATS[] = { M_CHROME, M_LILAC, M_RUST, M_RUST_DARK, M_BLUE, M_TEAL, M_BLACK };
-    for (size_t i = 0; i < sizeof MATS / sizeof MATS[0]; i++) {
-      t3_material *m = model_mat(MATS[i]);
-      if (m) t3_material_set_texture(m, T3_ENV_MAP, next->texture);
-    }
-  }
-  if (P.rt) t3_release(P.rt);
-  P.rt = next;
-  P.refreshes++;
-  probe_refreshes = P.refreshes;
-}
-
-static void restore_env(void) {
-  static const int MATS[] = { M_CHROME, M_LILAC, M_RUST, M_RUST_DARK, M_BLUE, M_TEAL, M_BLACK };
-  for (size_t i = 0; i < sizeof MATS / sizeof MATS[0]; i++)
-    if (model_mat(MATS[i])) t3_material_set_texture(model_mat(MATS[i]), T3_ENV_MAP, env_texture());
+  if (!ctx->renderer) return;
+  cw_gi_stats st;
+  cw_gi_get_stats(ctx->tree, &st);
+  if (st.captures > 0) t3_renderer_shadow_needs_update(ctx->renderer);
 }
 
 void probe_init(cw_tree *tree) {
   cw_pipeline *pl = cw_pipeline_of(tree);
-  if (!cw_pipeline_has_pass(pl, "chromite_probe"))
-    cw_pipeline_add_pass(pl, &(cw_pass_desc){ .name = "chromite_probe", .phase = CW_PHASE_SHADOW, .order = 50, .writes = CW_RES_SHADOW,
-                                              .execute = probe_exec, .webgpu = true });
-  P.every = 2;
+  if (!cw_pipeline_has_pass(pl, "chromite_probe_shadows"))
+    cw_pipeline_add_pass(pl, &(cw_pass_desc){ .name = "chromite_probe_shadows", .phase = CW_PHASE_SHADOW, .order = 160,
+                                              .execute = shadows_exec, .webgpu = true });
 }
 
-void probe_build(void) {
+static void stand_in(t3_object *o) {
+  t3_object_set_layers(o, STAND_IN_LAYER);
+  t3_object_add(P.stand_in, o);
+}
+
+void probe_build(cw_node parent, t3_object *root) {
   probe_free();
-  P.scene = t3_scene_new();
-  /* the sky: a dome carrying the horizon map, seen from inside. (A scene
-   * background texture would need background programs this app's tables do
-   * not carry; a cart skips any draw its tables lack, which left the probe
-   * black overhead. The dome draws with two plain states that are in them.) */
+  P.stand_in = t3_group_new();
+  /* the sky: a dome carrying the horizon's radiance at every vertex (HDR
+   * colours: the softboxes and strips run well above 1), seen from inside */
   P.sky_mat = t3_mesh_basic_material_new(0xffffff);
   P.sky_mat->vertex_colors = true;
   P.sky_mat->side = T3_BACK_SIDE;
   P.sky_mat->depth_write = false;
   t3_geometry *sg = t3_sphere_geometry_new(150, 96, 48);
   {
-    /* the sky's radiance at every vertex (HDR colours: the softboxes and
-     * strips run well above 1), so the dome needs no texture */
     const t3_attribute *pa = sg->attributes[T3_ATTR_POSITION];
     const float *pv = pa->array;
     float *col = malloc(sizeof(float) * 3 * (size_t)pa->count);
@@ -117,7 +101,7 @@ void probe_build(void) {
   t3_release(sg);
   t3_object_set_position(sky, 0, PLAY_Y, 0);
   T3_OBJ(sky)->frustum_culled = false;
-  t3_object_add(&P.scene->base, sky);
+  stand_in(T3_OBJ(sky));
   t3_release(sky);
   /* the deck plate: its own copy of the plating's colour map (the offset
    * scrolls it), unlit and dim */
@@ -130,7 +114,7 @@ void probe_build(void) {
   P.deck = t3_mesh_new(g, P.deck_mat);
   t3_release(g);
   t3_object_set_position(P.deck, 0, GROUND_Y, 0);
-  t3_object_add(&P.scene->base, P.deck);
+  stand_in(T3_OBJ(P.deck));
   t3_release(P.deck);
   /* glows under the explosion flashes */
   for (int i = 0; i < GLOWS; i++) {
@@ -140,35 +124,39 @@ void probe_build(void) {
     P.glow_mat[i]->depth_write = false;
     P.glow[i] = t3_sprite_new(P.glow_mat[i]);
     T3_OBJ(P.glow[i])->visible = false;
-    t3_object_add(&P.scene->base, P.glow[i]);
+    stand_in(T3_OBJ(P.glow[i]));
     t3_release(P.glow[i]);
   }
+  t3_object_add(root, P.stand_in);
+  t3_release(P.stand_in);
+  /* the probe: in the middle of the play plane, captured on demand */
+  P.node = cw_node_new("ReflectionProbe3D", "Probe");
+  cw_node_add_child(parent, P.node);
+  cw_node3d_set_position(P.node, (t3_vec3){ 0, PLAY_Y, 0 });
+  cw_node_set(P.node, "update_mode", cw_val_enum("ON_DEMAND"));
+  cw_node_set(P.node, "cull_mask", cw_val_int(STAND_IN_LAYER));
+  cw_node_set(P.node, "near", cw_val_float(0.5));
+  cw_node_set(P.node, "far", cw_val_float(200));
+  cw_node_set(P.node, "blend_distance", cw_val_float(1));
+  cw_node_set(P.node, "ambient", cw_val_bool(true));
+  P.title = -1, P.resolution = 0, P.on = -1;
   P.ready = true;
 }
 
 void probe_free(void) {
-  /* the craft go back to the fixed environment before the probe goes */
-  if (P.rt) {
-    static const int MATS[] = { M_CHROME, M_LILAC, M_RUST, M_RUST_DARK, M_BLUE, M_TEAL, M_BLACK };
-    for (size_t i = 0; i < sizeof MATS / sizeof MATS[0]; i++)
-      if (model_mat(MATS[i])) t3_material_set_texture(model_mat(MATS[i]), T3_ENV_MAP, env_texture());
-    t3_release(P.rt);
-  }
-  if (P.scene) t3_release(P.scene);
+  /* the nodes and the stand-in go with the world's node and root */
+  for (int i = 0; i < GLOWS; i++)
+    if (P.glow_mat[i]) t3_release(P.glow_mat[i]);
   if (P.deck_mat) t3_release(P.deck_mat);
   if (P.sky_mat) t3_release(P.sky_mat);
   if (P.deck_map) t3_release(P.deck_map);
-  for (int i = 0; i < GLOWS; i++)
-    if (P.glow_mat[i]) t3_release(P.glow_mat[i]);
-  /* the generator belongs to the renderer's lifetime; keep it across worlds */
-  t3_pmrem_generator *keep = P.pmrem;
-  int every = P.every, refreshes = P.refreshes;
   memset(&P, 0, sizeof P);
-  P.pmrem = keep, P.every = every, P.refreshes = refreshes;
 }
 
-/* follows the deck's scroll and the explosion flashes */
-void probe_sync(float travel) {
+/* follows the deck's scroll, the explosion flashes, the screen (the title or
+ * the game) and the quality preset; asks for a capture every probe_every
+ * frames */
+void probe_sync(float travel, bool title) {
   if (!P.ready) return;
   P.deck_map->offset.y = travel / DECK_TILE;
   t3_vec3 pos[GLOWS];
@@ -184,6 +172,20 @@ void probe_sync(float travel) {
     t3_object_set_scale(P.glow[i], 10, 10, 10);
     P.glow_mat[i]->color = (t3_color){ col[i].r * k, col[i].g * k, col[i].b * k };
   }
+  /* the box: the play slab, or on the title the ship under the menu */
+  if (P.title != (int)title) {
+    P.title = title;
+    cw_node_set(P.node, "size", title ? cw_val_vec3(30, 8, 7) : cw_val_vec3(64, 8, 56));
+    cw_node3d_set_position(P.node, (t3_vec3){ 0, PLAY_Y, title ? 7.2f : 0 });
+    cw_node_set(P.node, "origin_offset", cw_val_vec3(0, 0, title ? -7.2f : 0));
+  }
+  /* 128 at every preset (the engine halves it on Low and Medium) */
+  int res = cw_gfx_get(CW_GFX_EFFECTS) <= 1 ? PROBE_SIZE * 2 : PROBE_SIZE;
+  if (res != P.resolution) P.resolution = res, cw_node_set(P.node, "resolution", cw_val_int(res));
+  int on = probe_every > 0;
+  if (on != P.on) P.on = on, cw_node_set(P.node, "intensity", cw_val_float(on ? 1 : 0));
+  if (on && (P.frames++ % (uint64_t)probe_every) == 0) cw_reflection_probe_update(P.node);
+  cw_value v;
+  if (cw_node_get_prop(P.node, "captures", &v)) probe_refreshes = (int)v.i;
 }
 
-void probe_set_every(int every) { probe_every = every; }

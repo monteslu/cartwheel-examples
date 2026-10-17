@@ -215,12 +215,11 @@ void fx_update(float dt);
 extern int fx_lights_live;
 int fx_flashes(t3_vec3 *pos, t3_color *col, float *energy, int max);
 
-/* probe.c: the live reflection probe the chrome mirrors */
+/* probe.c: the live reflection probe the chrome mirrors (a ReflectionProbe3D) */
 void probe_init(cw_tree *tree);
-void probe_build(void);
+void probe_build(cw_node parent, t3_object *root);
 void probe_free(void);
-void probe_sync(float travel);
-void probe_set_every(int every);
+void probe_sync(float travel, bool title);
 extern int probe_refreshes;
 extern int32_t probe_every;
 

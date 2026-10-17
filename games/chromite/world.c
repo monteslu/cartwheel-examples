@@ -513,7 +513,7 @@ void world_build(cw_node root, int variation) {
   build_bomb();
   logo_build(W.root, W.halo_tex);
   hud3d_build(W.root);
-  probe_build();
+  probe_build(W.node, W.root);
   cw_node3d_set_object(W.node, W.root);
   t3_release(W.root);
 }
@@ -563,11 +563,10 @@ static void swap_mat(t3_mesh *m, t3_material *mat) {
 static int bolt_kind_e(int ammo) { return BK_HEAVY + ammo; }
 
 void world_sync(const sim *prev, const sim *cur, float a, float t, int state) {
-  (void)state;
   if (!W.root) return;
   /* the deck scrolls on the level's clock */
   float travel = lerp(prev->frame, cur->frame, a) / 50.0f * SCROLL;
-  probe_sync(travel);
+  probe_sync(travel, state == 0);
   for (int i = 0; i < SEGS; i++) {
     float z = travel - i * SEG_L;
     float span = SEGS * SEG_L, lo = -100;
