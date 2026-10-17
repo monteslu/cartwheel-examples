@@ -1088,7 +1088,9 @@ static void markers(t3_object *root, const track_desc *t) {
   t3_release(ct);
   /* the start and finish lines: a checkered strip across the track, a flag beside it */
   t3_geometry *lg = t3_plane_geometry_new(0.8f, TRACK_HALF_W * 2, 1, 1);
-  const float lx[2] = { 0, t->finish_x };
+  /* the start line just ahead of the front tyre: a run puts the bike down
+   * centred at x 2 (main.c), its front axle 0.56 m ahead, the tyre 0.2 m round it */
+  const float lx[2] = { 3.3f, t->finish_x };
   for (int i = 0; i < 2; i++) {
     t3_mesh *l = add(root, lg, check, false);
     l->base.position = (t3_vec3){ lx[i], track_height_at(lx[i], NULL) + 0.02f, 0 };
@@ -1114,7 +1116,7 @@ static void markers(t3_object *root, const track_desc *t) {
   metal->color = lin(0.75f, 0.76f, 0.78f);
   metal->metalness = 1;
   metal->roughness = 0.3f;
-  flag_build(root, -1.0f, track_height_at(0, NULL), 1.9f, 1.2f, green, metal);
+  flag_build(root, lx[0] + 0.6f, track_height_at(lx[0] + 0.6f, NULL), 1.9f, 1.2f, green, metal);
   flag_build(root, t->finish_x + 0.6f, t->finish_y, 2.3f, 1.45f, checker, metal);
   t3_release(green);
   t3_release(checker);
