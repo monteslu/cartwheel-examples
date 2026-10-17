@@ -12,15 +12,15 @@
  *             screens from the first frame (a steering stick on the left,
  *             GAS / BRAKE / HANDBRAKE on the right)
  *   look      a dusk ProceduralSky (PMREM environment), three.c shadows
- *             following the play; clustered lighting (four shadowed
- *             floodlights in the shadow atlas, a flickering light on every
+ *             following the play; clustered lighting (the floodlights'
+ *             shadows in the shadow atlas, a flickering light on every
  *             fire); HeightFog for the dust, volumetric from Medium effects
  *             up in one view (the floods' beams, dust and smoke palls lit
- *             in it: apply_fog); GTAO, bloom, SMAA,
- *             AgX and a warm, worn LUT; Physical materials (clearcoat paint
- *             scuffed to bare metal round every dent, sheen on the crowd's
- *             clothes); GPU particles for dust, smoke, fire and sparks;
- *             Black Ops One / Russo One HUD with outlines
+ *             in it); both follow the graphics settings (apply_gfx); GTAO,
+ *             bloom, SMAA, AgX and a warm, worn LUT; Physical materials
+ *             (clearcoat paint scuffed to bare metal round every dent, sheen
+ *             on the crowd's clothes); GPU particles for dust, smoke, fire
+ *             and sparks; Black Ops One / Russo One HUD with outlines
  *
  * Determinism: the bout replays from the input stream (fixed ticks,
  * quantised inputs); the debug fields name the state the gates compare
@@ -525,12 +525,15 @@ static void views_setup(void) {
   if (cw_node_valid(G.sun)) cw_node_set(G.sun, "shadow_size", cw_val_int(1024));
 }
 
-/* Volumetric fog (the floods' beams in the dust, the smoke palls) where the
- * arena has haze, effects detail is Medium or more and one view fills the
- * screen; otherwise the analytic fog and the beam cones, as before.
- * Splitscreen keeps it off: a grid per view would cost each view a whole
- * fog pass. Render only. */
-static void apply_fog(void) {
+/* The graphics settings' share of derby's lighting, render only:
+ *   volumetric fog (the floods' beams in the dust, the smoke palls) where the
+ *   arena has haze, effects detail is Medium or more and one view fills the
+ *   screen; otherwise the analytic fog and the beam cones, as before
+ *   (splitscreen keeps it off: a grid per view would cost each view a whole
+ *   fog pass);
+ *   floodlight shadows by the Shadows setting: none on Low (as before), two
+ *   opposite corners on Medium, all four on High and Ultra. */
+static void apply_gfx(void) {
   cw_node fog = find_type(G.scene, "HeightFog");
   bool on = false;
   if (cw_node_valid(fog)) {
@@ -541,6 +544,8 @@ static void apply_fog(void) {
   }
   fx_volumetric(on);
   scenery_volumetric(on);
+  int sh = cw_gfx_get(CW_GFX_SHADOWS);
+  scenery_flood_shadows(sh == CW_QUALITY_LOW ? 0 : sh == CW_QUALITY_MEDIUM ? 2 : 4);
 }
 
 static void start_bout(int arena, bool with_human) {
@@ -595,7 +600,7 @@ static void start_bout(int arena, bool with_human) {
   G.state = GS_BOUT;
   G.state_ticks = 0;
   views_setup();
-  apply_fog();
+  apply_gfx();
   music(false);
   crowd_bed(true);
   engines(true);
@@ -615,7 +620,7 @@ static void enter_title(void) {
   scenery_build(G.scene, 0, G.info ? (uint32_t)G.info->seed : 1u);
   fx_init(G.scene, 0);
   G.state = GS_TITLE;
-  apply_fog();
+  apply_gfx();
   G.state_ticks = 0;
   for (int i = 0; i < MAXC; i++) G.human_of[i] = -1;
   music(true);
@@ -648,7 +653,7 @@ static double wall_now(void);
 static void quality_changed(cw_quality q, void *u) {
   (void)q, (void)u;
   scenery_density(cw_quality_density());
-  if (cw_node_valid(G.scene)) apply_fog();
+  if (cw_node_valid(G.scene)) apply_gfx();
 }
 
 static void init(void *u) {

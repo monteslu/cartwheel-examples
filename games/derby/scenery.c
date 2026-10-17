@@ -23,6 +23,7 @@ static struct {
   t3_geometry *fig[2], *hd[2]; /* the crowd's figure and head: full, and lighter for splitscreen's smaller views */
   int side_start[3];
   t3_object *shaft[4];       /* the floodlight beams */
+  cw_node flood[4];          /* the floodlights (SpotLight3D) */
   t3_vec3 shaft_a[4], shaft_b[4]; /* each beam's axis: the lamp, where it lands */
   int crowd;
   t3_vec3 at[CROWD_MAX];
@@ -306,6 +307,8 @@ static void crowd_pose(int ticks) {
   }
 }
 
+static int flood_shadows = 4; /* scenery_flood_shadows */
+
 /* floodlight towers at the corners: a pole, a bank of lamps aimed in, a
  * beam through the haze (a cone of its own where the fog is not volumetric) */
 static void floodlights(cw_node root) {
@@ -374,13 +377,14 @@ static void floodlights(cw_node root) {
     cw_node_set(sp, "penumbra", cw_val_float(0.55f));
     cw_node_set(sp, "decay", cw_val_float(2));
     cw_node_set(sp, "range", cw_val_float(160)); /* past the far corner: bounds its clusters and its shadow's depth */
-    cw_node_set(sp, "shadow", cw_val_bool(true));
+    cw_node_set(sp, "shadow", cw_val_bool(flood_shadows >= (k == 0 || k == 3 ? 2 : 4)));
     cw_node_set(sp, "shadow_size", cw_val_int(1024));
     cw_node_set(sp, "shadow_bias", cw_val_float(-0.0004f));
     cw_node_set(sp, "shadow_normal_bias", cw_val_float(0.04f));
     cw_node_set(sp, "fog_energy", cw_val_float(0.9f));
     cw_node3d_set_position(sp, (t3_vec3){ x * 0.97f, H - 0.4f, z * 0.97f });
     cw_node3d_look_at(sp, (t3_vec3){ x * 0.12f, 0, z * 0.12f }, (t3_vec3){ 0, 1, 0 });
+    S.flood[k] = sp;
   }
   t3_object *g = t3_group_new();
   add_part(g, mb_finish(&steel), st, true, true);
@@ -480,6 +484,15 @@ void scenery_build(cw_node scene, int theme, uint32_t seed) {
  * its pool of light) the camera would be in the haze, and the haze is
  * the fog's job */
 static bool real_shafts; /* volumetric fog draws the beams: the cones stay hidden */
+/* how many floodlights cast shadows: 0, 2 (two opposite corners) or 4. Each
+ * shadowed flood costs every pixel it lights a filtered atlas lookup (about
+ * 0.6 ms of GPU a light at 1080p on a Radeon 890M) and the volumetric fog a
+ * shadow map of its own, so the Shadows setting picks (main.c apply_gfx) */
+void scenery_flood_shadows(int n) {
+  flood_shadows = n;
+  for (int k = 0; k < 4; k++)
+    if (cw_node_valid(S.flood[k])) cw_node_set(S.flood[k], "shadow", cw_val_bool(n >= (k == 0 || k == 3 ? 2 : 4)));
+}
 void scenery_volumetric(bool on) { real_shafts = on; }
 void scenery_beams(const t3_vec3 *eyes, int n) {
   if (!S.ready) return;
