@@ -83,6 +83,8 @@ void scenery_reset(void);
 void scenery_quality(float k, float grass); /* share of the crowd and of the grass drawn, 0..1 */
 void scenery_light_crowd(bool light); /* the crowd's light meshes (split screen) or the full ones */
 void scenery_view_detail(t3_vec3 eye); /* split screen, per view: the grass and crowd thinned with distance */
+void scenery_floodlights(float strength); /* night: the floodlight ring's spot lights (strength 0: none) */
+void scenery_flood_quality(void);         /* their shadows and count at the graphics settings */
 extern uint32_t scenery_hash;
 
 /* the arena's plan (the rounded rectangle of its walls), sampled every half
@@ -116,6 +118,13 @@ t3_vec3 world_pug_render_pos(int i); /* as drawn this frame (ragdolls included) 
 /* split screen, before each view draws: the pugs and the cat far from its
  * camera (eye) as their far copies; full = every one as itself */
 void world_view_detail(t3_vec3 eye, bool full);
+
+/* net.c: the goals' cloth nets (render only, their own world) */
+void net_build(cw_node root, const sim *s);
+void net_reset(void);
+void net_tick(const sim *s);        /* fixed tick, from world_tick */
+void net_time_scale(float k);       /* the replay's slow motion: the nets' step is this share of a tick */
+void net_frame(float alpha);        /* every frame: the moving nets blended between their last two steps */
 
 
 #endif

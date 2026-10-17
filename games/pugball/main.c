@@ -39,6 +39,7 @@
 #include "cartwheel/quality.h"
 #include "cartwheel/quality_menu.h"
 #include "cartwheel/input.h"
+#include "cartwheel/lighting.h"
 #include "cartwheel/math.h"
 #include "cartwheel/platform.h"
 #include "cartwheel/render2d.h"
@@ -75,7 +76,13 @@ static const cw_prop stadium_props[] = {
   CW_PROP_FIELD(stadium_info, match_secs, CW_T_INT, CW_PROP_DEFAULT, "The match clock."),
   CW_PROP_END,
 };
+/* every frame before the scene draws: the goal nets that moved, blended between their last two steps */
+static void stadium_pre_render(cw_node n, void *data, double alpha) {
+  (void)n, (void)data;
+  net_frame((float)alpha);
+}
 static cw_node_type stadium_type = { .name = "Stadium", .parent = "Node3D", .data_size = sizeof(stadium_info), .props = stadium_props,
+                                     .pre_render = stadium_pre_render,
                                      .doc = "Root of a pugball stadium: its name, theme and the Cup's opposition." };
 
 /* ── state ──────────────────────────────────────────────────────────── */
@@ -100,8 +107,10 @@ typedef struct save_data {
   uint8_t shown[STADIUMS]; /* its unlock has played on the select screen */
   uint8_t slot[MAXP], coat[MAXP], hat[MAXP], trail[MAXP];
   uint8_t secs_i, cup_next, pad[2]; /* pad: the graphics settings (cw_quality_saved, 16 bits little-endian) */
+  uint8_t sound, spare;    /* sound: 0 speakers, 1 headphones (HRTF); the bytes that were the padding before best_margin */
   int32_t best_margin[STADIUMS];
 } save_data;
+_Static_assert(offsetof(save_data, best_margin) == 52, "the save keeps its layout");
 static save_data SAVE;
 
 static const int MATCH_SECS[3] = { 120, 180, 300 };
@@ -120,6 +129,8 @@ static struct {
   int unlock_tile, unlock_ticks, bump_tile, bump_ticks;
   cw_node scene, camera, sun;
   float sun_extent, sun_extent_set; /* the scene's shadow box half size; the one set now */
+  int sun_cascades;     /* the scene's cascaded sun shadows (split screen draws one shadow box instead) */
+  float sun_far;        /* the scene's shadow box depth (the one box split screen draws) */
   stadium_info *info;
   sim S;
   ai_mem ai[MAXP];
@@ -191,11 +202,25 @@ static void apply_quality(void) {
   if (!cw_node_valid(G.scene)) return;
   cw_node post = find_type(G.scene, "PostProcess");
 
-  if (cw_node_valid(G.sun)) cw_node_set(G.sun, "shadow_size", cw_val_int(2048));
+  if (cw_node_valid(G.sun)) {
+    cw_node_set(G.sun, "shadow_size", cw_val_int(2048));
+    /* one view: cascades fitted to its camera, crisp shadows near and far.
+     * Split screen keeps the one shadow box round every human (sun_follow):
+     * the views share the scene, and cascades fitted to each view would be
+     * redrawn once per view */
+    bool cascades = G.nviews < 2 && G.sun_cascades > 0;
+    cw_node_set(G.sun, "shadow_cascades", cw_val_int(cascades ? G.sun_cascades : 0));
+    /* a cascade's camera stands 200 m up the light from its slice (r186's
+     * lightMargin): its depth range has to reach past that */
+    cw_node_set(G.sun, "shadow_far", cw_val_float(cascades ? 420 : G.sun_far));
+  }
+  scenery_flood_quality();
 }
+static void sound_apply(void);
 static void quality_changed(cw_quality q, void *u) {
   (void)q, (void)u;
   apply_quality();
+  sound_apply();
 }
 
 static void perf_frame(double render_t0) {
@@ -237,6 +262,8 @@ static void perf_frame(double render_t0) {
   PERF.fixed_acc = 0;
   PERF.steps = 0;
 }
+
+static struct { int32_t clustered, shadowed, cascades; } LIT; /* debug: the last frame's lighting */
 
 /* ── autopilot: a gate's pad script compiled in ───────────────────── */
 
@@ -312,6 +339,15 @@ static void music(int which) {
   A.music = cw_audio_play(s, &(cw_play_desc){ .loop = true, .fade_in = 1.0f, .bus = A.music_bus });
 }
 
+/* the player's output from the pause screen: headphones filter the nearest
+ * spatial voices with the HRTF (a hit behind you is heard behind you),
+ * speakers pan them. The HRTF's voice limit follows effects detail. */
+static void sound_apply(void) {
+  if (!A.on) return;
+  cw_audio_set_hrtf_voice_limit(cw_quality_count(16, "hrtf_voices"));
+  cw_audio_set_output(SAVE.sound ? CW_AUDIO_HEADPHONES : CW_AUDIO_SPEAKERS);
+}
+
 static void audio_init(void) {
   /* dev aid: PUG_AUDIO_WAV=file renders the mix offline, one frame of
    * samples per rendered frame, into a WAV (deterministic runs: checking the
@@ -337,6 +373,7 @@ static void audio_init(void) {
     A.sfx_res[i] = cw_res_load(SFX_FILES[i], 0);
     A.sfx[i] = cw_res_audio_sound(A.sfx_res[i], &(cw_sound_desc){ .mode = CW_SOUND_SAMPLE, .max_voices = 4, .bus = A.sfx_bus });
   }
+  sound_apply();
 }
 
 static void crowd_bed(bool on) {
@@ -533,8 +570,19 @@ static void load_scene(int index) {
   G.sun = cw_node_get(G.scene, "Sun");
   cw_value ext = { 0 };
   G.sun_extent = G.sun_extent_set = cw_node_valid(G.sun) && cw_node_get_prop(G.sun, "shadow_extent", &ext) ? (float)ext.f : 28;
+  G.sun_cascades = cw_node_valid(G.sun) && cw_node_get_prop(G.sun, "shadow_cascades", &ext) ? (int)ext.i : 0;
+  G.sun_far = cw_node_valid(G.sun) && cw_node_get_prop(G.sun, "shadow_far", &ext) ? (float)ext.f : 140;
   G.stadium = index;
   G.cam_snap = true;
+}
+
+/* how dark the stadium's sky is (its ProceduralSky's hour): 1 at night, when
+ * the floodlights carry the pitch; 0 by day */
+static float night(void) {
+  cw_node sky = find_type(G.scene, "ProceduralSky");
+  cw_value h = { 0 };
+  if (!cw_node_valid(sky) || !cw_node_get_prop(sky, "time_of_day", &h)) return 0;
+  return h.f >= 19.5 || h.f < 5.5 ? 1 : 0;
 }
 
 static int sheet_pad[MAXP]; /* the team sheet's pads, kept through a Cup fixture */
@@ -668,6 +716,7 @@ static void start_match(int stadium) {
   fx_init(G.scene, theme);
   for (int i = 0; i < MAXP; i++) fx_set_trail(i, G.look[i].trail);
   scenery_build(G.scene, theme, G.info ? (uint32_t)G.info->seed : 1u);
+  scenery_floodlights(night());
   G.state = GS_MATCH;
   G.state_ticks = 0;
   G.mvp = -1;
@@ -686,6 +735,7 @@ static void enter_title(void) {
   world_build(G.scene, &G.S, TH_PARK, looks);
   fx_init(G.scene, TH_PARK);
   scenery_build(G.scene, TH_PARK, 7);
+  apply_quality(); /* the sun's cascades */
   G.state = GS_TITLE;
   G.state_ticks = 0;
   music(TH_KINDS);
@@ -875,6 +925,10 @@ static void init(void *u) {
   cw_debug_i32("match.winner", &G.winner);
   cw_debug_i32("match.mvp", &G.mvp);
   cw_debug_i32("match.replays", &RP.count);
+  /* the lighting the last frame drew (render side, not gate fields) */
+  cw_debug_i32("light.clustered", &LIT.clustered);
+  cw_debug_i32("light.shadowed", &LIT.shadowed);
+  cw_debug_i32("light.cascades", &LIT.cascades);
   cw_debug_field("ball.pos", G.ball_pos, CW_DBG_I32, 3);
   cw_debug_field("players.pos", G.pos, CW_DBG_I32, MAXP * 3);
   cw_debug_field("players.slot", G.slots, CW_DBG_I32, MAXP);
@@ -1758,7 +1812,9 @@ static void fixed_body(void) {
     start_match(a);
   }
   if (G.state == GS_REPLAY) {
+    net_time_scale(REPLAY_SPEED); /* the nets in slow motion too */
     world_tick(&RP.view);
+    net_time_scale(1);
     fx_tick(&RP.view);
     fx_events(&RP.view);
     scenery_tick(&RP.view, G.ticks, 0);
@@ -1802,6 +1858,9 @@ static void update(void *u, double dt) {
   (void)dt;
   render_t0 = wall_ms();
   gfx_input();
+  cw_lighting_stats ls;
+  cw_lighting_get_stats(cw_scene_app_tree(), &ls);
+  LIT.clustered = ls.clustered, LIT.shadowed = ls.shadowed, LIT.cascades = ls.cascades;
   if (!A.on) return;
   /* a listener per view (split screen: each spatial sound heard from the nearest pug's camera) */
   const cw_view *vs = NULL;
@@ -2505,6 +2564,23 @@ static cw_rect gfx_rect(float W, float H) {
   float s = H / 540.0f;
   return cw_rect_make(W * 0.5f - 170 * s, H * 0.5f, 340 * s, 46 * s);
 }
+/* the sound row under it: X, H or a tap switches speakers / headphones */
+static cw_rect sound_rect(float W, float H) {
+  float s = H / 540.0f;
+  return cw_rect_make(W * 0.5f - 130 * s, H * 0.5f + 76 * s, 260 * s, 34 * s);
+}
+static void sound_input(void) {
+  const cw_raw_input *in = cw_input_raw();
+  bool hit = in->keys_pressed[11]; /* H */
+  for (int i = 0; i < CW_MAX_PADS; i++) hit |= (in->pads[i].pressed & (1u << CW_PAD_WEST)) != 0;
+  cw_vec2 cs = cw_r2d_canvas_size();
+  if ((in->mouse_pressed & 1) && in_rect(mouse_canvas(), sound_rect(cs.x, cs.y))) hit = true;
+  if (!hit) return;
+  SAVE.sound ^= 1;
+  sound_apply();
+  save_write();
+  sfx(SFX_SELECT, 0.6f);
+}
 static void gfx_input(void) {
   if (G.state != GS_PAUSE) {
     cw_quality_menu_close();
@@ -2519,6 +2595,7 @@ static void gfx_input(void) {
     return;
   }
   if (G.state_ticks < 5) return;
+  sound_input();
   const cw_raw_input *in = cw_input_raw();
   bool hit = in->keys_pressed[10]; /* G */
   for (int i = 0; i < CW_MAX_PADS; i++) hit |= (in->pads[i].pressed & (1u << CW_PAD_NORTH)) != 0;
@@ -2563,6 +2640,11 @@ static void draw_pause(float W, float H, float s) {
     bold(ITEMS[i], r.x, r.y + 12 * s, 26 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, r.w);
   }
   draw_gfx(W, H, s);
+  cw_rect r = sound_rect(W, H);
+  panel(r, 1, rgba(1, 1, 1, 0.45f), rgba(0.12f, 0.1f, 0.28f, 0.75f));
+  bold(SAVE.sound ? "SOUND: HEADPHONES" : "SOUND: SPEAKERS", r.x, r.y + 7 * s, 18 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, r.w);
+  bold(last_device == DEV_TOUCH ? "tap to switch" : "X / H to switch", r.x, r.y + r.h + 4 * s, 13 * s, rgba(1, 1, 1, 0.6f),
+       CW_ALIGN_CENTER, r.w);
 }
 
 static void render(void *u, double alpha) {
