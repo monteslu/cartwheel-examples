@@ -17,7 +17,17 @@
  *             while it smoulders, a flash on a big hit or a wreck
  *   haze      with volumetric fog (fx_volumetric): low dust over the
  *             whole bowl, and a pall of smoke over each smoking car that
- *             the floodlights' beams and the fires light from inside */
+ *             the floodlights' beams and the fires light from inside
+ *
+ * Scorches are screen-space decals in a box only 0.9 m deep round the dirt,
+ * so a car parked on one darkens no more than its tyres. Mesh decals
+ * (Decal3D mode MESH) do not fit here: a mesh decal skips any source whose
+ * material carries a three.c extension, and clustered lighting gives every
+ * lit material one (the dirt and the car bodies included); cut from an
+ * unlit stand-in of the dirt instead, the scorch drew faint and faceted.
+ * The cars' own scrapes stay their deformable paint (cars.c tears it to
+ * bare steel round every dent): a decal stamped on a body would not follow
+ * the dents that land after it. */
 #include <stdio.h>
 #include <string.h>
 
@@ -218,17 +228,26 @@ static void flash(t3_vec3 at, float energy) {
   FX.flash_e[i] = energy;
 }
 
+/* a burn scar on the dirt where the car went up: one of four in the sheet
+ * (tools/make-decals.mjs) */
 static void scorch(t3_vec3 at, float rot) {
-  int i = FX.scorch_i++ % SCORCHES;
+  int k = FX.scorch_i++, i = k % SCORCHES;
   if (!cw_node_valid(FX.scorch[i])) {
     FX.scorch[i] = cw_node_new("Decal3D", "Scorch");
     cw_node_add_child(FX.root, FX.scorch[i]);
+    cw_node_set(FX.scorch[i], "texture", cw_val_string("decals/scorch.png"));
     cw_node_set(FX.scorch[i], "blend", cw_val_enum("MULTIPLY"));
-    cw_node_set(FX.scorch[i], "color", cw_val_color(0.1f, 0.08f, 0.07f, 0.9f));
-    cw_node_set(FX.scorch[i], "size", cw_val_vec3(5.5f, 5.5f, 2.4f));
-    cw_node_set(FX.scorch[i], "normal_fade", cw_val_float(0.3f));
+    cw_node_set(FX.scorch[i], "color", cw_val_color(1, 1, 1, 0.95f));
+    cw_node_set(FX.scorch[i], "size", cw_val_vec3(6.5f, 7.5f, 0.9f));
+    cw_node_set(FX.scorch[i], "normal_fade", cw_val_float(0.5f)); /* (not up the tyres' sides) */
   }
-  cw_node3d_set_position(FX.scorch[i], (t3_vec3){ at.x, 0.5f, at.z });
+  int v = k & 3;
+  {
+    cw_value r = { CW_T_VEC4 };
+    r.v[0] = (float)(v & 1) * 256, r.v[1] = (float)(v >> 1) * 256, r.v[2] = r.v[3] = 256;
+    cw_node_set(FX.scorch[i], "region", r);
+  }
+  cw_node3d_set_position(FX.scorch[i], (t3_vec3){ at.x, 0.05f, at.z });
   cw_node3d_set_rotation(FX.scorch[i], (t3_vec3){ -1.5707963f, 0, rot });
 }
 

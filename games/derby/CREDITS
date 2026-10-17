@@ -2,7 +2,8 @@ derby: credits
 
 Everything in this game is original and made by its own tools (textures in
 textures.c, scenes by tools/make-arenas.mjs, grades by tools/make-grade.mjs,
-sound and music by tools/make-audio.mjs), except the fonts:
+the scorch decals by tools/make-decals.mjs, sound and music by
+tools/make-audio.mjs), except the fonts:
 
   Black Ops One   Copyright 2022 The Black-Ops Project Authors   SIL Open Font License 1.1 (assets/fonts/BlackOpsOne-OFL.txt)
   Russo One       Copyright (c) 2011-2012 Jovanny Lemonad         SIL Open Font License 1.1 (assets/fonts/RussoOne-OFL.txt)
