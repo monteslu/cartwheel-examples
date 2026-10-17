@@ -4,7 +4,12 @@
  *
  *   the spout   a faceted paper tube (flat folds), collars every 3 m, bracket
  *               straps at the checkpoints with paper stays back to the house,
- *               paper wraps that darken and gloss while wet
+ *               paper wraps that darken and gloss while wet, the loose end of
+ *               each one peeled off the pipe and lifting in the wind: a
+ *               small stiff Cloth3D sheet (cartwheel/cloth.h) pinned where
+ *               the glue holds, gusting with the rain, patted by drops,
+ *               drooping heavier as it soaks, and drawn on twelves with the
+ *               spider in stop-motion
  *   the spider  a folded-card body, eight two-part paper legs that step with
  *               the distance walked (optionally on twelves, like stop-motion),
  *               googly eyes whose pupils hang toward the ground
@@ -16,6 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cartwheel/cloth.h"
 #include "game.h"
 
 #define RAIN_N 360
@@ -170,6 +176,13 @@ static struct {
   /* pipe and weather */
   t3_mesh *patches[MAX_PATCHES];
   t3_material *patch_mat[MAX_PATCHES];
+  /* the wraps' loose ends: cloth beside a world holding only the pipe */
+  cw_world3d air;
+  cw_cloth flap[MAX_PATCHES * 2];        /* wrap i: 2i its th1 end, 2i + 1 its th0 end */
+  t3_geometry *flap_geo[MAX_PATCHES * 2];
+  t3_material *flap_mat[MAX_PATCHES * 2];
+  float flap_acc;
+  int flap_steps, flap_drawn;
   t3_mesh *streams[MAX_STREAMS];
   t3_material *stream_mat;
   t3_texture *stream_tex[1];
@@ -300,6 +313,83 @@ static const theme THEMES[THEME_COUNT] = {
 static const theme *T_;
 float world_pipe_tint[3];
 
+/* the paper wraps' loose ends: past each end of a paper wrap (th0, th1) the
+ * last 0.24 m of the sheet never took the glue, a flap from the wrap's top
+ * down most of its height, pinned along the glued edge and free elsewhere.
+ * Paper, not fabric: light, stiff across its folds (a coarse grid, flat
+ * shaded, so it bends at a few creases like card), and it keeps off the
+ * pipe (a capsule in its own small world). Moss wraps stay put. */
+#define FLAP_U 4
+#define FLAP_V 5
+static void build_flaps(t3_object *root, const level_def *L) {
+  cw_world3d_def wd = cw_world3d_default_def();
+  wd.workers = 1;
+  W.air = cw_world3d_create(&wd);
+  cw_body3d_def bd = cw_body3d_default_def();
+  bd.type = CW_BODY_STATIC;
+  cw_body3d pipe = cw_body3d_create(W.air, &bd);
+  cw_shape3d_def sd = cw_shape3d_default_def();
+  cw_shape3d_capsule(pipe, &sd, (t3_vec3){ 0, -0.2f, 0 }, (t3_vec3){ 0, L->height + 0.2f, 0 }, PIPE_R + 0.014f);
+  float inv[FLAP_U * FLAP_V];
+  for (int k = 0; k < FLAP_U * FLAP_V; k++) inv[k] = k % FLAP_U ? 1.0f : 0.0f;
+  for (int i = 0; i < L->n_patches; i++) {
+    const patch *p = &L->patches[i];
+    if (!p->dries) continue;
+    for (int e = 0; e < 2; e++) {
+      int fi = i * 2 + e;
+      float th = e ? p->th0 : p->th1, dir = e ? -1.0f : 1.0f, hgt = (p->y1 - p->y0) * 0.8f, wid = 0.24f * dir, s, c;
+      cw_sincos(th, &s, &c);
+      cw_cloth_def d = cw_cloth_default_def();
+      d.inv_mass = inv;
+      d.mass = 0.02f;            /* a scrap of paper */
+      d.bend_compliance = 2e-5f; /* stiff as card */
+      d.damping = 0.5f;
+      d.thickness = 0.012f;
+      d.friction = 0.6f;
+      d.quality_scaled = true;
+      d.workers = 1;
+      t3_vec3 o = on_cyl(PIPE_R + 0.016f, th, p->y1);
+      W.flap[fi] = cw_cloth_create_grid(W.air, &d, FLAP_U, FLAP_V, o, (t3_vec3){ c * wid, 0, -s * wid }, (t3_vec3){ 0, -hgt, 0 });
+      if (!cw_cloth_valid(W.flap[fi])) continue;
+      t3_material *m = t3_mesh_physical_material_new(0xffffff);
+      paper_apply(m, PAPER_WHITE, 0.24f / 0.4f, hgt / 0.4f);
+      m->color = W.patch_mat[i]->color;
+      m->roughness = 1;
+      m->side = T3_DOUBLE_SIDE;
+      m->flat_shading = true;
+      W.flap_mat[fi] = m;
+      W.flap_geo[fi] = cw_cloth_geometry_new(W.flap[fi]);
+      t3_mesh *me = add_mesh(root, W.flap_geo[fi], m, true, true);
+      T3_OBJ(me)->frustum_culled = false;
+    }
+  }
+}
+
+/* one fixed step of the flaps: gusts with the rain, drops patting the paper */
+static void flaps_step(float rain, float wet) {
+  float gust = 0.5f + 0.5f * cw_sin(W.flap_steps * 0.05f) * cw_sin(W.flap_steps * 0.013f + 1);
+  float v = 0.8f + 6.5f * rain * gust; /* a breeze; gusts in the rain */
+  for (int i = 0; i < MAX_PATCHES * 2; i++) {
+    if (!cw_cloth_valid(W.flap[i])) continue;
+    /* the air streams round the pipe: past a wrap's loose end it runs on
+     * along the sheet and off the surface, lifting it like a flag */
+    const patch *p = &W.L->patches[i / 2];
+    float s, c, dir = i & 1 ? -1.0f : 1.0f;
+    cw_sincos(i & 1 ? p->th0 : p->th1, &s, &c);
+    t3_vec3 wind = { v * (dir * c + 0.5f * s), 0.15f * v, v * (-dir * s + 0.5f * c) };
+    cw_cloth_set_wind(W.flap[i], wind, 1, 0.3f, 0.8f);
+    cw_cloth_set_gravity_scale(W.flap[i], 1 + 1.5f * wet); /* soaked paper hangs heavier */
+    uint32_t h = (uint32_t)(W.flap_steps * 31 + i) * 2654435761u;
+    if (rain > 0.3f && (h >> 28) < 3) { /* a raindrop lands on it */
+      int n = 0;
+      const t3_vec3 *pp = cw_cloth_positions(W.flap[i], &n);
+      if (n) cw_cloth_impulse(W.flap[i], pp[(h >> 8) % (uint32_t)n], 0.1f, (t3_vec3){ 0, -0.9f * rain, 0 });
+    }
+    cw_cloth_step(W.flap[i], 1 / 60.0f);
+  }
+  W.flap_steps++;
+}
+
 static void build_pipe(t3_object *root, const level_def *L) {
   float H = L->height;
   /* the tube: cardstock folded into 14 flat panels */
@@ -360,6 +450,7 @@ static void build_pipe(t3_object *root, const level_def *L) {
     W.patch_mat[i] = pm;
     t3_release(pm);
   }
+  build_flaps(root, L);
   /* the gutter and the roof eave at the top, a water butt at the foot */
   mb bg = { 0 };
   mb_box(&bg, (t3_vec3){ -6, H + 0.35f, 0 }, (t3_vec3){ 7.8f, 0.22f, 0.32f }, 1);
@@ -929,6 +1020,9 @@ void world_build(cw_node root, const level_def *L, int title) {
 
 void world_free(void) {
   if (cw_node_valid(W.node)) cw_node_free(W.node);
+  for (int i = 0; i < MAX_PATCHES * 2; i++)
+    if (W.flap_mat[i]) t3_release(W.flap_mat[i]);
+  if (!CW_HANDLE_IS_NULL(W.air)) cw_world3d_destroy(W.air); /* its cloths with it */
   if (W.stream_mat) t3_release(W.stream_mat);
   if (W.wave_mat) t3_release(W.wave_mat);
   if (W.rain_mat) t3_release(W.rain_mat);
@@ -1031,6 +1125,28 @@ void world_sync(const sim *prev, const sim *cur, float alpha, float t, bool stop
     m->color = (t3_color){ dry.r + (soak.r - dry.r) * w, dry.g + (soak.g - dry.g) * w, dry.b + (soak.b - dry.b) * w };
     m->roughness = 1 - 0.7f * w;
     m->clearcoat = w * 0.8f;
+    for (int e = 0; e < 2; e++) {
+      t3_material *fm = W.flap_mat[i * 2 + e];
+      if (!fm) continue;
+      fm->color = m->color;
+      fm->roughness = 1 - 0.4f * w; /* a loose sheet sheds the water: damp, never glazed */
+    }
+  }
+  /* the loose ends: fixed 60 Hz steps; in stop-motion the sheets are posed
+   * on twelves (every fifth step), as the spider's legs are */
+  if (!CW_HANDLE_IS_NULL(W.air)) {
+    W.flap_acc += dt;
+    for (int n = 0; W.flap_acc >= 1 / 60.0f - 1e-5f && n < 4; n++) {
+      W.flap_acc -= 1 / 60.0f;
+      flaps_step(W.rain_amount, wet);
+    }
+    if (W.flap_acc > 1 / 60.0f) W.flap_acc = 0;
+    bool pose = !stop || W.flap_steps / 5 != W.flap_drawn;
+    if (pose) {
+      W.flap_drawn = W.flap_steps / 5;
+      for (int i = 0; i < MAX_PATCHES * 2; i++)
+        if (W.flap_geo[i]) cw_cloth_update_geometry(W.flap[i], W.flap_geo[i], stop ? 1 : W.flap_acc * 60);
+    }
   }
   /* streams, scrolling down */
   W.stream_mat->opacity = 0.55f * W.rain_amount;
