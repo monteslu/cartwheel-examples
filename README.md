@@ -54,9 +54,11 @@ fortress deck of worn, rusted plating; shields soak most of each hit, the
 hull takes the rest, and every enemy that gets past costs a ship. Three
 guns, power-ups for shields, repairs and ammunition, a self-destruct that
 sets off a super bomb, and two command craft at the end of the levels. The
-chrome reflects a live probe of the deck and the explosions (three.c's
-PMREMGenerator.fromScene, refreshed every other frame). Mouse, keyboard, pad
-or touch. `games/chromite/`
+chrome reflects the deck sliding by below and the explosions beside it: a
+ReflectionProbe3D captures a stand-in of the deck every other frame. Every
+blast is a light of its own and every deck lamp lights the plating round it,
+through clustered lighting, so a chain of explosions lights up the fortress.
+Mouse, keyboard, pad or touch. `games/chromite/`
 
 ### derby
 
