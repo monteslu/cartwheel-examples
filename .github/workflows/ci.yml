@@ -151,6 +151,8 @@ jobs:
           mkdir -p out/release
           find out/export -maxdepth 2 -type f \( -name '*.tar.gz' -o -name '*.AppImage' -o -name '*.zip' -o -name '*.apk' \) -exec cp {} out/release/ \;
           ls -l out/release
+          # every game in GAMES must have packaged (a game without a project.cwproj exported nothing and nothing failed)
+          for g in $GAMES; do ls out/release/$g-* >/dev/null 2>&1 || { echo "$g: no package for $preset" >&2; exit 1; }; done
       - uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.target }}
