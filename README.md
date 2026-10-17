@@ -48,7 +48,7 @@ the same game. `games/bomberdude/` (its
 ![Chromite: the ship takes a hit on its shields while firing up over the rusted fortress deck](docs/screenshots/chromite.jpg)
 
 A vertical shooter after Chromium B.S.U. (2000): its rules, enemy
-behaviours and wave scripts re-implemented on a fixed tick, its craft, logo
+behaviours and wave scripts re-implemented, its craft, logo
 and instruments rebuilt in 3D. Fly a chrome cargo ship up over a scrolling
 fortress deck of worn, rusted plating; shields soak most of each hit, the
 hull takes the rest, and every enemy that gets past costs a ship. Three
