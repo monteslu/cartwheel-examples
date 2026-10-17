@@ -10,6 +10,12 @@
  *   crates    splinter into instanced planks that tumble and bounce (CPU,
  *             fixed tick, cartwheel math), with a dust puff
  *   decals    scorch marks under every blast (Decal3D), fading slowly
+ *   firelight the scene shades its omni lights through clusters
+ *             (cartwheel/lighting.h), so every burning tile carries a short
+ *             lived light of its own that swells and dies with its flame
+ *             and lights the floor, walls and critters round it; effects
+ *             detail Low and Medium light every other tile of an arm,
+ *             brighter, High and Ultra every tile
  *   other     sparkles on pick-ups, a bubble's pop, knockout stars and fur,
  *             teleport glints, dust where sudden-death walls land; camera
  *             shake on booms
@@ -20,6 +26,7 @@
 #include "cartwheel/decals.h"
 #include "cartwheel/math.h"
 #include "cartwheel/particles.h"
+#include "cartwheel/quality.h"
 #include "world.h"
 
 #define BUNDLES 6
@@ -53,6 +60,8 @@ static struct {
   cw_node flash[3];
   int flash_age[3];
   int next_flash;
+  cw_node fire_light[MAXI]; /* the burning tiles' lights, the first fire_lit of them lit */
+  int fire_lit;
 } FX;
 
 static const t3_mat4 ZERO;
@@ -239,6 +248,21 @@ void fx_init(cw_node scene, int theme) {
     snprintf(name, sizeof name, "Flash%d", i);
     FX.flash[i] = cw_node_get(scene, name);
   }
+  /* clustered lighting (the scene's omni lights leave three.c's 8-a-kind
+   * list), its last slice at the far end of the scenery round the arena,
+   * and one dark light a tile for the fire (a dark light costs nothing) */
+  cw_node ls = cw_node_new("LightingSettings", "Lighting");
+  cw_node_add_child(FX.root, ls);
+  cw_node_set(ls, "mode", cw_val_enum("CLUSTERED"));
+  cw_node_set(ls, "cluster_far", cw_val_float(60));
+  for (int i = 0; i < MAXI; i++) {
+    cw_node l = FX.fire_light[i] = cw_node_new("OmniLight3D", "Firelight");
+    cw_node_add_child(FX.root, l);
+    cw_node3d_set_position(l, (t3_vec3){ 0, -50, 0 });
+    cw_node_set(l, "energy", cw_val_float(0));
+    cw_node_set(l, "range", cw_val_float(3.2f));
+    cw_node_set(l, "decay", cw_val_float(2));
+  }
   FX.ready = true;
 }
 
@@ -376,6 +400,31 @@ void fx_tick(const sim *s) {
       t3_instanced_mesh_set_matrix_at(FX.core, nfire++, &m);
     }
   FX.flame->count = FX.core->count = nfire;
+  /* firelight: a light over each burning tile (every other one on Low and
+   * Medium effects, half again as bright), hot yellow while the flame is
+   * young, reddening as it dies, flickering with it */
+  {
+    bool half = cw_gfx_get(CW_GFX_EFFECTS) < CW_QUALITY_HIGH;
+    int lit = 0;
+    for (int y = 0; y < GH; y++)
+      for (int x = 0; x < GW; x++) {
+        int f = s->fire[y][x];
+        if (f <= 0) continue;
+        int sh = s->fire_shape[y][x];
+        if (half && !(sh & 1) && ((x + y) & 1)) continue;
+        int age = 36 - f;
+        float grow = cw_clampf(age / 3.0f, 0, 1), fade = f < 14 ? f / 14.0f : 1;
+        float flick = 0.85f + 0.15f * cw_sin(t * 1.3f + x * 2.1f + y * 1.3f);
+        float e = (sh & 1 ? 16.0f : 10.0f) * grow * fade * fade * flick * (half ? 1.5f : 1);
+        float cool = cw_clampf(age / 30.0f, 0, 1);
+        cw_node l = FX.fire_light[lit++];
+        cw_node3d_set_position(l, (t3_vec3){ tx_w(x), 0.6f, tz_w(y) });
+        cw_node_set(l, "energy", cw_val_float(e));
+        cw_node_set(l, "color", cw_val_color(1, 0.52f - 0.27f * cool, 0.2f - 0.15f * cool, 1));
+      }
+    for (int i = lit; i < FX.fire_lit; i++) cw_node_set(FX.fire_light[i], "energy", cw_val_float(0));
+    FX.fire_lit = lit;
+  }
   if (nfire) {
     FX.flame->instance_matrix->version++;
     FX.core->instance_matrix->version++;
