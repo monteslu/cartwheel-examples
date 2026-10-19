@@ -1,9 +1,13 @@
-// Writes derby's decal sheet (assets/decals/scorch.png): four burn scars
+// Writes derby's decal sheets. assets/decals/scorch.png: four burn scars
 // in a 2 x 2 sheet of 256 px cells, drawn as MULTIPLY decals on the dirt
 // under a wreck. Each is a charred core with a torn, irregular edge, soot
 // streaks blown out from it, a browned ring where the heat cooked the dirt
 // and unburnt clods left in it. RGB is what the dirt is multiplied by (sRGB),
-// alpha how much.
+// alpha how much. assets/decals/body.png: what a hit and a fire leave on a
+// car's panels, also 2 x 2 cells of 256 px: two scrapes (top row: gouges
+// through the paint to bare steel and primer, smeared rubber; drawn MIX, lit
+// like the paint) and two soot blooms (bottom row: drawn MULTIPLY, scorched
+// paint round a fire).
 //
 //   node games/derby/tools/make-decals.mjs
 import { writeFileSync, mkdirSync } from 'node:fs';
@@ -95,6 +99,7 @@ const chunk = (type, data) => {
   out.writeUInt32BE(crc(out.subarray(4, 8 + data.length)), 8 + data.length);
   return out;
 };
+const writePng = (name, px) => {
 const raw = Buffer.alloc(N * (N * 4 + 1));
 for (let y = 0; y < N; y++) Buffer.from(px.buffer, y * N * 4, N * 4).copy(raw, y * (N * 4 + 1) + 1);
 const ihdr = Buffer.alloc(13);
@@ -103,5 +108,61 @@ ihdr.writeUInt32BE(N, 4);
 ihdr[8] = 8, ihdr[9] = 6;
 const png = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr),
   chunk('IDAT', deflateSync(raw, { level: 9 })), chunk('IEND', Buffer.alloc(0))]);
-writeFileSync(join(D, 'scorch.png'), png);
-console.log('wrote', join(D, 'scorch.png'), png.length, 'bytes');
+writeFileSync(join(D, name), png);
+console.log('wrote', join(D, name), png.length, 'bytes');
+};
+writePng('scorch.png', px);
+
+// ── body.png ────────────────────────────────────────────────────────
+const bp = new Uint8Array(N * N * 4);
+const put = (ox, oy, x, y, R, G, B, A) => {
+  const i = ((oy + y) * N + ox + x) * 4;
+  bp[i] = Math.round(clamp(R) * 255), bp[i + 1] = Math.round(clamp(G) * 255);
+  bp[i + 2] = Math.round(clamp(B) * 255), bp[i + 3] = Math.round(clamp(A) * 255);
+};
+// scrapes: gouges along the cell's x, the direction of the slide
+for (let cell = 0; cell < 2; cell++) {
+  const ox = cell * C, seed = 301 + cell * 53;
+  for (let y = 0; y < C; y++)
+    for (let x = 0; x < C; x++) {
+      const u = (x + 0.5) / C * 2 - 1, v = (y + 0.5) / C * 2 - 1;
+      // the scraped band: wide in the middle, tapering to the ends, a torn edge
+      const half = 0.42 * (1 - Math.pow(Math.abs(u), 2.2)) * (0.75 + 0.5 * fbm(u * 2.5, 3, seed, 3));
+      const band = clamp((half - Math.abs(v)) / 0.06 + 0.5);
+      // gouges: thin lines along the slide, each its own depth
+      const line = fbm(v * 70, u * 0.25, seed + 1, 2);
+      const gouge = clamp((line - 0.5) / 0.07);
+      const grain = fbm(u * 14, v * 14, seed + 2, 4);
+      // through the paint: primer where shallow, bright steel in the gouges
+      const steel = 0.62 + 0.18 * grain, primer = 0.36 + 0.08 * grain;
+      const t = clamp(gouge * 1.2);
+      let R = mix(primer * 1.05, steel, t), G = mix(primer, steel, t), B = mix(primer * 0.92, steel * 1.02, t);
+      // black rubber smeared off the other car, in streaks
+      const rub = clamp((fbm(u * 2, v * 12, seed + 3, 4) - 0.64) / 0.12) * 0.7;
+      R = mix(R, 0.05, rub), G = mix(G, 0.05, rub), B = mix(B, 0.05, rub);
+      let a = band * (0.55 + 0.45 * Math.max(t, rub)) * (0.7 + 0.3 * grain);
+      if (hash(x, y, seed + 9) > 0.97) a *= 0.3;
+      a *= clamp((0.97 - Math.abs(u)) / 0.1) * clamp((0.97 - Math.abs(v)) / 0.1);
+      put(ox, 0, x, y, R, G, B, a);
+    }
+}
+// soot: a scorched bloom, darkest at its heart, licked upward (the cell's -y)
+for (let cell = 0; cell < 2; cell++) {
+  const ox = cell * C, seed = 509 + cell * 71;
+  for (let y = 0; y < C; y++)
+    for (let x = 0; x < C; x++) {
+      const u = (x + 0.5) / C * 2 - 1, v = (y + 0.5) / C * 2 - 1;
+      const vv = v + 0.25 * (1 - u * u); // flames lick up the panel
+      const r = Math.hypot(u * 1.1, vv), ang = Math.atan2(vv, u);
+      const edge = 0.55 + 0.25 * (ring(ang, 2, seed) - 0.5) * 2;
+      const grain = fbm(u * 8, v * 8, seed + 2, 4), fine = fbm(u * 30, v * 30, seed + 3, 3);
+      let a = Math.pow(clamp((edge - r) / edge), 0.8) * (0.6 + 0.4 * grain);
+      if (fine > 0.78) a *= 0.6; // blistered flecks
+      a *= clamp((0.97 - Math.abs(u)) / 0.1) * clamp((0.97 - Math.abs(v)) / 0.1);
+      // MULTIPLY: what the paint is multiplied by; cooked brown at the rim
+      const t = clamp(r / edge);
+      const ch = mix(0.06, 0.14, grain);
+      put(ox, C, x, y, mix(ch, 0.45, t * t), mix(ch * 0.95, 0.36, t * t), mix(ch * 0.9, 0.28, t * t), a);
+    }
+}
+writePng('body.png', bp);

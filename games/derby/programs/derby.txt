@@ -52,3 +52,5 @@ physical+instbig+senv+icol+l1001+xcluster
 physical+instbig+senv+l1001+xcluster
 physical+trans+senv+l1001+xcluster
 physical+map+trans+senv+ds+cc+l1001+xcluster
+standard+trans+senv+l1001+xcluster_meshdecal
+basic+trans+xmeshdecal

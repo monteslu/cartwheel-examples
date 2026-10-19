@@ -9,10 +9,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cartwheel/decals.h"
 #include "cartwheel/math.h"
+#include "cartwheel/quality.h"
 #include "world.h"
 
 #define SKIDS 2600 /* quads in the skid-mark ring */
+#define BODY_DECALS 8 /* scrapes a car keeps at most (fewer at lower effects detail) */
 
 static struct {
   bool ready;
@@ -27,6 +30,14 @@ static struct {
   int skid_next, skid_used;
   bool skid_live[MAXC][4];
   t3_vec3 skid_l[MAXC][4], skid_r[MAXC][4];
+  /* body decals (mesh decals on the car's panels): scrapes at its dents, soot
+   * where it burned; a decal near a dent that changes is clipped again */
+  cw_node scrape[MAXC][BODY_DECALS], soot[MAXC][2];
+  t3_vec3 scrape_at[MAXC][BODY_DECALS], soot_at[MAXC][2];
+  int scrape_dent[MAXC][BODY_DECALS]; /* the dent each scrape marks (-1: none) */
+  int scrape_next[MAXC], soots[MAXC];
+  dent dent_seen[MAXC][MAX_DENTS];
+  int ndent_seen[MAXC];
 } W;
 
 static cw_node hang(cw_node parent, const char *name, t3_object *obj) {
@@ -304,6 +315,110 @@ static void build_puddles(cw_node root) {
   add_mesh(root, "Puddles", mb_finish(&b), m, false, true);
 }
 
+/* ── body decals ────────────────────────────────────────────────────
+ * Mesh decals (Decal3D mode MESH) stamped on a car's own meshes, so they ride
+ * with it and are lit like its paint: a scrape (through the paint to primer
+ * and steel, smeared rubber) at each dent, soot on the bonnet when the engine
+ * starts to burn and over the front when it goes up. A mesh decal does not
+ * follow the surface once stamped, and the panels move when a dent changes:
+ * every decal within reach of a changed dent is clipped again
+ * (cw_decal_restamp). Render only: nothing here feeds the rules. */
+
+static int scrapes_cap(void) {
+  int fx = cw_gfx_get(CW_GFX_EFFECTS);
+  return fx <= CW_QUALITY_LOW ? 2 : fx == CW_QUALITY_MEDIUM ? 4 : BODY_DECALS;
+}
+
+/* a decal on car i's meshes: centre at (car frame), facing (-Z into the body) along -dir */
+static cw_node body_decal(int i, cw_node d, t3_vec3 at, t3_vec3 rot, t3_vec3 size, int cell, bool soot) {
+  if (!cw_node_valid(d)) {
+    d = cw_node_new("Decal3D", soot ? "Soot" : "Scrape");
+    cw_node_add_child(W.car_node[i], d);
+    cw_node_set(d, "mode", cw_val_enum("MESH"));
+    cw_node_set(d, "target", cw_val_string(".."));
+    cw_node_set(d, "texture", cw_val_string("decals/body.png"));
+    cw_node_set(d, "blend", cw_val_enum(soot ? "MULTIPLY" : "MIX"));
+    cw_node_set(d, "color", cw_val_color(1, 1, 1, soot ? 0.9f : 0.95f));
+    cw_node_set(d, "normal_fade", cw_val_float(0.45f));
+    cw_node_set(d, "edge_fade", cw_val_float(0.2f));
+    cw_node_set(d, "max_triangles", cw_val_int(2048));
+  }
+  cw_value r = { CW_T_VEC4 };
+  r.v[0] = (float)(cell & 1) * 256, r.v[1] = (float)(cell >> 1) * 256, r.v[2] = r.v[3] = 256;
+  cw_node_set(d, "region", r);
+  cw_node_set(d, "size", cw_val_vec3(size.x, size.y, size.z));
+  cw_node3d_set_position(d, at);
+  cw_node3d_set_rotation(d, rot);
+  return d;
+}
+
+/* a scrape over dent j of car i: on the panel, the slide along the car */
+static void scrape_dent(int i, int j, const dent *dn, const car_spec *k) {
+  int slot = -1;
+  for (int q = 0; q < BODY_DECALS; q++)
+    if (W.scrape_dent[i][q] == j && cw_node_valid(W.scrape[i][q])) slot = q;
+  if (slot < 0) {
+    int cap = scrapes_cap();
+    if (cap <= 0) return;
+    slot = W.scrape_next[i]++ % cap;
+  }
+  /* the panel's outward normal, as the dent pushes in (cars.c dent_vertex) */
+  float nx = dn->s / k->hw, nz = dn->f / k->hl, nl = sqrtf(nx * nx + nz * nz);
+  if (nl < 1e-3f) return;
+  nx /= nl, nz /= nl;
+  float reach = 0.4f + dn->depth * 2.4f;
+  t3_vec3 at = { dn->s + nx * 0.1f, cw_clampf(dn->y, 0.35f, k->belt_end + 0.2f), dn->f + nz * 0.1f }; /* the box reaches 0.4 m in: the deepest dent */
+  float yaw = cw_atan2(nx, nz), roll = ((j * 7 + i * 3) % 9 - 4) * 0.06f;
+  W.scrape[i][slot] = body_decal(i, W.scrape[i][slot], at, (t3_vec3){ 0, yaw, roll },
+                                 (t3_vec3){ reach * 1.7f, reach * 0.75f, 1.0f }, (j + i) & 1, false);
+  W.scrape_at[i][slot] = at;
+  W.scrape_dent[i][slot] = j;
+}
+
+/* soot on the bonnet (n 0, the engine burning) or over the front (n 1, a wreck) */
+static void soot_on(int i, int n, const car_spec *k) {
+  t3_vec3 at = { 0, k->belt_end + 0.15f, k->hl * (n ? 0.35f : 0.55f) };
+  float w = n ? k->hw * 2.4f : k->hw * 1.6f;
+  W.soot[i][n] = body_decal(i, W.soot[i][n], at, (t3_vec3){ -1.5707963f, 0, n ? 0.4f : -0.2f },
+                            (t3_vec3){ w, w * 1.1f, 0.8f }, 2 + ((i + n) & 1), true);
+  W.soot_at[i][n] = at;
+}
+
+static void body_decals_tick(int i, const car *c) {
+  const car_spec *k = &CAR_SPEC[c->kind];
+  /* the dents that changed since the decals were placed: mark them, then clip
+   * again every decal the panels round them moved under */
+  dent chg[2 * MAX_DENTS];
+  int nchg = 0;
+  for (int j = 0; j < c->ndent || j < W.ndent_seen[i]; j++) {
+    bool have_was = j < W.ndent_seen[i], have_now = j < c->ndent;
+    if (have_was && have_now && !memcmp(&W.dent_seen[i][j], &c->dents[j], sizeof(dent))) continue;
+    if (have_was) chg[nchg++] = W.dent_seen[i][j];
+    if (have_now) {
+      chg[nchg++] = c->dents[j];
+      if (c->dents[j].depth > 0.03f) scrape_dent(i, j, &c->dents[j], k);
+    }
+  }
+  if (nchg) {
+    memcpy(W.dent_seen[i], c->dents, sizeof(dent) * (size_t)c->ndent);
+    W.ndent_seen[i] = c->ndent;
+    for (int q = 0; q < BODY_DECALS + 2; q++) {
+      cw_node d = q < BODY_DECALS ? W.scrape[i][q] : W.soot[i][q - BODY_DECALS];
+      t3_vec3 p = q < BODY_DECALS ? W.scrape_at[i][q] : W.soot_at[i][q - BODY_DECALS];
+      if (!cw_node_valid(d)) continue;
+      for (int m = 0; m < nchg; m++) {
+        float dx = p.x - chg[m].s, dz = p.z - chg[m].f, r = 0.4f + chg[m].depth * 2.4f + 1.6f; /* the decal's half size too */
+        if (dx * dx + dz * dz < r * r) { cw_decal_restamp(d); break; }
+      }
+    }
+  }
+  if (W.soots[i] < 1 && !c->wrecked && c->hp < 30) soot_on(i, 0, k), W.soots[i] = 1;
+  if (W.soots[i] < 2 && c->wrecked) {
+    if (W.soots[i] < 1) soot_on(i, 0, k);
+    soot_on(i, 1, k), W.soots[i] = 2;
+  }
+}
+
 /* ── build, tick ────────────────────────────────────────────────────── */
 
 void world_reset(void) {
@@ -324,6 +439,8 @@ void world_prebuild_car(int i, int kind, const car_look *look) {
 void world_build(cw_node scene, const sim *s, int theme, const car_look looks[MAXC]) {
   world_reset();
   W.theme = theme;
+  for (int i = 0; i < MAXC; i++)
+    for (int q = 0; q < BODY_DECALS; q++) W.scrape_dent[i][q] = -1;
   W.root = cw_node_new("Node3D", "World");
   cw_node_add_child(scene, W.root);
   build_floor(W.root);
@@ -382,6 +499,7 @@ void world_tick(const sim *s) {
     cw_node3d_set_quaternion(n, c->q);
     if (dx * dx + dz * dz > 16) cw_node3d_snapshot(n); /* set down somewhere else: no sweep across */
     car_apply_dents(&W.car[i], c);
+    body_decals_tick(i, c);
     car_pose(&W.car[i], c, W.ticks);
   }
   skids_tick(s);
