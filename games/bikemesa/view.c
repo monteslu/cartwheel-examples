@@ -2412,7 +2412,9 @@ static void movers_frame(float alpha) {
 
 void view_frame(float alpha) {
   movers_frame(alpha);
-  forest_deer_frame(alpha);
+  deer_pose deer[DEER_CROSSINGS];
+  bike_deer_visual_poses(alpha,deer);
+  view_deer_poses(deer);
   flags_wave(1.0f / 60);
   pumpkins_frame(1.0f / 60);
   whimsy_tick();
@@ -2693,6 +2695,23 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
     "size_curve", "\"0 0.3, 0.3 1, 1 1.6\"", "blend", "ALPHA", "emitting", "false",
     "color_ramp", "\"0 0.82 0.66 0.5 0, 0.1 0.82 0.66 0.5 0.45, 1 0.8 0.68 0.55 0\"", NULL };
   dust = particles(parent, "Dust", dust_kv);
+  if(!strcmp(t->theme,"jungle")) {
+    static const char *const ember_kv[]={"amount","28","lifetime","1.7","preprocess","2",
+      "emission_shape","SPHERE","emission_radius","0.32","direction","vec3(0,1,0)",
+      "spread","27","speed_min","0.55","speed_max","1.65","gravity","vec3(0,0.15,0)",
+      "turbulence","0.6","turbulence_scale","0.4","size","0.075","size_random","0.6",
+      "blend","ADD","energy","2.2",
+      "color_ramp","\"0 1 0.4 0.08 0, 0.15 1 0.65 0.12 0.95, 0.75 1 0.3 0.04 0.6, 1 1 0.2 0.02 0\"",NULL};
+    cw_node embers=particles(parent,"Campfire embers",ember_kv);
+    cw_node3d_set_position(embers,(t3_vec3){208,bank_surface_y(208,-12,0)+.35f,-12});
+    static const char *const smoke_kv[]={"amount","22","lifetime","3.2","preprocess","3",
+      "emission_shape","SPHERE","emission_radius","0.25","direction","vec3(0,1,0)",
+      "spread","18","speed_min","0.35","speed_max","0.8","gravity","vec3(0,0.18,0)",
+      "turbulence","0.3","turbulence_scale","0.65","size","0.3","size_random","0.6",
+      "blend","ALPHA","color_ramp","\"0 0.15 0.15 0.14 0, 0.18 0.25 0.25 0.23 0.28, 1 0.35 0.35 0.34 0\"",NULL};
+    cw_node smoke=particles(parent,"Campfire smoke",smoke_kv);
+    cw_node3d_set_position(smoke,(t3_vec3){208,bank_surface_y(208,-12,0)+.5f,-12});
+  }
   if(!strcmp(t->theme,"desert")) {
     static const char *const smoke_kv[]={"amount","64","lifetime","6","preprocess","6",
       "emission_shape","SPHERE","emission_radius","0.32","direction","vec3(0.3,1,0)",

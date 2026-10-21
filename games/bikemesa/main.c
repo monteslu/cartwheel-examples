@@ -108,7 +108,7 @@ typedef struct rider_t {
   /* the wipeout replay: the ring of this rider's poses (ring_n recorded), the
    * crash's index in it, frames into the replay (0: none playing) */
   int ring_n, crash_rec, replay_t;
-  bool oof;
+  bool oof, deer_crash;
   int32_t finish_ticks, place; /* the race clock at the line; 1st, 2nd... (0: still riding) */
   int lane_from, lane_to, lane_t; /* a lane change under way: lane_t counts up to LANE_TICKS */
   int prev_ly;
@@ -163,6 +163,7 @@ static struct {
 
 /* the replay rings: each rider's every ride / crash tick's pose (presentation only) */
 static bike_pose ring[MAX_RIDERS][RING];
+static deer_pose deer_ring[MAX_RIDERS][RING][DEER_CROSSINGS];
 enum { SLOT_OUT, SLOT_RIDER, SLOT_BIKE, SLOT_READY };
 static int TOUCH_HOP = -1, TOUCH_PEDAL = -1, TOUCH_BRAKE = -1, TOUCH_STICK = -1, TOUCH_RESET = -1, TOUCH_PAUSE = -1, TOUCH_POSE[3] = { -1, -1, -1 };
 
@@ -910,6 +911,23 @@ static void replay_pose(int i, float f, bike_pose *out) {
   } else
     for (int k2 = 0; k2 < RAG_COUNT; k2++) out->limb[k2] = cw_xform2_lerp(a->limb[k2], b->limb[k2], t);
 }
+static void replay_deer(int i,float f,deer_pose out[DEER_CROSSINGS]) {
+  const rider_t *r=&RD[i];
+  int lo=CW_MAX(r->crash_rec-REPLAY_BEFORE,0),hi=r->ring_n-1;
+  float c=cw_clampf(f,(float)lo,(float)hi);
+  int k=(int)floorf(c);float t=c-k;
+  const deer_pose *a=deer_ring[i][k%RING],*b=deer_ring[i][(k+1<=hi?k+1:k)%RING];
+  for(int d=0;d<DEER_CROSSINGS;d++) {
+    out[d]=t<.5f?a[d]:b[d];
+    if(a[d].visible&&b[d].visible) {
+      out[d].p=(t3_vec3){a[d].p.x+(b[d].p.x-a[d].p.x)*t,
+        a[d].p.y+(b[d].p.y-a[d].p.y)*t,a[d].p.z+(b[d].p.z-a[d].p.z)*t};
+      out[d].roll=a[d].roll+(b[d].roll-a[d].roll)*t;
+      out[d].gait=a[d].gait+(b[d].gait-a[d].gait)*t;
+      out[d].wreck=a[d].wreck+(b[d].wreck-a[d].wreck)*t;
+    }
+  }
+}
 /* where the replay is: the run's tick, and how far through it is (0..1) */
 static float replay_tick(const rider_t *r, double alpha) {
   return (float)(r->crash_rec - REPLAY_BEFORE) + ((float)r->replay_t + (float)alpha) * REPLAY_SPEED;
@@ -919,7 +937,8 @@ static float replay_u(const rider_t *r, double alpha) {
 }
 /* a low dolly beside the tumble, a short orbit, then a quick push in on the
  * head at the worst moment */
-static void replay_camera(cw_node cam, const bike_pose *p, float u) {
+static void replay_camera(cw_node cam, const bike_pose *p, float u,
+                          const deer_pose deer[DEER_CROSSINGS],bool deer_crash) {
   if (!cw_node_valid(cam)) return;
   /* the torso and the head: in the crash world once the rider is off, else the riding pose at its depth */
   t3_vec3 c = p->ragdoll ? p->limb3[RAG_TORSO].p : (t3_vec3){ p->limb[RAG_TORSO].p.x, p->limb[RAG_TORSO].p.y, p->z };
@@ -928,6 +947,16 @@ static void replay_camera(cw_node cam, const bike_pose *p, float u) {
   float yaw = -0.7f + 1.3f * cw_smoothstep(0, 0.6f, u);
   float d = 3.6f - 1.3f * push;
   t3_vec3 at = { c.x + (h.x - c.x) * push, c.y + (h.y - c.y) * push, c.z + (h.z - c.z) * push };
+  if(deer_crash) {
+    for(int i=0;i<DEER_CROSSINGS;i++)if(deer[i].visible) {
+      /* Keep both participants in the shot throughout the slow motion. */
+      at.x=(at.x+deer[i].p.x)*.5f;
+      at.y=(at.y+deer[i].p.y+1.0f)*.5f;
+      at.z=(at.z+deer[i].p.z)*.5f;
+      d=fmaxf(11.0f,fabsf(c.x-deer[i].p.x)*1.65f+5.0f);
+      break;
+    }
+  }
   float sy, cy;
   cw_sincos(yaw, &sy, &cy);
   t3_vec3 eye = { at.x + sy * d, at.y + 0.25f - 0.15f * push, at.z + cy * d };
@@ -943,6 +972,15 @@ static void replay_camera(cw_node cam, const bike_pose *p, float u) {
  * were updated for the frame, so it updates its own) */
 static void view_hook(int view, void *u) {
   (void)u;
+  if(NRID>1 && RD[view].replay_t>0) {
+    deer_pose deer[DEER_CROSSINGS];
+    replay_deer(view,replay_tick(&RD[view],0),deer);
+    view_deer_poses(deer);
+  } else if(NRID>1) {
+    deer_pose deer[DEER_CROSSINGS];
+    bike_deer_visual_poses(1,deer);
+    view_deer_poses(deer);
+  }
   for (int i = 0; i < NRID; i++) models_far(i, !(i == view && (G.state == GS_CHARACTER || RD[i].replay_t > 0)));
   for (int i = 0; i < NRID; i++)
     if (RD[i].replay_t > 0) {
@@ -959,7 +997,10 @@ static void frame_hook(cw_tree *t, double alpha, void *u) {
     replay_pose(0, replay_tick(P, alpha), &p);
     models_sync(&p);
     view_frame((float)alpha);
-    replay_camera(G.camera, &p, replay_u(P, alpha));
+    deer_pose deer[DEER_CROSSINGS];
+    replay_deer(0,replay_tick(P,alpha),deer);
+    view_deer_poses(deer);
+    replay_camera(G.camera, &p, replay_u(P, alpha),deer,P->deer_crash);
     view_stream(&G.camera,1);
     view_grass(&G.camera, 1);
     return;
@@ -974,7 +1015,9 @@ static void frame_hook(cw_tree *t, double alpha, void *u) {
       if (G.state == GS_CHARACTER) models_turntable(i, -1.45f + G.state_ticks * 0.014f, P->live.frame.p.x + 0.05f);
       if (P->replay_t > 0) {
         replay_pose(i, replay_tick(P, alpha), &P->replay);
-        replay_camera(P->cam, &P->replay, replay_u(P, alpha));
+        deer_pose deer[DEER_CROSSINGS];
+        replay_deer(i,replay_tick(P,alpha),deer);
+        replay_camera(P->cam, &P->replay, replay_u(P, alpha),deer,P->deer_crash);
       } else camera_frame(alpha);
       cams[i] = P->cam;
     }
@@ -1361,6 +1404,7 @@ static void ride_post(void) {
     fx_burst(b->x, b->y, 0);
     if (!G.attract) banner("WIPEOUT!", 90);
     P->crash_rec = P->ring_n;
+    P->deer_crash = bike_deer_hit_this_tick();
     if (NRID > 1) P->down_ticks = CRASH_TICKS; /* split screen: the tumble, then the replay in the rider's own view */
     else if (G.state == GS_RIDE) enter(GS_CRASH);
   }
@@ -1610,6 +1654,7 @@ static void mp_tick(void) {
     ride_post();
     if (P->replay_t == 0) { /* the replay ring: every tick but the replay's own */
       bike_pose_get(1, &ring[i][P->ring_n % RING]);
+      bike_deer_visual_poses(1,deer_ring[i][P->ring_n % RING]);
       P->ring_n++;
     }
     rider_replay();
@@ -1880,6 +1925,7 @@ static void fixed(void *u, double dt) {
     ride_tick(in2);
     if (P->lane_t > 0 && ++P->lane_t > LANE_TICKS) P->lane_t = 0;
     bike_pose_get(1, &ring[0][P->ring_n % RING]);
+    bike_deer_visual_poses(1,deer_ring[0][P->ring_n % RING]);
     P->ring_n++;
     if (G.state == GS_CRASH && G.state_ticks >= CRASH_TICKS) {
       if (G.attract || P->ring_n - (P->crash_rec - REPLAY_BEFORE) > RING) {

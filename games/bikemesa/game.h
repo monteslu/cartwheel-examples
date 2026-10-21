@@ -180,8 +180,16 @@ uint32_t bike_hash(uint32_t h);
 int bike_planks(float alpha, cw_xform2 *out, float *half_w, int cap);
 enum { MOVER_NONE, MOVER_DRAWBRIDGE, MOVER_SEESAW, MOVER_WRECK, MOVER_LOGS, MOVER_TRAIN };
 #define DEER_CROSSINGS 2
+typedef struct deer_pose {
+  t3_vec3 p;
+  float roll, gait, wreck;
+  bool visible;
+} deer_pose;
 /* Deterministic fantasy-forest crossings, shared by the ride and its view. */
 int bike_deer_poses(float alpha, t3_vec3 out[DEER_CROSSINGS]);
+void bike_deer_visual_poses(float alpha, deer_pose out[DEER_CROSSINGS]);
+bool bike_deer_hit_this_tick(void);
+void view_deer_poses(const deer_pose poses[DEER_CROSSINGS]);
 /* a set piece's pose for drawing; a, b: its size, or the wrecking ball's
  * pivot, or the train's depth z and length */
 typedef struct mover_pose { int kind; cw_xform2 x; float a, b; } mover_pose;

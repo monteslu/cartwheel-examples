@@ -121,7 +121,13 @@ User wants a wild confectionery-factory / Willy Wonka feeling:
 
 ## Downtown Mesa / Neon Rooftops — track 3
 
-All 28 buildings have first-pass implementations, but “present” does not mean final visual fidelity. Preserve architecture, reference photos and latest order. Course finish is 873 m, total 933 m, 10 checkpoints. User wants long and fun, not tiny facades squeezed together.
+### 2026-10-21 — East Valley Paranormal, Against the Grain, forest camp and deer replay
+- User supplied `/home/monteslu/Downloads/EastValleyParanormal.jpg` and `/home/monteslu/Downloads/AgainstTheGrain.jpg`. The two neighboring storefronts at 130 and 124 W Main are now placed after Espiritu and before The Nile, in that order. The facades and signs follow the supplied photos. The East Valley Paranormal roundel and Against the Grain outlined lettering are code-drawn, with no bundled website imagery.
+- Downtown gains a 60 m riding block and an intervening checkpoint; Nile and every later venue move 60 m later. Finish is 933 m, scene length 993 m. Update layout through `mesa-layout.h` and source course through `tools/make-tracks.mjs`.
+- Enchanted Forest camp had been sampled against mountain bank kind 1 even though that theme renders bank kind 0. Cabins, wizard, travelers, fire and deer now sample the matching rendered surface. Fire has layered flame geometry, ember particles and smoke.
+- Deer visual poses and strike/tumble states are recorded with the bike pose replay ring, and the deer crash camera frames both deer and rider. The latest romdev captures are `out/final-east.png`, `out/final-grain2.png`, `out/final-camp2.png`, `out/final-deer_hit.png`, and `out/final-deer_landed.png`. The Downtown pedal run reaches the result screen beyond x=933 (`out/final-downtown-finish.json`), and these runs report zero GPU errors.
+
+All 30 buildings have first-pass implementations, but “present” does not mean final visual fidelity. Preserve architecture, reference photos and latest order. Course finish is 933 m, total 993 m, 11 checkpoints. User wants long and fun, not tiny facades squeezed together.
 
 Authoritative start-to-finish order:
 
@@ -139,6 +145,8 @@ Authoritative start-to-finish order:
 - Tacos Chiwas
 - Proof Bread
 - Espiritu
+- East Valley Paranormal
+- Against the Grain
 - The Nile
 - HeatSync Labs
 - Organic Bean Cafe

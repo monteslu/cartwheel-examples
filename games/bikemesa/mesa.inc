@@ -84,7 +84,9 @@ static void mesa_name(t3_object *root,const char *label,float x,float y,float z,
   bool hopes=!strcmp(label,"FRYBREAD")||!strcmp(label,"HOPE’S")||!strcmp(label,"HOPE'S");
   bool copal=!strcmp(label,"CASA")||!strcmp(label,"COPAL");
   bool coffee=!strcmp(label,"Lost Dutchman Coffee");
-  bool architectural=coffee||copal||hopes||!strncmp(label,"DIAMOND",7)||!strncmp(label,"LEGENDARY",9)||!strcmp(label,"NCT")||!strcmp(label,"THE")||!strcmp(label,"NILE")||!strcmp(label,"EST. 1924")||!strcmp(label,"Concert");
+  bool grain=!strcmp(label,"AGAINST")||!strcmp(label,"THE GRAIN")||!strcmp(label,"BAKERY & CAFE");
+  bool haunted=!strcmp(label,"EAST VALLEY")||!strcmp(label,"PARANORMAL")||!strcmp(label,"MESA'S HAUNTED MUSEUM");
+  bool architectural=coffee||copal||hopes||grain||haunted||!strncmp(label,"DIAMOND",7)||!strncmp(label,"LEGENDARY",9)||!strcmp(label,"NCT")||!strcmp(label,"THE")||!strcmp(label,"NILE")||!strcmp(label,"EST. 1924")||!strcmp(label,"Concert");
   void *bytes=cw_asset_load(architectural?"fonts/Lato-Bold.ttf":"fonts/Fredoka-SemiBold.ttf",&size);
   if(!bytes) return;
   stbtt_fontinfo font;
@@ -104,7 +106,7 @@ static void mesa_name(t3_object *root,const char *label,float x,float y,float z,
   bool chiwas=!strcmp(label,"Tacos Chiwas");
   bool burrito=!strcmp(label,"BURRITOHOLICS");
   bool diamond=!strncmp(label,"DIAMOND",7)||!strncmp(label,"LEGENDARY",9);
-  bool letters=chupa||coffee||copal||hopes||diamond||!strcmp(label,"NCT")||burrito||chiwas||neon||nile||!strncmp(label,"MAIN",4)||!strcmp(label,"BURGERS")||!strncmp(label,"B.R.I.",6)||!strcmp(label,"OBC");
+  bool letters=chupa||coffee||copal||hopes||grain||haunted||diamond||!strcmp(label,"NCT")||burrito||chiwas||neon||nile||!strncmp(label,"MAIN",4)||!strcmp(label,"BURGERS")||!strncmp(label,"B.R.I.",6)||!strcmp(label,"OBC");
   bool distill=!strncmp(label,"ARIZONA",7);
   unsigned char ink[3]={20,20,20},paper[3]={245,235,213};
   if(letters) {ink[0]=!strncmp(label,"B.R.I.",6)?55:230;ink[1]=175;ink[2]=!strcmp(label,"OBC")?230:65;}
@@ -120,6 +122,8 @@ static void mesa_name(t3_object *root,const char *label,float x,float y,float z,
   if(chiwas){ink[0]=40;ink[1]=95;ink[2]=64;}
   if(nile){ink[0]=245;ink[1]=238;ink[2]=216;}
   if(diamond){ink[0]=ink[1]=ink[2]=!strncmp(label,"DIAMOND",7)?235:22;}
+  if(grain){ink[0]=214;ink[1]=235;ink[2]=248;}
+  if(haunted){ink[0]=ink[1]=ink[2]=235;}
   for(int i=0;i<W*H;i++) {for(int k=0;k<3;k++)rgba[i*4+k]=letters?ink[k]:paper[k];rgba[i*4+3]=letters?0:255;}
   int pen=(W-total)/2;
   for(const char *c=label;*c;c++) {
@@ -135,11 +139,23 @@ static void mesa_name(t3_object *root,const char *label,float x,float y,float z,
     stbtt_FreeBitmap(bm,NULL);
     stbtt_GetCodepointHMetrics(&font,*c,&a,NULL);pen+=(int)(a*scale);
   }
+  if(grain) {
+    /* The photographed cafe has outlined neon channel letters. Retain a
+     * thin lit edge rather than filling the entire glyph. */
+    unsigned char *src=malloc((size_t)W*H);
+    for(int i=0;i<W*H;i++)src[i]=rgba[i*4+3];
+    for(int yy=2;yy<H-2;yy++)for(int xx=2;xx<W-2;xx++) {
+      int at=yy*W+xx;
+      int inside=src[at-2]>200&&src[at+2]>200&&src[at-2*W]>200&&src[at+2*W]>200;
+      if(inside)rgba[at*4+3]=0;
+    }
+    free(src);
+  }
   free(bytes);
   t3_texture *tx=t3_texture_new(W,H,rgba);free(rgba);
   t3_material *m=mesa_sign_material(tx,letters);
   /* HDR pink feeds the existing bloom pass without adding a light or shader. */
-  if(neon)m->color=(t3_color){4.0f,4.0f,4.0f};
+  if(neon||grain)m->color=(t3_color){grain?2.8f:4.0f,grain?2.8f:4.0f,grain?2.8f:4.0f};
   t3_geometry *g=t3_plane_geometry_new(w,h,1,1);
   t3_mesh *sign=add(root,g,m,false);sign->base.position=(t3_vec3){x,y,z};
   t3_release(g);t3_release(m);t3_release(tx);
@@ -1409,6 +1425,116 @@ static void mesa_sail(t3_object *root,t3_material *material,t3_vec3 a,t3_vec3 b,
   }
   t3_geometry *geo=mb_done(&mesh);prop(root,geo,material,0,0,0,1,1,1);t3_release(geo);
 }
+/* The neighboring 130/124 W Main storefronts share a shallow arcade in the
+ * supplied photographs. Each has its own facade, frontage and sign. */
+static void mesa_arcade_edge(t3_object *root,t3_material *wall,float x,float y,float z,float w,int bays) {
+  mb face={0};float bay=w/bays;
+  for(int i=0;i<bays;i++) {
+    float cx=x-w*.5f+(i+.5f)*bay;
+    for(int j=0;j<16;j++) {
+      float a=-1+2.f*j/16,b=-1+2.f*(j+1)/16;
+      float xa=cx+a*(bay*.46f),xb=cx+b*(bay*.46f);
+      float ya=y+3.52f+.68f*sqrtf(fmaxf(0,1-a*a));
+      float yb=y+3.52f+.68f*sqrtf(fmaxf(0,1-b*b));
+      int v=mb_v(&face,(t3_vec3){xa,ya,z},(t3_vec3){0,0,1},0,0,1);
+      mb_v(&face,(t3_vec3){xb,yb,z},(t3_vec3){0,0,1},1,0,1);
+      mb_v(&face,(t3_vec3){xb,y+4.48f,z},(t3_vec3){0,0,1},1,1,1);
+      mb_v(&face,(t3_vec3){xa,y+4.48f,z},(t3_vec3){0,0,1},0,1,1);
+      mb_t(&face,v,v+1,v+2);mb_t(&face,v,v+2,v+3);
+    }
+  }
+  t3_geometry *g=mb_done(&face);add(root,g,wall,true);t3_release(g);
+}
+static void mesa_east_valley_paranormal(t3_object *root,const whimsy_parts *p) {
+  float x=mesa_layout.east_valley_paranormal,z=-14.5f,y=bank_y(x,z,2),w=26;
+  t3_material *stucco=mat(TEX_CONCRETE,(float[3]){.73f,.67f,.60f},1,1,.08f,.94f);
+  t3_material *bronze=toy_paint(.16f,.14f,.13f);bronze->roughness=.8f;bronze->clearcoat=0;
+  t3_material *glass=toy_paint(.05f,.075f,.09f);glass->roughness=.25f;
+  prop(root,p->box,stucco,x,y+2.8f,z-1.0f,w,5.6f,4.6f);
+  prop(root,p->box,stucco,x,y+5.15f,z+2.62f,w,1.7f,.72f);
+  prop(root,p->box,stucco,x,y+5.99f,z+2.64f,w,.13f,.8f);
+  prop(root,p->box,p->cream,x,y+.1f,z+3.0f,w,.2f,3.5f);
+  for(int j=0;j<4;j++) {
+    float cx=x-w*.5f+j*w/3;
+    prop(root,p->box,stucco,cx,y+2.13f,z+2.72f,.78f,4.25f,.8f);
+  }
+  mesa_arcade_edge(root,stucco,x,y,z+3.12f,w,3);
+  for(int j=0;j<3;j++) {
+    float cx=x+(j-1)*w/3;
+    prop(root,p->box,p->black,cx,y+1.68f,z+2.18f,7.35f,3.1f,.06f);
+    if(j==0) {
+      /* The left bay opens to the covered passage in the photo. */
+      prop(root,p->box,stucco,cx,y+.08f,z+2.36f,7.4f,.16f,2.0f);
+      prop(root,p->box,p->black,cx-1.5f,y+1.55f,z+2.27f,2.0f,2.55f,.07f);
+    } else {
+      prop(root,p->box,glass,cx,y+1.67f,z+2.24f,6.9f,2.85f,.05f);
+      for(int k=-1;k<=1;k++)prop(root,p->box,p->cream,cx+k*2.3f,y+1.65f,z+2.31f,.10f,3.05f,.10f);
+      prop(root,p->box,p->cream,cx,y+2.55f,z+2.33f,6.9f,.09f,.10f);
+    }
+  }
+  /* Exact sign hierarchy: black EVP roundel over the 130 W Main arcade;
+   * Mesa's Haunted Museum is a separate window legend. */
+  t3_mesh *disc=prop(root,p->cyl,p->black,x,y+5.1f,z+3.18f,1.35f,.17f,1.35f);
+  t3_object_set_rotation(&disc->base,1.5707963f,0,0);
+  prop(root,p->ring,p->cream,x,y+5.1f,z+3.29f,1.24f,1.24f,.11f);
+  mesa_name(root,"EAST VALLEY",x,y+5.75f,z+3.34f,2.0f,.30f);
+  mesa_name(root,"PARANORMAL",x,y+4.45f,z+3.34f,2.1f,.30f);
+  for(int i=0;i<11;i++) {
+    float h=(i==5?.34f:i==4||i==6?.18f:.035f);
+    prop(root,p->box,p->cream,x+(i-5)*.17f,y+5.1f,z+3.35f,.14f,h,.025f);
+  }
+  mesa_name(root,"MESA'S HAUNTED MUSEUM",x-7.9f,y+1.8f,z+2.35f,5.1f,1.0f);
+  /* Raised pergola at the right side, visible above the parapet. */
+  prop(root,p->box,stucco,x+7.4f,y+7.15f,z-1.9f,10.7f,2.0f,.45f);
+  for(int i=0;i<5;i++)prop(root,p->box,stucco,x+2.4f+i*2.5f,y+7.55f,z+.2f,.32f,.28f,4.3f);
+  prop(root,p->box,bronze,x-2.7f,y+.44f,z+4.45f,2.25f,.14f,.7f);
+  for(int s=-1;s<=1;s+=2)prop(root,p->box,bronze,x-2.7f+s*.95f,y+.24f,z+4.45f,.10f,.48f,.60f);
+  t3_release(stucco);t3_release(bronze);t3_release(glass);
+}
+static void mesa_against_the_grain(t3_object *root,const whimsy_parts *p) {
+  float x=mesa_layout.against_the_grain,z=-14.5f,y=bank_y(x,z,2),w=24;
+  t3_material *blue=mat(TEX_CONCRETE,(float[3]){.60f,.75f,.79f},1,1,.08f,.95f);
+  t3_material *glass=toy_paint(.035f,.055f,.068f);glass->roughness=.23f;
+  prop(root,p->box,blue,x,y+2.8f,z-1.1f,w,5.6f,4.5f);
+  prop(root,p->box,blue,x,y+5.55f,z+2.66f,w,2.25f,.72f);
+  prop(root,p->box,blue,x,y+6.7f,z+.1f,w,.12f,5.1f);
+  prop(root,p->box,blue,x,y+.1f,z+3.0f,w,.2f,3.5f);
+  for(int j=0;j<3;j++)prop(root,p->box,blue,x-w*.5f+j*w*.5f,y+2.12f,z+2.72f,.78f,4.24f,.8f);
+  mesa_arcade_edge(root,blue,x,y,z+3.12f,w,2);
+  for(int j=0;j<2;j++) {
+    float cx=x+(j?5.7f:-5.7f);
+    prop(root,p->box,p->black,cx,y+1.65f,z+2.23f,10.1f,2.95f,.06f);
+    prop(root,p->box,glass,cx,y+1.67f,z+2.28f,9.8f,2.78f,.05f);
+    for(int k=-2;k<=2;k++)prop(root,p->box,blue,cx+k*1.94f,y+1.66f,z+2.34f,.09f,3.0f,.08f);
+    prop(root,p->box,blue,cx,y+2.5f,z+2.36f,9.8f,.09f,.08f);
+  }
+  prop(root,p->box,p->black,x+3.9f,y+1.57f,z+2.40f,2.1f,3.12f,.08f);
+  prop(root,p->ball,p->gold,x+4.68f,y+1.50f,z+2.5f,.055f,.055f,.055f);
+  /* The supplied street photo clearly shows outlined channel letters. */
+  mesa_name(root,"AGAINST",x,y+6.20f,z+3.10f,7.4f,.78f);
+  mesa_name(root,"THE GRAIN",x,y+5.42f,z+3.10f,9.5f,.84f);
+  prop(root,p->box,p->black,x,y+4.85f,z+3.06f,9.7f,.43f,.10f);
+  mesa_name(root,"BAKERY & CAFE",x,y+4.85f,z+3.15f,8.8f,.34f);
+  /* Closed striped sidewalk parasol and cafe furniture from the photo. */
+  float ux=x-5.0f,uz=z+4.65f;
+  prop(root,p->cyl,p->black,ux,y+1.5f,uz,.045f,3.0f,.045f);
+  for(int i=0;i<8;i++) {
+    float a=i*.785398f;
+    t3_mesh *stripe=prop(root,p->box,i%2?p->black:p->cream,
+      ux+cw_cos(a)*.13f,y+2.18f,uz+cw_sin(a)*.13f,.13f,1.48f,.06f);
+    t3_object_set_rotation(&stripe->base,0,a,0);
+  }
+  for(int i=0;i<3;i++) {
+    float tx=x-8+i*6.8f,tz=z+4.4f;
+    prop(root,p->box,p->brown,tx,y+.78f,tz,1.7f,.10f,.9f);
+    prop(root,p->cyl,p->black,tx,y+.39f,tz,.07f,.78f,.07f);
+    for(int s=-1;s<=1;s+=2) {
+      prop(root,p->box,p->black,tx+s*1.2f,y+.54f,tz,.58f,.08f,.58f);
+      prop(root,p->box,p->black,tx+s*1.2f,y+.93f,tz-.28f,.58f,.75f,.07f);
+    }
+  }
+  t3_release(blue);t3_release(glass);
+}
 static void mesa_buildings(t3_object *root,const whimsy_parts *p) {
   mesa_sign_cache_clear();
   const float places[]={mesa_layout.heatsync,mesa_layout.oro,mesa_layout.chupacabra,
@@ -1657,6 +1783,8 @@ static void mesa_buildings(t3_object *root,const whimsy_parts *p) {
     }
   }
   mesa_tall_buildings(root,p,brick);
+  mesa_east_valley_paranormal(root,p);
+  mesa_against_the_grain(root,p);
   mesa_food_shops(root,p,brick);
   mesa_neighbor_restaurants(root,p);
   mesa_nct(root,p,brick);

@@ -4,7 +4,7 @@
     {
       "name": "HeatSync Labs",
       "reference": "/home/monteslu/Pictures/Screenshots/HeatSyncLabs.png",
-      "track_x": 444.0,
+      "track_x": 504.0,
       "stories": 1
     },
     {
@@ -47,7 +47,7 @@
     {
       "name": "Organic Bean Cafe",
       "reference": "/home/monteslu/Pictures/Screenshots/OrganicBeanCafe.png",
-      "track_x": 474.0,
+      "track_x": 534.0,
       "stories": 1
     },
     {
@@ -57,9 +57,37 @@
       "stories": 1
     },
     {
+      "name": "East Valley Paranormal / Mesa’s Haunted Museum",
+      "reference": "/home/monteslu/Downloads/EastValleyParanormal.jpg",
+      "track_x": 414.0,
+      "stories": 1,
+      "address": "130 W Main St, Mesa",
+      "official_or_directory_source": "https://www.mesashauntedmuseum.com/",
+      "required": [
+        "Beige stucco three-bay arcade, covered passage at left and shallow glazed rooms",
+        "Black circular East Valley Paranormal sign with white ring and central signal motif",
+        "Separate MESA’S HAUNTED MUSEUM lettering in the left window",
+        "Raised right pergola visible over the parapet"
+      ]
+    },
+    {
+      "name": "Against the Grain Bakery & Cafe",
+      "reference": "/home/monteslu/Downloads/AgainstTheGrain.jpg",
+      "track_x": 444.0,
+      "stories": 1,
+      "address": "124 W Main St, Mesa",
+      "official_or_directory_source": "https://againstthegrainfood.com/",
+      "required": [
+        "Neighboring but separate facade immediately after East Valley Paranormal",
+        "Pale blue stucco, two shallow arcade arches, recessed dark windows and door",
+        "Outlined white-blue AGAINST / THE GRAIN neon channel letters with BAKERY & CAFE below",
+        "Black-and-white closed sidewalk parasol and outdoor tables"
+      ]
+    },
+    {
       "name": "The Nile",
       "reference": "/home/monteslu/Pictures/Screenshots/TheNile.png",
-      "track_x": 414.0,
+      "track_x": 474.0,
       "stories": 2,
       "required": [
         "red brick, consistent brick size",
@@ -73,7 +101,7 @@
     {
       "name": "Level One",
       "reference": "/home/monteslu/Pictures/Screenshots/LevelOne.png",
-      "track_x": 564.0,
+      "track_x": 624.0,
       "stories": 2,
       "required": [
         "tall white two-story facade",
@@ -98,7 +126,7 @@
     {
       "name": "Mad Candy",
       "reference": "/home/monteslu/Pictures/Screenshots/MadCandy.png",
-      "track_x": 594.0,
+      "track_x": 654.0,
       "stories": 1
     },
     {
@@ -188,7 +216,7 @@
         "Low masonry landscape planters and desert planting; official green/cream/black diamond logo",
         "Photo sign is small and washed out: use official artwork"
       ],
-      "track_x": 828.0
+      "track_x": 888.0
     },
     {
       "name": "Casa Copal",
@@ -211,7 +239,7 @@
         "Tall rounded asymmetric roadside sign with stacked CASA / COPAL lettering, teal/purple/orange colors",
         "Official stacked terracotta wordmark available; photo inspires sign silhouette/color arrangement, its fine illustration is not fully clear"
       ],
-      "track_x": 504.0
+      "track_x": 564.0
     },
     {
       "name": "Diamond Don's",
@@ -234,7 +262,7 @@
         "Official site redirects to https://spro.biz/diamonddons; official downloaded art is the fedora-wearing guitarist emblem, not a wordmark",
         "Black framed central entrance, pale recessed walls, black lanterns; use photo as architectural inspiration"
       ],
-      "track_x": 502
+      "track_x": 562.0
     },
     {
       "name": "República Empanada",
@@ -258,7 +286,7 @@
         "Photo roadside lettering partly obscured: official logo default, photograph inspires sign housing and color",
         "Roof skeleton is visible reference decoration; preserve as optional seasonal animated detail, not part of official logo"
       ],
-      "track_x": 656.0
+      "track_x": 716.0
     },
     {
       "name": "Hope's FryBread",
@@ -273,7 +301,7 @@
         "Small turquoise and pink OPEN neon in window; main facade letters are solid dimensional signage, not neon",
         "Place after República Empanada and before The Guadalupe on Main"
       ],
-      "track_x": 758.0,
+      "track_x": 818.0,
       "sources": [
         "https://hopesfrybread.com/"
       ],
@@ -290,7 +318,7 @@
       "additional_references": [
         "/home/monteslu/Pictures/Screenshots/PizzaMart2.png"
       ],
-      "track_x": 792.0,
+      "track_x": 852.0,
       "stories": 1,
       "sources": [
         "https://pizzamartaz.com/"
@@ -339,7 +367,7 @@
         "Broad shallow arch, recessed red brick storefront, orange/coral MANGO’S letters and patio."
       ],
       "status": "First facade modeled and romdev inspected: pale green stucco, shallow arch, recessed brick/glazing, official orange wordmark and cafe tables. Removed flat patio slab after screenshot exposed intersection with sloping sidewalk. Further patio/foliage detail remains.",
-      "track_x": 624.0,
+      "track_x": 684.0,
       "logo_reference": {
         "path": "references/signs/mangos-official.png",
         "source": "https://www.mangosmexicancafe.com/wp-content/uploads/2020/12/Submark-1.png",
@@ -357,7 +385,7 @@
         "Cream two-story facade, dark window trim, central Juliet balcony, red wordmark with green margarita glass, fenced patio."
       ],
       "status": "First facade implemented, refined and inspected with romdev. Native/cart builds pass. Broader fidelity polish remains.",
-      "track_x": 690.0,
+      "track_x": 750.0,
       "logo_reference": {
         "path": "references/signs/margaritas-official.png",
         "source": "https://static.spotapps.co/website_images/ab_websites/206204_website_v1/logo.png",
@@ -374,7 +402,7 @@
         "Cream stucco, red tile porch roof, thick square columns, dark red patio railing and brown raised lettering."
       ],
       "status": "First facade implemented, refined and inspected with romdev. Native/cart builds pass. Broader fidelity polish remains.",
-      "track_x": 724.0,
+      "track_x": 784.0,
       "logo_reference": {
         "path": "references/signs/lostdutchman-official.png",
         "source": "https://lostdutchmancoffeehouse.com/wp-content/uploads/2024/09/lost-dutchman-logo.png",
