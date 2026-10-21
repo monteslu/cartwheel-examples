@@ -54,7 +54,6 @@ static const cw_vec2 HIP = { -0.12f, 0.84f }, SHOULDER = { 0.2f, 1.3f }, HEAD = 
 #define MAX_MOVERS 8
 #define MAX_LOGS 6
 static const float DEER_X[DEER_CROSSINGS]={106.0f,334.0f};
-static const float DEER_PERIOD[DEER_CROSSINGS]={8.0f,9.5f};
 typedef struct mover {
   int kind;
   float x, y, len;
@@ -1061,7 +1060,7 @@ int bike_deer_poses(float alpha,t3_vec3 out[DEER_CROSSINGS]) {
     if(WD.deer_start[i]<0)continue;
     float time=((float)(WD.tick-WD.deer_start[i]-1)+alpha)/TICK_HZ;
     if(time<0)continue;
-    float phase=cw_fmodf_pos(time,DEER_PERIOD[i]);
+    float phase=time;
     if(phase>=3.0f)continue;
     float run=phase/3.0f;
     out[i]=(t3_vec3){DEER_X[i],track_height_at(DEER_X[i],NULL),-7.0f+11.0f*run};

@@ -2186,8 +2186,9 @@ Candy performance before latest bear correction: `out/candy-depth-perf/results.j
   after its first checkpoint. Generated track 1 is 486 m with finish at 426 m;
   Enchanted Forest retains its 528 m length and finish at 468 m.
 - Enchanted Forest has two rider triggered deer crossings, at x=106 and 334.
-  Deer move across depth on a fixed tick schedule shared by all players; a
-  collision uses the existing 3D ragdoll wipeout. No early level preview.
+  Each deer crosses once as a rider approaches, on a fixed tick schedule
+  shared by all players; a collision uses the existing 3D ragdoll wipeout.
+  No early level preview or immediate re-crossing after a rider brakes.
 - Added three forest cabins, a campfire, two small woodland travelers, one
   farther elf and an original blue robed wizard. Clothing uses rough, nonmetal cloth
   materials. Buildings and figures sit deep on the bank around x=190–230,
@@ -2201,6 +2202,8 @@ Candy performance before latest bear correction: `out/candy-depth-perf/results.j
   builds pass. Romdev verified: track 1 pedal only clears loop (`loops=1`,
   `crashes=0`); coasting from frame 700 gives `loops=0`, `crashes=1`;
   track 4 pedal only triggers first deer hit (`deer.hits=1`, `crashes=1`),
+  while braking at frame 800 for 210 frames then resuming crosses x=106
+  cleanly (`bike.pos.x=140.68`, `deer.hits=0`, `crashes=0`);
   with `cw.gpu.errors=0` and `cw.three.missing=0`. Visual captures:
   `out/enchanted-forest-final-leaves.png`,
   `out/enchanted-forest-camp-close.png`,
@@ -2210,3 +2213,6 @@ Candy performance before latest bear correction: `out/candy-depth-perf/results.j
   `build/native` against pinned engine v0.13.0 and cannot rebuild because
   `cartwheel/quality_menu.h` is unavailable. Re-run on v0.14.0 SDK after the
   other agent publishes it; the romdev runs above validate the key behavior.
+  An attempt to point the runner temporarily at `build/whimsy-native` waited
+  for the engine release agent's GPU suite lock; it was stopped and the
+  generated app manifest restored.
