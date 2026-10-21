@@ -569,6 +569,8 @@ static void fantasy_settlement(t3_object *root,const whimsy_parts *p,const track
 #include "fantasy.inc"
 
 static void whimsical_props(t3_object *root, const track_desc *t, const theme *th) {
+  memset(forest_deer,0,sizeof forest_deer);
+  memset(forest_legs,0,sizeof forest_legs);
   const char *n=th->name;
   bool circus=!strcmp(n,"circus"), candy=!strcmp(n,"candy"), toy=!strcmp(n,"toybox");
   bool xmas=!strcmp(n,"xmas"), scary=!strcmp(n,"scary"), city=!strcmp(n,"neon");

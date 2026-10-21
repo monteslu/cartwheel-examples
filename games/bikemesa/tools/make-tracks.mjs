@@ -103,7 +103,7 @@ export const TRACKS = [
     ['flat', 6], ['check'], ['slope', 26, -9], ['boost', 14], ['flat', 10], ['kicker', 10, 3.0], ['gap', 20, -5],
     ['landing', 18, 5], ['flat', 8], ['finish'], ['flat', 60],
   ] },
-  { name: 'Downtown', theme: 'neon', par: 65, ready: true, pieces: [
+  { name: 'Downtown', theme: 'neon', par: 70, ready: true, pieces: [
     ['flat', 16], ['kicker', 5, 1.0], ['gap', 5, -0.8], ['flat', 4], ['wreck', 12], ['flat', 4], ['kicker', 5, 1.2], ['gap', 6, -1.5], ['flat', 12],
     ['check'], ['slope', 10, -3], ['boost', 10], ['flat', 10], ['kicker', 7, 2.0], ['gap', 12, -3], ['flat', 10],
     ['bump', 6, 0.8], ['flat', 6], ['kicker', 4, 0.9], ['gap', 4, 0.6], ['flat', 10], ['check'],
@@ -112,6 +112,9 @@ export const TRACKS = [
     ['landing', 14, 3], ['flat', 10], ['check'],
     ['flat', 18], ['bump', 12, 0.8], ['flat', 12], ['kicker', 7, 1.5],
     ['gap', 10, -1.5], ['landing', 12, 2], ['rollers', 2, 0.55, 6], ['flat', 13],
+    // East Valley Paranormal and Against the Grain are neighboring venues
+    // before the Nile. The extra block keeps their frontages full size.
+    ['flat', 16], ['bump', 10, .8], ['flat', 19], ['check'], ['flat', 15],
     // Four 86 m blocks leave room for full-scale landmarks and riding gaps.
     ['check'], ['flat', 18], ['bump', 12, 0.8], ['kicker', 7, 1.5],
     ['gap', 10, -1.5], ['landing', 12, 2], ['rollers', 2, 0.55, 6], ['flat', 9],
@@ -121,7 +124,7 @@ export const TRACKS = [
     ['gap', 10, -1.5], ['landing', 12, 2], ['rollers', 2, 0.55, 6], ['flat', 9],
     ['check'], ['flat', 18], ['bump', 12, 0.8], ['kicker', 7, 1.5],
     ['gap', 10, -1.5], ['landing', 12, 2], ['rollers', 2, 0.55, 6], ['flat', 9],
-    // Two shorter riding blocks accommodate the final 28-venue layout.
+    // Two shorter riding blocks accommodate the final district.
     ['check'], ['flat', 14], ['bump', 10, .7], ['kicker', 6, 1.3],
     ['gap', 8, -1.3], ['landing', 10, 1.8], ['rollers', 2, .45, 5], ['flat', 8],
     ['check'], ['flat', 14], ['bump', 10, .7], ['kicker', 6, 1.3],

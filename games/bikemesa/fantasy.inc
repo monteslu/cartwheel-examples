@@ -4,10 +4,16 @@ static t3_object *forest_deer[DEER_CROSSINGS];
 static t3_object *forest_legs[DEER_CROSSINGS][4];
 
 static void forest_cabin(t3_object *root,const whimsy_parts *p,float x,float z,float scale) {
-  float y=bank_surface_y(x,z,1);
+  float y=bank_surface_y(x,z,0);
   t3_object *g=t3_group_new();g->position=(t3_vec3){x,y,z};g->scale=(t3_vec3){scale,scale,scale};
   t3_object_add(root,g);
   prop(g,p->box,p->brown,0,-.45f,0,5.7f,1.05f,4.5f);
+  for(int sx=-1;sx<=1;sx+=2)for(int sz=-1;sz<=1;sz+=2) {
+    float ground=(bank_surface_y(x+sx*2.45f*scale,z+sz*1.95f*scale,0)-y)/scale;
+    float bottom=fminf(ground-.18f,-1.0f),top=-.48f;
+    prop(g,p->box,p->brown,sx*2.45f,(bottom+top)*.5f,sz*1.95f,
+      .44f,top-bottom,.44f);
+  }
   prop(g,p->box,p->brown,0,1.55f,0,5.5f,3.1f,4.3f);
   prop(g,p->box,p->cream,0,1.7f,2.18f,5.05f,2.5f,.08f);
   for(int s=-1;s<=1;s+=2) {
@@ -23,11 +29,21 @@ static void forest_cabin(t3_object *root,const whimsy_parts *p,float x,float z,f
 }
 
 static void forest_person(t3_object *root,const whimsy_parts *p,t3_material *cloth[3],float x,float z,float size,int kind) {
-  float y=bank_surface_y(x,z,1);
+  float y=bank_surface_y(x,z,0);
   t3_object *g=t3_group_new();g->position=(t3_vec3){x,y,z};g->scale=(t3_vec3){size,size,size};
   t3_object_add(root,g);
   t3_material *coat=cloth[kind];
-  prop(g,p->cone,coat,0,.65f,0,.53f,1.3f,.48f);
+  /* Sink the cloth hem slightly into the clearing; separate boots mark the
+   * actual ground under each foot, including the edge of the slope. */
+  prop(g,p->cone,coat,0,.47f,0,.58f,1.35f,.52f);
+  for(int s=-1;s<=1;s+=2) {
+    float bx=s*.22f,bz=.16f;
+    float by=(bank_surface_y(x+bx*size,z+bz*size,0)-y)/size;
+    prop(g,p->box,p->brown,bx,by+.12f,bz,.19f,.24f,.31f);
+    prop(g,p->cyl,coat,bx,by+.36f,.02f,.13f,.48f,.15f);
+    prop(g,p->ball,p->cream,s*.50f,.91f,.13f,.13f,.15f,.13f);
+    prop(g,p->cyl,coat,s*.40f,1.04f,.07f,.15f,.62f,.17f);
+  }
   prop(g,p->ball,p->cream,0,1.55f,0,.29f,.31f,.28f);
   prop(g,p->ball,p->black,-.11f,1.59f,.27f,.035f,.04f,.02f);
   prop(g,p->ball,p->black,.11f,1.59f,.27f,.035f,.04f,.02f);
@@ -44,6 +60,30 @@ static void forest_person(t3_object *root,const whimsy_parts *p,t3_material *clo
   t3_release(g);
 }
 
+static void forest_flames(t3_object *root,float x,float y,float z) {
+  t3_material *outer=glow(1.0f,.27f,.025f,3.2f);
+  t3_material *inner=glow(1.0f,.77f,.18f,5.0f);
+  for(int layer=0;layer<2;layer++) {
+    mb b={0};
+    for(int i=0;i<5;i++) {
+      float a=i*2.39996f+.3f,ca=cw_cos(a),sa=cw_sin(a);
+      float r=layer?.17f:.32f,h=(layer?.58f:1.03f)*(i%2?.82f:1.0f);
+      float ox=cw_cos(a*1.7f)*r*.5f,oz=cw_sin(a*1.7f)*r*.5f;
+      t3_vec3 n={sa,0,-ca};
+      int l=mb_v(&b,(t3_vec3){x+ox-ca*r,y+.08f,z+oz-sa*r},n,0,0,1);
+      int rr=mb_v(&b,(t3_vec3){x+ox+ca*r,y+.08f,z+oz+sa*r},n,1,0,1);
+      int m=mb_v(&b,(t3_vec3){x+ox+ca*r*.15f,y+h*.52f,z+oz+sa*r*.15f},n,.55f,.5f,1);
+      int tip=mb_v(&b,(t3_vec3){x+ox+ca*r*.52f,y+h,z+oz+sa*r*.52f},n,.76f,1,1);
+      mb_t(&b,l,rr,m);mb_t(&b,l,m,tip);
+      mb_t(&b,m,rr,tip);mb_t(&b,m,rr,l);mb_t(&b,tip,m,l);mb_t(&b,tip,rr,m);
+    }
+    t3_geometry *geo=mb_done(&b);
+    add(root,geo,layer?inner:outer,false);
+    t3_release(geo);
+  }
+  t3_release(outer);t3_release(inner);
+}
+
 static void fantasy_camp(t3_object *root,const whimsy_parts *p) {
   t3_material *cloth[3]={
     t3_mesh_standard_material_new(0x2869ac),
@@ -54,16 +94,23 @@ static void fantasy_camp(t3_object *root,const whimsy_parts *p) {
   forest_cabin(root,p,192,-13,1.12f);
   forest_cabin(root,p,224,-20,.85f);
   forest_cabin(root,p,412,-15,1.04f);
-  float x=208,z=-12,y=bank_surface_y(x,z,1);
-  for(int i=0;i<7;i++) {
-    float a=i*.897598f;
-    float lx=x+cw_cos(a)*.65f,lz=z+cw_sin(a)*.65f;
-    t3_mesh *log=prop(root,p->cyl,p->brown,lx,bank_surface_y(lx,lz,1)+.12f,lz,.11f,.8f,.11f);
-    t3_object_set_rotation(&log->base,.9f*cw_sin(a),0,.9f*cw_cos(a));
+  float x=208,z=-12,y=bank_surface_y(x,z,0);
+  for(int i=0;i<12;i++) {
+    float a=i*.523599f,lx=x+cw_cos(a)*.82f,lz=z+cw_sin(a)*.82f;
+    prop(root,p->ball,i%3?p->brown:p->black,lx,bank_surface_y(lx,lz,0)+.10f,lz,.21f,.14f,.17f);
   }
-  prop(root,p->cone,p->red,x,y+.45f,z,.31f,.9f,.31f);
-  t3_mesh *flame=prop(root,p->cone,p->lamp,x,y+.65f,z,.18f,.68f,.18f);
-  whimsy_bob(flame,.5f);
+  for(int i=0;i<4;i++) {
+    float a=i*.785398f;
+    t3_mesh *log=prop(root,p->cyl,i%2?p->brown:p->black,x,y+.17f,z,.12f,1.35f,.12f);
+    t3_object_set_rotation(&log->base,1.5707963f,.0f,a);
+  }
+  prop(root,p->ball,p->black,x,y+.06f,z,.62f,.12f,.58f);
+  forest_flames(root,x,y,z);
+  for(int i=0;i<5;i++) {
+    float a=i*2.39996f;
+    t3_mesh *ember=prop(root,p->ball,p->lamp,x+cw_cos(a)*.28f,y+.37f+(i%3)*.2f,z+cw_sin(a)*.21f,.045f,.05f,.045f);
+    whimsy_bob(ember,a);
+  }
   forest_person(root,p,cloth,205,-12.5f,1.35f,0);
   forest_person(root,p,cloth,211,-12.8f,.67f,1);
   forest_person(root,p,cloth,209,-15.5f,.73f,2);
@@ -103,15 +150,17 @@ static void forest_deer_build(t3_object *root,const whimsy_parts *p) {
   t3_release(fur);t3_release(pale);
 }
 
-static void forest_deer_frame(float alpha) {
+void view_deer_poses(const deer_pose poses[DEER_CROSSINGS]) {
   if(!forest_deer[0])return;
-  t3_vec3 poses[DEER_CROSSINGS];int active=bike_deer_poses(alpha,poses);
   for(int i=0;i<DEER_CROSSINGS;i++) {
-    t3_object *g=forest_deer[i];g->visible=(active&(1<<i))!=0;
+    t3_object *g=forest_deer[i];g->visible=poses[i].visible;
     if(!g->visible)continue;
-    float gait=whimsy_time*12+i*1.7f;
-    float gy=poses[i].z<-TRACK_HALF_W-.3f?bank_surface_y(poses[i].x,poses[i].z,1):poses[i].y;
-    g->position=(t3_vec3){poses[i].x,gy+.07f*cw_sin(gait*2),poses[i].z};
-    for(int k=0;k<4;k++)t3_object_set_rotation(forest_legs[i][k],.28f*cw_sin(gait+(k==0||k==3?0:3.1415927f)),0,0);
+    float gait=poses[i].gait+i*1.7f;
+    float gy=poses[i].p.z<-TRACK_HALF_W-.3f?bank_surface_y(poses[i].p.x,poses[i].p.z,0):poses[i].p.y;
+    g->position=(t3_vec3){poses[i].p.x,gy+(1-poses[i].wreck)*.07f*cw_sin(gait*2),poses[i].p.z};
+    t3_object_set_rotation(g,0,0,poses[i].roll);
+    for(int k=0;k<4;k++)t3_object_set_rotation(forest_legs[i][k],
+      (1-poses[i].wreck)*.28f*cw_sin(gait+(k==0||k==3?0:3.1415927f)) + poses[i].wreck*(k<2?-.65f:.8f),0,0);
+    t3_object_update_world_matrix(g,true,true);
   }
 }

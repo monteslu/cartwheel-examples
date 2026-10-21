@@ -81,6 +81,8 @@ static struct {
   int mover_count;
   int tick;                       /* steps since the world was made: drives the set pieces */
   int deer_start[DEER_CROSSINGS];
+  int deer_hit_tick[DEER_CROSSINGS];
+  float deer_hit_z[DEER_CROSSINGS];
   int bumps;                      /* contacts begun between two riders' bikes */
   /* the planks and set pieces mirrored in the crash world (kinematic, made at the first crash) */
   bool mirrored;
@@ -320,7 +322,7 @@ void bike_world_create(const track_desc *t) {
     }
   }
   WD.tick = 0;
-  for(int i=0;i<DEER_CROSSINGS;i++)WD.deer_start[i]=-1;
+  for(int i=0;i<DEER_CROSSINGS;i++)WD.deer_start[i]=WD.deer_hit_tick[i]=-1;
   deer_hits = 0;
   cw_debug_i32("deer.hits", &deer_hits);
   /* a wall past the run-out */
@@ -1059,6 +1061,7 @@ int bike_deer_poses(float alpha,t3_vec3 out[DEER_CROSSINGS]) {
   int active=0;
   for(int i=0;i<DEER_CROSSINGS;i++) {
     if(WD.deer_start[i]<0)continue;
+    if(WD.deer_hit_tick[i]>=0 && (float)WD.tick-1+alpha >= WD.deer_hit_tick[i])continue;
     float time=((float)(WD.tick-WD.deer_start[i]-1)+alpha)/TICK_HZ;
     if(time<0)continue;
     float phase=time;
@@ -1068,6 +1071,32 @@ int bike_deer_poses(float alpha,t3_vec3 out[DEER_CROSSINGS]) {
     active|=1<<i;
   }
   return active;
+}
+
+/* Visual state is sampled into the replay ring on every simulation tick.
+ * A struck deer tumbles and comes to rest, instead of vanishing at impact. */
+void bike_deer_visual_poses(float alpha,deer_pose out[DEER_CROSSINGS]) {
+  t3_vec3 running[DEER_CROSSINGS];
+  int active=bike_deer_poses(alpha,running);
+  for(int i=0;i<DEER_CROSSINGS;i++) {
+    out[i]=(deer_pose){0};
+    if(active&(1<<i)) {
+      float t=((float)(WD.tick-WD.deer_start[i]-1)+alpha)/TICK_HZ;
+      out[i]=(deer_pose){.p=running[i],.gait=t*12,.visible=true};
+    } else if(WD.deer_hit_tick[i]>=0) {
+      float age=((float)(WD.tick-WD.deer_hit_tick[i]-1)+alpha)/TICK_HZ;
+      if(age<0 || age>4.0f)continue;
+      float u=cw_clampf(age/.55f,0,1),fall=u*u*(3-2*u);
+      float z=WD.deer_hit_z[i]+1.25f*(1-cw_exp(-age*3.5f));
+      float y=track_height_at(DEER_X[i],NULL);
+      out[i]=(deer_pose){.p={DEER_X[i]+.55f*(1-cw_exp(-age*2.8f)),y+.3f*cw_sin(3.1415927f*u),z},
+        .roll=-1.5f*fall,.gait=age*24,.wreck=fall,.visible=true};
+    }
+  }
+}
+bool bike_deer_hit_this_tick(void) {
+  for(int i=0;i<DEER_CROSSINGS;i++)if(WD.deer_hit_tick[i]==WD.tick)return true;
+  return false;
 }
 
 static void deer_tick(void) {
@@ -1409,6 +1438,8 @@ static void bike_post(bool air) {
       cw_vec2 v=cw_body2d_velocity(B.frame);
       s->alive=false;B.crashed_now=true;
       B.crash_v=(cw_vec2){v.x*.45f,fmaxf(v.y,3.5f)};
+      WD.deer_hit_tick[i]=WD.tick;
+      WD.deer_hit_z[i]=deer[i].z;
       deer_hits++;
       break;
     }
