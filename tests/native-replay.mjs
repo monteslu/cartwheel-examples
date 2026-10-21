@@ -43,7 +43,7 @@ if (!BIN || !OUT) {
 }
 const GAMES = argv.filter((a, i) => !a.startsWith('--') && !VALUED.has(argv[i - 1]));
 const gates = JSON.parse(readFileSync(join(ROOT, 'tests/gates.json'), 'utf8'));
-const games = GAMES.length ? GAMES : ['bikemesa', 'bomberdude', 'derby', 'pugball', 'spout'];
+const games = GAMES.length ? GAMES : ['bikemesa', 'bomberdude', 'chromite', 'derby', 'pugball', 'spout'];
 const exe = process.platform === 'win32' ? '.exe' : '';
 const isFile = (f) => existsSync(f) && statSync(f).isFile();
 

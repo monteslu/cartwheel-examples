@@ -3384,7 +3384,7 @@
     "note": "The canyon is thousands of thin grass blades and dust: native and the carts rasterize their edges a pixel apart (tex.hash and wind.hash prove the data identical), so frames compare at 5% over 16 levels; named state (the Box2D bike, bike.pos, state.hash) is exact. The autopilot presses (A) through each screen as it comes up and pedals the race, so input-free hosts (wasmcart-run) play the whole session whatever frames they spend loading.",
     "name": "bikemesa-auto",
     "app": "bikemesa_auto",
-    "frames": 2460,
+    "frames": 2800,
     "expect": {
       "game.state": 5,
       "finished": 1,

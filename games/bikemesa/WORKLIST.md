@@ -2216,3 +2216,28 @@ Candy performance before latest bear correction: `out/candy-depth-perf/results.j
   An attempt to point the runner temporarily at `build/whimsy-native` waited
   for the engine release agent's GPU suite lock; it was stopped and the
   generated app manifest restored.
+
+### Enchanted Forest density and engine v0.14.0
+
+- The forest now has 560 varied broadleaf trees across three depth bands,
+  including 150 shorter saplings close to the course. Narrow clearings frame
+  the deer crossings, cabins and campfire. The leaves remain opaque shared
+  geometry merged into spatial chunks for offscreen culling.
+- Romdev GL capture at frame 960: `out/enchanted-forest-dense-final.png`.
+  The checked frame has 106 draw calls, zero skipped draws, zero GPU errors,
+  and zero missing shader states. The reference capture before the extra
+  saplings also had 106 draw calls at that frame.
+- Pinned engine source and all seven release SDKs to v0.14.0. The downloaded
+  SDK contains `quality_menu.h`. Box2D v3.2 changed world position arguments
+  to `cw_pos2`; BikeMesa's body definitions, joint anchor and raycast origins
+  were updated to match. All six native and release cart builds pass.
+- BikeMesa's full auto replay needed 2800 rather than 2460 frames after the
+  first course grew. At 2800 frames it reaches the result screen with all
+  three checkpoints, one loop and no crash. GL and WebGPU native state is
+  identical at the end. The gate cutoff now matches.
+- On the release cart in romdev GL, track 1 pedal through frame 1300 gives
+  one cleared loop and no crash. Track 4 pedal through frame 1000 yields one
+  deer hit and one crash; braking at frame 800 for 210 frames then pedalling
+  to frame 1600 reaches x=143.08 with no deer hit or crash. No GPU or shader
+  errors on these runs. The cross-host gate waited on another GPU suite owner,
+  so its CI run remains the release check.

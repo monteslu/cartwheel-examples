@@ -1392,12 +1392,29 @@ static void props(t3_object *root, const track_desc *t, const theme *th) {
       }
       pa->version++;
     }
-    for (int i = 0; i < 90; i++) {
-      float x = -30 + rnd() * (t->length + 60), z = -TRACK_HALF_W - 2.5f - rnd() * 42, h = 2.5f + rnd() * 3.5f, r = 1.2f + rnd() * 1.2f;
+    /* The enchanted route needs a continuous treeline with several layers of
+     * depth. Keep openings at the deer crossings and the little village so
+     * those discoveries remain readable from the bike. Static geometry is
+     * merged into spatial chunks below, so distant groves are culled. */
+    int count = jungle ? 560 : 90;
+    for (int i = 0; i < count; i++) {
+      float x = -30 + rnd() * (t->length + 60);
+      bool sapling = jungle && i < 150;
+      float depth = sapling ? 1.5f + rnd() * 7.5f :
+                    jungle ? (i % 3 == 0 ? 2.6f + rnd() * 7.4f :
+                            i % 3 == 1 ? 10.0f + rnd() * 17.0f :
+                                         27.0f + rnd() * 19.0f)
+                           : 2.5f + rnd() * 42.0f;
+      float z = -TRACK_HALF_W - depth;
+      float h = sapling ? 1.8f + rnd() * 2.8f : jungle ? 3.4f + rnd() * 4.4f : 2.5f + rnd() * 3.5f;
+      float r = sapling ? .8f + rnd() * .75f : jungle ? 1.4f + rnd() * 1.5f : 1.2f + rnd() * 1.2f;
       bool two = rnd() < 0.5f;
-      if(jungle && fabsf(x-t->finish_x*.82f)<5+r && z>-12-r)continue;
+      if(jungle && (((fabsf(x-106)<3+r || fabsf(x-334)<3+r) && depth<4) ||
+                    (x>185-r && x<235+r && depth<22) ||
+                    (fabsf(x-412)<7+r && depth<17) ||
+                    (fabsf(x-t->finish_x*.82f)<5+r && z>-12-r)))continue;
       if(!jungle && (fabsf(x-t->finish_x*.54f)<4+r || fabsf(x-t->finish_x*.81f)<4+r) && z>-11-r)continue;
-      tree(root, trunk, ico, bark, two ? crown2 : crown, x, bank_y(x, z, kind) - 0.2f, z, h, r, false);
+      tree(root, trunk, ico, bark, two ? crown2 : crown, x, bank_surface_y(x, z, kind) - 0.2f, z, h, r, false);
     }
     t3_release(ico);
     t3_release(bark);

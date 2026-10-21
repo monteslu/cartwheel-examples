@@ -204,7 +204,7 @@ void bike_world_create(const track_desc *t) {
       float ang = cw_atan2(br[3] - br[1], len);
       cw_body2d_def pb = cw_body2d_default_def();
       pb.type = CW_BODY_STATIC;
-      pb.position = (cw_vec2){ x, y };
+      pb.position = (cw_pos2){ x, y };
       pb.rotation = cw_rot2_from_angle(ang);
       pb.name = "plank";
       cw_body2d body = cw_body2d_create(WD.world, &pb);
@@ -294,7 +294,7 @@ void bike_world_create(const track_desc *t) {
     ms.material.friction = 0.9f * t->grip;
     if (m->kind == MOVER_DRAWBRIDGE || m->kind == MOVER_WRECK) {
       mb.type = CW_BODY_KINEMATIC;
-      mb.position = (cw_vec2){ m->x, m->y };
+      mb.position = (cw_pos2){ m->x, m->y };
       mb.name = "mover";
       m->body = cw_body2d_create(WD.world, &mb);
       if (m->kind == MOVER_DRAWBRIDGE) {
@@ -302,7 +302,7 @@ void bike_world_create(const track_desc *t) {
         cw_shape2d_polygon(m->body, &ms, deck, 4, 0.02f);
       } else cw_shape2d_circle(m->body, &ms, (cw_vec2){ 0, 0 }, 0.6f);
     } else if (m->kind == MOVER_SEESAW) {
-      mb.position = (cw_vec2){ m->x, m->y + 0.18f };
+      mb.position = (cw_pos2){ m->x, m->y + 0.18f };
       mb.rotation = cw_rot2_from_angle(-0.1f);
       mb.name = "seesaw";
       m->body = cw_body2d_create(WD.world, &mb);
@@ -312,7 +312,7 @@ void bike_world_create(const track_desc *t) {
       cw_joint2d_def jd = cw_joint2d_default_def(CW_JOINT_REVOLUTE);
       jd.a = (cw_body2d){ 0 };
       jd.b = m->body;
-      cw_joint2d_def_anchor(&jd, (cw_vec2){ m->x, m->y + 0.18f }, (cw_vec2){ 0, 0 });
+      cw_joint2d_def_anchor(&jd, (cw_pos2){ m->x, m->y + 0.18f }, (cw_vec2){ 0, 0 });
       jd.limit = true;
       jd.lower = -0.1f;
       jd.upper = 0.1f;
@@ -460,7 +460,7 @@ static void destroy_bike(void) {
 
 static cw_body2d wheel(cw_vec2 at, float spin) {
   cw_body2d_def bd = cw_body2d_default_def();
-  bd.position = at;
+  bd.position = cw_pos2_from(at);
   bd.angular_velocity = spin;
   bd.name = "wheel";
   cw_body2d w = cw_body2d_create(WD.world, &bd);
@@ -513,7 +513,7 @@ void bike_spawn(float x, float y, float v0) {
   /* level, wheels just on the ground */
   float base = y + WHEEL_R - REAR_AXLE.y + 0.02f;
   cw_body2d_def bd = cw_body2d_default_def();
-  bd.position = (cw_vec2){ x, base };
+  bd.position = (cw_pos2){ x, base };
   bd.name = "frame";
   bd.angular_damping = 0.05f;
   B.frame = cw_body2d_create(WD.world, &bd);
@@ -997,12 +997,13 @@ bool bike_crash_focus(t3_vec3 *at, t3_vec3 *vel) {
 }
 
 static bool grounded(cw_body2d w) {
-  cw_xform2 f = cw_body2d_transform(B.frame), x = cw_body2d_transform(w);
+  cw_xform2 f = cw_body2d_transform(B.frame);
   /* down along the frame (so a wheelie's rear and a nose-dive's front still count) and straight down */
   cw_vec2 d1 = { f.q.s * (WHEEL_R + 0.08f), -f.q.c * (WHEEL_R + 0.08f) }, d2 = { 0, -(WHEEL_R + 0.08f) };
   cw_phys_filter flt = { .layers = 1u << L_TRACK | 1u << B.loop_layer | 1u << (L_RAMP0 + B.lane) };
   cw_ray_hit2d hit;
-  return cw_world2d_raycast(WD.world, x.p, d1, &flt, &hit) || cw_world2d_raycast(WD.world, x.p, d2, &flt, &hit);
+  cw_pos2 origin = cw_body2d_position(w);
+  return cw_world2d_raycast(WD.world, origin, d1, &flt, &hit) || cw_world2d_raycast(WD.world, origin, d2, &flt, &hit);
 }
 
 
@@ -1031,7 +1032,7 @@ static void movers_tick(void) {
         int k = m->log_n % MAX_LOGS;
         if (cw_body2d_valid(m->logs[k])) cw_body2d_destroy(m->logs[k]);
         cw_body2d_def lb = cw_body2d_default_def();
-        lb.position = (cw_vec2){ m->x + 1.5f, m->y + 0.3f };
+        lb.position = (cw_pos2){ m->x + 1.5f, m->y + 0.3f };
         lb.linear_velocity = (cw_vec2){ 1.5f, 0 };
         lb.name = "log";
         m->logs[k] = cw_body2d_create(WD.world, &lb);
