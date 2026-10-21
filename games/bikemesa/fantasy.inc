@@ -28,35 +28,85 @@ static void forest_cabin(t3_object *root,const whimsy_parts *p,float x,float z,f
   t3_release(g);
 }
 
-static void forest_person(t3_object *root,const whimsy_parts *p,t3_material *cloth[3],float x,float z,float size,int kind) {
+/* A single smooth, pleated garment is reused by all four villagers. Its
+ * silhouette and shallow folds do the work that the old stretched cones did
+ * poorly; fabric normal/roughness maps add detail without extra draw calls. */
+static t3_geometry *forest_robe_geometry(void) {
+  enum { SECTORS=32, RINGS=9 };
+  mb b={0};
+  for(int k=0;k<=RINGS;k++) {
+    float t=(float)k/RINGS,y=.05f+1.36f*t;
+    float radius=.55f-.22f*t+.11f*cw_sin(t*3.1415927f);
+    for(int i=0;i<=SECTORS;i++) {
+      float a=i*6.2831853f/SECTORS;
+      float fold=(.033f+.028f*(1-t))*cw_cos(a*11+2.2f*t)
+        +.016f*cw_sin(a*5-4.0f*t);
+      float r=radius+fold;
+      mb_v(&b,(t3_vec3){r*cw_cos(a),y,r*cw_sin(a)},
+        (t3_vec3){cw_cos(a),.15f,cw_sin(a)},(float)i/SECTORS,2*t,1);
+    }
+  }
+  for(int k=0;k<RINGS;k++)for(int i=0;i<SECTORS;i++) {
+    int a=k*(SECTORS+1)+i,c=a+SECTORS+1;
+    mb_t(&b,a,c,a+1);mb_t(&b,a+1,c,c+1);
+  }
+  t3_geometry *g=mb_done(&b);
+  t3_geometry_compute_vertex_normals(g);
+  return g;
+}
+
+static void forest_person(t3_object *root,const whimsy_parts *p,t3_geometry *robe,t3_geometry *smooth,
+                          t3_material *cloth[3],t3_material *trim[3],t3_material *skin,
+                          t3_material *hair,t3_material *leather,float x,float z,float size,int kind) {
   float y=bank_surface_y(x,z,0);
   t3_object *g=t3_group_new();g->position=(t3_vec3){x,y,z};g->scale=(t3_vec3){size,size,size};
   t3_object_add(root,g);
-  t3_material *coat=cloth[kind];
-  /* Sink the cloth hem slightly into the clearing; separate boots mark the
-   * actual ground under each foot, including the edge of the slope. */
-  prop(g,p->cone,coat,0,.47f,0,.58f,1.35f,.52f);
+  t3_material *coat=cloth[kind],*edge=trim[kind];
+  prop(g,robe,coat,0,0,0,1,1,1);
+  /* Layered front panels and a soft shoulder cape break the cone silhouette. */
+  for(int s=-1;s<=1;s+=2) {
+    t3_mesh *panel=prop(g,p->box,edge,s*.23f,.79f,.35f,.22f,1.02f,.045f);
+    t3_object_set_rotation(&panel->base,0,s*.13f,s*.06f);
+    prop(g,smooth,coat,s*.20f,1.33f,.02f,.28f,.18f,.34f);
+  }
+  t3_mesh *belt=prop(g,p->ring,edge,0,.80f,0,.37f,.37f,.37f);
+  t3_object_set_rotation(&belt->base,1.5707963f,0,0);
   for(int s=-1;s<=1;s+=2) {
     float bx=s*.22f,bz=.16f;
     float by=(bank_surface_y(x+bx*size,z+bz*size,0)-y)/size;
-    prop(g,p->box,p->brown,bx,by+.12f,bz,.19f,.24f,.31f);
-    prop(g,p->cyl,coat,bx,by+.36f,.02f,.13f,.48f,.15f);
-    prop(g,p->ball,p->cream,s*.50f,.91f,.13f,.13f,.15f,.13f);
-    prop(g,p->cyl,coat,s*.40f,1.04f,.07f,.15f,.62f,.17f);
+    prop(g,smooth,leather,bx,by+.13f,bz,.14f,.15f,.24f);
+    prop(g,p->cyl,edge,bx,by+.36f,.02f,.13f,.48f,.15f);
+    t3_mesh *sleeve=prop(g,p->cyl,coat,s*.48f,1.10f,.03f,.18f,.64f,.19f);
+    t3_object_set_rotation(&sleeve->base,0,0,s*.23f);
+    prop(g,smooth,skin,s*.53f,.79f,.09f,.13f,.14f,.12f);
   }
-  prop(g,p->ball,p->cream,0,1.55f,0,.29f,.31f,.28f);
-  prop(g,p->ball,p->black,-.11f,1.59f,.27f,.035f,.04f,.02f);
-  prop(g,p->ball,p->black,.11f,1.59f,.27f,.035f,.04f,.02f);
-  if(kind==0) { /* Azure robe and star clasp, an original forest astronomer. */
-    prop(g,p->cone,coat,0,1.97f,0,.45f,.79f,.44f);
-    prop(g,p->ball,p->gold,0,1.32f,.38f,.11f,.11f,.07f);
-    prop(g,p->cyl,p->brown,.47f,.92f,.15f,.055f,1.8f,.055f);
-    prop(g,p->ball,p->lamp,.47f,1.87f,.15f,.13f,.13f,.13f);
+  prop(g,smooth,skin,0,1.65f,.08f,.25f,.29f,.25f);
+  prop(g,smooth,skin,0,1.60f,.32f,.11f,.10f,.11f); /* nose */
+  for(int s=-1;s<=1;s+=2) {
+    prop(g,smooth,skin,s*.24f,1.65f,.08f,.075f,.11f,.07f);
+    prop(g,smooth,hair,s*.105f,1.70f,.295f,.025f,.03f,.018f);
+  }
+  prop(g,smooth,coat,0,1.86f,-.09f,.31f,.25f,.28f); /* soft hood */
+  prop(g,smooth,edge,0,1.91f,.10f,.31f,.10f,.25f);
+  if(kind==0) { /* A blue forest astronomer with a hood and a wool beard. */
+    prop(g,smooth,hair,0,1.44f,.27f,.20f,.17f,.15f);
+    prop(g,smooth,edge,0,1.31f,.40f,.085f,.09f,.055f);
+    prop(g,p->cyl,leather,.53f,.93f,.16f,.045f,1.85f,.045f);
+    prop(g,smooth,edge,.53f,1.87f,.16f,.10f,.12f,.10f);
   } else {
-    prop(g,p->cone,coat,0,1.89f,0,.48f,.45f,.44f);
-    if(kind==1) for(int s=-1;s<=1;s+=2)
-      prop(g,p->cone,p->cream,s*.31f,1.6f,0,.19f,.39f,.15f);
+    prop(g,smooth,leather,0,1.45f,-.23f,.31f,.33f,.12f); /* travel pack */
+    prop(g,p->box,edge,0,1.00f,.39f,.31f,.31f,.08f); /* satchel */
   }
+  /* These villagers never animate. Flatten them into the scenery root so
+   * merge_still can batch each fabric and shared skin material by chunk. */
+  while(g->child_count) {
+    t3_object *o=g->children[0];
+    t3_vec3 at=o->position,sc=o->scale;
+    t3_object_add(root,o);
+    o->position=(t3_vec3){x+at.x*size,y+at.y*size,z+at.z*size};
+    o->scale=(t3_vec3){sc.x*size,sc.y*size,sc.z*size};
+  }
+  t3_object_remove(root,g);
   t3_release(g);
 }
 
@@ -86,15 +136,26 @@ static void forest_flames(t3_object *root,float x,float y,float z) {
 
 static void fantasy_camp(t3_object *root,const whimsy_parts *p) {
   t3_material *cloth[3]={
-    t3_mesh_standard_material_new(0x2869ac),
-    t3_mesh_standard_material_new(0x647d42),
-    t3_mesh_standard_material_new(0x8a654b)
+    mat(TEX_FABRIC,(float[3]){.16f,.27f,.48f},2,3,.65f,1),
+    mat(TEX_FABRIC,(float[3]){.37f,.45f,.26f},2,3,.65f,1),
+    mat(TEX_FABRIC,(float[3]){.49f,.34f,.24f},2,3,.65f,1)
   };
-  for(int i=0;i<3;i++){cloth[i]->roughness=1.0f;cloth[i]->metalness=0;}
+  t3_material *trim[3]={
+    mat(TEX_COTTON,(float[3]){.31f,.43f,.57f},2,2,.5f,1),
+    mat(TEX_COTTON,(float[3]){.63f,.59f,.38f},2,2,.5f,1),
+    mat(TEX_COTTON,(float[3]){.68f,.51f,.34f},2,2,.5f,1)
+  };
+  t3_material *skin=t3_mesh_standard_material_new(0xb98264);
+  t3_material *hair=t3_mesh_standard_material_new(0x33251d);
+  t3_material *leather=mat(TEX_FABRIC,(float[3]){.19f,.11f,.065f},2,2,.3f,1);
+  skin->roughness=hair->roughness=1;
+  skin->metalness=hair->metalness=leather->metalness=0;
+  t3_geometry *robe=forest_robe_geometry();
+  t3_geometry *smooth=t3_sphere_geometry_new(1,24,16);
   forest_cabin(root,p,192,-13,1.12f);
   forest_cabin(root,p,224,-20,.85f);
   forest_cabin(root,p,412,-15,1.04f);
-  float x=208,z=-12,y=bank_surface_y(x,z,0);
+  float x=208,z=-11,y=bank_surface_y(x,z,0);
   for(int i=0;i<12;i++) {
     float a=i*.523599f,lx=x+cw_cos(a)*.82f,lz=z+cw_sin(a)*.82f;
     prop(root,p->ball,i%3?p->brown:p->black,lx,bank_surface_y(lx,lz,0)+.10f,lz,.21f,.14f,.17f);
@@ -111,11 +172,13 @@ static void fantasy_camp(t3_object *root,const whimsy_parts *p) {
     t3_mesh *ember=prop(root,p->ball,p->lamp,x+cw_cos(a)*.28f,y+.37f+(i%3)*.2f,z+cw_sin(a)*.21f,.045f,.05f,.045f);
     whimsy_bob(ember,a);
   }
-  forest_person(root,p,cloth,205,-12.5f,1.35f,0);
-  forest_person(root,p,cloth,211,-12.8f,.67f,1);
-  forest_person(root,p,cloth,209,-15.5f,.73f,2);
-  forest_person(root,p,cloth,229,-16.5f,.95f,1);
-  for(int i=0;i<3;i++)t3_release(cloth[i]);
+  forest_person(root,p,robe,smooth,cloth,trim,skin,hair,leather,205,-11.4f,1.08f,0);
+  forest_person(root,p,robe,smooth,cloth,trim,skin,hair,leather,211,-11.7f,.67f,1);
+  forest_person(root,p,robe,smooth,cloth,trim,skin,hair,leather,209,-14.4f,.73f,2);
+  forest_person(root,p,robe,smooth,cloth,trim,skin,hair,leather,229,-16.5f,.95f,1);
+  t3_release(robe);t3_release(smooth);
+  for(int i=0;i<3;i++){t3_release(cloth[i]);t3_release(trim[i]);}
+  t3_release(skin);t3_release(hair);t3_release(leather);
 }
 
 static void forest_deer_build(t3_object *root,const whimsy_parts *p) {

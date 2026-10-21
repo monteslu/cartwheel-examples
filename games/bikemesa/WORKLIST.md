@@ -2227,6 +2227,15 @@ Candy performance before latest bear correction: `out/candy-depth-perf/results.j
 
 ### Enchanted Forest density and engine v0.14.0
 
+- The camp figures were rebuilt after feedback that the first cone figures
+  looked glossy and crude. Shared 32-sector pleated robes and smoother heads
+  now use fabric/cotton maps with fully rough, nonmetallic materials; layered
+  panels, hoods, packs, boots, and a matte blue robe distinguish the wizard
+  and travelers. Static figures are flattened into scene chunks for batching.
+  Romdev GL and WebGPU frames at x=199 are `out/forest-people-final-gl.png`
+  and `out/forest-people-final-wgpu.png`; both have zero GPU or missing shader
+  errors. GL draw calls at that frame fell from 174 to 138.
+
 - The forest now has 560 varied broadleaf trees across three depth bands,
   including 150 shorter saplings close to the course. Narrow clearings frame
   the deer crossings, cabins and campfire. The leaves remain opaque shared
