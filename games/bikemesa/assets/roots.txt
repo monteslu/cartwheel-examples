@@ -18,6 +18,7 @@ scenes/track13.cwscene
 scenes/track14.cwscene
 scenes/track15.cwscene
 scenes/track16.cwscene
+scenes/track17.cwscene
 grades/alpine.cube
 grades/autumn.cube
 grades/beach.cube

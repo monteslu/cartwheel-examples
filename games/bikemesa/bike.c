@@ -605,6 +605,15 @@ static cw_xform3 lift3(cw_xform2 x, float z) {
   cw_sincos(cw_atan2(x.q.s, x.q.c) * 0.5f, &s, &c);
   return (cw_xform3){ { x.p.x, x.p.y, z }, { 0, 0, s, c } };
 }
+static cw_xform3 ride_lift3(cw_xform2 x, float z, float anchor_x) {
+  cw_xform3 out = lift3(x, z);
+  t3_vec3 p; float angle;
+  if (track_corkscrew_pose(T, anchor_x, x.p.y, z, &p, &angle)) {
+    out.p.y = p.y; out.p.z = p.z;
+    out.q = qmul(t3_quat_from_axis_angle((t3_vec3){1,0,0},angle), out.q);
+  }
+  return out;
+}
 static t3_vec3 xf3(cw_xform3 x, t3_vec3 p) { return v3add(x.p, qrot(x.q, p)); }
 static float capsule_vol(float len, float r) { return 3.1415927f * r * r * len + 4.18879f * r * r * r; }
 
@@ -766,6 +775,9 @@ static void make_ragdoll(void) {
   bike_pose_get(1, &p); /* the riding pose: the limbs where they were drawn */
   float z = B.draw_z;
   cw_xform2 fx = cw_body2d_transform(B.frame);
+  float cork_angle = 0;
+  bool cork = track_corkscrew_pose(T, fx.p.x, fx.p.y, z, NULL, &cork_angle);
+  t3_quat cork_q = t3_quat_from_axis_angle((t3_vec3){1,0,0}, cork_angle);
   float w2 = cw_body2d_angular_velocity(B.frame);
   cw_vec2 cv = B.crash_v;
   float speed = sqrtf(cv.x * cv.x + cv.y * cv.y);
@@ -787,10 +799,11 @@ static void make_ragdoll(void) {
    * somersault over the bars, no faster than 9 rad/s */
   t3_vec3 spin = { (side < 0 ? -1.0f : 1.0f) * ahead * 0.08f * speed, 0,
                    cw_clampf(0.5f * w2 - ahead * cw_clampf(0.3f + 0.3f * speed, 0.3f, 6.5f), -9, 9) };
+  if (cork) { launch = qrot(cork_q, launch); spin = qrot(cork_q, spin); }
 
   /* the rider */
   cw_xform3 X[RAG_COUNT];
-  for (int i = 0; i < RAG_COUNT; i++) X[i] = lift3(p.limb[i], z);
+  for (int i = 0; i < RAG_COUNT; i++) X[i] = ride_lift3(p.limb[i], z, fx.p.x);
   t3_vec3 com = { 0, 0, 0 };
   float mass = 0;
   for (int i = 0; i < RAG_COUNT; i++) com = v3add(com, v3scale(xf3(X[i], (t3_vec3){ i == RAG_HEAD ? 0 : 0.2f, 0, RAG_SIDE_Z[i] }), RAG_MASS[i])), mass += RAG_MASS[i];
@@ -856,8 +869,10 @@ static void make_ragdoll(void) {
   float roll = (side < 0 ? -1.0f : 1.0f) * (1.2f + 0.12f * speed);
   t3_vec3 bspin = v3add((t3_vec3){ 0, 0, w2 }, v3scale(fwd, roll));
   cw_vec2 fv = cw_body2d_velocity(B.frame);
-  cw_xform3 F3 = lift3(fx, z);
-  B.frame3 = body3(F3, (t3_vec3){ fv.x, fv.y, side * 0.25f }, bspin, "bike", 0.05f);
+  cw_xform3 F3 = ride_lift3(fx, z, fx.p.x);
+  t3_vec3 frame_v = { fv.x, fv.y, side*.25f };
+  if (cork) frame_v = qrot(cork_q, frame_v), bspin = qrot(cork_q, bspin);
+  B.frame3 = body3(F3, frame_v, bspin, "bike", 0.05f);
   cw_shape3d_def bs = cw_shape3d_default_def();
   bs.layer = L3_BIKE;
   bs.mask = 1u << L3_TOY | 1u << L3_SCENE | 1u << L3_RIDER | 1u << L3_BIKE;
@@ -886,7 +901,10 @@ static void make_ragdoll(void) {
   for (int k = 0; k < 2; k++) {
     cw_xform2 wx = cw_body2d_transform(wb[k]);
     cw_vec2 wv = cw_body2d_velocity(wb[k]);
-    *w3[k] = body3(lift3(wx, z), (t3_vec3){ wv.x, wv.y, side * 0.25f }, v3add((t3_vec3){ 0, 0, cw_body2d_angular_velocity(wb[k]) }, v3scale(fwd, roll)),
+    t3_vec3 wheel_v = { wv.x, wv.y, side*.25f };
+    t3_vec3 wheel_spin = v3add((t3_vec3){ 0, 0, cw_body2d_angular_velocity(wb[k]) }, v3scale(fwd, roll));
+    if (cork) wheel_v = qrot(cork_q,wheel_v), wheel_spin = qrot(cork_q,wheel_spin);
+    *w3[k] = body3(ride_lift3(wx, z, fx.p.x), wheel_v, wheel_spin,
                    "wheel", 0.05f);
     bs.density = 650;
     bs.material.friction = 0.9f;
@@ -894,7 +912,9 @@ static void make_ragdoll(void) {
     cw_joint3d_def jd = cw_joint3d_default_def(CW_JOINT_REVOLUTE);
     jd.a = B.frame3;
     jd.b = *w3[k];
-    cw_joint3d_def_anchor(&jd, (t3_vec3){ wx.p.x, wx.p.y, z }, (t3_vec3){ 0, 0, 1 });
+    t3_vec3 axle = { wx.p.x, wx.p.y, z };
+    if (cork) { track_corkscrew_pose(T,fx.p.x,wx.p.y,z,&axle,NULL); axle.x=wx.p.x; }
+    cw_joint3d_def_anchor(&jd, axle, cork ? qrot(cork_q,(t3_vec3){0,0,1}) : (t3_vec3){0,0,1});
     jd.spring = false;
     jd.motor = true;
     jd.max_motor = 0.15f; /* a little drag in the hub */
@@ -916,7 +936,7 @@ static void make_ragdoll(void) {
   }
   /* the cap flies off the head and tumbles on its own */
   {
-    cw_xform3 cx = lift3(p.cap, z);
+    cw_xform3 cx = ride_lift3(p.cap, z, fx.p.x);
     t3_vec3 at = cx.p;
     t3_vec3 v = { launch.x * 0.9f, launch.y + 3.0f, side * 1.3f };
     v = v3add(v, v3cross(spin, v3sub(at, com)));
@@ -1490,6 +1510,20 @@ static void bike_post(bool air) {
   s->vx = v.x;
   s->vy = v.y;
   s->crank = B.crank;
+  /* Momentum holds the rider to the inverted road. A slow bike loses that
+   * contact and enters the ordinary 3D wipeout at its rolled world pose. */
+  if (s->alive && T->corkscrew_count) for (int i = 0; i < T->corkscrew_count; i++) {
+    const float *c = T->corkscrews + i*5;
+    if (f.p.x < c[0] || f.p.x > c[1]) continue;
+    float angle;
+    track_corkscrew_pose(T, f.p.x, f.p.y, B.draw_z, NULL, &angle);
+    if (cosf(angle) < -.3f && s->speed < sqrtf(T->gravity*c[3])*1.05f) {
+      s->alive = false;
+      B.crashed_now = true;
+      B.crash_v = v;
+      break;
+    }
+  }
   if (B.crashed_now) make_ragdoll(); /* the rider comes off: the crash goes 3D (crash_post fills the state in) */
 }
 

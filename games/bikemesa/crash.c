@@ -190,6 +190,27 @@ static void ribbon(tri_list *b, const track_desc *t) {
   }
 }
 
+/* The crash world must receive the same twisted surface the rider sees. */
+static void corkscrews(tri_list *b, const track_desc *t) {
+  for (int c = 0; c < t->corkscrew_count; c++) {
+    const float *v = t->corkscrews + c*5;
+    int n = (int)ceilf((v[1]-v[0])/.5f);
+    for (int i = 1; i <= n; i++) {
+      float xa = v[0]+(v[1]-v[0])*(float)(i-1)/n;
+      float xb = v[0]+(v[1]-v[0])*(float)i/n;
+      for (int j = 0; j < 4; j++) {
+        float za = -TRACK_HALF_W + j*TRACK_HALF_W*.5f, zb = za+TRACK_HALF_W*.5f;
+        t3_vec3 a,bp,cp,d;
+        track_corkscrew_pose(t,xa,v[2],za,&a,NULL);
+        track_corkscrew_pose(t,xa,v[2],zb,&bp,NULL);
+        track_corkscrew_pose(t,xb,v[2],zb,&cp,NULL);
+        track_corkscrew_pose(t,xb,v[2],za,&d,NULL);
+        tl_quad(b,a,bp,cp,d);
+      }
+    }
+  }
+}
+
 /* the partial ramps (view.c ramps_build): the deck over lanes lo..hi and its two sides */
 static void ramps(tri_list *b, const track_desc *t) {
   for (int i = 0; i < t->ramp_count; i++) {
@@ -287,6 +308,7 @@ void crash_world_build(const track_desc *t) {
 
   tri_list b = { 0 };
   ribbon(&b, t);
+  corkscrews(&b, t);
   ramps(&b, t);
   bank(&b, t);
   loops(&b, t);

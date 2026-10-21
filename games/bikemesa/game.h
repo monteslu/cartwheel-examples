@@ -17,7 +17,7 @@
 #define GAME_TITLE "BikeMesa"
 
 #define TICK_HZ 60
-#define BIKEMESA_TRACKS_MAX 16
+#define BIKEMESA_TRACKS_MAX 17
 #define MAX_POPUPS 16
 #define TRACK_HALF_W 2.0f   /* the riding surface spans z -W..W */
 /* four lanes across it: lane 0 at the back (-z),
@@ -74,7 +74,26 @@ typedef struct track_desc {
   int pinch_count;
   const float *ramps;             /* x0, up, h, top, down, lo, hi: a ramp on lanes lo..hi only */
   int ramp_count;
+  const float *corkscrews;        /* x0, x1, ground_y, radius, direction */
+  int corkscrew_count;
 } track_desc;
+/* World-space riding pose on an axial corkscrew. Returns zero outside it. */
+static inline bool track_corkscrew_pose(const track_desc *t, float x, float y, float z,
+                                         t3_vec3 *at, float *roll) {
+  if (!t) return false;
+  for (int i = 0; i < t->corkscrew_count; i++) {
+    const float *c = t->corkscrews + i * 5;
+    if (x < c[0] || x > c[1]) continue;
+    float u = (x - c[0]) / (c[1] - c[0]);
+    u = u * u * (3.0f - 2.0f * u);
+    float a = c[4] * 6.283185307f * u, sn = sinf(a), cs = cosf(a);
+    if (at) *at = (t3_vec3){ x, c[2] + c[3] * (1 - cs) + (y - c[2]) * cs - z * sn,
+                            c[3] * sn + (y - c[2]) * sn + z * cs };
+    if (roll) *roll = a;
+    return true;
+  }
+  return false;
+}
 /* the height of track t's ramps in lane `lane` above the ground at x (0: none there) */
 float track_ramp_h(const track_desc *t, float x, int lane);
 /* where the track narrows: lanes lo..hi open over [x0, x1); with a wall, the
@@ -109,7 +128,7 @@ typedef struct save_data {
   uint16_t version, size;
   uint32_t checksum;
   save_track tr[BIKEMESA_TRACKS_MAX];
-  uint32_t quality; /* independent of track scores: all sixteen slots are playable */
+  uint32_t quality; /* independent of track scores */
 } save_data;
 
 /* bike.c: the bicycle and its rider in a Box2D world (a crash: in crash.c's Box3D world) */
@@ -211,6 +230,7 @@ void models_turntable(int idx, float angle, float center_x);
 void models_sync(const bike_pose *p);
 void models_build_rider(cw_node parent, int idx); /* rider idx's bike and rider, in its colours */
 void models_sync_rider(int idx, const bike_pose *p, float z);
+void models_set_track(const track_desc *t);
 void models_far(int idx, bool far); /* the far look: one draw (split screen's other riders) */
 void models_refresh(int idx); /* rider idx's world matrices, after posing it again mid-frame */
 void models_forget(void);

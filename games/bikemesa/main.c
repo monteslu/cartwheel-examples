@@ -78,7 +78,9 @@ const track_desc *track_get(int i) { return i >= 0 && i < (int)CW_ARRAY_LEN(TRAC
 #define LAND_PERFECT 0.12f
 #define LAND_CLEAN 0.35f
 #define SAVE_MAGIC 0x534D4B42u /* 'BKMS' */
-#define SAVE_VERSION 8
+#define SAVE_VERSION 9
+#define SAVE_V3_SIZE 204
+#define SAVE_V8_SIZE 208
 #define STAR2 3000 /* a run's score for the second star */
 #define STAR3 8000
 
@@ -87,6 +89,7 @@ save_data SAVE;
 /* a rider's own race: one per player (local multiplayer); solo rides RD[0] */
 typedef struct rider_t {
   int32_t crashes, checkpoint, score, flips, tricks, finished;
+  uint32_t cork_done;
   int32_t landings, air_max, resets, combo, combo_max;
   /* landings by quality, landings in a pose, the trick the third star wants, this air's points, the air tricks' points banked */
   int32_t perfects, sketchy, bails, star3_trick, pending, banked;
@@ -298,7 +301,9 @@ static cw_rect pause_rect(int i, float W, float H, float s) { return cw_rect_mak
 static uint32_t save_sum(void) {
   const uint8_t *b = (const uint8_t *)&SAVE.tr;
   uint32_t h = 2166136261u;
-  for (size_t i = 0; i < (SAVE.version == 3 ? sizeof SAVE.tr : sizeof SAVE.tr + sizeof SAVE.quality); i++) h = (h ^ b[i]) * 16777619u;
+  /* Legacy saves are shorter; hash their original payload before moving quality. */
+  size_t n = SAVE.size >= 12 && SAVE.size <= sizeof SAVE ? SAVE.size - 12 : 0;
+  for (size_t i = 0; i < n; i++) h = (h ^ b[i]) * 16777619u;
   return h ^ (SAVE.version | (uint32_t)SAVE.size << 16);
 }
 static void save_reset(void) {
@@ -320,26 +325,36 @@ static void save_write(void) {
   cw_save_commit();
 }
 static void save_check(void) {
-  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 3 && SAVE.size == sizeof SAVE - sizeof SAVE.quality && SAVE.checksum == save_sum()) {
+  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 3 && SAVE.size == SAVE_V3_SIZE && SAVE.checksum == save_sum()) {
     SAVE.quality = SAVE.tr[15].best_ticks ? (uint32_t)SAVE.tr[15].best_ticks : SAVE.tr[15].stars;
     memset(&SAVE.tr[13], 0, 3 * sizeof SAVE.tr[0]);
+    memcpy((uint8_t *)&SAVE + 204, &SAVE.quality, sizeof SAVE.quality);
     SAVE.version = 4;
-    SAVE.size = (uint16_t)sizeof SAVE;
+    SAVE.size = SAVE_V8_SIZE;
     SAVE.checksum = save_sum();
   }
   /* Downtown now finishes at 873 m instead of 289/385/729 m. Retain unlocks,
    * trick achievements and other tracks; the old time/medal is incomparable. */
-  if (SAVE.magic == SAVE_MAGIC && (SAVE.version == 4 || SAVE.version == 5 || SAVE.version == 6) && SAVE.size == sizeof SAVE && SAVE.checksum == save_sum()) {
+  if (SAVE.magic == SAVE_MAGIC && (SAVE.version == 4 || SAVE.version == 5 || SAVE.version == 6) && SAVE.size == SAVE_V8_SIZE && SAVE.checksum == save_sum()) {
     SAVE.tr[2].best_ticks = 0;
     SAVE.tr[2].medal = 0;
     SAVE.tr[13].best_ticks = 0; SAVE.tr[13].medal = 0;
-    SAVE.version = SAVE_VERSION;
+    SAVE.version = 8;
     SAVE.checksum = save_sum();
   }
   /* Giant circus loop changes only track 14's time/medal comparison. */
-  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 7 && SAVE.size == sizeof SAVE && SAVE.checksum == save_sum()) {
+  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 7 && SAVE.size == SAVE_V8_SIZE && SAVE.checksum == save_sum()) {
     SAVE.tr[13].best_ticks = 0; SAVE.tr[13].medal = 0;
-    SAVE.version = SAVE_VERSION; SAVE.checksum = save_sum();
+    SAVE.version = 8; SAVE.checksum = save_sum();
+  }
+  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 8 && SAVE.size == SAVE_V8_SIZE && SAVE.checksum == save_sum()) {
+    uint32_t old_quality;
+    memcpy(&old_quality, (const uint8_t *)&SAVE + 204, sizeof old_quality);
+    memset(&SAVE.tr[16], 0, sizeof SAVE.tr[16]);
+    SAVE.quality = old_quality;
+    SAVE.version = SAVE_VERSION;
+    SAVE.size = (uint16_t)sizeof SAVE;
+    SAVE.checksum = save_sum();
   }
   if (SAVE.magic != SAVE_MAGIC || SAVE.version != SAVE_VERSION || SAVE.size != sizeof SAVE || SAVE.checksum != save_sum()) {
     if (SAVE.magic) cw_warn("bikemesa: save data rejected (magic %08x version %u), starting fresh", SAVE.magic, SAVE.version);
@@ -449,6 +464,7 @@ static bool load_track(int index, bool attract, int riders) {
   bike_world_destroy();
   G.camera = G.sun = G.post = (cw_node){ 0 };
   G.t = next_track;
+  models_set_track(G.t);
   G.track = index + 1;
   G.scene = next_scene;
   cw_node_add_child(cw_tree_root(t), G.scene);
@@ -798,6 +814,11 @@ static void camera_tick(void) {
   bool air = !b->grounded_rear && !b->grounded_front;
   /* look ahead along the motion, pull back with speed and in big air */
   t3_vec3 at = { b->x + cw_clampf(b->vx * 0.32f, -3, 6), b->y + 1.1f + cw_clampf(b->vy * 0.08f, -1.5f, 1.5f), 0 };
+  t3_vec3 cork_at;
+  if (G.t && b->alive && track_corkscrew_pose(G.t, b->x, at.y, rider_z((int)(P - RD)), &cork_at, NULL)) {
+    at.y = cork_at.y;
+    at.z = cork_at.z;
+  }
   /* a crash: the camera follows the tumbling rider, across the track and off it too */
   t3_vec3 down_at;
   if (bike_crash_focus(&down_at, NULL)) at.z = down_at.z;
@@ -812,6 +833,12 @@ static void camera_tick(void) {
     at.x += (cx-at.x)*near*.8f;
     at.y += (G.t->loops[l*3+1]+r-at.y)*near*.8f;
     dist += (fmaxf(dist, r*3.2f)-dist)*near;
+  }
+  if (G.t && b->alive) for (int c = 0; c < G.t->corkscrew_count; c++) {
+    const float *v = G.t->corkscrews + 5*c;
+    float near = 1 - cw_smoothstep(9, 25, fminf(fabsf(b->x-v[0]), fabsf(b->x-v[1])));
+    if (b->x >= v[0] && b->x <= v[1]) near = 1;
+    if (near > 0) dist += (fmaxf(dist, 12.5f)-dist)*near;
   }
   if (getenv("BIKEMESA_CAM_CLOSE")) { /* dev aid: a close look at the bike */
     dist = 2.6f;
@@ -872,6 +899,16 @@ static void camera_frame(double alpha) {
   if (city_view) { d += 1.2f; at.y += .5f; }
   if (NRID == 1 && G.t && !strcmp(G.t->theme,"candy")) { d += 3; at.y += .7f; }
   t3_vec3 eye = { at.x - d * 0.16f, at.y + d * (city_view ? .18f : .36f), at.z + d };
+  float cork_roll;
+  if (G.t && G.state == GS_RIDE && track_corkscrew_pose(G.t, bike_get()->x, 0, 0, NULL, &cork_roll)) {
+    /* Keep the lens on the same side of the road as the bike through the
+     * inversion. World-up stays vertical so the rotation reads on screen. */
+    float sn = sinf(cork_roll), cs = cosf(cork_roll);
+    float pull = fmaxf(d, 14.5f);
+    eye = (t3_vec3){ at.x - pull*.23f,
+                      at.y + pull*(.34f*cs-sn),
+                      at.z + pull*(.34f*sn+cs) };
+  }
   if (getenv("BIKEMESA_CAM_34")) eye = (t3_vec3){ at.x - d * 0.75f, at.y + d * 0.5f, d * 0.7f }; /* dev aid: a three-quarter view from ahead */
   if (getenv("BIKEMESA_CAM_TOP")) eye = (t3_vec3){ at.x, at.y + 16, 0.5f }; /* dev aid: from above */
   if (getenv("BIKEMESA_CAM_WIDE")) { /* dev aid: pulled back and level, the distant land in view */
@@ -943,6 +980,14 @@ static void replay_camera(cw_node cam, const bike_pose *p, float u,
   /* the torso and the head: in the crash world once the rider is off, else the riding pose at its depth */
   t3_vec3 c = p->ragdoll ? p->limb3[RAG_TORSO].p : (t3_vec3){ p->limb[RAG_TORSO].p.x, p->limb[RAG_TORSO].p.y, p->z };
   t3_vec3 h = p->ragdoll ? p->limb3[RAG_HEAD].p : (t3_vec3){ p->limb[RAG_HEAD].p.x, p->limb[RAG_HEAD].p.y, p->z };
+  float cork_roll = 0;
+  bool cork = !p->ragdoll && track_corkscrew_pose(G.t,p->frame.p.x,c.y,p->z,&c,&cork_roll);
+  if (cork) {
+    c.x=p->limb[RAG_TORSO].p.x;
+    t3_vec3 hh;
+    track_corkscrew_pose(G.t,p->frame.p.x,h.y,p->z,&hh,NULL);
+    h.y=hh.y; h.z=hh.z;
+  }
   float push = cw_smoothstep(0.55f, 0.75f, u) * (1 - cw_smoothstep(0.9f, 1.0f, u));
   float yaw = -0.7f + 1.3f * cw_smoothstep(0, 0.6f, u);
   float d = 3.6f - 1.3f * push;
@@ -960,6 +1005,10 @@ static void replay_camera(cw_node cam, const bike_pose *p, float u,
   float sy, cy;
   cw_sincos(yaw, &sy, &cy);
   t3_vec3 eye = { at.x + sy * d, at.y + 0.25f - 0.15f * push, at.z + cy * d };
+  if (cork) {
+    eye.y += d*(.28f*cosf(cork_roll)-sinf(cork_roll));
+    eye.z = at.z + d*(.28f*sinf(cork_roll)+cosf(cork_roll));
+  }
   cw_node3d_set_position(cam, eye);
   cw_node3d_look_at(cam, at, (t3_vec3){ 0, 1, 0 });
 }
@@ -1380,6 +1429,10 @@ static bool ride_pre(const bike_input *inp) {
       for (int l = 0; l < G.t->loop_count; l++)
         if (G.t->loops[l * 3] - G.t->boosts[i * 2 + 1] < LOOP_RUN_IN &&
             G.t->loops[l * 3] + G.t->loops[l * 3 + 2] >= G.t->boosts[i * 2]) run_in = true;
+      for (int c = 0; c < G.t->corkscrew_count; c++) {
+        const float *v = G.t->corkscrews + 5*c;
+        if (G.t->boosts[i*2] <= v[1] && G.t->boosts[i*2+1] >= v[0]) run_in = true;
+      }
       if (!run_in || in.pedal > 0.05f) boosting = true;
     }
   if (boosting && P->boost_ticks == 0) game_sfx(SFX_BOOST, 0.8f);
@@ -1455,6 +1508,14 @@ static void ride_post(void) {
     trick("WHEELIE", 300);
   }
   if (b->wheelie_ticks > 90 && b->wheelie_ticks % 60 == 0) trick("WHEELIE+", 150);
+  if (b->alive && !G.attract) for (int i = 0; i < G.t->corkscrew_count && i < 32; i++) {
+    const float *c = G.t->corkscrews + 5*i;
+    if (b->x >= c[1] && !(P->cork_done & (1u << i))) {
+      P->cork_done |= 1u << i;
+      trick(c[4] > 0 ? "CORKSCREW" : "REVERSE CORKSCREW", 800);
+      game_sfx(SFX_TRICK, .9f);
+    }
+  }
   if (P->combo_ticks > 0 && --P->combo_ticks == 0) P->combo = 0;
   /* checkpoints and the line */
   if (b->alive)
@@ -1547,7 +1608,7 @@ static void respawn_sweep(int ticks, bool raw) {
 }
 
 static void menu_select(void) {
-  int n = TRACK_COUNT, cols = 4;
+  int n = TRACK_COUNT, cols = 5;
   int c = G.select_cursor;
   if (cw_action_just_pressed(0, G.m_left) && c % cols > 0) c--;
   if (cw_action_just_pressed(0, G.m_right) && c % cols < cols - 1 && c + 1 < n) c++;
@@ -1558,9 +1619,9 @@ static void menu_select(void) {
 }
 
 static cw_rect tile_rect(int i, float W, float H) {
-  float s = H / 540.0f, tw = 200 * s, th = 86 * s, gap = 12 * s;
-  int cols = 4;
-  float x0 = (W - cols * tw - (cols - 1) * gap) * 0.5f, y0 = H * 0.21f;
+  float s = H / 540.0f, tw = 166 * s, th = 78 * s, gap = 8 * s;
+  int cols = 5;
+  float x0 = (W - cols * tw - (cols - 1) * gap) * 0.5f, y0 = H * 0.17f;
   return cw_rect_make(x0 + (i % cols) * (tw + gap), y0 + (i / cols) * (th + gap), tw, th);
 }
 

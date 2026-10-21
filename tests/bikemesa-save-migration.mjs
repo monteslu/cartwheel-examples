@@ -1,4 +1,4 @@
-// Exercise the game's real save loader with a legacy save and a full 16-track save.
+// Exercise the game's real save loader with legacy saves and a new seventeenth slot.
 // node tests/bikemesa-save-migration.mjs /absolute/path/to/bikemesa
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
@@ -40,8 +40,8 @@ for (const version of [3, 4, 5, 6, 7, 8]) {
   const st = JSON.parse(readFileSync(state));
   const v = st['save.bytes'];
   const out = Buffer.from(typeof v === 'string' ? v : v.hex, 'hex');
-  assert.equal(out.length, 208);
-  assert.equal(out.readUInt16LE(4), 8);
+  assert.equal(out.length, 220);
+  assert.equal(out.readUInt16LE(4), 9);
   assert.equal(out.readInt32LE(12), 1234);
   assert.equal(out.readInt32LE(16), 9000);
   assert.equal(out.readInt32LE(192), version === 3 ? 0 : 2468);
@@ -57,7 +57,8 @@ for (const version of [3, 4, 5, 6, 7, 8]) {
     `v${version}: circus completion, visibility and stars`);
   assert.deepEqual(out.subarray(neighbor, neighbor + 12), b.subarray(neighbor, neighbor + 12),
     `v${version}: neighboring track must remain byte-identical`);
-  assert.equal(out.readUInt32LE(204), 2);
+  assert.deepEqual(out.subarray(204, 216), Buffer.alloc(12), `v${version}: new track starts empty`);
+  assert.equal(out.readUInt32LE(216), 2);
   assert.equal(out.readUInt32LE(8), sum(out));
   console.log(`PASS version ${version}: circus time/medal migration, preserved tricks/unlocks, neighboring track, and graphics settings`);
 }

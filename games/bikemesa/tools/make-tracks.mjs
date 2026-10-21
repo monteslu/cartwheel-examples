@@ -28,6 +28,7 @@
 //   ['split', len, h, dy, at, end] two routes after a kicker: a high plank deck from h above the lip at at m on, sloping
 //                                 down to end above it (a hopped jump//                                 reaches it; faster, a bonus) over a low line falling dy; they rejoin
 //   ['loop', r, powered=false]    a vertical loop of radius r; powered adds a pedal-driven boost strip
+//   ['corkscrew', len, radius, direction] a full roll around the track's forward axis; direction is +1 or -1
 //   ['check']                     a checkpoint here
 //   ['boost', len]                a boost strip along the next len metres
 //   ['pinch', len, lo, hi]        only lanes lo..hi open along the next len metres (a barrier closes the others)
@@ -233,13 +234,23 @@ export const TRACKS = [
     ['flat', 10], ['check'], ['dip', 18, 2], ['slope', 18, -5], ['boost', 12], ['flat', 14], ['kicker', 9, 2.4],
     ['gap', 18, -4], ['landing', 22, 5], ['flat', 12], ['finish'], ['flat', 60],
   ] },
+  // Two full axial rolls, in opposite directions, with a broad run-in and
+  // recovery sections. The boost lanes keep the inverted section rideable.
+  { name: 'Helix Harbor', theme: 'coast', sky: 'beach', par: 43, ready: true, pieces: [
+    ['flat', 16], ['slope', 18, -4], ['rollers', 3, 0.65, 8], ['flat', 8], ['check'],
+    ['slope', 14, -3], ['boost', 16], ['flat', 10], ['corkscrew', 58, 3.2, 1], ['flat', 12], ['check'],
+    ['bump', 12, 1.0], ['flat', 8], ['kicker', 7, 1.6], ['gap', 9, -1.5], ['landing', 14, 3], ['flat', 8], ['check'],
+    ['slope', 18, -5], ['boost', 14], ['flat', 10], ['corkscrew', 48, 2.7, -1], ['flat', 12], ['check'],
+    ['rollers', 3, 0.7, 8], ['slope', 16, -4], ['kicker', 8, 2.1], ['gap', 13, -3], ['landing', 18, 4],
+    ['flat', 12], ['finish'], ['flat', 60],
+  ] },
 
 ];
 
 // ── sampling ────────────────────────────────────────────────────────────
 function build(track) {
   const pieces = [[]];
-  const checks = [], boosts = [], kickers = [], bridges = [], ice = [], movers = [], highs = [], loops = [], pinches = [];
+  const checks = [], boosts = [], kickers = [], bridges = [], ice = [], movers = [], highs = [], loops = [], pinches = [], corkscrews = [];
   const ramps = track.ramps || [];
   let x = -24, y = 0, finish = null; // a flat run-up behind the start line (x = 0)
   const cur = () => pieces[pieces.length - 1];
@@ -271,6 +282,7 @@ function build(track) {
     else if (k === 'logs') { movers.push([4, x, y, a]); curve(a, (t) => b * (1 - Math.cos(Math.PI * t)) / 2); }
     else if (k === 'train') { movers.push([5, x + a / 2, y + b / 2, a]); const x0 = x; curve(a, (t) => b * t * t * (3 - 2 * t)); kickers.push([x0, x, 0]); }
     else if (k === 'loop') { if(b) boosts.push([x, x + 2*a + 6]); loops.push([x + 3 + a, y, a]); curve(2 * a + 6, () => 0); }
+    else if (k === 'corkscrew') { corkscrews.push([x, x + a, y, b, c]); boosts.push([x, x + a]); curve(a, () => 0); }
     else if (k === 'split') { highs.push([x + (p[4] || 18), x + a - 3, y + b, y + (p[5] ?? 1.5)]); curve(a, (t) => c * t * t * (3 - 2 * t)); }
     else if (k === 'ice') ice.push([+x.toFixed(3), +(x + a).toFixed(3)]);
     else if (k === 'crater') { curve(a * 0.6, (t) => -b * Math.sin(Math.PI * t)); const x0 = x; curve(a * 0.4, (t) => b * 0.55 * t * t); kickers.push([x0, x, -b]); }
@@ -288,7 +300,7 @@ function build(track) {
   let minY = Infinity, maxY = -Infinity;
   for (const pc of pieces) for (const [, py] of pc) { minY = Math.min(minY, py); maxY = Math.max(maxY, py); }
   if (process.env.DUMP) console.log(track.name + '\n  ' + log.join('\n  '));
-  return { pieces, checks, boosts, kickers, bridges, ice, movers, highs, loops, pinches, ramps, finish, minY, maxY, length: x };
+  return { pieces, checks, boosts, kickers, bridges, ice, movers, highs, loops, pinches, corkscrews, ramps, finish, minY, maxY, length: x };
 }
 
 const f = (v) => { const s = String(v); return (/[.e]/.test(s) ? s : s + '.0') + 'f'; };
@@ -311,6 +323,7 @@ TRACKS.forEach((t, ti) => {
   inc += `static const float ${id}_ice[] = { ${b.ice.flat().map(f).join(', ') || '0'} };\n`;
   inc += `static const float ${id}_highs[] = { ${b.highs.flat().map((v) => f(+(+v).toFixed(3))).join(', ') || '0'} };\n`;
   inc += `static const float ${id}_loops[] = { ${b.loops.flat().map((v) => f(+(+v).toFixed(3))).join(', ') || '0'} };\n`;
+  inc += `static const float ${id}_corkscrews[] = { ${b.corkscrews.flat().map((v) => f(+(+v).toFixed(3))).join(', ') || '0'} };\n`;
   inc += `static const float ${id}_pinches[] = { ${b.pinches.flat().map((v) => f(+(+v).toFixed(3))).join(', ') || '0'} };\n`;
   inc += `static const float ${id}_ramps[] = { ${b.ramps.flat().map((v) => f(+(+v).toFixed(3))).join(', ') || '0'} };\n`;
   inc += `static const float ${id}_movers[] = { ${b.movers.flat().map((v) => f(+(+v).toFixed(3))).join(', ') || '0'} };\n`;
@@ -318,7 +331,7 @@ TRACKS.forEach((t, ti) => {
     `${id}_checks, ${b.checks.length}, ${id}_boosts, ${b.boosts.length}, ${id}_kickers, ${b.kickers.length}, ` +
     `${f(b.finish[0])}, ${f(b.finish[1])}, ${f(+b.minY.toFixed(3))}, ${f(+b.maxY.toFixed(3))}, ${f(+b.length.toFixed(3))}, ` +
     `${id}_bridges, ${b.bridges.length}, ${id}_ice, ${b.ice.length}, ${f(t.gravity ?? 10)}, ${f(t.grip ?? 1)}, ${f(t.drag ?? 1)}, "${t.music || 'music'}", ` +
-    `${id}_movers, ${b.movers.length}, ${id}_highs, ${b.highs.length}, ${id}_loops, ${b.loops.length}, ${id}_pinches, ${b.pinches.length}, ${id}_ramps, ${b.ramps.length} },`);
+    `${id}_movers, ${b.movers.length}, ${id}_highs, ${b.highs.length}, ${id}_loops, ${b.loops.length}, ${id}_pinches, ${b.pinches.length}, ${id}_ramps, ${b.ramps.length}, ${id}_corkscrews, ${b.corkscrews.length} },`);
   console.log(`${t.name}: ${b.length.toFixed(0)} m, ${b.pieces.length} pieces, ${b.checks.length} checkpoints, y ${b.minY.toFixed(1)}..${b.maxY.toFixed(1)}`);
   writeScene(ti + 1, t, b);
 });
@@ -326,7 +339,7 @@ inc += `static const track_desc TRACKS[] = {\n${descs.join('\n')}\n};\n`;
 writeFileSync(join(GAME, 'tracks.inc'), inc);
 
 function writeScene(n, t, b) {
-  const th = THEMES[t.theme];
+  const th = THEMES[t.sky || t.theme];
   const col = (c) => `color(${c.map((v) => +v.toFixed(4)).join(', ')}, 1)`;
   const s = `[scene format=1]
 
