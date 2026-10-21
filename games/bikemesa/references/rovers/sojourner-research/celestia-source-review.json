@@ -1,0 +1,26 @@
+{
+  "url": "https://celestia.mobi/resources/item/6237BAE7-2CE9-F379-14F1-C88B814BD767",
+  "author": "DaveBowman2001",
+  "original_submission": "https://github.com/celestiamobile/celestia.mobi/issues/2#issuecomment-1000981871",
+  "release_date": "2021-11-11",
+  "license": "Not specified in downloaded ZIP, catalog page, or original submission",
+  "status": "Downloaded complete Celestia addon with sojourner.cmod and texture PNGs; not integrated. Distinct from historical SGI mesh.",
+  "download_local": "/tmp/sojourner-celestia.zip",
+  "zip_sha256": "66daaea2af8dbeb4da3a02acc93ad637d3f6c31928471955eb656fa223374f03",
+  "model_bytes": 278742,
+  "archive_files": [
+    "Mars Pathfinder/",
+    "Mars Pathfinder/mars_pathfinder.ssc",
+    "Mars Pathfinder/models/",
+    "Mars Pathfinder/models/pathfinder.cmod",
+    "Mars Pathfinder/models/sojourner.cmod",
+    "Mars Pathfinder/textures/",
+    "Mars Pathfinder/textures/medres/",
+    "Mars Pathfinder/textures/medres/c-silver.png",
+    "Mars Pathfinder/textures/medres/pathfinder.png",
+    "Mars Pathfinder/textures/medres/rover1alpha.png",
+    "Mars Pathfinder/textures/medres/ROVERARM.png",
+    "Mars Pathfinder/textures/medres/rovertire.png"
+  ],
+  "note": "No README/license/credits in ZIP. Celestia application license must not be assumed to cover separately submitted addons. Original author submission confirms name/date, not reuse terms."
+}

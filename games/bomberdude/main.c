@@ -545,6 +545,12 @@ static void init(void *u) {
   font_ui = cw_font_load("fonts/Fredoka-SemiBold.ttf", &fd);
   font_ui_bold = cw_font_load("fonts/Fredoka-Bold.ttf", &fd);
   font_title = cw_font_load("fonts/TitanOne-Regular.ttf", &fd);
+  /* Prepare printable English UI glyphs while loading. SDF glyph generation
+   * must not interrupt gameplay when a new score or result first appears. */
+  const cw_font ui_fonts[] = {font_ui, font_ui_bold, font_title};
+  for (unsigned f = 0; f < sizeof ui_fonts / sizeof ui_fonts[0]; f++)
+    cw_font_preload_range(ui_fonts[f], 32, 126);
+
   for (int i = 0; i < MAXP; i++) {
     G.slot[i] = SAVE.slot[i];
     G.crit[i] = SAVE.crit[i];

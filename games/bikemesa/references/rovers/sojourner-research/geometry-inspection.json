@@ -1,0 +1,26 @@
+{
+  "meshes": 59,
+  "triangles": 1582,
+  "bounds": {
+    "min": [
+      -0.574807437482,
+      -0.2936658134439133,
+      -0.49654346953919726
+    ],
+    "max": [
+      0.5736366355183169,
+      1.2609891694807362,
+      0.4965507119695897
+    ]
+  },
+  "textures": [
+    "suspension_holes.gif",
+    "wheel_tred.gif",
+    "wheel_face_map.gif",
+    "solor_cell.gif",
+    "apxs_detail.gif",
+    "apxs_front.gif",
+    "apxs_support.gif",
+    "gold_foil.jpg"
+  ]
+}

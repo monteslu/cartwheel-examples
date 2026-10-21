@@ -712,6 +712,12 @@ static void init(void *u) {
   font_title = cw_font_load("fonts/BlackOpsOne-Regular.ttf", &sdf);
   font_hud = cw_font_load("fonts/RussoOne-Regular.ttf", &sdf);
   font_small = cw_font_load("fonts/Oswald-VF.ttf", &sdf);
+  /* Prepare printable English UI glyphs while loading. SDF glyph generation
+   * must not interrupt gameplay when a new score or result first appears. */
+  const cw_font ui_fonts[] = {font_title, font_hud, font_small};
+  for (unsigned f = 0; f < sizeof ui_fonts / sizeof ui_fonts[0]; f++)
+    cw_font_preload_range(ui_fonts[f], 32, 126);
+
   cw_debug_i32("game.state", &G.state);
   cw_debug_i32("bout.phase", &G.phase);
   cw_debug_i32("bout.clock", &G.clock);

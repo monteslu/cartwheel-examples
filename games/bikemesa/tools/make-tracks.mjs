@@ -27,7 +27,7 @@
 //   ['train', len, dy]            a jump's tabletop with a train crossing under it
 //   ['split', len, h, dy, at, end] two routes after a kicker: a high plank deck from h above the lip at at m on, sloping
 //                                 down to end above it (a hopped jump//                                 reaches it; faster, a bonus) over a low line falling dy; they rejoin
-//   ['loop', r]                   a vertical loop of radius r over flat ground (r + 3 m of run-in under it)
+//   ['loop', r, powered=false]    a vertical loop of radius r; powered adds a pedal-driven boost strip
 //   ['check']                     a checkpoint here
 //   ['boost', len]                a boost strip along the next len metres
 //   ['pinch', len, lo, hi]        only lanes lo..hi open along the next len metres (a barrier closes the others)
@@ -47,12 +47,12 @@ const STEP = 0.25;
 // density; ground colour under the horizon; tone map and exposure; the grade
 // (assets/grades/<name>.cube, tools/make-grade.mjs)
 export const THEMES = {
-  canyon: { tod: 16.9, lat: 34, north: 75, sun: 6.2, sky: 0.95, mie: 1.1, fog: 0.0035, fogh: 0.08, ground: [0.32, 0.17, 0.08],
+  canyon: { tod: 16.9, lat: 34, north: 75, sun: 6.2, sky: 0.95, mie: 1.1, fog: 0.0035, fogh: 0.04, ground: [0.32, 0.17, 0.08],
     amb: [1, 0.8, 0.62], hemi: 0.3, tonemap: 'AGX', exposure: 1.0, grade: 'canyon' },
-  alpine: { tod: 7.4, lat: 46, north: 100, sun: 5.5, sky: 1.0, mie: 0.8, fog: 0.004, fogh: 0.05, ground: [0.6, 0.65, 0.72],
+  alpine: { tod: 7.4, lat: 46, north: 100, sun: 5.5, sky: 1.0, mie: 0.8, fog: 0.004, fogh: 0.03, ground: [0.6, 0.65, 0.72],
     amb: [0.75, 0.82, 1], hemi: 0.35, tonemap: 'AGX', exposure: 1.0, grade: 'alpine' },
   neon: { tod: 19.9, lat: 35, north: 60, sun: 1.2, sky: 0.8, mie: 0.6, fog: 0.004, fogh: 0.06, ground: [0.08, 0.06, 0.12],
-    amb: [0.6, 0.5, 1], hemi: 0.9, tonemap: 'AGX', exposure: 1.6, grade: 'neon' },
+    amb: [0.58, 0.7, 1], hemi: 0.55, tonemap: 'AGX', exposure: 1.65, grade: 'neon' },
   jungle: { tod: 10.5, lat: 8, north: 40, sun: 5.8, sky: 1.0, mie: 1.4, fog: 0.006, fogh: 0.08, ground: [0.12, 0.2, 0.06],
     amb: [0.85, 1, 0.75], hemi: 0.35, tonemap: 'AGX', exposure: 0.95, grade: 'jungle' },
   desert: { tod: 13.2, lat: 26, north: 90, sun: 7.0, sky: 1.0, mie: 1.0, fog: 0.0025, fogh: 0.06, ground: [0.62, 0.45, 0.25],
@@ -71,8 +71,15 @@ export const THEMES = {
     amb: [0.6, 0.62, 0.7], hemi: 0.12, tonemap: 'AGX', exposure: 1.0, grade: 'moon' },
   beach: { tod: 11.5, lat: 25, north: 85, sun: 7.0, sky: 1.0, mie: 0.8, fog: 0.002, fogh: 0.06, ground: [0.6, 0.55, 0.4],
     amb: [1, 0.95, 0.85], hemi: 0.35, tonemap: 'AGX', exposure: 0.95, grade: 'beach' },
-  mars: { tod: 14.5, lat: 20, north: 75, sun: 5.0, sky: 1.1, mie: 3.8, fog: 0.007, fogh: 0.06, ground: [0.55, 0.3, 0.16],
+  mars: { tod: 14.5, lat: 20, north: 75, sun: 5.0, sky: 1.1, mie: 3.8, fog: 0.007, fogh: 0.035, ground: [0.55, 0.3, 0.16],
     amb: [1, 0.75, 0.55], hemi: 0.4, tonemap: 'AGX', exposure: 1.0, grade: 'mars' },
+  circus: { tod: 16.2, lat: 30, north: 75, sun: 5.0, sky: 1.0, mie: 0.8, fog: 0.0025, fogh: 0.06, ground: [0.35, 0.16, 0.25],
+    amb: [1, 0.85, 0.75], hemi: 0.45, tonemap: 'AGX', exposure: 1.05, grade: 'beach' },
+  candy: { tod: 10.8, lat: 25, north: 85, sun: 5.2, sky: 1.0, mie: 0.7, fog: 0.003, fogh: 0.05, ground: [0.6, 0.35, 0.5],
+    amb: [1, 0.85, 0.95], hemi: 0.5, tonemap: 'AGX', exposure: 1.0, grade: 'beach' },
+  toybox: { tod: 15.5, lat: 35, north: 70, sun: 5.4, sky: 0.95, mie: 0.8, fog: 0.003, fogh: 0.06, ground: [0.3, 0.35, 0.5],
+    amb: [0.85, 0.9, 1], hemi: 0.45, tonemap: 'AGX', exposure: 1.0, grade: 'canyon' },
+
 };
 
 // ── the tracks ──────────────────────────────────────────────────────────
@@ -80,6 +87,7 @@ export const TRACKS = [
   { name: 'Red Rock Run', theme: 'canyon', par: 30, ready: true, ramps: [[32.3, 2.4, 0.6, 1.2, 2.2, 2, 3], [83.5, 2, 0.5, 1.5, 2, 0, 0], [132, 3, 0.9, 0, 3, 2, 3], [265.5, 2.5, 0.8, 1, 2.5, 3, 3], [266, 2.5, 0.7, 1, 2.5, 0, 0]], pieces: [
     ['flat', 14], ['slope', 18, -4], ['flat', 6], ['rollers', 3, 0.7, 6], ['flat', 4],
     ['kicker', 6, 1.4], ['gap', 7, -1.2], ['landing', 10, 2.2], ['flat', 8], ['check'],
+    ['flat', 8], ['boost', 8], ['flat', 12], ['loop', 3.5], ['flat', 8],
     ['slope', 12, 3.5], ['flat', 4], ['bump', 8, 1.2], ['slope', 16, -5], ['boost', 10], ['flat', 12],
     ['kicker', 7, 1.8], ['gap', 9, -2.5], ['landing', 14, 3.5], ['flat', 6], ['check'],
     ['rollers', 4, 0.9, 7], ['pinch', 40, 1, 2], ['dip', 14, 2.0], ['flat', 6], ['kicker', 5, 1.2], ['gap', 5, -0.5], ['landing', 8, 1.5],
@@ -95,20 +103,37 @@ export const TRACKS = [
     ['flat', 6], ['check'], ['slope', 26, -9], ['boost', 14], ['flat', 10], ['kicker', 10, 3.0], ['gap', 20, -5],
     ['landing', 18, 5], ['flat', 8], ['finish'], ['flat', 60],
   ] },
-  { name: 'Neon Rooftops', theme: 'neon', par: 21, ready: true, pieces: [
+  { name: 'Downtown', theme: 'neon', par: 65, ready: true, pieces: [
     ['flat', 16], ['kicker', 5, 1.0], ['gap', 5, -0.8], ['flat', 4], ['wreck', 12], ['flat', 4], ['kicker', 5, 1.2], ['gap', 6, -1.5], ['flat', 12],
     ['check'], ['slope', 10, -3], ['boost', 10], ['flat', 10], ['kicker', 7, 2.0], ['gap', 12, -3], ['flat', 10],
     ['bump', 6, 0.8], ['flat', 6], ['kicker', 4, 0.9], ['gap', 4, 0.6], ['flat', 10], ['check'],
     ['slope', 8, 2.5], ['flat', 6], ['kicker', 6, 1.6], ['gap', 9, -4], ['landing', 12, 2.5], ['flat', 8],
     ['rollers', 3, 0.6, 5], ['check'], ['slope', 16, -5], ['boost', 12], ['flat', 10], ['kicker', 9, 2.8], ['gap', 18, -4.5],
-    ['landing', 14, 3], ['flat', 10], ['finish'], ['flat', 60],
+    ['landing', 14, 3], ['flat', 10], ['check'],
+    ['flat', 18], ['bump', 12, 0.8], ['flat', 12], ['kicker', 7, 1.5],
+    ['gap', 10, -1.5], ['landing', 12, 2], ['rollers', 2, 0.55, 6], ['flat', 13],
+    // Four 86 m blocks leave room for full-scale landmarks and riding gaps.
+    ['check'], ['flat', 18], ['bump', 12, 0.8], ['kicker', 7, 1.5],
+    ['gap', 10, -1.5], ['landing', 12, 2], ['rollers', 2, 0.55, 6], ['flat', 9],
+    ['check'], ['flat', 18], ['bump', 12, 0.8], ['kicker', 7, 1.5],
+    ['gap', 10, -1.5], ['landing', 12, 2], ['rollers', 2, 0.55, 6], ['flat', 9],
+    ['check'], ['flat', 18], ['bump', 12, 0.8], ['kicker', 7, 1.5],
+    ['gap', 10, -1.5], ['landing', 12, 2], ['rollers', 2, 0.55, 6], ['flat', 9],
+    ['check'], ['flat', 18], ['bump', 12, 0.8], ['kicker', 7, 1.5],
+    ['gap', 10, -1.5], ['landing', 12, 2], ['rollers', 2, 0.55, 6], ['flat', 9],
+    // Two shorter riding blocks accommodate the final 28-venue layout.
+    ['check'], ['flat', 14], ['bump', 10, .7], ['kicker', 6, 1.3],
+    ['gap', 8, -1.3], ['landing', 10, 1.8], ['rollers', 2, .45, 5], ['flat', 8],
+    ['check'], ['flat', 14], ['bump', 10, .7], ['kicker', 6, 1.3],
+    ['gap', 8, -1.3], ['landing', 10, 1.8], ['rollers', 2, .45, 5], ['flat', 8],
+    ['finish'], ['flat', 60],
   ] },
-  { name: 'Temple Vines', theme: 'jungle', par: 38, ready: true, pieces: [
+  { name: 'Enchanted Forest', theme: 'jungle', par: 38, ready: true, pieces: [
     ['flat', 12], ['rollers', 4, 0.9, 6], ['slope', 14, -4], ['kicker', 6, 1.6], ['gap', 8, -1.5], ['landing', 12, 3],
     ['check'], ['slope', 14, 4], ['flat', 4], ['dip', 18, 3.5], ['slope', 10, -2], ['kicker', 7, 2.2], ['gap', 10, -2],
     ['landing', 12, 3.5], ['flat', 6], ['check'], ['rollers', 6, 1.0, 6.5], ['slope', 24, -8],
     ['flat', 8], ['kicker', 8, 2.2], ['gap', 15, -3.5], ['landing', 22, 4.5], ['flat', 8], ['check'],
-    ['flat', 6], ['boost', 8], ['flat', 26], ['loop', 3.5], ['flat', 10], ['bump', 10, 2.0],
+    ['flat', 6], ['boost', 8], ['flat', 26], ['flat', 13], ['flat', 10], ['bump', 10, 2.0],
     ['slope', 12, -4], ['kicker', 6, 1.4], ['gap', 6, 0.5], ['flat', 6], ['slope', 18, -6], ['kicker', 9, 2.8],
     ['gap', 17, -4], ['landing', 16, 4.5], ['flat', 8], ['finish'], ['flat', 60],
   ] },
@@ -180,6 +205,32 @@ export const TRACKS = [
     ['flat', 10], ['kicker', 9, 2.6], ['slope', 48, -4.5], ['landing', 22, 4], ['flat', 10], ['check'], ['crater', 18, 2.4],
     ['flat', 10], ['kicker', 9, 2.4], ['gap', 20, -4], ['landing', 20, 5], ['flat', 8], ['finish'], ['flat', 60],
   ] },
+  // A three-act circus: trampoline rollers, juggling bumps, then a boosted finale.
+  { name: 'Big Top Tumble', theme: 'circus', par: 40, ready: true, music: 'music_circus', pieces: [
+    ['flat', 14], ['slope', 18, -4], ['rollers', 5, 0.65, 7], ['flat', 6], ['check'],
+    ['kicker', 7, 1.6], ['gap', 10, -2], ['landing', 14, 3], ['flat', 10], ['rollers', 2, 0.4, 6], ['flat', 6], ['check'],
+    ['slope', 22, -5], ['rollers', 3, 0.8, 9], ['flat', 8], ['kicker', 8, 2.1], ['gap', 14, -2.5], ['landing', 18, 4],
+    ['flat', 10], ['check'], ['slope', 18, -5], ['boost', 24], ['flat', 12], ['loop', 12, true], ['flat', 14], ['check'],
+    ['boost', 12], ['flat', 16], ['kicker', 9, 2.6], ['gap', 20, -4],
+    ['landing', 22, 5], ['flat', 12], ['finish'], ['flat', 60],
+  ] },
+  // Gentle low gravity makes the candy hills a playground for long, floaty tricks.
+  { name: 'Candy Comet', theme: 'candy', par: 40, ready: true, gravity: 6.5, drag: 0.8, pieces: [
+    ['flat', 14], ['slope', 18, -4], ['rollers', 4, 0.8, 10], ['flat', 8], ['check'],
+    ['kicker', 8, 1.8], ['gap', 18, -2.5], ['landing', 22, 4], ['flat', 10], ['check'],
+    ['dip', 20, 2], ['rollers', 4, 1, 12], ['slope', 20, -5], ['flat', 10], ['kicker', 9, 2.2],
+    ['gap', 22, -3], ['landing', 24, 4], ['flat', 10], ['check'], ['slope', 20, -5], ['boost', 10],
+    ['flat', 12], ['kicker', 10, 2.5], ['gap', 26, -4], ['landing', 26, 5], ['flat', 12], ['finish'], ['flat', 60],
+  ] },
+  // A toy railway, rollers and staggered lane ramps in a giant construction set.
+  { name: 'Clockwork Toybox', theme: 'toybox', par: 34, ready: true, ramps: [[36, 3, 0.6, 2, 3, 2, 3]], pieces: [
+    ['flat', 14], ['slope', 18, -4], ['flat', 14], ['rollers', 3, 0.6, 7], ['flat', 8], ['check'],
+    ['kicker', 7, 1.6], ['train', 12, -2], ['landing', 16, 3], ['flat', 10], ['rollers', 2, 0.4, 6], ['flat', 6], ['check'],
+    ['slope', 20, -5], ['rollers', 4, 0.7, 8], ['flat', 8], ['kicker', 8, 2], ['gap', 14, -3], ['landing', 18, 4],
+    ['flat', 10], ['check'], ['dip', 18, 2], ['slope', 18, -5], ['boost', 12], ['flat', 14], ['kicker', 9, 2.4],
+    ['gap', 18, -4], ['landing', 22, 5], ['flat', 12], ['finish'], ['flat', 60],
+  ] },
+
 ];
 
 // ── sampling ────────────────────────────────────────────────────────────
@@ -216,7 +267,7 @@ function build(track) {
     else if (k === 'wreck') { movers.push([3, x + a / 2, y, a]); curve(a, () => 0); }
     else if (k === 'logs') { movers.push([4, x, y, a]); curve(a, (t) => b * (1 - Math.cos(Math.PI * t)) / 2); }
     else if (k === 'train') { movers.push([5, x + a / 2, y + b / 2, a]); const x0 = x; curve(a, (t) => b * t * t * (3 - 2 * t)); kickers.push([x0, x, 0]); }
-    else if (k === 'loop') { loops.push([x + 3 + a, y, a]); curve(2 * a + 6, () => 0); }
+    else if (k === 'loop') { if(b) boosts.push([x, x + 2*a + 6]); loops.push([x + 3 + a, y, a]); curve(2 * a + 6, () => 0); }
     else if (k === 'split') { highs.push([x + (p[4] || 18), x + a - 3, y + b, y + (p[5] ?? 1.5)]); curve(a, (t) => c * t * t * (3 - 2 * t)); }
     else if (k === 'ice') ice.push([+x.toFixed(3), +(x + a).toFixed(3)]);
     else if (k === 'crater') { curve(a * 0.6, (t) => -b * Math.sin(Math.PI * t)); const x0 = x; curve(a * 0.4, (t) => b * 0.55 * t * t); kickers.push([x0, x, -b]); }
@@ -279,7 +330,7 @@ function writeScene(n, t, b) {
 [node name="Track" type="Node3D"]
 
 [node name="Sky" parent="." type="ProceduralSky"]
-sun = "../Sun"
+${t.theme === 'neon' ? 'sun = ""' : 'sun = "../Sun"'}
 time_of_day = ${th.tod}
 latitude = ${th.lat}
 declination = 12
@@ -293,7 +344,7 @@ env_update_angle = 2
 
 [node name="Sun" parent="." type="DirectionalLight3D"]
 position = vec3(0, 0, 0)
-shadow = true
+${t.theme === 'neon' ? 'rotation = vec3(-0.65, -0.4, 0)\ncolor = color(0.55, 0.7, 1, 1)\nenergy = 0.7\n' : ''}shadow = true
 shadow_size = 2048
 shadow_extent = 16
 shadow_far = 120
@@ -310,14 +361,14 @@ density = ${th.fog}
 height_falloff = ${th.fogh}
 base_height = ${(b.minY - 10).toFixed(1)}
 use_sky_color = true
-sun_scatter = 0.35
+${t.theme === 'scary' ? 'volumetric = true\nvolumetric_distance = 48\nvolumetric_ambient = 1.3\nvolumetric_albedo = color(0.8, 0.85, 1, 1)\n' : ''}sun_scatter = 0.35
 sun_g = 0.8
 max_opacity = 0.7
 start_distance = 30
 sky_distance = 500
 
 [node name="Post" parent="." type="PostProcess"]
-tonemap = ${th.tonemap}
+${t.theme === 'neon' ? 'depth_prepass = true\n' : ''}tonemap = ${th.tonemap}
 exposure = ${th.exposure}
 bloom = true
 bloom_intensity = 0.06
@@ -332,7 +383,7 @@ vignette_intensity = 0.25
 vignette_smoothness = 0.6
 grade = true
 lut = "grades/${th.grade}.cube"
-grade_intensity = 0.75
+grade_intensity = ${t.theme === 'neon' ? 0.3 : 0.75}
 
 [node name="Camera" parent="." type="Camera3D"]
 position = vec3(0, 3, 14)

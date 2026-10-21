@@ -35,7 +35,10 @@ typedef struct model_t {
    * material, and the far look, one for it all */
   t3_object *near_mesh[24], *far_mesh;
   int near_n;
-  cw_node node;
+  cw_node node, decal_receiver;
+  bool chocolate_pending, chocolate_stamped;
+  t3_vec3 chocolate_hits[4], chocolate_normals[4];
+  int chocolate_hit_count, chocolate_hit_total;
 } model_t;
 static model_t MS[MAX_RIDERS];
 static model_t *Mc = MS;
@@ -944,6 +947,14 @@ void models_build_rider(cw_node parent, int idx) {
   M.node = cw_node_new("Node3D", nm);
   cw_node_add_child(parent, M.node);
   cw_node3d_set_object(M.node, M.root);
+  /* Only drawable skins receive stains; hidden construction meshes are bones,
+   * and must not consume the decal clipping budget before the visible skin. */
+  M.decal_receiver=cw_node_new("Node3D","Skin");cw_node_add_child(M.node,M.decal_receiver);
+  t3_object *receiver=cw_node3d_object(M.decal_receiver);
+  for(int i=0;i<=M.near_n;i++) {
+    t3_object *o=i==0?M.far_mesh:M.near_mesh[i-1];if(!o)continue;
+    t3_retain(o);t3_object_remove(o->parent,o);t3_object_add(receiver,o);t3_release(o);
+  }
   t3_release(M.root);
   t3_release(cyl);
   t3_release(spokes);
@@ -984,11 +995,66 @@ static void neck_between(t3_vec3 a, t3_vec3 b) {
 
 void models_sync(const bike_pose *p) { models_sync_rider(0, p, p->z); }
 
+void models_chocolate(int rider) { MS[CW_CLAMP(rider,0,MAX_RIDERS-1)].chocolate_pending=true; }
+void models_chocolate_hit(int rider,t3_vec3 point,t3_vec3 normal) {
+  model_t *m=&MS[CW_CLAMP(rider,0,MAX_RIDERS-1)];
+  /* Keep persistent stains bounded; the broad river coating remains too. */
+  if(m->chocolate_hit_count>=4||m->chocolate_hit_total>=12)return;
+  int i=m->chocolate_hit_count++;
+  m->chocolate_hits[i]=point;m->chocolate_normals[i]=normal;m->chocolate_hit_total++;
+}
 /* rider idx's model at its pose, its lane z across the track */
 static void models_sync_rider_(const bike_pose *p, float z);
 void models_sync_rider(int idx, const bike_pose *p, float z) {
   Mc = &MS[CW_CLAMP(idx, 0, MAX_RIDERS - 1)];
   if (M.root) models_sync_rider_(p, z);
+  if(M.root&&M.chocolate_hit_count) {
+    t3_object_update_world_matrix(M.root,true,true);
+    for(int i=0;i<M.chocolate_hit_count;i++) {
+      t3_vec3 at=M.chocolate_hits[i],n=M.chocolate_normals[i];
+      /* Riding models have a lane offset; ragdolls use world coordinates. */
+      if(!p->ragdoll)at.z-=z;
+      cw_node d=cw_node_new("Decal3D","Chocolate impact");cw_node_add_child(M.node,d);
+      cw_node_set(d,"mode",cw_val_enum("MESH"));cw_node_set(d,"target",cw_val_string("../Skin"));
+      cw_node_set(d,"blend",cw_val_enum("MIX"));
+      cw_node_set(d,"color",cw_val_color(.055f,.012f,.004f,.94f));
+      cw_node_set(d,"size",cw_val_vec3(.36f,.42f,.45f));
+      cw_node_set(d,"normal_fade",cw_val_float(0));
+      cw_node_set(d,"max_triangles",cw_val_int(768));
+      cw_node3d_set_position(d,at);
+      t3_vec3 up=fabsf(n.y)>.9f?(t3_vec3){0,0,1}:(t3_vec3){0,1,0};
+      cw_node3d_look_at(d,(t3_vec3){at.x-n.x,at.y-n.y,at.z-n.z},up);
+    }
+    M.chocolate_hit_count=0;
+  }
+  if(M.root&&M.chocolate_pending&&!M.chocolate_stamped) {
+    M.chocolate_pending=false;M.chocolate_stamped=true;
+    t3_object_update_world_matrix(M.root,true,true);
+    float x=p->ragdoll?p->frame3.p.x:p->frame.p.x;
+    float y=p->ragdoll?p->frame3.p.y:p->frame.p.y;
+    float depth=p->ragdoll?p->frame3.p.z:0;
+    /* Split the same triangle budget between bike and posed clothing.
+     * Frame-only projectors can miss a separated ragdoll. Skin weights
+     * keep the resulting stains attached throughout the tumble. */
+    for(int j=0;j<6;j++) {
+      t3_vec3 at={x+(j-1)*.42f,y+(j%2)*.65f,depth+.15f};
+      if(j>=3) {
+        const int limbs[]={RAG_TORSO,RAG_THIGH_L,RAG_THIGH_R};
+        int limb=limbs[j-3];
+        if(p->ragdoll)at=p->limb3[limb].p;
+        else at=(t3_vec3){p->limb[limb].p.x,p->limb[limb].p.y,0};
+        at.z+=.08f;
+      }
+      cw_node d=cw_node_new("Decal3D","Chocolate splash");cw_node_add_child(M.node,d);
+      cw_node_set(d,"mode",cw_val_enum("MESH"));cw_node_set(d,"target",cw_val_string("../Skin"));
+      cw_node_set(d,"blend",cw_val_enum("MIX"));
+      cw_node_set(d,"color",cw_val_color(.055f,.012f,.004f,.88f));
+      cw_node_set(d,"size",cw_val_vec3(j<3?.72f:.62f,j<3?.82f:.68f,1.6f));
+      cw_node_set(d,"normal_fade",cw_val_float(0));
+      cw_node_set(d,"max_triangles",cw_val_int(2048));
+      cw_node3d_set_position(d,at);
+    }
+  }
 }
 void models_refresh(int idx) {
   model_t *mm = &MS[CW_CLAMP(idx, 0, MAX_RIDERS - 1)];

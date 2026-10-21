@@ -26,9 +26,110 @@
 #include <string.h>
 
 #include "game.h"
+#include "cartwheel/debug.h"
 
 static cw_world3d W3;
 static cw_mesh3d scene_mesh;
+static cw_body3d toys[LOOSE_TOYS], toy_wheels[MAX_RIDERS][2];
+static int n_toys;
+static float toy_debug[LOOSE_TOYS*3];
+static int32_t toy_hits[3];
+int crash_toys_count(void) { return n_toys; }
+cw_xform3 crash_toy_pose(int i,float alpha) { return cw_body3d_interpolated(toys[i],alpha); }
+uint32_t crash_toys_hash(uint32_t h) {
+  if(n_toys) {
+    for(int i=0;i<n_toys;i++){cw_xform3 x=cw_body3d_transform(toys[i]);toy_debug[i*3]=x.p.x;toy_debug[i*3+1]=x.p.y;toy_debug[i*3+2]=x.p.z;}
+    uint32_t state=cw_world3d_stats(W3).hash;h=cw_hash32(&state,sizeof state,h); }
+  return h;
+}
+void crash_toy_wheels(int rider,cw_xform2 rear,cw_xform2 front,float z,bool alive) {
+  if(!n_toys)return;
+  cw_xform2 pose[2]={rear,front};
+  for(int j=0;j<2;j++) {
+    cw_xform3 target=cw_xform3_at(pose[j].p.x,pose[j].p.y,alive?z:-1000);
+    cw_xform3 old=cw_body3d_transform(toy_wheels[rider][j]);
+    float dx=target.p.x-old.p.x,dy=target.p.y-old.p.y,dz=target.p.z-old.p.z;
+    if(dx*dx+dy*dy+dz*dz>9)cw_body3d_set_transform(toy_wheels[rider][j],target);
+    cw_body3d_set_target(toy_wheels[rider][j],target,1.f/TICK_HZ);
+  }
+}
+static uint32_t toy_rand(uint32_t n) { n^=n>>16;n*=0x7feb352du;n^=n>>15;n*=0x846ca68bu;return n^(n>>16); }
+static float toy_unit(int i,int salt) { return (toy_rand((uint32_t)i*193u+(uint32_t)salt*977u)&65535)/65535.f; }
+int crash_toy_kind(int i) { return i>=TOY_PIT_START?4:i>=LOOSE_SCATTER?6:i%9; } /* teddy, die, four balls, block, spool, chicken */
+float crash_toy_size(int i) { return i>=LOOSE_SCATTER?1:.65f+toy_unit(i,8)*.7f; }
+void crash_toy_sounds(const cw_phys_event3d *ev,int n) {
+  float strength[3]={0};
+  for(int j=0;j<n;j++)if(ev[j].type==CW_PHYS_HIT) {
+    float near=1e20f;
+    for(int r=0;r<MAX_RIDERS;r++)if(cw_body3d_valid(toy_wheels[r][0])) {
+      t3_vec3 p=cw_body3d_transform(toy_wheels[r][0]).p;
+      float dx=p.x-ev[j].point.x,dy=p.y-ev[j].point.y,dz=p.z-ev[j].point.z;
+      near=fminf(near,dx*dx+dy*dy+dz*dz);
+    }
+    if(near>18*18)continue;
+    uint64_t tags[2]={ev[j].material_a,ev[j].material_b};
+    for(int k=0;k<2;k++)if(tags[k]>=101&&tags[k]<=103)
+      strength[tags[k]-101]=fmaxf(strength[tags[k]-101],ev[j].speed);
+  }
+  for(int i=0;i<3;i++)if(strength[i]>2.5f){toy_hits[i]++;game_sfx((sfx_id)(SFX_BALL+i),cw_clampf(strength[i]/22,.12f,.55f));}
+}
+static void toys_build(const track_desc *t) {
+  if(strcmp(t->theme,"toybox"))return;
+  cw_shape3d_def sd=cw_shape3d_default_def();
+  sd.layer=L3_TOY;sd.density=.12f;sd.material.friction=.65f;
+  sd.contact_events=false;sd.hit_events=true;
+  t3_vec3 placed[LOOSE_TOYS];
+  for(int i=0;i<LOOSE_TOYS;i++) {
+    int kind=crash_toy_kind(i);float scale=crash_toy_size(i),x=0,z=0;
+    for(int attempt=0;attempt<32;attempt++) {
+      /* Unordered clusters: no collectible rows, lane alignment, or equal spacing. */
+      x=48+toy_unit(i/6,2)*(t->finish_x-100)+(toy_unit(i,3+attempt)-.5f)*13;
+      z=(toy_unit(i,71+attempt)-.5f)*3.25f;
+      bool clear=true;
+      for(int j=0;j<i;j++){float dx=x-placed[j].x,dz=z-placed[j].z;if(dx*dx+dz*dz<.65f*.65f)clear=false;}
+      if(clear)break;
+    }
+    float height=.31f*scale;
+    if(i>=LOOSE_SCATTER&&i<TOY_PIT_START) {
+      int w=(i-LOOSE_SCATTER)/28,row=((i-LOOSE_SCATTER)%28)/7,col=(i-LOOSE_SCATTER)%7;
+      x=w==0?116:w==1?246:286;z=(col-3)*.49f;
+      height=.245f+row*.49f;
+    }
+    if(i>=TOY_PIT_START) {
+      int n=i-TOY_PIT_START,row=n/108,col=n%12,depth=(n/12)%9;
+      x=t->finish_x+6+col*.52f+(toy_unit(i,91)-.5f)*.12f;z=(depth-4)*.52f+(toy_unit(i,92)-.5f)*.12f;
+      height=.28f+row*.53f+toy_unit(i,93)*.05f;
+    }
+    placed[i]=(t3_vec3){x,0,z};
+    cw_body3d_def bd=cw_body3d_default_def();bd.name="loose toy";bd.bullet=true;
+    bd.position=(t3_vec3){x,track_height_at(x,NULL)+height,z};
+    if(i<LOOSE_SCATTER)bd.rotation=t3_quat_from_axis_angle((t3_vec3){0,1,0},toy_unit(i,15)*6.2831853f);
+    bd.angular_damping=.2f;bd.linear_damping=.06f;bd.awake=i<LOOSE_SCATTER||i>=TOY_PIT_START;
+    toys[i]=cw_body3d_create(W3,&bd);
+    sd.material.restitution=i>=TOY_PIT_START?.28f:(kind>=2&&kind<=5)?.65f:.15f;
+    sd.material.user_material=kind==8?103:(kind>=2&&kind<=5)?101:102;
+    if(kind==1||kind==6)cw_shape3d_box(toys[i],&sd,(t3_vec3){.24f*scale,.24f*scale,.24f*scale},cw_xform3_identity());
+    else if(kind==0||kind==8) {
+      cw_shape3d_sphere(toys[i],&sd,(t3_vec3){0},.24f*scale);
+      cw_shape3d_sphere(toys[i],&sd,(t3_vec3){0,.32f*scale,0},.19f*scale);
+    } else cw_shape3d_sphere(toys[i],&sd,(t3_vec3){0},.28f*scale);
+  }
+  cw_body3d_def tray=cw_body3d_default_def();tray.type=CW_BODY_STATIC;tray.name="ball pit padded walls";
+  cw_body3d pit=cw_body3d_create(W3,&tray);
+  cw_shape3d_def ps=cw_shape3d_default_def();ps.layer=L3_SCENE;ps.material.restitution=.05f;
+  float px=t->finish_x+9,py=track_height_at(px,NULL);
+  cw_shape3d_box(pit,&ps,(t3_vec3){4.5f,.2f,2.8f},cw_xform3_at(px,py-.2f,0));
+  for(int side=-1;side<=1;side+=2)cw_shape3d_box(pit,&ps,(t3_vec3){4.5f,1.35f,.15f},cw_xform3_at(px,py+1.35f,side*2.7f));
+  for(int end=-1;end<=1;end+=2)cw_shape3d_box(pit,&ps,(t3_vec3){.2f,1.35f,2.8f},cw_xform3_at(px+end*4.3f,py+1.35f,0));
+  n_toys=LOOSE_TOYS;memset(toy_hits,0,sizeof toy_hits);cw_debug_field("toys.hits",toy_hits,CW_DBG_I32,3);cw_debug_f32_array("toys.positions",toy_debug,LOOSE_TOYS*3);
+  sd.layer=L3_BIKE;sd.mask=1u<<L3_TOY;sd.material.restitution=.25f;sd.material.user_material=0;
+  for(int i=0;i<MAX_RIDERS;i++)for(int j=0;j<2;j++) {
+    cw_body3d_def bd=cw_body3d_default_def();bd.type=CW_BODY_KINEMATIC;
+    bd.position=(t3_vec3){0,0,-1000};bd.name="riding wheel toy collider";
+    toy_wheels[i][j]=cw_body3d_create(W3,&bd);
+    cw_shape3d_sphere(toy_wheels[i][j],&sd,(t3_vec3){0},.36f);
+  }
+}
 
 /* a growable triangle list */
 typedef struct tri_list {
@@ -172,6 +273,7 @@ void crash_world_build(const track_desc *t) {
   wd.layers[L3_RIDER] = "rider";
   wd.layers[L3_BIKE] = "bike";
   wd.layers[L3_HAND] = "hand";
+  wd.layers[L3_TOY] = "toy";
   W3 = cw_world3d_create(&wd);
   cw_body3d_def bd = cw_body3d_default_def();
   bd.type = CW_BODY_STATIC;
@@ -251,9 +353,11 @@ void crash_world_build(const track_desc *t) {
       float x = t->movers[i * 4 + 1], y = t->movers[i * 4 + 2];
       cw_shape3d_box(ground, &sd, (t3_vec3){ 0.2f, 0.2f, 1.5f }, cw_xform3_at(x, y - 0.02f, 0));
     }
+  toys_build(t);
 }
 
 void crash_world_destroy(void) {
+  n_toys=0;memset(toys,0,sizeof toys);memset(toy_wheels,0,sizeof toy_wheels);
   if (cw_world3d_valid(W3)) cw_world3d_destroy(W3);
   W3 = (cw_world3d){ 0 };
   cw_mesh3d_destroy(scene_mesh);

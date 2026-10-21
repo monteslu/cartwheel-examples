@@ -21,6 +21,7 @@
 #include <string.h>
 
 #include "game.h"
+#include "cartwheel/debug.h"
 
 /* the loops' two halves sit on their own layers: the bike meets the climb
  * (A) until it is past the top, then the descent (B) until it is out the
@@ -52,6 +53,7 @@ static const cw_vec2 HIP = { -0.12f, 0.84f }, SHOULDER = { 0.2f, 1.3f }, HEAD = 
 #define MAX_PLANKS 96
 #define MAX_MOVERS 8
 #define MAX_LOGS 6
+static const float DEER_X[DEER_CROSSINGS]={106.0f,334.0f};
 typedef struct mover {
   int kind;
   float x, y, len;
@@ -78,11 +80,13 @@ static struct {
   mover movers[MAX_MOVERS];
   int mover_count;
   int tick;                       /* steps since the world was made: drives the set pieces */
+  int deer_start[DEER_CROSSINGS];
   int bumps;                      /* contacts begun between two riders' bikes */
   /* the planks and set pieces mirrored in the crash world (kinematic, made at the first crash) */
   bool mirrored;
   cw_body3d plank3[MAX_PLANKS], mover3[MAX_MOVERS], log3[MAX_MOVERS][MAX_LOGS];
 } WD;
+static int deer_hits;
 
 /* one bicycle and its rider (up to MAX_RIDERS share the world, each on its
  * own lane: a collision layer, so riders in one lane bump and riders in
@@ -200,7 +204,7 @@ void bike_world_create(const track_desc *t) {
       float ang = cw_atan2(br[3] - br[1], len);
       cw_body2d_def pb = cw_body2d_default_def();
       pb.type = CW_BODY_STATIC;
-      pb.position = (cw_vec2){ x, y };
+      pb.position = (cw_pos2){ x, y };
       pb.rotation = cw_rot2_from_angle(ang);
       pb.name = "plank";
       cw_body2d body = cw_body2d_create(WD.world, &pb);
@@ -229,8 +233,9 @@ void bike_world_create(const track_desc *t) {
    * clockwise), with a ghost point past each end so the ends join smoothly */
   for (int i = 0; i < t->loop_count && i < MAX_LOOPS; i++) {
     float cx = t->loops[i * 3], cy = t->loops[i * 3 + 1] + t->loops[i * 3 + 2], r = t->loops[i * 3 + 2];
-    enum { N = 24 };
-    cw_vec2 a[N + 3], b[N + 3];
+    int N = (int)ceilf(24*fmaxf(1,r/5.6f));
+    if(N>128)N=128;
+    cw_vec2 a[131], b[131];
     /* A, the climb: from just past the top round the right side to the bottom, then along the ground */
     a[0] = (cw_vec2){ cx + r * cw_cos(1.7453293f), cy + r * cw_sin(1.7453293f) };
     for (int k = 0; k <= N; k++) {
@@ -289,7 +294,7 @@ void bike_world_create(const track_desc *t) {
     ms.material.friction = 0.9f * t->grip;
     if (m->kind == MOVER_DRAWBRIDGE || m->kind == MOVER_WRECK) {
       mb.type = CW_BODY_KINEMATIC;
-      mb.position = (cw_vec2){ m->x, m->y };
+      mb.position = (cw_pos2){ m->x, m->y };
       mb.name = "mover";
       m->body = cw_body2d_create(WD.world, &mb);
       if (m->kind == MOVER_DRAWBRIDGE) {
@@ -297,7 +302,7 @@ void bike_world_create(const track_desc *t) {
         cw_shape2d_polygon(m->body, &ms, deck, 4, 0.02f);
       } else cw_shape2d_circle(m->body, &ms, (cw_vec2){ 0, 0 }, 0.6f);
     } else if (m->kind == MOVER_SEESAW) {
-      mb.position = (cw_vec2){ m->x, m->y + 0.18f };
+      mb.position = (cw_pos2){ m->x, m->y + 0.18f };
       mb.rotation = cw_rot2_from_angle(-0.1f);
       mb.name = "seesaw";
       m->body = cw_body2d_create(WD.world, &mb);
@@ -307,7 +312,7 @@ void bike_world_create(const track_desc *t) {
       cw_joint2d_def jd = cw_joint2d_default_def(CW_JOINT_REVOLUTE);
       jd.a = (cw_body2d){ 0 };
       jd.b = m->body;
-      cw_joint2d_def_anchor(&jd, (cw_vec2){ m->x, m->y + 0.18f }, (cw_vec2){ 0, 0 });
+      cw_joint2d_def_anchor(&jd, (cw_pos2){ m->x, m->y + 0.18f }, (cw_vec2){ 0, 0 });
       jd.limit = true;
       jd.lower = -0.1f;
       jd.upper = 0.1f;
@@ -315,6 +320,9 @@ void bike_world_create(const track_desc *t) {
     }
   }
   WD.tick = 0;
+  for(int i=0;i<DEER_CROSSINGS;i++)WD.deer_start[i]=-1;
+  deer_hits = 0;
+  cw_debug_i32("deer.hits", &deer_hits);
   /* a wall past the run-out */
   const track_piece *last = &t->pieces[t->piece_count - 1];
   float ex = last->pts[(last->count - 1) * 2], ey = last->pts[(last->count - 1) * 2 + 1];
@@ -452,7 +460,7 @@ static void destroy_bike(void) {
 
 static cw_body2d wheel(cw_vec2 at, float spin) {
   cw_body2d_def bd = cw_body2d_default_def();
-  bd.position = at;
+  bd.position = cw_pos2_from(at);
   bd.angular_velocity = spin;
   bd.name = "wheel";
   cw_body2d w = cw_body2d_create(WD.world, &bd);
@@ -505,7 +513,7 @@ void bike_spawn(float x, float y, float v0) {
   /* level, wheels just on the ground */
   float base = y + WHEEL_R - REAR_AXLE.y + 0.02f;
   cw_body2d_def bd = cw_body2d_default_def();
-  bd.position = (cw_vec2){ x, base };
+  bd.position = (cw_pos2){ x, base };
   bd.name = "frame";
   bd.angular_damping = 0.05f;
   B.frame = cw_body2d_create(WD.world, &bd);
@@ -803,7 +811,7 @@ static void make_ragdoll(void) {
     bool arm = i == RAG_UARM_L || i == RAG_UARM_R || i == RAG_FARM_L || i == RAG_FARM_R;
     /* the arms never meet the bike they held (the hands start on its bars); the rest do */
     sd.layer = arm ? L3_HAND : L3_RIDER;
-    sd.mask = 1u << L3_SCENE | 1u << L3_RIDER | 1u << L3_HAND | (arm ? 0 : 1u << L3_BIKE);
+    sd.mask = 1u << L3_TOY | 1u << L3_SCENE | 1u << L3_RIDER | 1u << L3_HAND | (arm ? 0 : 1u << L3_BIKE);
     float vol;
     if (i == RAG_HEAD) {
       vol = 4.18879f * 0.12f * 0.12f * 0.12f;
@@ -850,7 +858,7 @@ static void make_ragdoll(void) {
   B.frame3 = body3(F3, (t3_vec3){ fv.x, fv.y, side * 0.25f }, bspin, "bike", 0.05f);
   cw_shape3d_def bs = cw_shape3d_default_def();
   bs.layer = L3_BIKE;
-  bs.mask = 1u << L3_SCENE | 1u << L3_RIDER | 1u << L3_BIKE;
+  bs.mask = 1u << L3_TOY | 1u << L3_SCENE | 1u << L3_RIDER | 1u << L3_BIKE;
   bs.group = -1 - MAX_RIDERS - B.idx;
   bs.material.friction = 0.5f;
   bs.material.restitution = 0.2f;
@@ -945,6 +953,23 @@ static void make_ragdoll(void) {
   B.down3 = true;
 }
 
+/* A celebratory tumble after timing is locked, not a scored wipeout. */
+void bike_finish_tumble(void) {
+  if(!B.st.alive||B.down3)return;
+  B.crash_v=cw_body2d_velocity(B.frame);
+  B.crash_v.x=cw_clampf(B.crash_v.x,5,8);B.crash_v.y=1.4f;
+  if(T&&!strcmp(T->theme,"toybox")){B.crash_v.x=6.4f;B.crash_v.y=9;}
+  B.st.alive=false;make_ragdoll();
+  if(T&&!strcmp(T->theme,"toybox")) {
+    /* A springboard launches the whole bike/rider assembly. Ordinary crash
+     * ejection adds lift and side throw, which would overshoot this pit. */
+    t3_vec3 v={6,8.5f,0};
+    for(int i=0;i<RAG_COUNT;i++)cw_body3d_set_velocity(B.rag[i],v);
+    cw_body3d_set_velocity(B.frame3,v);cw_body3d_set_velocity(B.rear3,v);
+    cw_body3d_set_velocity(B.front3,v);cw_body3d_set_velocity(B.cap,v);
+  }
+}
+
 /* a tick of a crash after the world stepped: the grip, and what the game reads */
 static void crash_post(void) {
   if (cw_joint3d_valid(B.grip) && --B.grip_ticks <= 0) { /* the hand on the bars torn free */
@@ -972,12 +997,13 @@ bool bike_crash_focus(t3_vec3 *at, t3_vec3 *vel) {
 }
 
 static bool grounded(cw_body2d w) {
-  cw_xform2 f = cw_body2d_transform(B.frame), x = cw_body2d_transform(w);
+  cw_xform2 f = cw_body2d_transform(B.frame);
   /* down along the frame (so a wheelie's rear and a nose-dive's front still count) and straight down */
   cw_vec2 d1 = { f.q.s * (WHEEL_R + 0.08f), -f.q.c * (WHEEL_R + 0.08f) }, d2 = { 0, -(WHEEL_R + 0.08f) };
   cw_phys_filter flt = { .layers = 1u << L_TRACK | 1u << B.loop_layer | 1u << (L_RAMP0 + B.lane) };
   cw_ray_hit2d hit;
-  return cw_world2d_raycast(WD.world, x.p, d1, &flt, &hit) || cw_world2d_raycast(WD.world, x.p, d2, &flt, &hit);
+  cw_pos2 origin = cw_body2d_position(w);
+  return cw_world2d_raycast(WD.world, origin, d1, &flt, &hit) || cw_world2d_raycast(WD.world, origin, d2, &flt, &hit);
 }
 
 
@@ -1006,7 +1032,7 @@ static void movers_tick(void) {
         int k = m->log_n % MAX_LOGS;
         if (cw_body2d_valid(m->logs[k])) cw_body2d_destroy(m->logs[k]);
         cw_body2d_def lb = cw_body2d_default_def();
-        lb.position = (cw_vec2){ m->x + 1.5f, m->y + 0.3f };
+        lb.position = (cw_pos2){ m->x + 1.5f, m->y + 0.3f };
         lb.linear_velocity = (cw_vec2){ 1.5f, 0 };
         lb.name = "log";
         m->logs[k] = cw_body2d_create(WD.world, &lb);
@@ -1022,6 +1048,37 @@ static void movers_tick(void) {
           cw_body2d_destroy(m->logs[k]);
           m->logs[k] = (cw_body2d){ 0 };
         }
+    }
+  }
+}
+
+/* Deer run across depth, not along the 2D riding line. Use the same fixed
+ * tick phase for collision and rendering so every multiplayer view agrees. */
+int bike_deer_poses(float alpha,t3_vec3 out[DEER_CROSSINGS]) {
+  if(!T || strcmp(T->theme,"jungle"))return 0;
+  int active=0;
+  for(int i=0;i<DEER_CROSSINGS;i++) {
+    if(WD.deer_start[i]<0)continue;
+    float time=((float)(WD.tick-WD.deer_start[i]-1)+alpha)/TICK_HZ;
+    if(time<0)continue;
+    float phase=time;
+    if(phase>=3.0f)continue;
+    float run=phase/3.0f;
+    out[i]=(t3_vec3){DEER_X[i],track_height_at(DEER_X[i],NULL),-7.0f+11.0f*run};
+    active|=1<<i;
+  }
+  return active;
+}
+
+static void deer_tick(void) {
+  if(!T||strcmp(T->theme,"jungle"))return;
+  for(int i=0;i<DEER_CROSSINGS;i++) {
+    if(WD.deer_start[i]>=0)continue;
+    for(int r=0;r<NB;r++) {
+      bike_state *s=&BK[r].st;
+      float lead=cw_clampf(fabsf(s->vx)*1.8f,16.0f,32.0f);
+      if(!s->alive||s->x<DEER_X[i]-lead||s->x>DEER_X[i]+1)continue;
+      WD.deer_start[i]=WD.tick;break;
     }
   }
 }
@@ -1059,6 +1116,11 @@ static float pitch_err(void) {
 
 /* one half step's controls: motors, lean, assists and the boost (Box2D
  * clears forces after every step, so they go in again each half step) */
+float chocolate_amount(const track_desc *t,float x) {
+  if(strcmp(t->theme,"candy"))return 0;
+  float d=fminf(fabsf(x-t->finish_x*.34f),fabsf(x-t->finish_x*.73f));
+  return 1-cw_smoothstep(1.8f,3.f,d);
+}
 static void controls(const bike_input *in, bool boosting, bool air) {
   bike_state *s = &B.st;
   if (s->alive) {
@@ -1157,6 +1219,10 @@ static void controls(const bike_input *in, bool boosting, bool air) {
       for (int i = 0; i < 3; i++) {
         cw_vec2 v = cw_body2d_velocity(parts[i]);
         float sp = sqrtf(v.x * v.x + v.y * v.y), k = 0.012f * T->drag * cw_body2d_mass(parts[i]);
+        if(!air) {
+          float sticky=chocolate_amount(T,s->x)*1.8f*cw_body2d_mass(parts[i]);
+          cw_body2d_apply_force(parts[i],(cw_vec2){-sticky*v.x,-sticky*v.y},NULL);
+        }
         cw_body2d_apply_force(parts[i], (cw_vec2){ -k * v.x * sp, -k * v.y * sp }, NULL);
       }
     }
@@ -1167,8 +1233,19 @@ static void controls(const bike_input *in, bool boosting, bool air) {
       cw_body2d parts[3] = { B.frame, B.rear, B.front };
       float total = 0;
       for (int i = 0; i < 3; i++) total += cw_body2d_mass(parts[i]);
+      float assist = 1;
+      /* Large powered loops need sustained thrust, not unlimited entry speed:
+       * excessive centrifugal load bottoms out the bike's suspension. */
+      for (int l = 0; l < T->loop_count; l++) {
+        float cx = T->loops[l*3], r = T->loops[l*3+2];
+        if (r >= 10 && f.p.x > cx-r-3 && f.p.x < cx+r+3) {
+          cw_vec2 v = cw_body2d_velocity(B.frame);
+          float speed = v.x*f.q.c + v.y*f.q.s;
+          assist = cw_clampf((22-speed)*0.5f, 0, 1);
+        }
+      }
       for (int i = 0; i < 3; i++) {
-        float k = 260 * cw_body2d_mass(parts[i]) / total;
+        float k = 260 * assist * cw_body2d_mass(parts[i]) / total;
         cw_body2d_apply_force(parts[i], (cw_vec2){ f.q.c * k, f.q.s * k }, NULL);
       }
     }
@@ -1323,6 +1400,19 @@ static void bike_post(bool air) {
       break;
     }
   }
+  if (s->alive) {
+    t3_vec3 deer[DEER_CROSSINGS];
+    int active=bike_deer_poses(1,deer);
+    for(int i=0;i<DEER_CROSSINGS;i++) {
+      if(!(active&(1<<i)) || fabsf(f.p.x-deer[i].x)>1.05f || fabsf(B.draw_z-deer[i].z)>.85f ||
+         fabsf(f.p.y-deer[i].y)>2.2f)continue;
+      cw_vec2 v=cw_body2d_velocity(B.frame);
+      s->alive=false;B.crashed_now=true;
+      B.crash_v=(cw_vec2){v.x*.45f,fmaxf(v.y,3.5f)};
+      deer_hits++;
+      break;
+    }
+  }
   /* falling into a gap */
   if (s->alive && f.p.y < WD.kill_y) {
     s->alive = false;
@@ -1394,6 +1484,7 @@ void bike_step_all(const bike_input *in, const bool *boosting) {
    * per step, which at 60 Hz capped a small wheel near 9 m/s (it skidded and
    * pitched the bike over the bars); at 180 Hz a 16-inch wheel rolls to 28 m/s */
   movers_tick();
+  deer_tick();
   for (int i = 0; i < NB; i++)
     if (act[i]) cur = &BK[i], bike_pre(&in[i], &air[i]);
   for (int h = 0; h < SUBSTEPS; h++) {
@@ -1424,9 +1515,17 @@ void bike_step_all(const bike_input *in, const bool *boosting) {
   }
   for (int i = 0; i < NB; i++)
     if (act[i]) cur = &BK[i], bike_post(air[i]);
+  for(int i=0;i<NB;i++)if(act[i]) {
+    bk *b=&BK[i];cw_xform2 wheel=cw_body2d_transform(b->rear);
+    view_chocolate_tick(i,wheel.p.x,wheel.p.y,b->draw_z,b->st.alive&&b->st.grounded_rear,b->crashed_now);
+  }
   /* the crash world steps while anyone is down (a rider who came off this
    * tick too: its bodies start where the 2D ones ended) */
-  bool step3 = false;
+  bool step3 = crash_toys_count()>0;
+  if(step3)for(int i=0;i<NB;i++) {
+    bk *b=&BK[i];
+    if(cw_body2d_valid(b->rear))crash_toy_wheels(i,cw_body2d_transform(b->rear),cw_body2d_transform(b->front),b->draw_z,act[i]&&b->st.alive);
+  }
   for (int i = 0; i < NB; i++) step3 |= BK[i].down3;
   if (step3) {
     float dt = 1.0f / TICK_HZ;
@@ -1434,12 +1533,21 @@ void bike_step_all(const bike_input *in, const bool *boosting) {
     cw_world3d_step(crash_world(), dt);
     int n = 0;
     const cw_phys_event3d *ev = cw_world3d_events(crash_world(), &n);
+    crash_toy_sounds(ev,n);
     float thud = 0;
     for (int i = 0; i < n; i++)
-      if (ev[i].type == CW_PHYS_HIT && ev[i].speed > thud) thud = ev[i].speed;
+      if (ev[i].type == CW_PHYS_HIT && ev[i].material_a < 101 && ev[i].material_b < 101 && ev[i].speed > thud) thud = ev[i].speed;
     if (thud > 3) game_sfx(SFX_THUD, cw_clampf(thud / 10, 0.2f, 1));
     for (int i = 0; i < NB; i++)
-      if (BK[i].down3) cur = &BK[i], crash_post();
+      if (BK[i].down3) {
+        cur = &BK[i];crash_post();
+        t3_vec3 p=cw_body3d_transform(BK[i].frame3).p;
+        view_chocolate_tick(i,p.x,p.y,p.z,false,true);
+        for(int limb=0;limb<RAG_COUNT;limb++) {
+          t3_vec3 p=cw_body3d_transform(BK[i].rag[limb]).p;
+          view_chocolate_tick(i,p.x,p.y,p.z,false,true);
+        }
+      }
   }
   cur = keep;
 }
@@ -1451,6 +1559,10 @@ void bike_step(const bike_input *in, bool boosting) {
 }
 
 const bike_state *bike_get(void) { return &B.st; }
+bool bike_rider_near(float x,float radius) {
+  for(int i=0;i<NB;i++)if(fabsf(BK[i].st.x-x)<radius)return true;
+  return false;
+}
 bool bike_crashed_this_tick(void) { return B.crashed_now; }
 bool bike_bailed_this_tick(void) { return B.bailed_now; }
 void bike_landing_more(float *err, int pose_ticks[4]) {
@@ -1556,6 +1668,7 @@ void bike_pose_get(float alpha, bike_pose *out) {
 }
 
 uint32_t bike_hash(uint32_t h) {
+  h=crash_toys_hash(h);
   if (!cw_body2d_valid(BK[0].frame) && !BK[0].down3) return h;
   for (int j = 0; j < NB; j++) { /* every rider's bodies */
     const bk *b = &BK[j];
@@ -1591,4 +1704,39 @@ int bike_planks(float alpha, cw_xform2 *out, float *half_w, int cap) {
     half_w[n] = WD.planks[i].half_w;
   }
   return n;
+}
+
+int bike_rider_for_body(cw_body3d body) {
+  if(!body.id)return -1;
+  for(int i=0;i<NB;i++)if(BK[i].down3) {
+    if(body.id==BK[i].frame3.id||body.id==BK[i].rear3.id||body.id==BK[i].front3.id)return i;
+    for(int j=0;j<RAG_COUNT;j++)if(body.id==BK[i].rag[j].id)return i;
+  }
+  return -1;
+}
+
+/* Upright riders live in Box2D. Small swept sphere proxies let chocolate hit
+ * their posed limbs and wheels too, without adding another physics world. */
+int bike_chocolate_raycast(t3_vec3 origin,t3_vec3 delta,cw_ray_hit3d *hit) {
+  float aa=delta.x*delta.x+delta.y*delta.y+delta.z*delta.z;
+  if(aa<1e-10f)return -1;
+  bk *saved=cur;int rider=-1;
+  for(int r=0;r<NB;r++)if(!BK[r].down3&&BK[r].st.alive) {
+    if(fabsf(origin.x-BK[r].st.x)>3+fabsf(delta.x)||fabsf(origin.z-BK[r].draw_z)>.6f+fabsf(delta.z))continue;
+    cur=&BK[r];bike_pose p;bike_pose_get(1,&p);
+    for(int j=0;j<RAG_COUNT+3;j++) {
+      cw_xform2 pose=j<RAG_COUNT?p.limb[j]:j==RAG_COUNT?p.frame:j==RAG_COUNT+1?p.rear:p.front;
+      float radius=j==RAG_TORSO?.26f:j==RAG_HEAD?.21f:j>=RAG_COUNT?.34f:.13f;
+      t3_vec3 center={pose.p.x,pose.p.y,p.z};
+      t3_vec3 v={origin.x-center.x,origin.y-center.y,origin.z-center.z};
+      float b=v.x*delta.x+v.y*delta.y+v.z*delta.z;
+      float c=v.x*v.x+v.y*v.y+v.z*v.z-radius*radius,disc=b*b-aa*c;
+      if(disc<0)continue;
+      float f=(-b-sqrtf(disc))/aa;
+      if(f<0||f>=hit->fraction)continue;
+      hit->fraction=f;hit->point=(t3_vec3){origin.x+f*delta.x,origin.y+f*delta.y,origin.z+f*delta.z};
+      hit->normal=(t3_vec3){(hit->point.x-center.x)/radius,(hit->point.y-center.y)/radius,(hit->point.z-center.z)/radius};rider=r;
+    }
+  }
+  cur=saved;return rider;
 }

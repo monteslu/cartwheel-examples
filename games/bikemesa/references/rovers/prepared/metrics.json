@@ -1,0 +1,28 @@
+[
+  {
+    "file": "perseverance.glb",
+    "bytes": 2569420,
+    "triangles": 61854,
+    "primitives": 119,
+    "materials": 32,
+    "extensions": [
+      "EXT_texture_webp"
+    ]
+  },
+  {
+    "file": "spirit-opportunity.glb",
+    "bytes": 5068256,
+    "triangles": 25240,
+    "primitives": 9,
+    "materials": 9,
+    "extensions": []
+  },
+  {
+    "file": "curiosity.glb",
+    "bytes": 4122992,
+    "triangles": 33631,
+    "primitives": 9,
+    "materials": 9,
+    "extensions": []
+  }
+]

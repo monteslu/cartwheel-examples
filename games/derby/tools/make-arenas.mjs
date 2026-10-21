@@ -58,7 +58,7 @@ for (const m of ARENAS) {
   });
   node('Post', '.', 'PostProcess', {
     tonemap: 'AGX', exposure: f(m.exposure), bloom: true, bloom_intensity: f(0.05), bloom_threshold: f(1.0), bloom_knee: f(0.6),
-    ssao: true, ssao_radius: f(0.7), ssao_intensity: f(1.1), aa: 'SMAA', vignette: true, vignette_intensity: f(0.38),
+    ssao: true, ssao_radius: f(0.7), ssao_intensity: f(1), aa: 'SMAA', vignette: true, vignette_intensity: f(0.38),
     vignette_smoothness: f(0.55), grade: true, lut: str(`grades/${m.grade}.cube`), grade_intensity: f(0.9),
     grain: !m.nograin, grain_intensity: f(0.035),
   });

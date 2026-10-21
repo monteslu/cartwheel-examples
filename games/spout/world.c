@@ -1266,7 +1266,7 @@ void world_sync(const sim *prev, const sim *cur, float alpha, float t, bool stop
       int idx[6] = { 0, 2, 1, 0, 3, 2 };
       for (int k = 0; k < 6; k++) v[k * 3] = q[idx[k]].x, v[k * 3 + 1] = q[idx[k]].y, v[k * 3 + 2] = q[idx[k]].z;
       pa->version++;
-      W.silk->geometry->version++;
+      /* Positions changed; attribute layout and indices remain valid. */
     }
     int bt = cur->bird_ticks;
     W.bird->visible = bt > 0;
@@ -1358,7 +1358,7 @@ void world_sync(const sim *prev, const sim *cur, float alpha, float t, bool stop
       for (int k = 0; k < 6; k++) v[o + k * 3] = q[idx[k]].x, v[o + k * 3 + 1] = q[idx[k]].y, v[o + k * 3 + 2] = q[idx[k]].z;
     }
     pa->version++;
-    W.rain->geometry->version++;
+    /* Keep the VAO layout cached: only position data changed. */
   }
 }
 

@@ -1,0 +1,147 @@
+{
+  "checked": "2026-10-21",
+  "integrated": false,
+  "candidates": [
+    {
+      "url": "https://www.cadcrowd.com/3d-models/sojourner-rover",
+      "author": "niravj",
+      "license": "CC Attribution (page label)",
+      "status": "download-all redirects to login; no asset obtained",
+      "formats": [
+        "STEP/STP"
+      ]
+    },
+    {
+      "url": "https://blendswap.com/blend/15250",
+      "author": "argonius",
+      "license": "CC0",
+      "status": "download page requires sign-in; no asset obtained",
+      "formats": [
+        "Blender 2.7x"
+      ],
+      "reported_polygons": 9912
+    },
+    {
+      "url": "https://pinshape.com/items/33847-3d-printed-mars-pathfinder-and-sojourner",
+      "author": "chemteacher628",
+      "license": "CC BY-ND",
+      "status": "not selected: no-derivatives license unsuitable for planned geometry/material optimization; login also required"
+    },
+    {
+      "url": "https://github.com/nraynaud/sojourner",
+      "status": "recursive main tree inspected: no rover mesh/CAD assembly found; fspy/fspy.blend is a134-byte LFS pointer; research reference only"
+    },
+    {
+      "url": "https://hackaday.io/project/199330-sojourner-mars-rover/",
+      "author": "wglasford",
+      "status": "project links to Printables for geometry; only electronics and parts list on Hackaday; follow-up STL index labels model CC BY-ND, original license needs verification"
+    },
+    {
+      "url": "https://www.thingiverse.com/thing:59502",
+      "author": "moriza",
+      "status": "new lead; web fetch403, license/download unverified"
+    },
+    {
+      "url": "https://www.thingiverse.com/thing:4146011",
+      "author": "bonecar",
+      "status": "new lead; remix with restored solar panel per index; web fetch403, license/download unverified"
+    },
+    {
+      "url": "https://mars.nasa.gov/MPF/vrml/vrml.html",
+      "status": "historic NASA VRML lead from index; current URL returns generic HTML; archive CDX request timed out, no model retrieved"
+    },
+    {
+      "url": "https://win98.altervista.org/pathfinder/SGI.zip",
+      "original_url": "http://mars.sgi.com/worlds/4th_planet/models/sojourner.wrl",
+      "status": "Recovered separate rover mesh via ZIP range requests; parsed and converted geometry-only review GLB. Not integrated: reuse terms and missing texture dependencies still unverified.",
+      "license": "Not established from model or archived directory index",
+      "local_source": "sojourner-research/sojourner.wrl",
+      "sha256": "c9eaf6daa836071dd0595845b3bb22abf0d4f8db25cb952d26bde9fcc50d3352",
+      "bytes": 87419,
+      "mesh_instances": 59,
+      "triangles": 1582,
+      "textures": [
+        "suspension_holes.gif",
+        "wheel_tred.gif",
+        "wheel_face_map.gif",
+        "solor_cell.gif",
+        "apxs_detail.gif",
+        "apxs_front.gif",
+        "apxs_support.gif",
+        "gold_foil.jpg"
+      ],
+      "notes": "ZIP entry itself contains gzip data; decoded both layers. Original initial review bounds in earlier notes are superseded by corrected transform bounds. Official archive ZIP directory (1739 entries) and README inspected: terrain/lander data, not a source for missing rover textures or rover licensing.",
+      "conversion_review": "Corrected three.js VRMLLoader omissions of center and scaleOrientation in a private in-memory copy; baked complete matrices, preserving vertex colors. Rendered and inspected geometry-review.png: previously floating assembly is now attached. Textureless review only.",
+      "bounds": {
+        "min": [
+          -0.574807437482,
+          -0.2936658134439133,
+          -0.49654346953919726
+        ],
+        "max": [
+          0.5736366355183169,
+          1.2609891694807362,
+          0.4965507119695897
+        ]
+      }
+    },
+    {
+      "url": "https://celestia.mobi/resources/item/6237BAE7-2CE9-F379-14F1-C88B814BD767",
+      "author": "DaveBowman2001",
+      "original_submission": "https://github.com/celestiamobile/celestia.mobi/issues/2#issuecomment-1000981871",
+      "release_date": "2021-11-11",
+      "license": "Not specified in downloaded ZIP, catalog page, or original submission",
+      "status": "Downloaded complete Celestia addon with sojourner.cmod and texture PNGs; not integrated. Distinct from historical SGI mesh.",
+      "download_local": "/tmp/sojourner-celestia.zip",
+      "zip_sha256": "66daaea2af8dbeb4da3a02acc93ad637d3f6c31928471955eb656fa223374f03",
+      "model_bytes": 278742,
+      "archive_files": [
+        "Mars Pathfinder/",
+        "Mars Pathfinder/mars_pathfinder.ssc",
+        "Mars Pathfinder/models/",
+        "Mars Pathfinder/models/pathfinder.cmod",
+        "Mars Pathfinder/models/sojourner.cmod",
+        "Mars Pathfinder/textures/",
+        "Mars Pathfinder/textures/medres/",
+        "Mars Pathfinder/textures/medres/c-silver.png",
+        "Mars Pathfinder/textures/medres/pathfinder.png",
+        "Mars Pathfinder/textures/medres/rover1alpha.png",
+        "Mars Pathfinder/textures/medres/ROVERARM.png",
+        "Mars Pathfinder/textures/medres/rovertire.png"
+      ],
+      "note": "No README/license/credits in ZIP. Celestia application license must not be assumed to cover separately submitted addons. Original author submission confirms name/date, not reuse terms."
+    }
+  ],
+  "official_repository_review": {
+    "checked": "2026-10-21",
+    "url": "https://api.github.com/repos/nasa/NASA-3D-Resources/git/trees/master?recursive=1",
+    "truncated": false,
+    "result": "No Sojourner or Mars Pathfinder model paths. Only CALIPSO matches Pathfinder substring."
+  },
+  "authoring_references": [
+    {
+      "url": "https://www-robotics.jpl.nasa.gov/what-we-do/flight-projects/pathfinder/",
+      "dimensions_m": [
+        0.65,
+        0.48,
+        0.3
+      ],
+      "description": "JPL official mission reference: solar powered, six-wheel rover; dimensions length/width/height."
+    },
+    {
+      "url": "https://science.nasa.gov/resource/sojourner-at-moe-color/",
+      "description": "NASA/JPL photo of rear APXS deployed against Moe; useful for rear instrument layout."
+    },
+    {
+      "url": "https://assets.science.nasa.gov/content/dam/science/psd/solar/2023/09/l/LROC_rovers_of_the_solar_system.pdf",
+      "description": "NASA rover drawing reference for flat solar deck, antenna, six wheels and rocker-bogie silhouette."
+    }
+  ],
+  "runtime_representation": {
+    "type": "original procedural reconstruction",
+    "source": "../../sojourner.inc",
+    "fraction_of_finish": 0.39,
+    "display_scale": 3,
+    "note": "No downloaded candidate integrated. NASA/JPL dimensions and images used as references; simplified geometric details."
+  }
+}

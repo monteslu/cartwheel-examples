@@ -1,3 +1,4 @@
+#include <stdio.h>
 /* rider's world look: the track as a solid extruded ribbon (a textured
  * riding surface on top, a cliff face down to the bedrock in front, built
  * ramps as plank decks), and the scenery each theme stands in, all built in C
@@ -16,9 +17,38 @@
 #include <string.h>
 
 #include "cartwheel/jobs.h"
+#include "cartwheel/debug.h"
 #include "cartwheel/particles.h"
 #include "cartwheel/quality.h"
+#include "cartwheel/stream.h"
 #include "game.h"
+
+/* Scenic residency only: no physics, checkpoint or gameplay objects stream. */
+static cw_stream *city_stream;
+static cw_node *city_cells, city_parent;
+static int city_cell_count;
+static void *city_cell_load(cw_stream *stream,const cw_stream_cell *cell,void *user) {
+  (void)stream;(void)user;
+  if(cw_node_valid(city_parent) && cw_node_valid(city_cells[cell->id]))
+    cw_node_add_child(city_parent,city_cells[cell->id]);
+  return NULL;
+}
+static void city_cell_unload(cw_stream *stream,const cw_stream_cell *cell,void *user) {
+  (void)stream;(void)user;
+  if(cw_node_valid(city_parent) && cw_node_valid(city_cells[cell->id]))
+    cw_node_remove_child(city_parent,city_cells[cell->id]);
+}
+void view_stream(const cw_node *cameras,int n) {
+  if(!city_stream)return;
+  for(int i=0;i<MAX_RIDERS;i++) {
+    t3_vec3 pos={-100000,0,0};
+    if(i<n && cw_node_valid(cameras[i]))pos=cw_node3d_global_position(cameras[i]);
+    cw_stream_source_move_local(city_stream,i,pos);
+  }
+  /* Camera-driven render residency; activation callbacks deliberately empty. */
+  cw_stream_tick(city_stream);
+  cw_stream_frame(city_stream);
+}
 
 static uint32_t sh(uint32_t x) {
   x ^= x >> 16;
@@ -51,7 +81,7 @@ static const theme THEMES[] = {
     { 0.78f, 0.66f, 0.36f }, { 0.6f, 0.55f, 0.3f }, 0, 1 },
   { "alpine", TEX_SNOW, TEX_ROCK, TEX_ROCK, { 1, 1, 1 }, { 0.62f, 0.64f, 0.68f }, { 0.8f, 0.84f, 0.9f },
     { 0.55f, 0.6f, 0.4f }, { 0.4f, 0.5f, 0.35f }, 1, 0.7f },
-  { "neon", TEX_ASPHALT, TEX_METAL, TEX_ASPHALT, { 1.4f, 1.4f, 1.6f }, { 0.55f, 0.55f, 0.65f }, { 0.4f, 0.4f, 0.55f },
+  { "neon", TEX_CONCRETE, TEX_METAL, TEX_ASPHALT, { 0.55f, 0.56f, 0.62f }, { 0.20f, 0.23f, 0.29f }, { 0.24f, 0.27f, 0.34f },
     { 0.3f, 0.9f, 1 }, { 1, 0.3f, 0.8f }, 2, 0.6f },
   { "jungle", TEX_MOSS, TEX_MOSS, TEX_ROCK, { 0.9f, 1, 0.85f }, { 0.75f, 0.8f, 0.7f }, { 0.45f, 0.6f, 0.4f },
     { 0.3f, 0.6f, 0.2f }, { 0.4f, 0.7f, 0.25f }, 3, 0.9f },
@@ -73,6 +103,13 @@ static const theme THEMES[] = {
     { 0.6f, 0.7f, 0.4f }, { 0.75f, 0.72f, 0.45f }, 3, 1 },
   { "mars", TEX_SAND, TEX_SANDSTONE, TEX_SANDSTONE, { 0.9f, 0.5f, 0.32f }, { 0.85f, 0.45f, 0.3f }, { 0.85f, 0.48f, 0.32f },
     { 0, 0, 0 }, { 0, 0, 0 }, 0, 1 },
+  { "circus", TEX_WOOD, TEX_WOOD, TEX_GRASS, { 0.9f, 0.62f, 0.4f }, { 0.7f, 0.2f, 0.3f }, { 0.4f, 0.55f, 0.45f },
+    { 0.4f, 0.7f, 0.3f }, { 0.9f, 0.65f, 0.2f }, 3, 0.8f },
+  { "candy", TEX_SNOW, TEX_ROCK, TEX_SNOW, { 1, 0.78f, 0.9f }, { 0.55f, 0.3f, 0.2f }, { 0.9f, 0.6f, 0.8f },
+    { 0.5f, 0.9f, 0.75f }, { 1, 0.5f, 0.8f }, 3, 0.45f },
+  { "toybox", TEX_WOOD, TEX_WOOD, TEX_ROCK, { 1, 0.8f, 0.5f }, { 0.3f, 0.5f, 0.8f }, { 0.55f, 0.65f, 0.85f },
+    { 0.6f, 0.7f, 0.9f }, { 0.9f, 0.6f, 0.25f }, 2, 0.6f },
+
 };
 /* themes where nothing grows along the track */
 static bool barren(const theme *th) { return !strcmp(th->name, "moon") || !strcmp(th->name, "mars"); }
@@ -439,7 +476,11 @@ static void ribbon(t3_object *root, const track_desc *t, const theme *th) {
       }
     }
   }
-  t3_material *mt = mat(th->top_tex, th->top, 1, 1, 1.2f, th->top_rough);
+  /* City concrete is a compact riding slab; rubble-strength normals made
+   * every aggregate fleck catch streetlights like polished loose gravel. */
+  bool city_slab = !strcmp(th->name, "neon");
+  t3_material *mt = mat(th->top_tex, th->top, 1, 1,
+                        city_slab ? .12f : 1.2f, city_slab ? .92f : th->top_rough);
   t3_material *mf = mat(th->face_tex, th->face, 1, 1, 1.3f, 0.95f);
   /* the surface tiles every 4 m along and once across */
   t3_geometry *gt = mb_done(&top), *gf = mb_done(&face);
@@ -594,6 +635,7 @@ static float bank_y(float x, float z, int kind) {
   near = track_height_at(x, &f);
   if (!f) near = ground_at(x);
   float base = near + (ground_at(x) - near) * cw_clampf(d / 4, 0, 1);
+  if (kind == 2) return near + (ground_at(x) - near) * cw_clampf(d / 1.2f, 0, 1) - 1.8f * cw_clampf(d / 1.2f, 0, 1);
   float und = 1.6f * cw_sin(x * 0.11f + z * 0.07f) + 0.9f * cw_sin(x * 0.27f - z * 0.19f + 1.3f) + 0.35f * cw_sin(x * 0.9f + z * 0.6f);
   float dd = d < 10 ? d : 10, far = d > 10 ? d - 10 : 0;
   float rise = kind == 1 ? dd * 0.4f + far * 0.25f : kind == 2 ? d * 0.04f : dd * 0.22f + far * 0.06f;
@@ -605,13 +647,37 @@ float view_ground_at(float x) { return ground_at(x); }
 static int bank_kind; /* the theme's bank (bank_y's kind) */
 float view_bank_y(float x, float z) { return bank_y(x, z, bank_kind); }
 
+static const float BANK_ZS[] = { 0, .4f, 1, 2, 3.5f, 5.5f, 8, 11, 15, 20, 27, 36, 48, 62 };
+/* Height on the actual rendered triangles, rather than the curved function
+ * sampled to create them. Shallow overlays must agree with this surface. */
+static float bank_surface_y(float x,float z,int kind) {
+  float edge=-TRACK_HALF_W-.3f,d=edge-z;
+  if(d<0)return bank_y(x,z,kind)-.08f;
+  int j=0;
+  while(j<(int)CW_ARRAY_LEN(BANK_ZS)-2&&d>BANK_ZS[j+1])j++;
+  float x0=GH_X0+4+floorf(x-(GH_X0+4));
+  float z0=edge-BANK_ZS[j],z1=edge-BANK_ZS[j+1];
+  float u=x-x0,v=cw_clampf((z0-z)/(z0-z1),0,1);
+  float a=bank_y(x0,z0,kind)-(j==0?.08f:0);
+  float b=bank_y(x0+1,z0,kind)-(j==0?.08f:0);
+  float c=bank_y(x0,z1,kind),e=bank_y(x0+1,z1,kind);
+  return u>=v?a+(b-a)*u+(e-b)*v:a+(e-c)*u+(c-a)*v;
+}
 static void bank(t3_object *root, const track_desc *t, const theme *th) {
-  static const float ZS[] = { 0, 0.4f, 1, 2, 3.5f, 5.5f, 8, 11, 15, 20, 27, 36, 48, 62 };
   /* rows 0..FAR_ROW the track's back edge, FAR_ROW.. (a metre back and on,
    * farther from the camera than the riding line) distant ground */
-  enum { NZ = (int)CW_ARRAY_LEN(ZS), FAR_ROW = 2 };
+  enum { NZ = (int)CW_ARRAY_LEN(BANK_ZS), FAR_ROW = 2 };
   /* the bank: the riding surface's ground, paler (dust and sun) */
   float pale[3] = { th->top[0] * 1.08f, th->top[1] * 1.06f, th->top[2] * 1.02f };
+  int bank_tex = th->top_tex;
+  if (!strcmp(th->name,"neon")) {
+    bank_tex=TEX_ASPHALT;
+    pale[0]=.22f;pale[1]=.25f;pale[2]=.30f;
+  }
+  if (!strcmp(th->name, "circus") || !strcmp(th->name, "toybox")) {
+    bank_tex = TEX_GRASS;
+    pale[0] = 0.48f; pale[1] = 0.68f; pale[2] = 0.48f;
+  }
   float x0 = GH_X0 + 4, x1 = t->length + 100;
   int nx = (int)((x1 - x0) / 1.0f) + 1;
   for (int part = 0; part < 2; part++) {
@@ -620,10 +686,10 @@ static void bank(t3_object *root, const track_desc *t, const theme *th) {
     for (int i = 0; i < nx; i++) {
       float x = x0 + i * 1.0f;
       for (int j = j0; j < j1; j++) {
-        float z = -TRACK_HALF_W - 0.3f - ZS[j];
-        float y = bank_y(x, z, th->far_kind == 1 ? 1 : 0) - (j == 0 ? 0.08f : 0);
-        float yx = bank_y(x + 0.5f, z, th->far_kind == 1 ? 1 : 0) - bank_y(x - 0.5f, z, th->far_kind == 1 ? 1 : 0);
-        float yz = bank_y(x, z + 0.5f, th->far_kind == 1 ? 1 : 0) - bank_y(x, z - 0.5f, th->far_kind == 1 ? 1 : 0);
+        float z = -TRACK_HALF_W - 0.3f - BANK_ZS[j];
+        float y = bank_y(x, z, th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0) - (j == 0 ? 0.08f : 0);
+        float yx = bank_y(x + 0.5f, z, th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0) - bank_y(x - 0.5f, z, th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0);
+        float yz = bank_y(x, z + 0.5f, th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0) - bank_y(x, z - 0.5f, th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0);
         mb_v(&b, (t3_vec3){ x, y, z }, (t3_vec3){ -yx, 1, -yz }, x / 5, z / 5, 1);
         if (i > 0 && j > j0) {
           int a = (i - 1) * nz + j - j0 - 1, c = i * nz + j - j0 - 1;
@@ -632,7 +698,7 @@ static void bank(t3_object *root, const track_desc *t, const theme *th) {
         }
       }
     }
-    t3_material *m = mat(th->top_tex, pale, 1, 1, 1.0f, 1);
+    t3_material *m = mat(bank_tex, pale, 1, 1, 0.6f, 1);
     if (part) far_mat(m);
     t3_geometry *g = mb_done(&b);
     add(root, g, m, false);
@@ -871,7 +937,7 @@ static void rocks(t3_object *root, const track_desc *t, const theme *th) {
     if (tex == TEX_BASALT && strcmp(th->name, "moon")) c[0] = c[0] * 0.8f + 0.12f, c[1] *= 0.75f, c[2] *= 0.7f;
     mt[i] = mat(tex, c, 1.5f, 1.5f, 1.6f, 0.9f);
   }
-  int kindw = th->far_kind == 1 ? 1 : 0;
+  int kindw = th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0;
   /* a few hero rocks, many medium, lots of small near the edge */
   for (int i = 0; i < 230; i++) {
     float pick = rnd();
@@ -880,10 +946,19 @@ static void rocks(t3_object *root, const track_desc *t, const theme *th) {
     if (pick < 0.06f) s = 1.8f + rnd() * 1.6f, z = -TRACK_HALF_W - 6 - rnd() * 22;
     else if (pick < 0.45f) s = 0.5f + rnd() * 0.9f, z = -TRACK_HALF_W - 1.2f - rnd() * 16;
     else s = 0.12f + rnd() * 0.25f, z = -TRACK_HALF_W - 0.35f - rnd() * 3;
+    if(!strcmp(th->name,"desert")&&fabsf(x-t->finish_x*.56f)<8+s&&fabsf(z+11)<6+s)continue;
+    if(!strcmp(th->name,"canyon")&&((fabsf(x-t->finish_x*.49f)<4+s&&fabsf(z+4.8f)<3+s)||(fabsf(x-t->finish_x*.78f)<8+s&&fabsf(z+7)<3+s)))continue;
+    if(!strcmp(th->name,"coast")&&((fabsf(x-t->finish_x*.55f)<4+s&&fabsf(z+5.5f)<3+s)||(fabsf(x-t->finish_x*.82f)<5+s&&fabsf(z+6)<3+s)))continue;
+    if(!strcmp(th->name,"cosmic")&&((fabsf(x-t->finish_x*.47f)<5+s&&fabsf(z+4.2f)<4+s)||(fabsf(x-t->finish_x*.75f)<6+s&&fabsf(z+4.2f)<4+s)))continue;
+    if(!strcmp(th->name,"scary")&&((fabsf(x-t->finish_x*.48f)<6+s&&fabsf(z+6)<4+s)||(fabsf(x-t->finish_x*.85f)<5+s&&fabsf(z+5.5f)<3+s)))continue;
+    if(!strcmp(th->name,"beach")&&((fabsf(x-t->finish_x*.48f)<5+s&&fabsf(z+5.2f)<3+s)||(fabsf(x-t->finish_x*.8f)<5+s&&fabsf(z+5)<2+s)))continue;
+    /* Clear the listening station footprint, including the solar wings. */
+    if(!strcmp(th->name,"moon")&&fabsf(x-t->finish_x*.84f)<8+s&&fabsf(z+9)<5+s)continue;
     int kind = (int)(rnd() * ROCK_KINDS) % ROCK_KINDS, var = (int)(rnd() * ROCK_VARIANTS) % ROCK_VARIANTS;
     if (tex == TEX_SANDSTONE && kind == ROCK_SHARD && pick < 0.45f) kind = ROCK_BLOCK; /* sandstone breaks in blocks */
     float ax = 0.8f + rnd() * 0.5f, az = 0.7f + rnd() * 0.5f, ry = rnd() * 6.2831853f, tilt = (rnd() - 0.5f) * 0.5f, tilt2 = (rnd() - 0.5f) * 0.4f;
     int tint = (int)(rnd() * 3) % 3;
+    if (!strcmp(th->name, "xmas") && x > t->finish_x*.5f-3-s && x < t->finish_x*.5f+8+s && fabsf(z+4.5f)<2+s) continue;
     float y = bank_y(x, z, kindw);
     t3_mesh *me = add(root, geo[kind][var], mt[tint], s > 0.4f);
     float hy = kind == ROCK_SHARD ? 2.1f : kind == ROCK_SLAB ? 0.38f : 0.85f;
@@ -909,7 +984,7 @@ static void rocks(t3_object *root, const track_desc *t, const theme *th) {
 }
 
 static void fill(t3_object *root, const track_desc *t, const theme *th) {
-  rocks(root, t, th);
+  if (strcmp(th->name, "circus") && strcmp(th->name, "candy") && strcmp(th->name, "toybox")) rocks(root, t, th);
   /* ground plains behind the track at bedrock height */
   t3_material *plain = far_mat(mat(th->top_tex, th->top, 40, 40, 1.0f, 1));
   t3_geometry *pl = t3_plane_geometry_new(1, 1, 1, 1);
@@ -939,7 +1014,14 @@ static void fill(t3_object *root, const track_desc *t, const theme *th) {
     bool found;
     float y = track_height_at(x, &found);
     if (!found) continue;
-    if (z < -TRACK_HALF_W - 0.3f) y = bank_y(x, z, th->far_kind == 1 ? 1 : 0);
+    if(!strcmp(th->name,"desert")&&fabsf(x-t->finish_x*.56f)<8&&fabsf(z+11)<6)continue;
+    if(!strcmp(th->name,"xmas")&&x>t->finish_x*.5f-3&&x<t->finish_x*.5f+8&&fabsf(z+4.5f)<2)continue;
+    if(!strcmp(th->name,"autumn")&&fabsf(x-t->finish_x*.54f)<2.5f&&fabsf(z+5.8f)<1.8f)continue;
+    /* Keep vegetation out of the two chocolate streams and the toy pit. */
+    if(!strcmp(th->name,"candy") &&
+       (fabsf(x-t->finish_x*.34f)<3.7f||fabsf(x-t->finish_x*.73f)<3.7f))continue;
+    if(!strcmp(th->name,"toybox")&&x>t->finish_x&&x<t->finish_x+14)continue;
+    if (z < -TRACK_HALF_W - 0.3f) y = bank_y(x, z, th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0);
     float s = 0.7f + rnd() * 0.8f, yaw = rnd() * 6.2831853f, sy = 0.8f + rnd() * 0.6f, g = rnd(), flex = 0.7f + rnd() * 0.6f;
     tuft_at[n_tufts] = (sway){ x, y - 0.02f, z, yaw, s, s * sy, flex };
     tuft_at[n_tufts].c = cw_cos(yaw);
@@ -1129,14 +1211,17 @@ static void markers(t3_object *root, const track_desc *t) {
   flag->sheen = 1;
   flag->sheen_color = lin(1, 0.9f, 0.6f);
   flag->side = T3_DOUBLE_SIDE;
-  t3_geometry *pole = t3_cylinder_geometry_new(0.05f, 0.06f, 3.2f, 10, 1, false);
+  /* City storefronts sit behind the track. Low roadside pennants mark the
+   * checkpoints without covering their fascia lettering in the riding view. */
+  float checkpoint_height=!strcmp(t->theme,"neon")?1.9f:3.2f;
+  t3_geometry *pole = t3_cylinder_geometry_new(0.05f, 0.06f, checkpoint_height, 10, 1, false);
   t3_geometry *pen = t3_cone_geometry_new(0.45f, 1.4f, 3, 1, false);
   for (int i = 0; i < t->check_count; i++) {
     float x = t->checks[i * 2], y = t->checks[i * 2 + 1];
     t3_mesh *p = add(root, pole, post, true);
-    p->base.position = (t3_vec3){ x, y + 1.6f, -TRACK_HALF_W - 0.1f };
+    p->base.position = (t3_vec3){ x, y + checkpoint_height*.5f, -TRACK_HALF_W - 0.1f };
     t3_mesh *f = add(root, pen, flag, true);
-    f->base.position = (t3_vec3){ x + 0.7f, y + 2.85f, -TRACK_HALF_W - 0.1f };
+    f->base.position = (t3_vec3){ x + 0.7f, y + checkpoint_height-.35f, -TRACK_HALF_W - 0.1f };
     f->base.scale = (t3_vec3){ 1, 1, 0.08f };
     t3_object_set_rotation(&f->base, 0, 0, -1.5707963f);
   }
@@ -1151,7 +1236,7 @@ static void markers(t3_object *root, const track_desc *t) {
 
 /* ── theme props: what grows or stands on the bank behind the track ────
  * canyon: (boulders only); alpine: snowy pines; neon: towers with lit
- * windows and neon strips along the track; jungle and autumn: broadleaf
+ * windows; jungle and autumn: broadleaf
  * trees (green / orange); desert: saguaro cacti; coast: wind-bent pines and
  * a grey sea far below; cosmic: floating rocks and glowing crystals */
 static t3_texture *window_tex(void) {
@@ -1180,6 +1265,30 @@ static t3_texture *window_tex(void) {
   return t;
 }
 
+/* Leaf silhouettes live in shared geometry, so the opaque three.c Standard
+ * shader shades them without alpha overdraw or a separate draw per leaf. */
+static t3_geometry *forest_leaf_cluster(void) {
+  mb b={0};
+  static const float outline[6][2]={{0,-.35f},{-.35f,-.13f},{-.29f,.16f},{0,.42f},{.29f,.16f},{.35f,-.13f}};
+  for(int i=0;i<10;i++) {
+    float a=i*2.39996323f,h=.1f+.63f*((i*7)%13)/13.0f;
+    float r=.32f+.45f*((i*11)%17)/17.0f;
+    float cx=cw_cos(a)*r,cz=cw_sin(a)*r,sz=.38f+.13f*(i%3);
+    float side=cw_cos(a*.7f),depth=cw_sin(a*.7f);
+    t3_vec3 n={-depth,.24f,side};
+    int center=mb_v(&b,(t3_vec3){cx,h+.03f,cz},n,.5f,.5f,1);
+    for(int v=0;v<6;v++) {
+      float w=outline[v][0],up=outline[v][1];
+      mb_v(&b,(t3_vec3){cx+side*w*sz*2,h+up,cz+depth*w*sz*2},n,.5f+w,.5f+up,1);
+    }
+    for(int v=0;v<6;v++) {
+      mb_t(&b,center,center+1+v,center+1+(v+1)%6);
+      mb_t(&b,center,center+1+(v+1)%6,center+1+v);
+    }
+  }
+  return mb_done(&b);
+}
+
 static void tree(t3_object *root, t3_geometry *trunk, t3_geometry *crown, t3_material *bark, t3_material *leaves, float x, float y,
                  float z, float h, float r, bool conifer) {
   t3_mesh *tk = add(root, trunk, bark, true);
@@ -1192,14 +1301,30 @@ static void tree(t3_object *root, t3_geometry *trunk, t3_geometry *crown, t3_mat
       c->base.position = (t3_vec3){ x, y + h * (0.45f + k * 0.2f), z };
       c->base.scale = (t3_vec3){ r * f, h * 0.45f, r * f };
     }
-  } else
-    for (int k = 0; k < 3; k++) {
-      float ox = (rnd() - 0.5f) * r, oz = (rnd() - 0.5f) * r * 0.6f, ry = rnd() * 6;
-      t3_mesh *c = add(root, crown, leaves, true);
-      c->base.position = (t3_vec3){ x + ox, y + h + k * r * 0.35f, z + oz };
-      c->base.scale = (t3_vec3){ r * (1 - k * 0.2f), r * 0.8f * (1 - k * 0.2f), r * (1 - k * 0.2f) };
-      t3_object_set_rotation(&c->base, 0, ry, 0);
+  } else {
+    /* Keep the same nine placement RNG samples as the old three-lobe crown,
+     * so a silhouette improvement does not reshuffle the whole forest. */
+    float q[9];for(int k=0;k<9;k++)q[k]=rnd();
+    float spread=r*(q[0]<.45f?1.35f:.9f),turn=q[1]*6.2831853f;
+    tk->base.scale.x=tk->base.scale.z=.8f+r*.25f;
+    for(int k=0;k<5;k++) {
+      float a=turn+k*2.3999632f, reach=k==4?.12f:spread*(.48f+q[k+2]*.25f);
+      float ox=cw_cos(a)*reach,oz=cw_sin(a)*reach;
+      float cy=y+h+(k==4?r*.4f:-r*.12f+q[k+3]*r*.25f);
+      t3_mesh *c=add(root,crown,leaves,true);
+      c->base.position=(t3_vec3){x+ox,cy,z+oz};
+      float size=.62f+q[k+2]*.23f;
+      c->base.scale=(t3_vec3){spread*size,r*(.44f+q[k+3]*.24f),spread*size*(.8f+q[k+1]*.3f)};
+      t3_object_set_rotation(&c->base,.12f*cw_sin(a),a,.1f*cw_cos(a));
+      if(k<3) {
+        float sy=y+h*(.58f+.06f*k),dy=cy-sy;
+        t3_mesh *branch=add(root,trunk,bark,true);
+        branch->base.position=(t3_vec3){x+ox*.5f,sy+dy*.5f,z+oz*.5f};
+        branch->base.scale=(t3_vec3){.55f,sqrtf(reach*reach+dy*dy),.55f};
+        t3_object_set_rotation(&branch->base,0,cw_atan2(-oz,ox),-cw_atan2(reach,dy));
+      }
     }
+  }
 }
 
 static t3_material *glow(float r, float g, float b, float e) {
@@ -1211,7 +1336,7 @@ static t3_material *glow(float r, float g, float b, float e) {
 }
 
 static void props(t3_object *root, const track_desc *t, const theme *th) {
-  int kind = th->far_kind == 1 ? 1 : 0;
+  int kind = th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0;
   const char *n = th->name;
   t3_geometry *trunk = t3_cylinder_geometry_new(0.12f, 0.2f, 1, 10, 1, false);
   if (!strcmp(n, "alpine") || !strcmp(n, "coast")) {
@@ -1222,6 +1347,7 @@ static void props(t3_object *root, const track_desc *t, const theme *th) {
     t3_geometry *cone = t3_cone_geometry_new(1, 1, 9, 1, false);
     for (int i = 0; i < 70; i++) {
       float x = -30 + rnd() * (t->length + 60), z = -TRACK_HALF_W - 3 - rnd() * 40, h = 3 + rnd() * 4, r = 1 + rnd() * 0.8f;
+      if(!strcmp(n,"coast")&&((fabsf(x-t->finish_x*.55f)<5+r&&fabsf(z+5.5f)<4+r)||(fabsf(x-t->finish_x*.82f)<6+r&&fabsf(z+6)<4+r)))continue;
       tree(root, trunk, cone, bark, needles, x, bank_y(x, z, kind) - 0.2f, z, h, r, true);
     }
     if (!strcmp(n, "coast")) {
@@ -1246,16 +1372,49 @@ static void props(t3_object *root, const track_desc *t, const theme *th) {
   } else if (!strcmp(n, "jungle") || !strcmp(n, "autumn")) {
     bool jungle = !strcmp(n, "jungle");
     t3_material *bark = mat(TEX_BARK, (float[3]){ 0.75f, 0.65f, 0.55f }, 1, 1, 1.4f, 0.9f);
-    float leaf[3] = { 0.35f, 0.62f, 0.25f }, leaf2[3] = { 1.0f, 0.55f, 0.18f };
-    t3_material *crown = mat(TEX_LEAVES, jungle ? leaf : leaf2, 1, 1, 1.2f, 0.8f);
-    float leaf3[3] = { 0.95f, 0.32f, 0.12f }, leaf4[3] = { 0.25f, 0.5f, 0.2f };
-    t3_material *crown2 = mat(TEX_LEAVES, jungle ? leaf4 : leaf3, 1, 1, 1.2f, 0.8f);
+    float leaf2[3] = { 1.0f, 0.55f, 0.18f };
+    t3_material *crown = jungle ? t3_mesh_standard_material_new(0xffffff) : mat(TEX_LEAVES, leaf2, 2, 2, .65f, 0.9f);
+    float leaf3[3] = { 0.95f, 0.32f, 0.12f };
+    t3_material *crown2 = jungle ? t3_mesh_standard_material_new(0xffffff) : mat(TEX_LEAVES, leaf3, 2, 2, .65f, 0.9f);
+    if(jungle) {
+      crown->color=lin(.34f,.58f,.27f);crown2->color=lin(.24f,.45f,.21f);
+      crown->roughness=crown2->roughness=1.0f;
+    }
     crown->sheen = crown2->sheen = 0;
-    t3_geometry *ico = t3_icosahedron_geometry_new(1, 2);
-    for (int i = 0; i < 90; i++) {
-      float x = -30 + rnd() * (t->length + 60), z = -TRACK_HALF_W - 2.5f - rnd() * 42, h = 2.5f + rnd() * 3.5f, r = 1.2f + rnd() * 1.2f;
+    t3_geometry *ico = jungle ? forest_leaf_cluster() : t3_icosahedron_geometry_new(1, 1);
+    /* Shared coarse leaf cluster: irregular silhouette at a lower triangle
+     * count than the old smooth spheres, reused by every broadleaf tree. */
+    if(!jungle) {
+      t3_attribute *pa=ico->attributes[T3_ATTR_POSITION];float *pv=pa->array;
+      for(int k=0;k<pa->count;k++) {
+        float f=.86f+.28f*noise3(pv[k*3]*3,pv[k*3+1]*3,pv[k*3+2]*3,731);
+        pv[k*3]*=f;pv[k*3+1]*=f;pv[k*3+2]*=f;
+      }
+      pa->version++;
+    }
+    /* The enchanted route needs a continuous treeline with several layers of
+     * depth. Keep openings at the deer crossings and the little village so
+     * those discoveries remain readable from the bike. Static geometry is
+     * merged into spatial chunks below, so distant groves are culled. */
+    int count = jungle ? 560 : 90;
+    for (int i = 0; i < count; i++) {
+      float x = -30 + rnd() * (t->length + 60);
+      bool sapling = jungle && i < 150;
+      float depth = sapling ? 1.5f + rnd() * 7.5f :
+                    jungle ? (i % 3 == 0 ? 2.6f + rnd() * 7.4f :
+                            i % 3 == 1 ? 10.0f + rnd() * 17.0f :
+                                         27.0f + rnd() * 19.0f)
+                           : 2.5f + rnd() * 42.0f;
+      float z = -TRACK_HALF_W - depth;
+      float h = sapling ? 1.8f + rnd() * 2.8f : jungle ? 3.4f + rnd() * 4.4f : 2.5f + rnd() * 3.5f;
+      float r = sapling ? .8f + rnd() * .75f : jungle ? 1.4f + rnd() * 1.5f : 1.2f + rnd() * 1.2f;
       bool two = rnd() < 0.5f;
-      tree(root, trunk, ico, bark, two ? crown2 : crown, x, bank_y(x, z, kind) - 0.2f, z, h, r, false);
+      if(jungle && (((fabsf(x-106)<3+r || fabsf(x-334)<3+r) && depth<4) ||
+                    (x>185-r && x<235+r && depth<22) ||
+                    (fabsf(x-412)<7+r && depth<17) ||
+                    (fabsf(x-t->finish_x*.82f)<5+r && z>-12-r)))continue;
+      if(!jungle && (fabsf(x-t->finish_x*.54f)<4+r || fabsf(x-t->finish_x*.81f)<4+r) && z>-11-r)continue;
+      tree(root, trunk, ico, bark, two ? crown2 : crown, x, bank_surface_y(x, z, kind) - 0.2f, z, h, r, false);
     }
     t3_release(ico);
     t3_release(bark);
@@ -1297,11 +1456,11 @@ static void props(t3_object *root, const track_desc *t, const theme *th) {
   } else if (!strcmp(n, "neon")) {
     /* towers behind, their lit windows as rows of glowing panes on the
      * face toward the track (constant emission: no emissive map) */
-    t3_material *tower = mat(TEX_ASPHALT, (float[3]){ 0.4f, 0.4f, 0.48f }, 2, 6, 1.0f, 0.5f);
+    t3_material *tower = mat(TEX_CONCRETE, (float[3]){ 0.3f, 0.34f, 0.42f }, 2, 6, 0.15f, 0.8f);
     t3_material *pane[2] = { glow(1, 0.82f, 0.5f, 2.2f), glow(0.55f, 0.75f, 1, 2.0f) };
     t3_geometry *box = t3_box_geometry_new(1, 1, 1, 1, 1, 1);
     for (int i = 0; i < 60; i++) {
-      float x = -40 + rnd() * (t->length + 80), z = -10 - rnd() * 60, w = 4 + rnd() * 6, h = 12 + rnd() * 30, d = w * (0.7f + rnd() * 0.5f);
+      float x = -40 + rnd() * (t->length + 80), z = -28 - rnd() * 42, w = 4 + rnd() * 6, h = 12 + rnd() * 30, d = w * (0.7f + rnd() * 0.5f);
       float base = bank_y(x, z, kind) - 4;
       t3_mesh *m = add(root, box, tower, false);
       m->base.position = (t3_vec3){ x, base + h * 0.5f, z };
@@ -1315,20 +1474,6 @@ static void props(t3_object *root, const track_desc *t, const theme *th) {
           wp->base.position = (t3_vec3){ x - w * 0.5f + (c + 0.5f) * w / cols, base + r * 2.2f, z + d * 0.5f + 0.03f };
           wp->base.scale = (t3_vec3){ w / cols * 0.55f, 0.9f, 0.04f };
         }
-    }
-    static const float NEON[3][3] = { { 1, 0.2f, 0.75f }, { 0.2f, 0.9f, 1 }, { 1, 0.75f, 0.15f } };
-    for (int k = 0; k < 3; k++) {
-      t3_material *glow = t3_mesh_standard_material_new(0xffffff);
-      glow->color = lin(NEON[k][0], NEON[k][1], NEON[k][2]);
-      glow->emissive = lin(NEON[k][0], NEON[k][1], NEON[k][2]);
-      glow->emissive_intensity = 3.5f;
-      for (float x = -20 + k * 7; x < t->length + 20; x += 21) {
-        float y = track_height_at(x, NULL);
-        t3_mesh *m = add(root, box, glow, false);
-        m->base.position = (t3_vec3){ x, y + 0.08f, -TRACK_HALF_W - 0.25f };
-        m->base.scale = (t3_vec3){ 5, 0.08f, 0.08f };
-      }
-      t3_release(glow);
     }
     t3_release(box);
     t3_release(tower);
@@ -1399,7 +1544,7 @@ static void house(t3_object *root, t3_geometry *box, t3_geometry *roofg, t3_mate
  * small warm point lights (which follow the rider to the nearest pumpkins
  * and wobble with the flame) flicker with layered noise: a fast jitter, a
  * slow breathing and now and then a dip. Presentation only (render time). */
-#define MAX_PK 48
+#define MAX_PK 80
 #define PK_GROUPS 5
 typedef struct pk_t { float x, y, z, r; t3_mesh *flame; } pk_t;
 static pk_t pks[MAX_PK];
@@ -1574,16 +1719,26 @@ static void pumpkins_frame(float dt) {
       continue;
     }
     const pk_t *a = &pks[best[k]];
-    float s = best[k] * 5.7f;
-    /* the candle itself, inside: the shell stays dark, the ground round it glows; it wobbles with the flame */
-    l->base.position = (t3_vec3){ a->x + 0.05f * (pk_noise(pk_time * 4 + s) - 0.5f), a->y + a->r * 0.1f + 0.04f * (pk_noise(pk_time * 5 + s + 9) - 0.5f),
-                                  a->z + a->r * 0.2f };
-    l->intensity = 16 * pk_level[best[k] % PK_GROUPS];
+    /* Use the candle's actual world transform, including pumpkin scale,
+     * yaw and bank tilt. Small radius-scaled candle pools avoid floating
+     * orange hotspots beside the lanterns. Emissive carvings remain visible. */
+    l->base.position = t3_object_get_world_position(&a->flame->base);
+    l->intensity = 3.0f * a->r * a->r * pk_level[best[k] % PK_GROUPS];
+    l->distance = 3.5f * a->r;
+
   }
 }
 
+#include "whimsy.inc"
+#include "sojourner.inc"
+
+static void rover_material_setup(t3_object *o,void *unused) {
+  (void)unused;
+  o->frustum_culled=true;
+  o->cast_shadow=true;o->receive_shadow=true;
+}
 static void props2(t3_object *root, const track_desc *t, const theme *th) {
-  int kind = th->far_kind == 1 ? 1 : 0;
+  int kind = th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0;
   const char *n = th->name;
   t3_geometry *box = t3_box_geometry_new(1, 1, 1, 1, 1, 1), *cone4 = t3_cone_geometry_new(1, 1, 4, 1, false);
   t3_geometry *cyl = t3_cylinder_geometry_new(1, 1, 1, 10, 1, false), *ball = t3_sphere_geometry_new(1, 20, 14);
@@ -1612,7 +1767,7 @@ static void props2(t3_object *root, const track_desc *t, const theme *th) {
     pp.candle = t3_cylinder_geometry_new(1, 1, 1, 8, 1, false);
     pp.flame = t3_plane_geometry_new(1, 1, 1, 1);
     for (int i = 0; i < 3; i++) pp.faces[i] = geo_face(i);
-    for (int i = 0; i < 26; i++) {
+    for (int i = 0; i < 40; i++) {
       float x = -20 + rnd() * (t->length + 40), z = -TRACK_HALF_W - 6 - rnd() * 30, w = 3 + rnd() * 2.5f, h = 3 + rnd() * 3, lean = (rnd() - 0.5f) * 0.25f;
       float y = bank_y(x, z, kind) - 0.3f;
       house(root, box, cone4, wall, roof, win, x, y, z, w, h, lean);
@@ -1681,6 +1836,7 @@ static void props2(t3_object *root, const track_desc *t, const theme *th) {
     for (int i = 0; i < 3; i++) t3_release(pm[i]);
     for (int i = 0; i < 40; i++) { /* dead trees: a trunk and crooked branches */
       float x = -20 + rnd() * (t->length + 40), z = -TRACK_HALF_W - 3 - rnd() * 25, h = 3 + rnd() * 3, y = bank_y(x, z, kind);
+      if((fabsf(x-t->finish_x*.48f)<7&&fabsf(z+6)<5)||(fabsf(x-t->finish_x*.85f)<6&&fabsf(z+5.5f)<5))continue;
       t3_mesh *tk = add(root, cyl, deadwood, true);
       tk->base.position = (t3_vec3){ x, y + h * 0.5f, z };
       tk->base.scale = (t3_vec3){ 0.15f, h, 0.15f };
@@ -1791,6 +1947,7 @@ static void props2(t3_object *root, const track_desc *t, const theme *th) {
     redm->clearcoat = 1;
     for (int i = 0; i < 40; i++) { /* palms: a leaning segmented trunk, a crown of fronds */
       float x = -20 + rnd() * (t->length + 40), z = -TRACK_HALF_W - 3 - rnd() * 25, h = 5 + rnd() * 3, lean = (rnd() - 0.5f) * 0.5f;
+      if((fabsf(x-t->finish_x*.48f)<5&&fabsf(z+5.2f)<4)||(fabsf(x-t->finish_x*.8f)<5&&fabsf(z+5)<3))continue;
       float y = bank_y(x, z, kind), px = x, py = y;
       for (int k = 0; k < 6; k++) {
         float a = lean * (k + 1) / 6.0f, l = h / 6;
@@ -1868,22 +2025,39 @@ static void props2(t3_object *root, const track_desc *t, const theme *th) {
     t3_material *dark = t3_mesh_standard_material_new(0xffffff);
     dark->color = lin(0.12f, 0.12f, 0.13f);
     dark->roughness = 0.6f;
-    float rx = t->length * 0.3f, rz = -TRACK_HALF_W - 4, ry = bank_y(rx, rz, kind);
-    t3_mesh *rv = add(root, box, body, true);
-    rv->base.position = (t3_vec3){ rx, ry + 0.9f, rz };
-    rv->base.scale = (t3_vec3){ 2.4f, 0.6f, 1.6f };
-    for (int k = 0; k < 6; k++) {
-      t3_mesh *w = add(root, cyl, dark, true);
-      w->base.position = (t3_vec3){ rx - 1 + (k % 3) * 1.0f, ry + 0.35f, rz + (k < 3 ? 0.95f : -0.95f) };
-      w->base.scale = (t3_vec3){ 0.35f, 0.25f, 0.35f };
-      t3_object_set_rotation(&w->base, 1.5707963f, 0, 0);
+    sojourner_landmark(root,box,cyl,body,foil,dark,t->finish_x*.39f,-4.6f,kind);
+    /* NASA Spirit/Opportunity share their geometry and textures. Each parked
+     * rover is an independent discovery; resource lifetime follows instances. */
+    static const struct { const char *path; float fraction,z,scale,yaw; } rovers[]={
+      {"models/mer.glb",.28f,-4.8f,1.5f,.65f},
+      {"models/mer.glb",.48f,-6,1.5f,-.55f},
+      {"models/curiosity.glb",.62f,-5.5f,1.3f,.7f},
+      {"models/perseverance.glb",.84f,-5.5f,1.5f,-.6f}
+    };
+    for(int r=0;r<(int)CW_ARRAY_LEN(rovers);r++) {
+      float rx=t->finish_x*rovers[r].fraction,rz=rovers[r].z;
+      cw_res resource=cw_res_load(rovers[r].path,CW_RES_GLTF);
+      t3_object *rover=cw_gltf_instantiate(resource);
+      cw_res_release(resource);
+      if(!rover)continue;
+      rover->position=(t3_vec3){rx,bank_surface_y(rx,rz,kind)+.08f,rz};
+      float scale=rovers[r].scale;
+      rover->scale=(t3_vec3){scale,scale,scale};
+      float slope=atan2f(bank_surface_y(rx+1,rz,kind)-bank_surface_y(rx-1,rz,kind),2);
+      float cross=atan2f(bank_surface_y(rx,rz+1,kind)-bank_surface_y(rx,rz-1,kind),2);
+      t3_quat yaw=t3_quat_from_axis_angle((t3_vec3){0,1,0},rovers[r].yaw);
+      t3_quat pitch=t3_quat_from_axis_angle((t3_vec3){1,0,0},-cross);
+      t3_quat roll=t3_quat_from_axis_angle((t3_vec3){0,0,1},slope);
+      t3_object_set_quaternion(rover,t3_quat_multiply(roll,t3_quat_multiply(pitch,yaw)));
+      t3_object_update_matrix(rover);
+      float seat=0;
+      for(int side=-1;side<=1;side+=2)for(int wheel=-1;wheel<=1;wheel++) {
+        t3_vec3 foot=t3_vec3_apply_mat4((t3_vec3){r<2?side*.55f:side,0,wheel*(r<2?.6f:1.1f)},&rover->matrix);
+        seat+=bank_surface_y(foot.x,foot.z,kind)-foot.y;
+      }
+      rover->position.y+=seat/6-.03f;
+      t3_object_add(root,rover);t3_object_update_world_matrix(rover,true,true);t3_object_traverse(rover,rover_material_setup,NULL);t3_release(rover);
     }
-    t3_mesh *mast = add(root, cyl, body, true);
-    mast->base.position = (t3_vec3){ rx + 0.8f, ry + 1.8f, rz + 0.4f };
-    mast->base.scale = (t3_vec3){ 0.06f, 1.4f, 0.06f };
-    t3_mesh *cam = add(root, box, dark, true);
-    cam->base.position = (t3_vec3){ rx + 0.8f, ry + 2.55f, rz + 0.4f };
-    cam->base.scale = (t3_vec3){ 0.35f, 0.2f, 0.25f };
     float lx = t->length * 0.7f, lz = -TRACK_HALF_W - 9, ly = bank_y(lx, lz, kind);
     t3_mesh *ld = add(root, cyl, foil, true);
     ld->base.position = (t3_vec3){ lx, ly + 1.6f, lz };
@@ -2238,8 +2412,12 @@ static void movers_frame(float alpha) {
 
 void view_frame(float alpha) {
   movers_frame(alpha);
+  forest_deer_frame(alpha);
   flags_wave(1.0f / 60);
   pumpkins_frame(1.0f / 60);
+  whimsy_tick();
+  loose_toys_frame(alpha);
+  chocolate_fx_frame();
   cw_xform2 x[MAX_PLANK_MESH];
   float hw[MAX_PLANK_MESH];
   int n = bike_planks(alpha, x, hw, MAX_PLANK_MESH);
@@ -2268,10 +2446,12 @@ static bool still_ok(t3_object *o) {
   if (mt->transparent || mt->transmission > 0) return false;
   for (int i = 0; i < n_pk; i++)
     if (pks[i].flame == m) return false;
+  for (int i = 0; i < whimsy_motion_count; i++)
+    if (whimsy_motion_list[i].object == &m->base) return false;
   return true;
 }
-static void merge_still(t3_object *root, int a, int b) {
-  typedef struct { t3_material *m; unsigned mask; bool cast, recv; int chunk, n, first; } run;
+static void merge_still(t3_object *root, int a, int b, bool city) {
+  typedef struct { t3_material *m; unsigned mask; bool cast, recv; int chunk, depth, n, first; } run;
   int nc = b - a;
   if (nc <= 0) return;
   run *runs = malloc(sizeof *runs * (size_t)nc);
@@ -2282,13 +2462,15 @@ static void merge_still(t3_object *root, int a, int b) {
     run_of[i] = -1;
     if (!still_ok(o)) continue;
     t3_mesh *m = (t3_mesh *)o;
-    int chunk = (int)floorf(o->position.x / STILL_CHUNK);
+    /* City blocks need tight bounds: a 256m batch spans most of the course. */
+    int chunk = (int)floorf(o->position.x / (city ? 32.0f : STILL_CHUNK));
+    int depth = city ? (int)floorf(o->position.z / 24.0f) : 0;
     unsigned mask = geo_merge_mask(m->geometry);
     int r = 0;
     while (r < nr && !(runs[r].m == m->materials[0] && runs[r].mask == mask && runs[r].cast == o->cast_shadow &&
-                       runs[r].recv == o->receive_shadow && runs[r].chunk == chunk))
+                       runs[r].recv == o->receive_shadow && runs[r].chunk == chunk && runs[r].depth == depth))
       r++;
-    if (r == nr) runs[nr++] = (run){ m->materials[0], mask, o->cast_shadow, o->receive_shadow, chunk, 0, i };
+    if (r == nr) runs[nr++] = (run){ m->materials[0], mask, o->cast_shadow, o->receive_shadow, chunk, depth, 0, i };
     runs[r].n++;
     run_of[i] = r;
   }
@@ -2388,9 +2570,13 @@ static cw_node particles(cw_node parent, const char *name, const char *const *kv
 }
 
 void view_build(cw_node parent, const track_desc *t, int track_index) {
+  discovery_parent=parent;
+  chocolate_parent=parent;chocolate_track=t;
+  memset(chocolate_prev,0,sizeof chocolate_prev);memset(chocolate_carry,0,sizeof chocolate_carry);memset(chocolate_last,0,sizeof chocolate_last);
+  chocolate_marks=0;cw_debug_i32("chocolate.marks",&chocolate_marks);
   const theme *th = theme_for(t->theme);
   S = (uint32_t)(track_index + 1) * 2654435761u + 11;
-  bank_kind = th->far_kind == 1 ? 1 : 0;
+  bank_kind = th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0;
   t3_object *root = t3_group_new();
   ground_build(t);
   ribbon(root, t, th);
@@ -2398,10 +2584,15 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
   markers(root, t);
   int still0 = root->child_count;
   landforms(root, t, th, !backdrop_build(parent, t, track_index));
-  fill(root, t, th);
+  if (strcmp(th->name, "neon")) fill(root, t, th);
   props(root, t, th);
   props2(root, t, th);
-  merge_still(root, still0, root->child_count);
+  int chocolate_first=root->child_count;
+  whimsical_props(root, t, th);
+  chocolate_colliders_build(root,chocolate_first,t);
+  loose_toys_build(root,t);
+  chocolate_fx_build(root,t);
+  merge_still(root, still0, root->child_count, !strcmp(th->name, "neon"));
   fog_build(parent, th);
   ice_patches(root, t);
   planks_build(root);
@@ -2411,6 +2602,89 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
   cw_node n = cw_node_new("Node3D", "World");
   cw_node_add_child(parent, n);
   cw_node3d_set_object(n, root);
+  if (!strcmp(th->name, "neon")) {
+    /* Register static procedural batches with the engine's spatial BVH.
+     * Animated accents stay in the raw subtree; each split-screen view runs
+     * its own visibility pass and restores visibility after drawing. */
+    /* Development stress fixture: repeat the shared city batches offscreen,
+     * retaining geometry/materials, to measure visibility as world size grows. */
+    const char *stress=getenv("BIKEMESA_CITY_STRESS");
+    int copies=stress?atoi(stress):1;
+    copies=copies<1?1:copies>32?32:copies;
+    int original_count=root->child_count;
+    for(int copy=1;copy<copies;copy++) for(int j=0;j<original_count;j++) {
+      t3_object *o=root->children[j];
+      if(!still_ok(o))continue;
+      t3_mesh *src=(t3_mesh *)o;
+      t3_mesh *dup=t3_mesh_new(src->geometry,src->materials[0]);
+      dup->base.position=o->position;dup->base.position.x+=copy*512.0f;
+      dup->base.scale=o->scale;t3_object_set_quaternion(dup,o->quaternion);
+      dup->base.cast_shadow=o->cast_shadow;dup->base.receive_shadow=o->receive_shadow;
+      t3_object_add(root,dup);t3_release(dup);
+    }
+    city_parent=n;
+    city_cell_count=(int)((t->length+256+(copies-1)*512)/64)+2;
+    city_cells=calloc((size_t)city_cell_count,sizeof *city_cells);
+    for(int c=0;c<city_cell_count;c++) {
+      char name[32];snprintf(name,sizeof name,"CityCell%d",c);
+      city_cells[c]=cw_node_new("Node3D",name);
+    }
+    int serial=0;
+    for (int i=0;i<root->child_count;) {
+      t3_object *o=root->children[i];
+      if (!still_ok(o)) { i++; continue; }
+      char name[40];snprintf(name,sizeof name,"CityBatch%d",serial++);
+      cw_node batch=cw_node_new("MeshInstance3D",name);
+      cw_node_set(batch,"static",cw_val_bool(true));
+      cw_node_set(batch,"occlusion_cull",cw_val_bool(false));
+      t3_retain(o);t3_object_remove(root,o);
+      cw_mesh3d_set_procedural(batch,(t3_mesh *)o);
+      t3_mesh *mesh=(t3_mesh *)o;
+      if(!mesh->geometry->has_bounding_sphere)t3_geometry_compute_bounding_sphere(mesh->geometry);
+      t3_object_update_matrix(o);
+      t3_vec3 center=t3_vec3_apply_mat4(mesh->geometry->bounding_sphere.center,&o->matrix);
+      float radius=mesh->geometry->bounding_sphere.radius*t3_mat4_max_scale_on_axis(&o->matrix);
+      int cell=(int)floorf((center.x+128)/64);
+      /* Very large terrain/road meshes remain resident until subdivided. */
+      cw_node owner=radius<96 && cell>=0 && cell<city_cell_count?city_cells[cell]:n;
+      cw_node_add_child(owner,batch);
+      t3_release(o);
+    }
+    cw_stream_desc stream_desc=cw_stream_default_desc();
+    stream_desc.cells_x=city_cell_count;stream_desc.cells_z=1;
+    stream_desc.cell_size=64;stream_desc.origin=(cw_dvec3){-128,0,-32};
+    stream_desc.load_radius=200;stream_desc.active_radius=200;stream_desc.hysteresis=64;
+    stream_desc.max_requests_per_tick=32;stream_desc.prepare_per_frame=32;
+    stream_desc.on_load=city_cell_load;stream_desc.on_unload=city_cell_unload;
+    city_stream=cw_stream_create(&stream_desc);
+    for(int i=0;i<MAX_RIDERS;i++)cw_stream_source_add(city_stream,(cw_dvec3){0,0,0},0);
+    cw_stream_tick(city_stream);cw_stream_frame(city_stream);
+    cw_node lights=cw_node_new("LightingSettings","CityLighting");
+    cw_node_set(lights,"mode",cw_val_enum("CLUSTERED"));
+    cw_node_set(lights,"max_per_cluster",cw_val_int(12));
+    cw_node_set(lights,"cluster_far",cw_val_float(140));
+    cw_node_add_child(parent,lights);
+    for(int i=0;i<(getenv("BIKEMESA_CITY_NO_REFLECTIONS") ? 0 : 5);i++) {
+      float x=25+i*65;
+      char name[32];snprintf(name,sizeof name,"CityReflection%d",i);
+      cw_node probe=cw_node_new("ReflectionProbe3D",name);
+      cw_node_set(probe,"position",cw_val_vec3(x,bank_y(x,-7,2)+2.5f,-7));
+      cw_node_set(probe,"size",cw_val_vec3(85,32,65));
+      cw_node_set(probe,"resolution",cw_val_int(64));
+      cw_node_set(probe,"far",cw_val_float(85));
+      cw_node_set(probe,"intensity",cw_val_float(.8f));
+      cw_node_set(probe,"ambient",cw_val_bool(false));
+      cw_node_set(probe,"box_projection",cw_val_bool(false));
+      cw_node_set(probe,"update_mode",cw_val_enum("ONCE"));
+      cw_node_add_child(parent,probe);
+    }
+    cw_node vis=cw_node_new("VisibilityManager","CityVisibility");
+    cw_node_set(vis,"frustum_cull",cw_val_bool(!getenv("BIKEMESA_CITY_NO_CULL")));
+    cw_node_set(vis,"occlusion_cull",cw_val_bool(false));
+    cw_node_set(vis,"lod",cw_val_bool(false));
+    cw_node_set(vis,"impostors",cw_val_bool(false));
+    cw_node_add_child(parent,vis);
+  }
   t3_release(root);
 
   static const char *const dust_kv[] = { "amount", "300", "lifetime", "1.4", "emission_shape", "SPHERE", "emission_radius", "0.15",
@@ -2419,6 +2693,17 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
     "size_curve", "\"0 0.3, 0.3 1, 1 1.6\"", "blend", "ALPHA", "emitting", "false",
     "color_ramp", "\"0 0.82 0.66 0.5 0, 0.1 0.82 0.66 0.5 0.45, 1 0.8 0.68 0.55 0\"", NULL };
   dust = particles(parent, "Dust", dust_kv);
+  if(!strcmp(t->theme,"desert")) {
+    static const char *const smoke_kv[]={"amount","64","lifetime","6","preprocess","6",
+      "emission_shape","SPHERE","emission_radius","0.32","direction","vec3(0.3,1,0)",
+      "spread","18","speed_min","0.7","speed_max","1.3","gravity","vec3(0.12,0.15,0)",
+      "damping","0.15","turbulence","0.38","turbulence_scale","0.7",
+      "size","0.75","size_random","0.4","size_curve","\"0 0.35, 0.5 1.4, 1 2.7\"",
+      "blend","ALPHA","color_ramp","\"0 0.12 0.13 0.15 0, 0.12 0.16 0.17 0.19 0.6, 0.6 0.3 0.31 0.33 0.35, 1 0.4 0.42 0.44 0\"",NULL};
+    cw_node smoke=particles(parent,"Saucer smoke",smoke_kv);
+    float x=t->finish_x*.56f-1.1f,z=-10.5f;
+    cw_node3d_set_position(smoke,(t3_vec3){x,bank_surface_y(x,z,0)+2,z});
+  }
   static const char *const burst_kv[] = { "amount", "90", "lifetime", "1.1", "one_shot", "true", "explosiveness", "1",
     "emission_shape", "SPHERE", "emission_radius", "0.3", "spread", "180", "speed_min", "1.5", "speed_max", "5.5",
     "gravity", "vec3(0, -6, 0)", "damping", "1.5", "size", "0.22", "size_random", "0.6", "blend", "ALPHA", "emitting", "false",
@@ -2544,9 +2829,18 @@ void view_grass(const cw_node *cameras, int n) {
 }
 
 void view_forget(void) {
+  memset(forest_deer,0,sizeof forest_deer);
+  memset(forest_legs,0,sizeof forest_legs);
+  chocolate_track=NULL;chocolate_parent=(cw_node){0};
+  if(city_stream)cw_stream_destroy(city_stream);
+  city_stream=NULL;
+  for(int i=0;i<city_cell_count;i++)if(cw_node_valid(city_cells[i]))cw_node_free(city_cells[i]);
+  free(city_cells);city_cells=NULL;city_cell_count=0;city_parent=(cw_node){0};
   backdrop_forget();
   far_mats_free();
   n_flags = 0;
+  whimsy_motion_count = 0;
+  whimsy_time = 0;
   n_pk = 0; /* the pumpkins' faces and lights went with the scene */
   n_plank_mesh = 0;
   n_mover_obj = 0;
