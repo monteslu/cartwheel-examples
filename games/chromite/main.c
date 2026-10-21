@@ -345,6 +345,12 @@ static void init(void *u) {
   audio_init();
   font_ui = cw_font_load("fonts/Oswald-VF.ttf", NULL);
   font_title = cw_font_load("fonts/Hack-Bold.ttf", NULL);
+  /* Prepare printable English UI glyphs while loading. SDF glyph generation
+   * must not interrupt gameplay when a new score or result first appears. */
+  const cw_font ui_fonts[] = {font_ui, font_title};
+  for (unsigned f = 0; f < sizeof ui_fonts / sizeof ui_fonts[0]; f++)
+    cw_font_preload_range(ui_fonts[f], 32, 126);
+
   cw_debug_i32("game.state", &G.state);
   cw_debug_i32("ticks", &G.ticks);
   cw_debug_i32("input.mode", &input_mode);

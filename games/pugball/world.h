@@ -81,6 +81,7 @@ void scenery_build(cw_node scene, int theme, uint32_t seed);
 void scenery_tick(const sim *s, int ticks, int cheer);
 void scenery_reset(void);
 void scenery_quality(float k, float grass); /* share of the crowd and of the grass drawn, 0..1 */
+void scenery_crowd_detail(t3_vec3 eye, float focal_pixels);
 void scenery_light_crowd(bool light); /* the crowd's light meshes (split screen) or the full ones */
 void scenery_view_detail(t3_vec3 eye); /* split screen, per view: the grass and crowd thinned with distance */
 void scenery_floodlights(float strength); /* night: the floodlight ring's spot lights (strength 0: none) */

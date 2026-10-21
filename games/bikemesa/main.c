@@ -31,6 +31,7 @@
 #include "cartwheel/debug.h"
 #include "cartwheel/environment.h"
 #include "cartwheel/pipeline.h"
+#include "cartwheel/decals.h"
 #include "cartwheel/platform.h"
 #include "cartwheel/quality.h"
 #include "cartwheel/quality_menu.h"
@@ -77,7 +78,7 @@ const track_desc *track_get(int i) { return i >= 0 && i < (int)CW_ARRAY_LEN(TRAC
 #define LAND_PERFECT 0.12f
 #define LAND_CLEAN 0.35f
 #define SAVE_MAGIC 0x534D4B42u /* 'BKMS' */
-#define SAVE_VERSION 3
+#define SAVE_VERSION 8
 #define STAR2 3000 /* a run's score for the second star */
 #define STAR3 8000
 
@@ -205,7 +206,7 @@ static void autopilot_filter(cw_raw_input *in, uint64_t frame, void *user) {
 static const char *const SFX_FILES[SFX_COUNT] = {
   "audio/pedal.wav", "audio/land.wav", "audio/crash.wav", "audio/thud.wav", "audio/check.wav", "audio/finish.wav",
   "audio/trick.wav", "audio/select.wav", "audio/locked.wav", "audio/count.wav", "audio/go.wav", "audio/boost.wav",
-  "audio/whoosh.wav", "audio/star.wav", "audio/slowcrash.wav" };
+  "audio/whoosh.wav", "audio/star.wav", "audio/slowcrash.wav", "audio/toy-ball.wav", "audio/toy-block.wav", "audio/toy-chicken.wav" };
 static struct {
   bool on;
   cw_bus music_bus, sfx_bus;
@@ -218,7 +219,7 @@ static struct {
 
 void game_sfx(sfx_id id, float volume) {
   if (!A.on || A.cooldown[id] > 0) return;
-  A.cooldown[id] = 5;
+  A.cooldown[id] = id==SFX_CHICKEN?24:id>=SFX_BALL?8:5;
   cw_audio_play(A.sfx[id], &(cw_play_desc){ .bus = A.sfx_bus, .volume = volume });
 }
 
@@ -296,7 +297,7 @@ static cw_rect pause_rect(int i, float W, float H, float s) { return cw_rect_mak
 static uint32_t save_sum(void) {
   const uint8_t *b = (const uint8_t *)&SAVE.tr;
   uint32_t h = 2166136261u;
-  for (size_t i = 0; i < sizeof SAVE.tr; i++) h = (h ^ b[i]) * 16777619u;
+  for (size_t i = 0; i < (SAVE.version == 3 ? sizeof SAVE.tr : sizeof SAVE.tr + sizeof SAVE.quality); i++) h = (h ^ b[i]) * 16777619u;
   return h ^ (SAVE.version | (uint32_t)SAVE.size << 16);
 }
 static void save_reset(void) {
@@ -307,21 +308,38 @@ static void save_reset(void) {
   SAVE.tr[0].shown = 1;
   SAVE.checksum = save_sum();
 }
-/* the player's graphics settings (cartwheel/quality.h, cw_quality_saved) ride
- * in the last track record's best_ticks, a slot no track uses, under the
- * checksum; saves from before kept a preset in its stars byte */
-#define QUALITY_SAVE SAVE.tr[BIKEMESA_TRACKS_MAX - 1].best_ticks
-#define QUALITY_SAVE_OLD SAVE.tr[BIKEMESA_TRACKS_MAX - 1].stars
+/* Graphics settings have their own field; version 3 used the unused last track. */
+#define QUALITY_SAVE SAVE.quality
 static void save_write(void) {
   uint32_t q = cw_quality_saved();
   if (q) {
     QUALITY_SAVE = (int32_t)q;
-    QUALITY_SAVE_OLD = 0;
   }
   SAVE.checksum = save_sum();
   cw_save_commit();
 }
 static void save_check(void) {
+  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 3 && SAVE.size == sizeof SAVE - sizeof SAVE.quality && SAVE.checksum == save_sum()) {
+    SAVE.quality = SAVE.tr[15].best_ticks ? (uint32_t)SAVE.tr[15].best_ticks : SAVE.tr[15].stars;
+    memset(&SAVE.tr[13], 0, 3 * sizeof SAVE.tr[0]);
+    SAVE.version = 4;
+    SAVE.size = (uint16_t)sizeof SAVE;
+    SAVE.checksum = save_sum();
+  }
+  /* Neon Rooftops now finishes at 873 m instead of 289/385/729 m. Retain unlocks,
+   * trick achievements and other tracks; the old time/medal is incomparable. */
+  if (SAVE.magic == SAVE_MAGIC && (SAVE.version == 4 || SAVE.version == 5 || SAVE.version == 6) && SAVE.size == sizeof SAVE && SAVE.checksum == save_sum()) {
+    SAVE.tr[2].best_ticks = 0;
+    SAVE.tr[2].medal = 0;
+    SAVE.tr[13].best_ticks = 0; SAVE.tr[13].medal = 0;
+    SAVE.version = SAVE_VERSION;
+    SAVE.checksum = save_sum();
+  }
+  /* Giant circus loop changes only track 14's time/medal comparison. */
+  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 7 && SAVE.size == sizeof SAVE && SAVE.checksum == save_sum()) {
+    SAVE.tr[13].best_ticks = 0; SAVE.tr[13].medal = 0;
+    SAVE.version = SAVE_VERSION; SAVE.checksum = save_sum();
+  }
   if (SAVE.magic != SAVE_MAGIC || SAVE.version != SAVE_VERSION || SAVE.size != sizeof SAVE || SAVE.checksum != save_sum()) {
     if (SAVE.magic) cw_warn("bikemesa: save data rejected (magic %08x version %u), starting fresh", SAVE.magic, SAVE.version);
     save_reset();
@@ -744,6 +762,17 @@ static void cmd_track(int argc, const char **argv, cw_reply *r) {
   pending_track = n - 1;
   cw_reply_printf(r, "{\"track\":%d}", n);
 }
+/* Repeatable inspection aid; no scoring special case in normal gameplay. */
+static void cmd_chocolate(int argc,const char **argv,cw_reply *r) {
+  if(argc>1&&(!strcmp(argv[1],"crash")||!strcmp(argv[1],"ride"))&&!strcmp(G.t->theme,"candy")) {
+    float x=G.t->finish_x*((argc>2&&atoi(argv[2])==2)?.73f:.34f);
+    bike_spawn(x,track_height_at(x,NULL),0);
+    if(!strcmp(argv[1],"crash"))bike_finish_tumble();
+    P->cam_snap=true;
+  }
+  cw_decal_stats st;cw_decals_get_stats(cw_scene_app_tree(),&st);
+  cw_reply_printf(r,"{\"decals\":%d,\"mesh_decals\":%d,\"triangles\":%d,\"pieces\":%d}",st.decals,st.mesh_decals,st.mesh_triangles,st.mesh_pieces);
+}
 /* players n: riders in the next race (a test's way in to 3 and 4; riders without a pad idle) */
 static void cmd_players(int argc, const char **argv, cw_reply *r) {
   if (argc > 1) {
@@ -772,6 +801,17 @@ static void camera_tick(void) {
   t3_vec3 down_at;
   if (bike_crash_focus(&down_at, NULL)) at.z = down_at.z;
   float dist = 7.2f + cw_clampf(speed * 0.22f, 0, 4.5f) + (air ? cw_clampf(b->air_ticks * 0.025f, 0, 3.0f) : 0);
+  /* Frame giant stunts early enough to read the entry, crest and exit.
+   * The existing camera easing keeps the pullback continuous. */
+  if (G.t && b->alive) for (int l = 0; l < G.t->loop_count; l++) {
+    float cx = G.t->loops[l*3], r = G.t->loops[l*3+2];
+    if (r < 10) continue;
+    float near = 1-cw_smoothstep(r+4, r+22, fabsf(b->x-cx));
+    if (near <= 0) continue;
+    at.x += (cx-at.x)*near*.8f;
+    at.y += (G.t->loops[l*3+1]+r-at.y)*near*.8f;
+    dist += (fmaxf(dist, r*3.2f)-dist)*near;
+  }
   if (getenv("BIKEMESA_CAM_CLOSE")) { /* dev aid: a close look at the bike */
     dist = 2.6f;
     at = (t3_vec3){ b->x + 0.1f, b->y + 0.95f, 0 };
@@ -785,6 +825,9 @@ static void camera_tick(void) {
     dist = 4.2f;
   }
   if (G.state == GS_FINISH) dist = 8;
+  if(P->finished&&!strcmp(G.t->theme,"toybox")) {
+    at=(t3_vec3){G.t->finish_x+9,G.t->finish_y+1.3f,0};dist=11;
+  }
   P->cam_prev_at = P->cam_at;
   P->cam_prev_dist = P->cam_dist;
   if (P->cam_snap) {
@@ -822,7 +865,12 @@ static void camera_frame(double alpha) {
   t3_vec3 at = { P->cam_prev_at.x + (P->cam_at.x - P->cam_prev_at.x) * a, P->cam_prev_at.y + (P->cam_at.y - P->cam_prev_at.y) * a,
                  P->cam_prev_at.z + (P->cam_at.z - P->cam_prev_at.z) * a };
   float d = P->cam_prev_dist + (P->cam_dist - P->cam_prev_dist) * a;
-  t3_vec3 eye = { at.x - d * 0.16f, at.y + d * 0.36f, at.z + d }; /* tilted down a little: the four lanes read */
+  /* A shallower city view keeps two-story facades and rooftop signs visible.
+   * Retain the steeper lane view in split-screen where rider separation matters. */
+  bool city_view = NRID == 1 && G.t && !strcmp(G.t->theme, "neon");
+  if (city_view) { d += 1.2f; at.y += .5f; }
+  if (NRID == 1 && G.t && !strcmp(G.t->theme,"candy")) { d += 3; at.y += .7f; }
+  t3_vec3 eye = { at.x - d * 0.16f, at.y + d * (city_view ? .18f : .36f), at.z + d };
   if (getenv("BIKEMESA_CAM_34")) eye = (t3_vec3){ at.x - d * 0.75f, at.y + d * 0.5f, d * 0.7f }; /* dev aid: a three-quarter view from ahead */
   if (getenv("BIKEMESA_CAM_TOP")) eye = (t3_vec3){ at.x, at.y + 16, 0.5f }; /* dev aid: from above */
   if (getenv("BIKEMESA_CAM_WIDE")) { /* dev aid: pulled back and level, the distant land in view */
@@ -912,6 +960,7 @@ static void frame_hook(cw_tree *t, double alpha, void *u) {
     models_sync(&p);
     view_frame((float)alpha);
     replay_camera(G.camera, &p, replay_u(P, alpha));
+    view_stream(&G.camera,1);
     view_grass(&G.camera, 1);
     return;
   }
@@ -931,6 +980,7 @@ static void frame_hook(cw_tree *t, double alpha, void *u) {
     }
     use_rider(0);
     view_frame((float)alpha);
+    view_stream(cams,NRID);
     view_grass(cams, NRID > 2 ? 0 : NRID); /* a quarter of the screen: no grass (its blades are a pixel wide there; three draws a view) */
     return;
   }
@@ -939,6 +989,7 @@ static void frame_hook(cw_tree *t, double alpha, void *u) {
   if (G.state == GS_CHARACTER) models_turntable(0, -1.45f + G.state_ticks * 0.014f, p.frame.p.x + 0.05f);
   view_frame((float)alpha);
   camera_frame(alpha);
+  view_stream(&G.camera,1);
   view_grass(&G.camera, 1);
 }
 
@@ -1053,8 +1104,17 @@ static void init(void *u) {
   ground_setting = cw_quality_lever_add("Distant ground", GROUND_DETAIL, 2, (const uint8_t[CW_QUALITY_COUNT]){ 0, 0, 1, 1 });
   cw_quality_on_change(quality_changed, NULL);
   /* the player's graphics settings, if they chose any; else Auto */
-  cw_quality_restore(QUALITY_SAVE ? (uint32_t)QUALITY_SAVE : QUALITY_SAVE_OLD);
+  cw_quality_restore(QUALITY_SAVE);
   cw_quality_auto(true, 0);
+  /* Native benchmark runs must not inherit a save or adapt mid-measurement. */
+  const char *bench_quality = getenv("BIKEMESA_BENCH_QUALITY");
+  if (bench_quality) {
+    int q = atoi(bench_quality);
+    if (q >= 0 && q < CW_QUALITY_COUNT) {
+      cw_quality_set((cw_quality)q, false);
+      cw_quality_auto(false, 0);
+    }
+  }
   quality_changed(cw_quality_get(), NULL);
 #ifdef BIKEMESA_PRESET
   save_preset(BIKEMESA_PRESET);
@@ -1090,6 +1150,13 @@ static void init(void *u) {
   font_ui_bold = cw_font_load("fonts/Fredoka-Bold.ttf", &fd);
   font_title = cw_font_load("fonts/Bungee-Regular.ttf", &fd);
   font_num = cw_font_load("fonts/LilitaOne-Regular.ttf", &fd);
+  /* SDF glyphs bake on first use. Populate the small English UI repertoire
+   * during loading: finish/results must not bake a dozen letters mid-frame.
+   * One bake serves all text sizes (including split-screen HUDs). */
+  const cw_font ui_fonts[] = {font_ui, font_ui_bold, font_title, font_num};
+  for (unsigned f = 0; f < sizeof ui_fonts / sizeof ui_fonts[0]; f++)
+    cw_font_preload_range(ui_fonts[f], 32, 126);
+
 
   cw_debug_i32("game.state", &G.state);
   cw_debug_i32("game.track", &G.track);
@@ -1144,6 +1211,7 @@ static void init(void *u) {
   cw_debug_i32("sweep.cases", &dbg_sweep_cases);
   cw_debug_i32("sweep.fails", &dbg_sweep_fails);
   cw_debug_field("sweep.fail", dbg_sweep_fail, CW_DBG_I32, 5);
+  cw_debug_command("chocolate", "chocolate [crash|ride [1|2]]: inspect decals or exercise either river",cmd_chocolate);
   cw_debug_command("players", "players <1..4>: riders in the next race (split screen)", cmd_players);
   cw_debug_command("progress", "progress [show | preset <n>]: the save data", cmd_progress);
   cw_tree_add_hook(cw_scene_app_tree(), 2, 0, frame_hook, NULL);
@@ -1263,11 +1331,12 @@ static bool ride_pre(const bike_input *inp) {
   }
   for (int i = 0; i < G.t->boost_count; i++)
     if (before->x >= G.t->boosts[i * 2] && before->x <= G.t->boosts[i * 2 + 1] && before->alive) {
-      /* a strip on a loop's run-in only boosts pedalling: the loop wants a
+      /* A loop's approach and powered footprint only boost pedalling: it wants a
        * committed run-up (coasting or braking into it drops off the top) */
       bool run_in = false;
       for (int l = 0; l < G.t->loop_count; l++)
-        if (G.t->loops[l * 3] > G.t->boosts[i * 2 + 1] && G.t->loops[l * 3] - G.t->boosts[i * 2 + 1] < LOOP_RUN_IN) run_in = true;
+        if (G.t->loops[l * 3] - G.t->boosts[i * 2 + 1] < LOOP_RUN_IN &&
+            G.t->loops[l * 3] + G.t->loops[l * 3 + 2] >= G.t->boosts[i * 2]) run_in = true;
       if (!run_in || in.pedal > 0.05f) boosting = true;
     }
   if (boosting && P->boost_ticks == 0) game_sfx(SFX_BOOST, 0.8f);
@@ -1282,7 +1351,7 @@ static void ride_post(void) {
     P->lane_from = P->lane_to = bike_lane();
     P->lane_t = 0;
   }
-  if (bike_crashed_this_tick()) {
+  if (bike_crashed_this_tick() && !P->finished) {
     P->crashes += !G.attract;
     if (bike_bailed_this_tick() && !G.attract) P->bails++;
     if (P->pending > 0 && !G.attract) popup_add("LOST", 0);
@@ -1295,6 +1364,7 @@ static void ride_post(void) {
     if (NRID > 1) P->down_ticks = CRASH_TICKS; /* split screen: the tumble, then the replay in the rider's own view */
     else if (G.state == GS_RIDE) enter(GS_CRASH);
   }
+  if(P->finished)return; /* finish celebrations cannot change saved scores */
   float rot;
   int air;
   if (bike_landed_this_tick(&rot, &air)) {
@@ -1515,6 +1585,10 @@ static void mp_tick(void) {
     use_rider(i);
     const bike_state *b = bike_get();
     if (G.state == GS_COUNT) in[i] = (bike_input){ .hold = true };
+    else if(P->finished&&!strcmp(G.t->theme,"toybox")) {
+      in[i]=(bike_input){.pedal=b->alive?1:0};
+      if(b->alive&&b->x>G.t->finish_x+1)bike_finish_tumble();
+    }
     else if (P->finished || G.state != GS_RIDE) in[i] = (bike_input){ .brake = 1, .hold = b->speed < 0.6f };
     else if (!b->alive) in[i] = (bike_input){ 0 };
     else {
@@ -1842,9 +1916,14 @@ static void fixed(void *u, double dt) {
   }
   case GS_FINISH: {
     bike_input coast = { .brake = 1, .hold = bike_get()->speed < 0.6f }; /* stopped: feet down, no rolling back */
+    bool pit=!strcmp(G.t->theme,"toybox");
+    if(pit) {
+      coast=(bike_input){.pedal=bike_get()->alive?1:0};
+      if(bike_get()->alive&&bike_get()->x>G.t->finish_x+1)bike_finish_tumble();
+    }
     if (NRID > 1) mp_tick();
     else ride_tick(coast);
-    if (G.state_ticks > 60) {
+    if (G.state_ticks > (pit?420:60)) {
       float W = cs.x, H = cs.y, s = H / 540.0f;
       bool next_hit = mouse_clicked && in_rect(m, cw_rect_make(W * 0.5f + 10 * s, H * 0.72f, 170 * s, 50 * s));
       bool retry_hit = mouse_clicked && in_rect(m, cw_rect_make(W * 0.5f - 180 * s, H * 0.72f, 170 * s, 50 * s));
@@ -2118,7 +2197,12 @@ static void draw_select(float W, float H, float s) {
     cw_rect r = tile_rect(i, W, H);
     if (i == G.bump_tile && G.bump_ticks > 0) r.x += 6 * s * cw_sin(G.bump_ticks * 1.6f) * G.bump_ticks / 24.0f;
     bool open = track_open(i), on = i == G.select_cursor;
-    if (on) round_rect(cw_rect_make(r.x - 6 * s, r.y - 6 * s, r.w + 12 * s, r.h + 12 * s), 18 * s, rgba(1, 0.75f, 0.3f, 0.5f + 0.3f * cw_sin(G.ticks * 0.12f)));
+    if (on) {
+      /* Constant bright core: the pulse never makes keyboard focus disappear. */
+      round_rect(cw_rect_make(r.x-12*s,r.y-12*s,r.w+24*s,r.h+24*s),23*s,rgba(1,.65f,.08f,.28f+.08f*cw_sin(G.ticks*.06f)));
+      round_rect(cw_rect_make(r.x-8*s,r.y-8*s,r.w+16*s,r.h+16*s),19*s,rgba(1,.85f,.18f,1));
+      round_rect(cw_rect_make(r.x-3*s,r.y-3*s,r.w+6*s,r.h+6*s),14*s,rgba(1,1,.88f,1));
+    }
     panel(r, open ? 1 : 0.6f);
     char b[48];
     snprintf(b, sizeof b, "%d", i + 1);
@@ -2334,8 +2418,18 @@ static void draw_hud(float W, float H, float s, bool shared) {
     text(b, 0, 62 * s, 16 * s, rgba(1, 0.9f, 0.75f, 0.9f), CW_ALIGN_CENTER, W);
   }
   /* left: checkpoints, crashes; right: score */
+  bool checkpoint_notice=P->banner_ticks>0&&!strcmp(P->banner,"CHECKPOINT");
+  float notice_alpha=checkpoint_notice?fminf(1,P->banner_ticks/15.f):0;
+  float checkpoint_x=(last_device==DEV_TOUCH?112:18)*s;
   snprintf(b, sizeof b, "CHECKPOINT %d/%d", P->checkpoint, G.t ? G.t->check_count : 0);
-  text(b, (last_device == DEV_TOUCH ? 112 : 18) * s, 16 * s, 17 * s, rgba(1, 0.85f, 0.4f, 1), CW_ALIGN_LEFT, 0);
+  /* Confirm progress where its counter already lives, leaving the riding view
+   * clear. Keep the same duration and each rider's own notification state. */
+  if(checkpoint_notice) {
+    float width=cw_font_measure(17*s<20?font_ui_bold:font_ui,b,&(cw_text_style){.size=17*s}).width;
+    round_rect(cw_rect_make(checkpoint_x-6*s,13*s,width+12*s,25*s),5*s,rgba(.13f,.08f,.025f,.92f*notice_alpha));
+    round_rect(cw_rect_make(checkpoint_x-9*s,14*s,3*s,23*s),1.5f*s,rgba(1,.72f,.2f,notice_alpha));
+  }
+  text(b, checkpoint_x, 16*s, 17*s, rgba(1,.85f+.15f*notice_alpha,.4f+.4f*notice_alpha,1),CW_ALIGN_LEFT,0);
   snprintf(b, sizeof b, "WIPEOUTS %d", P->crashes);
   text(b, (last_device == DEV_TOUCH ? 112 : 18) * s, 40 * s, 17 * s, rgba(1, 0.6f, 0.55f, 1), CW_ALIGN_LEFT, 0);
   snprintf(b, sizeof b, "%d", P->score);
@@ -2397,7 +2491,7 @@ static void draw_hud(float W, float H, float s, bool shared) {
                i ? rgba(1, 1, 1, 1) : rgba(0.02f, 0.2f, 0.06f, 1), fs * 0.06f, CW_ALIGN_CENTER, 300 * s);
     }
   }
-  if (P->banner_ticks > 0) {
+  if (P->banner_ticks > 0 && !checkpoint_notice) {
     float a = P->banner_ticks > 15 ? 1 : P->banner_ticks / 15.0f;
     title_text(P->banner, 0, H * 0.16f, 64 * s, rgba(1, 0.5f, 0.2f, a), CW_ALIGN_CENTER, W);
   }
@@ -2565,7 +2659,7 @@ static void render(void *u, double alpha) {
       use_rider(0);
       if (NRID == 3) draw_shared(cw_rect_make(W * 0.5f, 0, W * 0.5f, H * 0.5f), s);
     } else draw_hud(W, H, s, false);
-    if (G.state == GS_FINISH && NRID > 1) {
+    if (G.state == GS_FINISH && NRID > 1 && (strcmp(G.t->theme,"toybox") || G.state_ticks>=420)) {
       float a = cw_clampf(G.state_ticks / 30.0f, 0, 1);
       draw_results(cw_rect_make(W * 0.5f - 250 * s, H * 0.16f, 500 * s, (110 + NRID * 46) * s), s, a);
       if (G.state_ticks > 60) {
@@ -2573,7 +2667,7 @@ static void render(void *u, double alpha) {
         chip(rl, W * 0.5f, H * 0.16f + (130 + NRID * 46) * s, 20 * s, a);
         text(rl, 0, H * 0.16f + (130 + NRID * 46) * s, 20 * s, rgba(1, 1, 1, a), CW_ALIGN_CENTER, W);
       }
-    } else if (G.state == GS_FINISH) draw_finish(W, H, s);
+    } else if (G.state == GS_FINISH && NRID==1 && (strcmp(G.t->theme,"toybox") || G.state_ticks>=420)) draw_finish(W, H, s);
     if (G.paused) draw_pause(W, H, s);
     cw_quality_menu_draw(&(cw_quality_menu_style){ .font = font_ui, .accent = rgba(1, 0.65f, 0.2f, 1) });
   }

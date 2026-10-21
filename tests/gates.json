@@ -4859,5 +4859,72 @@
       "note": "The autopilot on WebGPU."
     },
     "note": "Chromite: the original's rules on a fixed 60 Hz tick (sim.c on cartwheel/math.h and cw_rng), so every host keeps the same named state; frames compare at 5% over 16 levels (thin bolts and sparks rasterize a pixel apart). chromite_auto flies itself through the first waves of level 1. The control is one frame early."
+  },
+  {
+    "fields": [
+      "game.state",
+      "game.track",
+      "ticks",
+      "ride.ticks",
+      "crashes",
+      "checkpoint",
+      "score",
+      "flips",
+      "tricks",
+      "landings",
+      "air.max",
+      "resets",
+      "medal",
+      "new_best",
+      "finished",
+      "input.mode",
+      "bike.pos",
+      "cam.pos",
+      "state.hash",
+      "tex.hash",
+      "wind.hash",
+      "save.unlocked",
+      "combo.max",
+      "stars",
+      "select.locked_bumps",
+      "replays",
+      "respawn.pos",
+      "high.lines",
+      "hops",
+      "loops",
+      "perfects",
+      "sketchy",
+      "bails",
+      "trick.banked",
+      "star3.trick"
+    ],
+    "maxGt16": 0.05,
+    "webgpu": {
+      "vsGl": 0.25,
+      "maxGt16": 0.05,
+      "hosts": [
+        "native",
+        "romdev",
+        "chromium"
+      ],
+      "note": "WebGPU on every host against the GL reference: the canyon's grass tufts are sub-pixel blades whose edges rasterize a pixel apart across backends."
+    },
+    "note": "Big Top Tumble: 24 m diameter powered loop, over twice Scary Town. Hold pedal to clear and finish without crashing. Release before entry in the control: no completed loop. Boost thrust is speed-limited to keep suspension stable; no scripted rider motion.",
+    "name": "bikemesa-loop-giant",
+    "app": "bikemesa_unlocked",
+    "frames": 2800,
+    "input": "bikemesa-pedal-cmd.json",
+    "controlInput": "bikemesa-loop-giant-coast.json",
+    "expect": {
+      "loops": 1,
+      "crashes": 0,
+      "finished": 1
+    },
+    "startCmds": [
+      "track 14"
+    ],
+    "controlStartCmds": [
+      "track 14"
+    ]
   }
 ]

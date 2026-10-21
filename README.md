@@ -9,7 +9,7 @@ game engine in C. Each game builds as a native executable and as a
 a browser, in Node, in a native player and in RetroArch.
 
 Everything in the games is made by code in this repository (models,
-textures, levels, sound and music) except the fonts, which ship with their
+textures, levels, sound and music) except BikeMesa’s credited venue logos and the fonts, which ship with their
 licences (SIL Open Font License, and MIT for Chromite's Hack). Each game's `CREDITS` file says
 what is what.
 
@@ -21,8 +21,8 @@ what is what.
 ![BikeMesa: riding the Red Rock Run canyon track](docs/screenshots/bikemesa.jpg)
 
 A downhill bike game. A 2D Box2D bicycle and rider ride hand-shaped lines
-through thirteen 3D worlds, from a red rock canyon and a snowy slope to a
-neon rooftop run, a haunted town, the Moon and Mars.
+through sixteen 3D worlds, from a red rock canyon and a snowy slope to a
+neon rooftop run, a haunted town, the Moon and Mars, a big-top circus, a low-gravity candy world and a giant toybox.
 Pedal, hop, lean into flips, hold poses in the air and land clean; get it
 wrong and the rider tumbles through a full 3D crash. Up to four players race
 split screen in four lanes, one pad each: two share the screen top and

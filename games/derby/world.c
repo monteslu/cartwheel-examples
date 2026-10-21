@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "cartwheel/decals.h"
+#include "cartwheel/debug.h"
 #include "cartwheel/math.h"
 #include "cartwheel/quality.h"
 #include "world.h"
@@ -232,6 +233,8 @@ static void build_skids(cw_node root) {
     mb_quad(&b, a, e, d, c);
   }
   W.skid_geo = mb_finish(&b);
+  W.skid_geo->draw_count = 0;
+  cw_debug_i32("world.skid_quads", &W.skid_used);
   W.skid_geo->attributes[T3_ATTR_POSITION]->usage = T3_DYNAMIC_DRAW;
   t3_material *m = phys(lin(0.07f, 0.055f, 0.045f), 0.7f, 0);
   m->transparent = true;
@@ -254,6 +257,9 @@ static void skid_quad(t3_vec3 l0, t3_vec3 r0, t3_vec3 l1, t3_vec3 r1) {
   t3_attribute_add_update_range(W.skid_geo->attributes[T3_ATTR_POSITION], W.skid_next * 4, 4); /* only the quads laid go up */
   W.skid_next = (W.skid_next + 1) % SKIDS;
   if (W.skid_used < SKIDS) W.skid_used++;
+  /* The ring is a contiguous initialized prefix until its first wrap. Once
+   * full every slot remains drawable as marks are replaced in place. */
+  W.skid_geo->draw_count = W.skid_used * 6;
 }
 
 /* each wheel lays a mark where it touches the dirt while it skids (or
@@ -341,7 +347,9 @@ static cw_node body_decal(int i, cw_node d, t3_vec3 at, t3_vec3 rot, t3_vec3 siz
     cw_node_set(d, "color", cw_val_color(1, 1, 1, soot ? 0.9f : 0.95f));
     cw_node_set(d, "normal_fade", cw_val_float(0.45f));
     cw_node_set(d, "edge_fade", cw_val_float(0.2f));
-    cw_node_set(d, "max_triangles", cw_val_int(2048));
+    /* Budgets cover all three retained LOD meshes: broad bonnet soot
+     * and the largest deep-dent scrapes exceed the old 2048-triangle cap. */
+    cw_node_set(d, "max_triangles", cw_val_int(soot ? 8192 : 4096));
   }
   cw_value r = { CW_T_VEC4 };
   r.v[0] = (float)(cell & 1) * 256, r.v[1] = (float)(cell >> 1) * 256, r.v[2] = r.v[3] = 256;
@@ -436,7 +444,23 @@ void world_prebuild_car(int i, int kind, const car_look *look) {
   pre_ok[i] = true;
 }
 
+/* Inspect actual retained decal cost across every car and LOD. */
+static void cmd_body_decals(int argc, const char **argv, cw_reply *r) {
+  (void)argc;(void)argv;
+  int built=0,truncated=0,triangles=0,soot_max=0,scrape_max=0;
+  for(int i=0;i<MAXC;i++)for(int j=0;j<BODY_DECALS+2;j++) {
+    cw_node d=j<BODY_DECALS?W.scrape[i][j]:W.soot[i][j-BODY_DECALS];
+    cw_decal_mesh_info info;
+    if(!cw_node_valid(d)||!cw_decal_get_mesh_info(d,&info)||!info.built)continue;
+    built++;truncated+=info.truncated;triangles+=info.triangles;
+    int *max=j<BODY_DECALS?&scrape_max:&soot_max;
+    if(info.triangles>*max)*max=info.triangles;
+  }
+  cw_reply_printf(r,"{\"built\":%d,\"truncated\":%d,\"triangles_all_lods\":%d,\"soot_max\":%d,\"scrape_max\":%d}",
+                  built,truncated,triangles,soot_max,scrape_max);
+}
 void world_build(cw_node scene, const sim *s, int theme, const car_look looks[MAXC]) {
+  cw_debug_command("body_decals", "body_decals: retained damage decal counts across all car LODs", cmd_body_decals);
   world_reset();
   W.theme = theme;
   for (int i = 0; i < MAXC; i++)

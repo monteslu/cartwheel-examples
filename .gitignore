@@ -4,3 +4,5 @@
 .cwcache/
 *.wasm
 *.wasc
+__pycache__/
+*.pyc

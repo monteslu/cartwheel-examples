@@ -30,3 +30,5 @@ audio/music.ogg
 scenes/arena2.cwscene
 grades/neutral.cube
 decals/scorch.png
+
+decals/body.png

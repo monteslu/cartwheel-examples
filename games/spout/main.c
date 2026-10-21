@@ -253,6 +253,16 @@ static void start_level(int level) {
   G.new_best = 0;
 }
 
+/* Inspection command: defer scene replacement to the fixed tick. Does not
+ * unlock levels or write progression data. */
+static int pending_level=-1;
+static void cmd_level(int argc,const char **argv,cw_reply *r) {
+  int n=argc>1?atoi(argv[1]):0;
+  if(n<1||n>LEVELS_BUILT){cw_reply_error(r,"usage: level <1..5>");return;}
+  pending_level=n-1;
+  cw_reply_printf(r,"{\"level\":%d}",n);
+}
+
 /* ── autopilot (spout_auto): climbs by itself from the sim's own state ── */
 
 #ifdef SPOUT_AUTOPILOT
@@ -306,7 +316,14 @@ static void init(void *u) {
   audio_init();
   font_ui = cw_font_load("fonts/PatrickHand-Regular.ttf", NULL);
   font_title = cw_font_load("fonts/Sniglet-ExtraBold.ttf", NULL);
+  /* Prepare printable English UI glyphs while loading. SDF glyph generation
+   * must not interrupt gameplay when a new score or result first appears. */
+  const cw_font ui_fonts[] = {font_ui, font_title};
+  for (unsigned f = 0; f < sizeof ui_fonts / sizeof ui_fonts[0]; f++)
+    cw_font_preload_range(ui_fonts[f], 32, 126);
+
   G.stopmotion = true;
+  cw_debug_command("level", "level <1..5>: inspect a playable level without changing unlocks",cmd_level);
   cw_debug_i32("game.state", &G.state);
   cw_debug_i32("game.level", &G.level);
   cw_debug_i32("ticks", &G.ticks);
@@ -373,6 +390,7 @@ static void play_events(void) {
 static void fixed(void *u, double dt) {
   (void)u;
   (void)dt;
+  if(pending_level>=0){int level=pending_level;pending_level=-1;start_level(level);}
   G.ticks++;
   G.state_ticks++;
   read_devices();
@@ -583,6 +601,7 @@ static void draw_forecast(float W, float s) {
   cw_rect r = cw_rect_make(W - 190 * s, 14 * s, 176 * s, 74 * s);
   torn(r, rgba(1, 0.98f, 0.92f, 0.95f), 3);
   cw_vec2 c = cw_v2(r.x + 40 * s, r.y + 37 * s);
+  bool snow = L->theme == THEME_WINTER, night = L->theme == THEME_CITY;
   bool rain_now = S->weather == WX_RAIN || S->weather == WX_WARN;
   if (!rain_now && S->L->theme == THEME_CITY) { /* a crescent moon */
     cw_r2d_circle(c, 16 * s, 24, rgba(0.95f, 0.92f, 0.7f, 1));
@@ -597,13 +616,20 @@ static void draw_forecast(float W, float s) {
   } else {
     cw_r2d_circle(cw_v2(c.x - 9 * s, c.y), 12 * s, 20, rgba(0.55f, 0.6f, 0.7f, 1));
     cw_r2d_circle(cw_v2(c.x + 6 * s, c.y - 5 * s), 15 * s, 20, rgba(0.6f, 0.65f, 0.75f, 1));
-    for (int i = 0; i < 3; i++) cw_r2d_line(cw_v2(c.x - 10 * s + i * 9 * s, c.y + 14 * s), cw_v2(c.x - 13 * s + i * 9 * s, c.y + 24 * s), 2.5f * s, rgba(0.3f, 0.5f, 0.9f, 1));
+    for (int i = 0; i < 3; i++) {
+      if (snow) {
+        cw_vec2 flake=cw_v2(c.x-12*s+i*12*s,c.y+21*s);
+        for(int arm=0;arm<3;arm++) {
+          float a=arm*1.047198f,dx=4*s*cw_cos(a),dy=4*s*cw_sin(a);
+          cw_r2d_line(cw_v2(flake.x-dx,flake.y-dy),cw_v2(flake.x+dx,flake.y+dy),1.5f*s,rgba(.3f,.5f,.7f,1));
+        }
+      } else cw_r2d_line(cw_v2(c.x - 10 * s + i * 9 * s, c.y + 14 * s), cw_v2(c.x - 13 * s + i * 9 * s, c.y + 24 * s), 2.5f * s, rgba(0.3f, 0.5f, 0.9f, 1));
+    }
   }
   char b[48];
-  bool snow = S->L->theme == THEME_WINTER, night = S->L->theme == THEME_CITY;
   const char *now = S->weather == WX_SUN ? (night ? "clear night" : "sunny") : S->weather == WX_WARN ? (snow ? "snow soon!" : "rain soon!") : S->weather == WX_RAIN ? (snow ? "snowing" : "raining") : "clearing";
   text(now, r.x + 72 * s, r.y + 8 * s, 22 * s, S->weather == WX_WARN ? rgba(0.75f, 0.2f, 0.1f, 1) : rgba(0.2f, 0.15f, 0.1f, 1), CW_ALIGN_LEFT, 0);
-  snprintf(b, sizeof b, "%s in %d", next == WX_RAIN ? "rain" : "sun", (left + 59) / 60);
+  snprintf(b, sizeof b, "%s in %d", next == WX_RAIN ? (snow ? "snow" : "rain") : (night ? "clear" : "sun"), (left + 59) / 60);
   text(b, r.x + 72 * s, r.y + 36 * s, 19 * s, rgba(0.35f, 0.3f, 0.25f, 1), CW_ALIGN_LEFT, 0);
 }
 

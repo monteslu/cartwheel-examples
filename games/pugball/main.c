@@ -561,6 +561,10 @@ static void load_scene(int index) {
   cw_node_add_child(cw_tree_root(t), G.scene);
   G.info = cw_node_data(G.scene, "Stadium");
   G.camera = find_type(G.scene, "Camera3D");
+  /* The replacement camera starts with tick interpolation enabled. Re-enter
+   * chase mode so render-time poses are not overwritten by that snapshot. */
+  G.chase_on = false;
+  memset(G.cf_live, 0, sizeof G.cf_live);
   for (int k = 0; k < 4; k++) G.cams[k] = (cw_node){ 0 };
   if (G.nviews) {
     cw_pipeline_set_views(cw_pipeline_of(cw_scene_app_tree()), NULL, 0);
@@ -906,6 +910,12 @@ static void init(void *u) {
   font_ui_bold = cw_font_load("fonts/Fredoka-Bold.ttf", &fd);
   font_title = cw_font_load("fonts/LilitaOne-Regular.ttf", &fd);
   font_score = cw_font_load("fonts/Bungee-Regular.ttf", &fd);
+  /* Prepare printable English UI glyphs while loading. SDF glyph generation
+   * must not interrupt gameplay when a new score or result first appears. */
+  const cw_font ui_fonts[] = {font_ui, font_ui_bold, font_title, font_score};
+  for (unsigned f = 0; f < sizeof ui_fonts / sizeof ui_fonts[0]; f++)
+    cw_font_preload_range(ui_fonts[f], 32, 126);
+
   for (int i = 0; i < MAXP; i++) {
     G.slot[i] = SAVE.slot[i];
     G.look[i] = (pug_look){ SAVE.coat[i], SAVE.hat[i], 0, SAVE.trail[i] };
@@ -1336,6 +1346,7 @@ static cw_node extra_camera(int k) {
   cw_node_set(c, "fov", cw_val_float(62));
   cw_node_set(c, "near", cw_val_float(0.2f));
   cw_node_set(c, "far", cw_val_float(600));
+  cw_node_set(c, "interpolate", cw_val_bool(false));
   G.cams[k] = c;
   return c;
 }
@@ -1351,6 +1362,14 @@ static const float VIEW_RECT[5][4][4] = {
 };
 static void cam_frame(cw_tree *t, double alpha, void *user) {
   (void)user;
+  if (cw_node_valid(G.camera) && !G.nviews) {
+    t3_camera *cam = (t3_camera *)cw_node3d_object(G.camera);
+    const t3_mat4 *m = cw_node3d_global_transform(G.camera);
+    int h = 0;
+    cw_render_size(NULL, &h);
+    scenery_crowd_detail((t3_vec3){m->e[12],m->e[13],m->e[14]},
+                         .5f*h*fabsf(cam->projection_matrix.e[5]));
+  }
   if (!G.chase_on || !cw_node_valid(G.camera)) return;
   double now = cw_time();
   float dt = (float)cw_clampf((float)(now - G.cf_last), 0, 0.1f);

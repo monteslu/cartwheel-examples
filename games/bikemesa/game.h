@@ -39,7 +39,7 @@ typedef enum {
 
 typedef enum {
   SFX_PEDAL, SFX_LAND, SFX_CRASH, SFX_THUD, SFX_CHECK, SFX_FINISH, SFX_TRICK, SFX_SELECT, SFX_LOCKED, SFX_COUNTDOWN,
-  SFX_GO, SFX_BOOST, SFX_WHOOSH, SFX_STAR, SFX_SLOWCRASH, SFX_COUNT
+  SFX_GO, SFX_BOOST, SFX_WHOOSH, SFX_STAR, SFX_SLOWCRASH, SFX_BALL, SFX_BLOCK, SFX_CHICKEN, SFX_COUNT
 } sfx_id;
 
 /* tracks.inc (tools/make-tracks.mjs) */
@@ -109,6 +109,7 @@ typedef struct save_data {
   uint16_t version, size;
   uint32_t checksum;
   save_track tr[BIKEMESA_TRACKS_MAX];
+  uint32_t quality; /* independent of track scores: all sixteen slots are playable */
 } save_data;
 
 /* bike.c: the bicycle and its rider in a Box2D world (a crash: in crash.c's Box3D world) */
@@ -165,6 +166,7 @@ float bike_loop_shift(void); /* 0..1: how far across the selected rider is in a 
 void bike_spawn(float x, float y, float v0); /* v0: a rolling start (m/s) */
 void bike_step(const bike_input *in, bool boosting);
 const bike_state *bike_get(void);
+bool bike_rider_near(float x,float radius);
 bool bike_crashed_this_tick(void);
 bool bike_bailed_this_tick(void);                       /* the crash was landing in a pose */
 void bike_landing_more(float *err, int pose_ticks[4]);  /* the last landing: frame vs slope, ticks in each pose */
@@ -214,7 +216,7 @@ t3_geometry *geo_merge(const t3_geometry *const *gs, const t3_mat4 *const *mats,
 void crash_world_build(const track_desc *t);
 void crash_world_destroy(void);
 cw_world3d crash_world(void);
-enum { L3_SCENE, L3_RIDER, L3_BIKE, L3_HAND }; /* the crash world's layers */
+enum { L3_SCENE, L3_RIDER, L3_BIKE, L3_HAND, L3_TOY }; /* the crash world's layers */
 
 /* view.c: the track ribbon and the scenery around it, per theme */
 void view_build(cw_node parent, const track_desc *t, int track_index);
@@ -224,6 +226,7 @@ void view_density(float k); /* share of the grass tufts drawn, 0..1 (cw_quality_
 void view_ground_detail(bool full); /* distant ground with every map (true) or its colour map alone */
 void view_fx(int views); /* volumetric fog for this many views (0: as before) and the graphics settings */
 void view_frame(float alpha); /* moving scenery (the bridge planks) at the frame's alpha */
+void view_stream(const cw_node *cameras, int n);
 void view_grass(const cw_node *cameras, int n); /* the grass the cameras see, posed once for the frame (after they are placed); none: no grass */
 void fx_dust(float x, float y, float amount);
 void fx_burst(float x, float y, int kind);
@@ -252,3 +255,27 @@ extern uint32_t tex_hash;
 void game_sfx(sfx_id id, float volume);
 
 #endif
+
+/* Lightweight Toybox clutter, sharing the crash world's deterministic solver. */
+#define LOOSE_SCATTER 180
+#define TOY_PIT_START (LOOSE_SCATTER+84)
+#define TOY_PIT_BALLS 432
+#define LOOSE_TOYS (TOY_PIT_START+TOY_PIT_BALLS)
+int crash_toys_count(void);
+cw_xform3 crash_toy_pose(int i, float alpha);
+void crash_toy_wheels(int rider, cw_xform2 rear, cw_xform2 front, float z, bool alive);
+uint32_t crash_toys_hash(uint32_t h);
+float chocolate_amount(const track_desc *t, float x);
+
+void view_chocolate_tick(int rider,float x,float y,float z,bool grounded,bool crashed);
+void models_chocolate(int rider);
+void models_chocolate_hit(int rider,t3_vec3 point,t3_vec3 normal);
+
+int crash_toy_kind(int i);
+float crash_toy_size(int i);
+void crash_toy_sounds(const cw_phys_event3d *ev,int n);
+
+void bike_finish_tumble(void);
+
+int bike_rider_for_body(cw_body3d body);
+int bike_chocolate_raycast(t3_vec3 origin, t3_vec3 delta, cw_ray_hit3d *hit);

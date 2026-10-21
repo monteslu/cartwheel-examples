@@ -1,0 +1,64 @@
+[
+  {
+    "name": "curiosity",
+    "url": "https://assets.science.nasa.gov/content/dam/science/psd/solar/2023/09/c/Curiosity_static.glb",
+    "bytes": 11860016,
+    "sha256": "69b31066d3d00f2d7ae09239c26b2be44e4d3a717fe7fc94df01568a1bda2c94",
+    "mesh_primitives": 9,
+    "triangles": 51305,
+    "materials": 9,
+    "images": 9,
+    "extensions": [],
+    "status": "optimized and integrated; parked static model in Red Planet",
+    "runtime": {
+      "path": "assets/models/curiosity.glb",
+      "bytes": 2103116,
+      "sha256": "8f2a9a89cf03e9c98afafe6f4db06db0a3a7f01211739c592437a5d0bf45bcb5",
+      "mesh_primitives": 9,
+      "triangles": 25321,
+      "instances": 1
+    }
+  },
+  {
+    "name": "spirit-opportunity",
+    "url": "https://assets.science.nasa.gov/content/dam/science/psd/mars/resources/gltf_files/24883_MER_static.glb",
+    "bytes": 11910084,
+    "sha256": "efad9c6275d832d86e7232d63520e48628797d9a7f7c7ff870b28d175ac8b250",
+    "mesh_primitives": 9,
+    "triangles": 31450,
+    "materials": 9,
+    "images": 12,
+    "extensions": [],
+    "status": "optimized and integrated; parked static model in Red Planet",
+    "runtime": {
+      "path": "assets/models/mer.glb",
+      "bytes": 2217968,
+      "sha256": "7e720a595a9d428f2058464cafc78511ce2344982aea1693bf460b5477bc5cb6",
+      "mesh_primitives": 9,
+      "triangles": 19580,
+      "instances": 2
+    }
+  },
+  {
+    "name": "perseverance",
+    "url": "https://assets.science.nasa.gov/content/dam/science/cds/3d/resources/model/mars-2020-perseverance-rover/Mars%202020%20Perseverance%20Rover.glb",
+    "bytes": 4987176,
+    "sha256": "10db7c03a5e63a5a3b3e7baa6243aa4918ba045fa8ff0a731d0217491adc727f",
+    "mesh_primitives": 252,
+    "triangles": 199521,
+    "materials": 47,
+    "images": 44,
+    "extensions": [
+      "KHR_draco_mesh_compression"
+    ],
+    "status": "optimized and integrated; parked static model in Red Planet",
+    "runtime": {
+      "path": "assets/models/perseverance.glb",
+      "bytes": 2474212,
+      "sha256": "e0205fa5a2df9ee8df9a17b01fb979025bd8f2602fa580363d2a9b2c6a1954d4",
+      "mesh_primitives": 28,
+      "triangles": 31177,
+      "instances": 1
+    }
+  }
+]

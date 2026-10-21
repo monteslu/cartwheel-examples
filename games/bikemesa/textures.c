@@ -181,7 +181,9 @@ static void g_asphalt(float u, float v, texel *t) {
   float n = fbm(u, v, 16, 4, 61), agg = h01((int)(u * N), (int)(v * N), 62), patch = fbm(u, v, 2, 3, 63);
   float k = 0.22f + 0.1f * n + 0.08f * (agg > 0.8f) + 0.06f * patch;
   rgb(t, k, k * 1.01f, k * 1.04f);
-  t->h = 0.3f * n + 0.5f * (agg > 0.8f);
+  /* Fine aggregate sits in the binder; large binary height steps made
+   * streetlights sparkle as if the road were loose, polished gravel. */
+  t->h = 0.08f * n + 0.045f * (agg > 0.8f);
   t->rough = 0.75f + 0.15f * n;
   t->ao = 0.8f + 0.2f * n;
 }

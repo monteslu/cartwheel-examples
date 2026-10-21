@@ -41,6 +41,8 @@ static struct {
   struct crowd_chunk {
     t3_instanced_mesh *im[4];   /* body, head, arms, and the scarves (only the fans holding one) */
     int first, n, nscarf;       /* fans [first, first + n); scarf holders among them */
+    int lod;
+    t3_vec3 lo, hi;
     int shown, shown_scarf;     /* drawn at the current quality */
     t3_vec3 c;                  /* where the section's meshes sit (instances are relative to it) */
   } ch[CROWD_CHUNKS];
@@ -653,6 +655,8 @@ static void build_stands(int theme) {
     }
     C->n = kk - C->first;
     if (!C->n) continue;
+    C->lo = (t3_vec3){lo[0]-1,lo[1]-1,lo[2]-1};
+    C->hi = (t3_vec3){hi[0]+1,hi[1]+2,hi[2]+1};
     C->c = (t3_vec3){ (lo[0] + hi[0]) * 0.5f, (lo[1] + hi[1]) * 0.5f, (lo[2] + hi[2]) * 0.5f };
     float rad = 0;
     for (int f = C->first; f < kk; f++) {
@@ -672,6 +676,10 @@ static void build_stands(int theme) {
       C->im[q]->mesh.base.frustum_culled = true;
       hang(&C->im[q]->mesh.base);
     }
+    /* Body and head have exactly the same animated transform. Share its
+     * attribute so each section stores and uploads that matrix stream once. */
+    t3_release(C->im[1]->instance_matrix);
+    C->im[1]->instance_matrix = t3_retain(C->im[0]->instance_matrix);
     /* colours, in the sorted order */
     int sc_i = 0;
     for (int f = 0, j = 0; f < nf; f++) {
@@ -700,9 +708,9 @@ static void crowd_range(int begin, int end, int worker, void *ctx) {
   for (int c = begin; c < end; c++) {
     struct crowd_chunk *C = &SC.ch[c];
     if (!C->shown) continue;
-    float *eb = (float *)C->im[0]->instance_matrix->array, *eh = (float *)C->im[1]->instance_matrix->array;
+    float *eb = (float *)C->im[0]->instance_matrix->array;
     float *ea = (float *)C->im[2]->instance_matrix->array, *es = (float *)C->im[3]->instance_matrix->array;
-    for (int i = C->first; i < C->first + C->shown; i++, eb += 16, eh += 16, ea += 16) {
+    for (int i = C->first; i < C->first + C->shown; i++, eb += 16, ea += 16) {
       float ph = SC.fan_phase[i];
       int kind = SC.fan_kind[i];
       float joy = SC.cheer_team < 0 ? ex * 0.5f : SC.fan_team[i] == SC.cheer_team ? ex : -ex * 0.6f;
@@ -714,7 +722,6 @@ static void crowd_range(int begin, int end, int worker, void *ctx) {
       float x = SC.fan_x[i] - C->c.x, y = SC.fan_y[i] + bob - C->c.y, z = SC.fan_z[i] - C->c.z;
       float m[16] = { co, 0, -s, 0, 0, 1, 0, 0, s, 0, co, 0, x, y, z, 1 };
       memcpy(eb, m, sizeof m);
-      memcpy(eh, m, sizeof m);
       /* the arms swing forward and up from the shoulders: 0 hanging, pi overhead */
       float a;
       if (kind == 2) a = 2.55f + 0.25f * cw_sin(t * (1.6f + joy * 6) + ph);
@@ -728,7 +735,8 @@ static void crowd_range(int begin, int end, int worker, void *ctx) {
       memcpy(ea, ma, sizeof ma);
       if (kind == 2) memcpy(es, ma, sizeof ma), es += 16;
     }
-    for (int q = 0; q < 4; q++) C->im[q]->instance_matrix->version++;
+    for (int q = 0; q < 4; q++)
+      if (q != 1) C->im[q]->instance_matrix->version++; /* head shares body */
   }
 }
 static void crowd_tick(int ticks, int cheer) {
@@ -1231,19 +1239,38 @@ void scenery_view_detail(t3_vec3 eye) {
   }
 }
 
-/* the crowd's fans as built (light false) or the light ones */
+/* Geometry switches retain the same instances, animation and crowd density. */
+static void crowd_lod(int c, int l) {
+  struct crowd_chunk *C = &SC.ch[c];
+  if (C->lod == l || !SC.fgeo[l][0]) return;
+  C->lod = l;
+  for (int q = 0; q < 4; q++) {
+    t3_instanced_mesh *im = C->im[q];
+    if (!im) continue;
+    t3_geometry *old = im->mesh.geometry;
+    im->mesh.geometry = t3_retain(SC.fgeo[l][q]);
+    t3_release(old);
+  }
+}
 void scenery_light_crowd(bool light) {
-  int l = light ? 1 : 0;
-  if (!SC.ready || SC.flod == l || !SC.fgeo[l][0]) return;
-  SC.flod = l;
-  for (int c = 0; c < SC.nchunks; c++)
-    for (int q = 0; q < 4; q++) {
-      t3_instanced_mesh *im = SC.ch[c].im[q];
-      if (!im) continue;
-      t3_geometry *old = im->mesh.geometry;
-      im->mesh.geometry = t3_retain(SC.fgeo[l][q]);
-      t3_release(old);
-    }
+  if (!SC.ready) return;
+  SC.flod = light ? 1 : 0;
+  for (int c = 0; c < SC.nchunks; c++) crowd_lod(c, SC.flod);
+}
+/* Full-screen fans retain their fine facial details until those details are
+ * under 1.5 pixels even at the nearest edge of their seating section. The
+ * 20% return margin prevents oscillation when a camera follows the ball. */
+void scenery_crowd_detail(t3_vec3 eye, float focal_pixels) {
+  if (!SC.ready || SC.flod || getenv("PUG_FULL_CROWD")) return;
+  for (int c = 0; c < SC.nchunks; c++) {
+    struct crowd_chunk *C = &SC.ch[c];
+    float dx=fmaxf(fmaxf(C->lo.x-eye.x,eye.x-C->hi.x),0);
+    float dy=fmaxf(fmaxf(C->lo.y-eye.y,eye.y-C->hi.y),0);
+    float dz=fmaxf(fmaxf(C->lo.z-eye.z,eye.z-C->hi.z),0);
+    float distance=sqrtf(dx*dx+dy*dy+dz*dz);
+    float detail_pixels=.04f*focal_pixels/fmaxf(distance,.01f);
+    crowd_lod(c, detail_pixels < (C->lod ? 1.8f : 1.5f));
+  }
 }
 
 /* the share of the crowd and grass drawn (cw_quality_density: 1 full) */

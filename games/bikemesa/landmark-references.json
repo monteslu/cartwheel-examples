@@ -1,0 +1,485 @@
+{
+  "review_rule": "Reopen the original photograph before changing a facade. Compare a romdev screenshot against that photograph; source presence and zero GPU errors alone do not prove visual fidelity.",
+  "landmarks": [
+    {
+      "name": "HeatSync Labs",
+      "reference": "/home/monteslu/Pictures/Screenshots/HeatSyncLabs.png",
+      "track_x": 444.0,
+      "stories": 1
+    },
+    {
+      "name": "Oro Brewing",
+      "reference": "/home/monteslu/Pictures/Screenshots/OroBrewing.png",
+      "track_x": 142.0,
+      "stories": 1
+    },
+    {
+      "name": "Chupacabra Taproom",
+      "reference": "/home/monteslu/Pictures/Screenshots/ChupacabraTaproom.png",
+      "track_x": 172.0,
+      "stories": 1
+    },
+    {
+      "name": "Que Chevere",
+      "reference": "/home/monteslu/Pictures/Screenshots/QueChevere.png",
+      "track_x": 292.0,
+      "stories": 1
+    },
+    {
+      "name": "Phantom Fox / Goat & Ram",
+      "reference": "/home/monteslu/Pictures/Screenshots/PhantomFox.png",
+      "track_x": 262.0,
+      "stories": 1,
+      "revision": "Added side window bays and wider patio/portal; signs unchanged in size. Romdev screenshot inspected."
+    },
+    {
+      "name": "Arizona Distilling Co.",
+      "reference": "/home/monteslu/Pictures/Screenshots/AZDistillingCo.png",
+      "track_x": 232.0,
+      "stories": 1
+    },
+    {
+      "name": "Main Burger",
+      "reference": "/home/monteslu/Pictures/Screenshots/MainBurger.png",
+      "track_x": 202.0,
+      "stories": 1
+    },
+    {
+      "name": "Organic Bean Cafe",
+      "reference": "/home/monteslu/Pictures/Screenshots/OrganicBeanCafe.png",
+      "track_x": 474.0,
+      "stories": 1
+    },
+    {
+      "name": "BRI Taproom & Arcade",
+      "reference": "/home/monteslu/Pictures/Screenshots/BRITaproomArcade.png",
+      "track_x": 52.0,
+      "stories": 1
+    },
+    {
+      "name": "The Nile",
+      "reference": "/home/monteslu/Pictures/Screenshots/TheNile.png",
+      "track_x": 414.0,
+      "stories": 2,
+      "required": [
+        "red brick, consistent brick size",
+        "nine upper sash windows in three groups",
+        "stepped parapet with four pilasters",
+        "painted white THE NILE EST 1924",
+        "copper pointed Egyptian marquee",
+        "Concert text; no yoga"
+      ]
+    },
+    {
+      "name": "Level One",
+      "reference": "/home/monteslu/Pictures/Screenshots/LevelOne.png",
+      "track_x": 564.0,
+      "stories": 2,
+      "required": [
+        "tall white two-story facade",
+        "two upper windows with suspended shades",
+        "upper Level One logo",
+        "recessed ground-level patio, black railing"
+      ],
+      "revision": "15% taller two-story facade; romdev inspected, camera currently crops top at close approach."
+    },
+    {
+      "name": "Tacos Chiwas",
+      "reference": "/home/monteslu/Pictures/Screenshots/TacosChiwas.png",
+      "track_x": 322.0,
+      "stories": 1
+    },
+    {
+      "name": "Proof Bread",
+      "reference": "/home/monteslu/Pictures/Screenshots/ProofBread.png",
+      "track_x": 352.0,
+      "stories": 1
+    },
+    {
+      "name": "Mad Candy",
+      "reference": "/home/monteslu/Pictures/Screenshots/MadCandy.png",
+      "track_x": 594.0,
+      "stories": 1
+    },
+    {
+      "name": "Worth Takeaway",
+      "reference": "/home/monteslu/Pictures/Screenshots/WorthTakeaway_Burritoholics.png",
+      "track_x": 14.0,
+      "stories": 1,
+      "required": [
+        "adjacent separate restaurants, Worth on left",
+        "Worth white facade and orange umbrellas",
+        "Burritoholics charcoal facade and white umbrellas"
+      ]
+    },
+    {
+      "name": "Burritoholics",
+      "reference": "/home/monteslu/Pictures/Screenshots/WorthTakeaway_Burritoholics.png",
+      "track_x": 24.0,
+      "stories": 1,
+      "required": [
+        "adjacent separate restaurants, Worth on left",
+        "Worth white facade and orange umbrellas",
+        "Burritoholics charcoal facade and white umbrellas"
+      ]
+    },
+    {
+      "name": "NCT / The Sacred Pint",
+      "reference": "/home/monteslu/Pictures/Screenshots/NCT_TheSacredPint.png",
+      "status": "modeled; raised opaque NCT channel letters and elevated sign fixtures verified in romdev WebGPU; shield/window sign assets are photo-based reconstructions",
+      "track_x": 82.0,
+      "stories": 1,
+      "address": "214 W Main St, Mesa",
+      "required": [
+        "One shared building: Sacred Pint bar at front, Neighborhood Comedy Theatre behind",
+        "Warm exposed brick, stepped parapet higher over right-hand entrance",
+        "Large raised red NCT letters on upper right, small shield logo above",
+        "Red-and-white striped sloping awning over wide left storefront window",
+        "Solid red shallow canopy over white-framed glazed entrance on right",
+        "Sacred Pint winged pint graphic and pale lettering on left window",
+        "Do not model apartment block behind it as a second story of the venue"
+      ],
+      "sources": [
+        "https://nctphoenix.com/things-to-do-downtown-mesa-comedy/",
+        "https://downtownmesa.com/go/neighborhood-comedy-theatre",
+        "https://downtownmesa.com/go/the-sacred-pint"
+      ]
+    },
+    {
+      "name": "Gus's World Famous Fried Chicken",
+      "reference": "/home/monteslu/Pictures/Screenshots/Gus'sFriedChicken.png",
+      "detail_reference": "/home/monteslu/Downloads/gus's2.webp",
+      "status": "modeled; romdev GL/WebGPU inspected; blade sign is photo-based reconstruction; burgundy-and-white panel umbrellas and wooden chair legs/slats verified in romdev WebGPU; umbrella branding remains simplified",
+      "track_x": 112,
+      "stories": 1,
+      "address": "212 W Main St, Mesa",
+      "sources": [
+        "https://www.gusfriedchicken.com/locations/mesa-arizona"
+      ],
+      "required": [
+        "Use first photo for complete facade; second photo for projecting neon sign detail",
+        "White stucco upper facade with brick edging and raised central parapet",
+        "Brick ground-floor piers, pale window frames and yellow entrance door on left",
+        "Wide red-and-white striped sloping awning over storefront",
+        "Red-sided yellow projecting blade sign, red GUS'S / FRIED CHICKEN lettering, chicken graphic, green WORLD FAMOUS lettering",
+        "Neon tubes glow selectively; do not make entire yellow sign face emissive",
+        "Outdoor wooden tables and chairs with burgundy-and-white umbrellas",
+        "Single-story venue; apartments behind are a separate building"
+      ]
+    },
+    {
+      "name": "The Guadalupe on Main",
+      "reference": "/home/monteslu/Pictures/Screenshots/GuadalupeOnMain.png",
+      "status": "First facade modeled at final landmark position 674 m; broad white wings, projecting copper gable, official logo and planters. Inspected in romdev WebGPU; zero GPU errors/missing shaders. Foliage material and edge window corrected after inspection.",
+      "stories": 1,
+      "address": "1526 E Main St, Mesa",
+      "sources": [
+        "https://guadalupeonmain.com/"
+      ],
+      "official_logo": {
+        "file": "references/signs/guadalupe-official.png",
+        "url": "https://img1.wsimg.com/isteam/ip/6ca4fb30-cfa2-4d27-b6da-6c14d4cadf11/logo_theguadalupeonmain-SLITHERIN-white.png",
+        "sha256": "26764bcbe65885e7a01aec818da7068eac4087b4fa04e85edee2becf0b25202b",
+        "modified": false
+      },
+      "required": [
+        "Wide freestanding single-story building; white wall panels divided by gray pilasters",
+        "Dark masonry entrance volume with broad copper/salmon gabled canopy and dark metal roof",
+        "Low masonry landscape planters and desert planting; official green/cream/black diamond logo",
+        "Photo sign is small and washed out: use official artwork"
+      ],
+      "track_x": 828.0
+    },
+    {
+      "name": "Casa Copal",
+      "reference": "/home/monteslu/Pictures/Screenshots/CasaCopal.png",
+      "status": "First facade modeled with reconstructed mural and upright painted sign; native GL inspected. Column mural UV corrected after inspection; further fidelity review pending.",
+      "stories": 1,
+      "address": "28 S MacDonald, Mesa",
+      "sources": [
+        "https://www.casacopalmesa.com/"
+      ],
+      "official_logo": {
+        "file": "references/signs/casacopal-official.png",
+        "url": "https://images.squarespace-cdn.com/content/v1/67bcc6be19023e3f5244a11b/fde3932d-3d15-4a81-b5e8-fbe5c37eb328/CasaCopal_terracotta_FontOnly.pdf.png?format=1500w",
+        "sha256": "1b86951880c3112b519e5923a59fc2611294132b3bd8dbbd843d817f63e104b3",
+        "modified": false
+      },
+      "required": [
+        "Cultural retail store, wellness hub and community venue, not a restaurant",
+        "Low beige masonry storefront with terracotta/cream botanical and hand mural around the entrance",
+        "Tall rounded asymmetric roadside sign with stacked CASA / COPAL lettering, teal/purple/orange colors",
+        "Official stacked terracotta wordmark available; photo inspires sign silhouette/color arrangement, its fine illustration is not fully clear"
+      ],
+      "track_x": 504.0
+    },
+    {
+      "name": "Diamond Don's",
+      "reference": "/home/monteslu/Pictures/Screenshots/DiamondDons.png",
+      "status": "First facade modeled with twin shallow arches, lower side wings, recessed porch and official guitarist emblem; romdev WebGPU inspected. Lettering is an approximation, not official wordmark. Placed after Casa Copal’s reserved frontage, before Level One, per user order.",
+      "stories": 1,
+      "address": "42 S MacDonald, Mesa",
+      "sources": [
+        "https://www.diamond-dons.com/"
+      ],
+      "official_logo": {
+        "file": "references/signs/diamonddons-official.jpg",
+        "url": "https://storage.googleapis.com/sprouter-buckets/files/UIMG20250807689444bf38dae.jpg",
+        "sha256": "4b1dd0eb25760ba393aa35cfad6d18b2267d940c4163f505c882f634ba5d5203",
+        "modified": false
+      },
+      "required": [
+        "White single-story stepped facade with two wide shallow arches and central white pillar",
+        "Photographed wordmark DIAMOND DONS with LEGENDARY STEAKS & SPIRITS below",
+        "Official site redirects to https://spro.biz/diamonddons; official downloaded art is the fedora-wearing guitarist emblem, not a wordmark",
+        "Black framed central entrance, pale recessed walls, black lanterns; use photo as architectural inspiration"
+      ],
+      "track_x": 502
+    },
+    {
+      "name": "República Empanada",
+      "reference": "/home/monteslu/Pictures/Screenshots/RepublicaEmpanada.png",
+      "status": "First facade modeled with white walls, burgundy awnings, official rooster logo on roadside blade, cacti and planting. Romdev WebGPU inspected with zero rendering errors; moved sign clear of streetlamp after inspection. Trees, rooftop skeleton and further detail remain.",
+      "stories": 1,
+      "address": "204 E 1st Ave, Mesa",
+      "sources": [
+        "https://republicaempanada.com/"
+      ],
+      "official_logo": {
+        "file": "references/signs/republica-official.png",
+        "url": "https://i0.wp.com/republicaempanada.com/wp-content/uploads/2018/12/republica_circle-logo-no-shadow.png?resize=1000%2C1000&ssl=1",
+        "sha256": "d875e967afb79d8f3e42cf250836429baa6d54ea3779e541cf14a11385f2f9e7",
+        "modified": false
+      },
+      "required": [
+        "Low white freestanding building set behind desert landscaping and trees",
+        "Burgundy window awnings and tall magenta/pink roadside blade sign",
+        "Official circular purple/white rooster logo with accented REPÚBLICA lettering",
+        "Photo roadside lettering partly obscured: official logo default, photograph inspires sign housing and color",
+        "Roof skeleton is visible reference decoration; preserve as optional seasonal animated detail, not part of official logo"
+      ],
+      "track_x": 656.0
+    },
+    {
+      "name": "Hope's FryBread",
+      "reference": "/home/monteslu/Pictures/Screenshots/HopesFrybread.png",
+      "stories": 1,
+      "status": "First facade modeled; romdev WebGPU inspected at x628 with zero rendering errors. Main sign lettering approximated; official door logo downloaded unmodified. Fascia offset corrected after visual inspection.",
+      "required": [
+        "Broad white stucco rectangular surround framing recessed storefront",
+        "Horizontal reddish brown wood fascia with large turquoise FRYBREAD lettering",
+        "Turquoise stepped geometric emblem on left with light script HOPE’S lettering",
+        "Black framed full-height glazing and entrance on right; transom windows",
+        "Small turquoise and pink OPEN neon in window; main facade letters are solid dimensional signage, not neon",
+        "Place after República Empanada and before The Guadalupe on Main"
+      ],
+      "track_x": 758.0,
+      "sources": [
+        "https://hopesfrybread.com/"
+      ],
+      "official_logo": {
+        "file": "references/signs/hopes-official.png",
+        "url": "https://static-content.owner.com/funnel/images/05ac4f9b-04ae-4dbe-aeaa-8489ea819481",
+        "sha256": "0c76545209a11f916489297342d7147600635def054f139342772475ec95d1af",
+        "modified": false
+      }
+    },
+    {
+      "name": "Pizza Mart",
+      "reference": "/home/monteslu/Pictures/Screenshots/PizzaMart.png",
+      "additional_references": [
+        "/home/monteslu/Pictures/Screenshots/PizzaMart2.png"
+      ],
+      "track_x": 792.0,
+      "stories": 1,
+      "sources": [
+        "https://pizzamartaz.com/"
+      ],
+      "status": "First facade built and inspected in romdev WebGPU; roof trim, entrance gable and secondary sign adjusted, then native GL screenshot inspected. Zero rendering errors. Historic script sign is a reconstruction; further architecture/landscaping polish remains.",
+      "required": [
+        "Steep projecting A-frame entrance and long sloping roof",
+        "Brown brick walls, low glazed windows and yellow illuminated cursive roof sign",
+        "Second to last, after Hope’s and before Guadalupe"
+      ]
+    },
+    {
+      "name": "Espiritu",
+      "reference": "/home/monteslu/Pictures/Screenshots/Espiritu.png",
+      "stories": 1,
+      "official_or_directory_source": "https://www.espiritumesa.com/",
+      "required": [
+        "User confirms Espiritu expanded into former Harvest space after reference photo; represent expanded frontage under Espiritu branding, no Harvest sign.",
+        "Pale cool stucco, shallow arched bays, recessed glazing, black fenced patio, umbrellas and string lights.",
+        "Actual neon sign confirmed by owner interview: https://atasteofaz.com/must-try-bar-and-restaurant-in-mesa-az-espiritu/",
+        "User explicitly requires the stylized ESPIRITU wordmark from the official animated GIF for the building sign. Do not substitute the fish emblem."
+      ],
+      "status": "First facade implemented and refined in romdev: correct official angular wordmark, shallow arcade, fenced tables, folded fabric umbrellas and festoon wire/bulbs. Screenshot out/neon-28-venues/espiritu-refined.png reviewed. Further overall fidelity/polish remains.",
+      "unused_emblem_reference": {
+        "path": "references/signs/espiritu-official.png",
+        "source": "https://images.squarespace-cdn.com/content/v1/61d7577ac495cf3932c6b5a8/191ef7b4-b606-4e45-b91e-99eb575a1578/Espiritu_Logomark-02.png",
+        "sha256": "e32e11b3c66352ff663949ae7665b46cdcfeedbfd46043a8faaca9ee7ab7195d",
+        "status": "Archived only; user rejected emblem as the building sign."
+      },
+      "logo_reference": {
+        "path": "references/signs/espiritu-wordmark-official.gif",
+        "source": "https://images.squarespace-cdn.com/content/v1/61d7577ac495cf3932c6b5a8/f67ce868-27db-4a6d-b194-7549a3421b82/Untitled_Artwork+3.gif?format=1500w",
+        "sha256": "2a3f6f6e1ebed2438fb6cddd3fe31d22b67c6e9000606579657e6f659b1e559a",
+        "status": "Official animated wordmark supplied by user; original GIF archived, first frame extracted for inspection. Runtime sign pending.",
+        "runtime": "assets/signs/espiritu-wordmark.png (first frame, tinted once at scene load)"
+      },
+      "track_x": 382.0
+    },
+    {
+      "name": "Mangos",
+      "reference": "/home/monteslu/Pictures/Screenshots/Mangos.png",
+      "stories": 1,
+      "official_or_directory_source": "https://www.mangosmexicancafe.com/",
+      "required": [
+        "Keep pale mint green exterior visible.",
+        "Broad shallow arch, recessed red brick storefront, orange/coral MANGO’S letters and patio."
+      ],
+      "status": "First facade modeled and romdev inspected: pale green stucco, shallow arch, recessed brick/glazing, official orange wordmark and cafe tables. Removed flat patio slab after screenshot exposed intersection with sloping sidewalk. Further patio/foliage detail remains.",
+      "track_x": 624.0,
+      "logo_reference": {
+        "path": "references/signs/mangos-official.png",
+        "source": "https://www.mangosmexicancafe.com/wp-content/uploads/2020/12/Submark-1.png",
+        "sha256": "a48f7b1652423e0ec3f2aea0681a3a311862756554c6e5252403c4ebdf7882ef",
+        "runtime": "Original official texture tinted orange in material; no added glow."
+      }
+    },
+    {
+      "name": "Margaritas",
+      "reference": "/home/monteslu/Pictures/Screenshots/Margaritas.png",
+      "stories": 2,
+      "official_or_directory_source": "https://downtownmesa.com/go/margaritas",
+      "required": [
+        "Margaritas Fresh Cocina, 10 W Main Street; do not confuse with unrelated chains.",
+        "Cream two-story facade, dark window trim, central Juliet balcony, red wordmark with green margarita glass, fenced patio."
+      ],
+      "status": "First facade implemented, refined and inspected with romdev. Native/cart builds pass. Broader fidelity polish remains.",
+      "track_x": 690.0,
+      "logo_reference": {
+        "path": "references/signs/margaritas-official.png",
+        "source": "https://static.spotapps.co/website_images/ab_websites/206204_website_v1/logo.png",
+        "sha256": "fd47f34e7f6bc9801da3455551e89b4d4b7d4d5a64d21e6dedd4491e47eac95d"
+      }
+    },
+    {
+      "name": "Lost Dutchman Coffee",
+      "reference": "/home/monteslu/Pictures/Screenshots/LostDutchmanCoffee.png",
+      "stories": 1,
+      "official_or_directory_source": "https://lostdutchmancoffeehouse.com/about/",
+      "required": [
+        "Lost Dutchman Coffee House, 12 N Center Street.",
+        "Cream stucco, red tile porch roof, thick square columns, dark red patio railing and brown raised lettering."
+      ],
+      "status": "First facade implemented, refined and inspected with romdev. Native/cart builds pass. Broader fidelity polish remains.",
+      "track_x": 724.0,
+      "logo_reference": {
+        "path": "references/signs/lostdutchman-official.png",
+        "source": "https://lostdutchmancoffeehouse.com/wp-content/uploads/2024/09/lost-dutchman-logo.png",
+        "sha256": "76c2b68233dc003a1468d18c5b1ef3da40e47a4587cf179f50e97aed232125dd"
+      }
+    }
+  ],
+  "expansion_requirements": [
+    "Extend the playable course as more landmarks are added; preserve building scale and breathing room.",
+    "Keep jumps, gaps and checkpoints in new sections; do not merely add a flat storefront strip.",
+    "Verify expanded course visually in romdev and measure performance with spatial culling.",
+    "23 requested buildings: make a substantially longer playable map, preserving facade scale and gaps. Do not compress the new order into the current 385 m course."
+  ],
+  "placement_requirements": [
+    "Use requested_start_to_finish_order for the next layout; keep facade geometry local and placement data separate.",
+    "Preserve explicitly requested neighbor groups when rearranging: Worth left of Burritoholics.",
+    "NCT and The Sacred Pint occupy one shared building.",
+    "After all requested buildings are modeled and verified, give the user the complete start-to-finish order for their rearrangement."
+  ],
+  "sign_reference_rule": "Use official business logo artwork by default. A photographed sign overrides it only when VERY clear and reproducible. Photographs can always inspire sign shape, placement, colors and lighting; do not invent unreadable logo detail or claim a reconstruction is official.",
+  "requested_start_to_finish_order": [
+    "Worth Takeaway",
+    "Burritoholics",
+    "BRI Taproom & Arcade",
+    "NCT / The Sacred Pint",
+    "Gus’s World Famous Fried Chicken",
+    "Oro Brewing",
+    "Chupacabra Taproom",
+    "Main Burger",
+    "Arizona Distilling Co.",
+    "Phantom Fox / Goat & Ram",
+    "Que Chevere",
+    "Tacos Chiwas",
+    "Proof Bread",
+    "Espiritu",
+    "The Nile",
+    "HeatSync Labs",
+    "Organic Bean Cafe",
+    "Casa Copal",
+    "Diamond Don’s",
+    "Level One",
+    "Mad Candy",
+    "Mangos",
+    "República Empanada",
+    "Margaritas",
+    "Lost Dutchman Coffee",
+    "Hope's FryBread",
+    "Pizza Mart",
+    "The Guadalupe on Main"
+  ],
+  "requested_order_status": "All 28 first-pass facades modeled in requested order. Finish873m, 933m including runoff, 10 checkpoints. Visual refinement and performance review in progress; not all buildings declared final.",
+  "requested_order_positions": {
+    "Worth Takeaway": 14.0,
+    "Burritoholics": 24.0,
+    "BRI Taproom & Arcade": 52.0,
+    "NCT / The Sacred Pint": 82.0,
+    "Gus’s World Famous Fried Chicken": 112.0,
+    "Oro Brewing": 142.0,
+    "Chupacabra Taproom": 172.0,
+    "Main Burger": 202.0,
+    "Arizona Distilling Co.": 232.0,
+    "Phantom Fox / Goat & Ram": 262.0,
+    "Que Chevere": 292.0,
+    "Tacos Chiwas": 322.0,
+    "The Nile": 414.0,
+    "Proof Bread": 352.0,
+    "HeatSync Labs": 444.0,
+    "Organic Bean Cafe": 474.0,
+    "Casa Copal": 504.0,
+    "Diamond Don’s": 534.0,
+    "Level One": 564.0,
+    "Mad Candy": 594.0,
+    "República Empanada": 656.0,
+    "Hope's FryBread": 758.0,
+    "The Guadalupe on Main": 828.0,
+    "Pizza Mart": 792.0,
+    "Espiritu": 382.0,
+    "Mangos": 624.0,
+    "Margaritas": 690.0,
+    "Lost Dutchman Coffee": 724.0
+  },
+  "next_map_work": {
+    "priority": "Finish and visually polish all 28 downtown buildings first, then other maps.",
+    "requirement": "Every map should have at least two distinctive fun details to notice. Keep course gameplay varied and use culling; verify performance.",
+    "requested_idea": "Aliens and a crashed flying saucer in a desert map, with smoke coming out of the wreck.",
+    "status": "queued; not yet implemented or verified"
+  },
+  "performance_28_facades": {
+    "artifact": "out/neon-28-facades-perf/results.json",
+    "renderer": "RX 7600 OpenGL, 1080p High, adaptive quality off",
+    "frames": 5000,
+    "sample_window": "last2048 frames, includes finish screen",
+    "average_ms": [
+      1.8994,
+      1.8929
+    ],
+    "p95_ms": [
+      2.3301,
+      2.3258
+    ],
+    "max_ms": [
+      12.1156,
+      13.6865
+    ],
+    "validation": "Both runs finished, all10 checkpoints, zero GPU/missing shader errors. No concurrent builds or romdev stepping during timed runs; other applications left running."
+  },
+  "work_ledger": "WORKLIST.md"
+}
