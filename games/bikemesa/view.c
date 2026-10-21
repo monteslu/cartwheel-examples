@@ -263,6 +263,13 @@ static bool in_loop(const track_desc *t, float x, float pad) {
     if (fabsf(x - t->loops[i * 3]) < t->loops[i * 3 + 2] + pad) return true;
   return false;
 }
+static bool in_corkscrew(const track_desc *t, float x) {
+  for (int i = 0; i < t->corkscrew_count; i++) {
+    const float *c = t->corkscrews + 5*i;
+    if (x > c[0] && x < c[1]) return true;
+  }
+  return false;
+}
 
 /* the lanes painted on the surface: solid edge lines (they close in where the
  * track narrows), dashed lines between open lanes, red and white hatching
@@ -286,7 +293,7 @@ static void lane_stripes(t3_object *root, const track_desc *t) {
       open_edges(nw, nn, x, &zb, &zf);
       float zc = b == 0 ? zb : b == LANES ? zf : lane_z(b - 0.5f);
       bool on = f && (b == 0 || b == LANES || (fmodf(x + 1000, DASH + GAP) < DASH && zc > zb + 0.1f && zc < zf - 0.1f));
-      if (in_loop(t, x, 0.3f) && b > 0 && b < LANES) on = false;
+      if (in_corkscrew(t, x) || (in_loop(t, x, 0.3f) && b > 0 && b < LANES)) on = false;
       if (!on) {
         run = -1;
         continue;
@@ -431,7 +438,7 @@ static void ribbon(t3_object *root, const track_desc *t, const theme *th) {
   for (int i = 0; i < t->piece_count; i++) {
     const track_piece *pc = &t->pieces[i];
     const float *p = pc->pts;
-    int base_t = top.nv, base_f = face.nv;
+    int base_f = face.nv, last_top = -1;
     for (int k = 0; k < pc->count; k++) {
       float x = p[k * 2], y = p[k * 2 + 1];
       int a = k > 0 ? k - 1 : k, c = k < pc->count - 1 ? k + 1 : k;
@@ -439,21 +446,25 @@ static void ribbon(t3_object *root, const track_desc *t, const theme *th) {
       float tl = sqrtf(tx * tx + ty * ty);
       t3_vec3 n = { -ty / tl, tx / tl, 0 };
       float u = x / 4;
-      /* back edge, the surface, the lip bending down toward the camera */
-      mb_v(&top, (t3_vec3){ x, y - 0.05f, -W - 0.3f }, (t3_vec3){ n.x, n.y, -0.8f }, u, -0.1f, 1);
-      mb_v(&top, (t3_vec3){ x, y, -W }, n, u, 0, 1);
-      mb_v(&top, (t3_vec3){ x, y, W - LIP }, n, u, 0.9f, 1);
-      mb_v(&top, (t3_vec3){ x, y - LIP * 0.4f, W - LIP * 0.2f }, (t3_vec3){ n.x, n.y * 0.6f, 0.7f }, u, 1.0f, 1);
-      mb_v(&top, (t3_vec3){ x, y - LIP, W }, (t3_vec3){ 0, 0, 1 }, u, 1.08f, 1);
+      /* The axial ribbon replaces the ordinary top; the cliff face still
+       * supports it visually and catches a rider who falls in the crash world. */
+      if (!in_corkscrew(t, x)) {
+        int here = top.nv;
+        mb_v(&top, (t3_vec3){ x, y - 0.05f, -W - 0.3f }, (t3_vec3){ n.x, n.y, -0.8f }, u, -0.1f, 1);
+        mb_v(&top, (t3_vec3){ x, y, -W }, n, u, 0, 1);
+        mb_v(&top, (t3_vec3){ x, y, W - LIP }, n, u, 0.9f, 1);
+        mb_v(&top, (t3_vec3){ x, y - LIP * 0.4f, W - LIP * 0.2f }, (t3_vec3){ n.x, n.y * 0.6f, 0.7f }, u, 1.0f, 1);
+        mb_v(&top, (t3_vec3){ x, y - LIP, W }, (t3_vec3){ 0, 0, 1 }, u, 1.08f, 1);
+        if (last_top >= 0) for (int r = 0; r < 4; r++) {
+          mb_t(&top, last_top + r, last_top + r + 1, here + r + 1);
+          mb_t(&top, last_top + r, here + r + 1, here + r);
+        }
+        last_top = here;
+      } else last_top = -1;
       /* the face: below the lip down to the bedrock */
       mb_v(&face, (t3_vec3){ x, y - LIP, W }, (t3_vec3){ n.x * 0.3f, 0, 1 }, x / 5, (y - LIP) / 5, 1);
       mb_v(&face, (t3_vec3){ x, bottom, W + 1.5f }, (t3_vec3){ 0, 0, 1 }, x / 5, bottom / 5, 1);
       if (k > 0) {
-        for (int r = 0; r < 4; r++) {
-          int a0 = base_t + (k - 1) * 5 + r, b0 = base_t + k * 5 + r;
-          mb_t(&top, a0, a0 + 1, b0 + 1);
-          mb_t(&top, a0, b0 + 1, b0);
-        }
         int f0 = base_f + (k - 1) * 2, f1 = base_f + k * 2;
         mb_t(&face, f0, f0 + 1, f1 + 1);
         mb_t(&face, f0, f1 + 1, f1);
@@ -524,6 +535,86 @@ static void ribbon(t3_object *root, const track_desc *t, const theme *th) {
   t3_release(wood);
   lane_stripes(root, t);
   ramps_build(root, t, th);
+}
+
+/* A road that rolls around its own direction of travel. One continuous mesh
+ * per corkscrew keeps the full turn cheap to draw; the bright lane edges make
+ * the twist readable before the rider enters it. */
+static void corkscrews_build(t3_object *root, const track_desc *t) {
+  if (!t->corkscrew_count) return;
+  mb road = { 0 }, rim = { 0 }, underside = { 0 }, lanes = { 0 };
+  const float W = TRACK_HALF_W;
+  for (int c = 0; c < t->corkscrew_count; c++) {
+    const float *v = t->corkscrews + c*5;
+    int n = (int)ceilf((v[1]-v[0])/.35f);
+    int base = road.nv, edge_base = rim.nv, under_base = underside.nv;
+    for (int i = 0; i <= n; i++) {
+      float x = v[0] + (v[1]-v[0])*(float)i/n;
+      float angle;
+      track_corkscrew_pose(t, x, v[2], 0, NULL, &angle);
+      t3_vec3 normal = { 0, cosf(angle), sinf(angle) };
+      for (int j = 0; j <= 4; j++) {
+        float z = -W + j*(2*W/4);
+        t3_vec3 p;
+        track_corkscrew_pose(t, x, v[2], z, &p, NULL);
+        mb_v(&road, p, normal, (x-v[0])/3.5f, (float)j/4, 1);
+        t3_vec3 under = { p.x, p.y-normal.y*.22f, p.z-normal.z*.22f };
+        mb_v(&underside, under, (t3_vec3){0,-normal.y,-normal.z}, (x-v[0])/3.5f, (float)j/4, 1);
+      }
+      for (int e = 0; e < 2; e++) {
+        float z = e ? W-.1f : -W+.1f;
+        for (int side = 0; side < 2; side++) {
+          t3_vec3 p;
+          track_corkscrew_pose(t, x, v[2], z+(side ? .065f : -.065f), &p, NULL);
+          p.y += normal.y*.022f; p.z += normal.z*.022f;
+          mb_v(&rim, p, normal, (x-v[0])/3, (float)side, 1);
+        }
+      }
+      if (!i) continue;
+      float xp = v[0] + (v[1]-v[0])*(float)(i-1)/n;
+      if (fmodf((x+xp)*.5f-v[0],3.6f) < 1.9f) for (int mark = 1; mark < 4; mark++) {
+        float z = -W + mark*LANE_W + .2f;
+        int a = lanes.nv;
+        for (int end = 0; end < 2; end++) for (int side = 0; side < 2; side++) {
+          float px = end ? x : xp;
+          t3_vec3 p; float ra;
+          track_corkscrew_pose(t, px, v[2], z+(side ? .035f : -.035f), &p, &ra);
+          p.y += cosf(ra)*.032f; p.z += sinf(ra)*.032f;
+          mb_v(&lanes,p,(t3_vec3){0,cosf(ra),sinf(ra)},(float)end,(float)side,1);
+        }
+        mb_t(&lanes,a,a+1,a+3); mb_t(&lanes,a,a+3,a+2);
+      }
+      for (int j = 0; j < 4; j++) {
+        int a = base+(i-1)*5+j, b = base+i*5+j;
+        mb_t(&road,a,a+1,b+1); mb_t(&road,a,b+1,b);
+        a = under_base+(i-1)*5+j; b = under_base+i*5+j;
+        mb_t(&underside,a,b+1,a+1); mb_t(&underside,a,b,b+1);
+      }
+      for (int e = 0; e < 2; e++) {
+        int a = edge_base+(i-1)*4+e*2, b = edge_base+i*4+e*2;
+        mb_t(&rim,a,a+1,b+1); mb_t(&rim,a,b+1,b);
+      }
+    }
+  }
+  t3_material *deck = t3_mesh_standard_material_new(0xffffff);
+  deck->color = lin(.22f,.44f,.54f); deck->roughness = .72f; deck->metalness = .28f;
+  deck->side = T3_DOUBLE_SIDE;
+  t3_material *steel = t3_mesh_standard_material_new(0xffffff);
+  steel->color = lin(.08f,.17f,.25f); steel->roughness = .58f; steel->metalness = .55f;
+  steel->side = T3_DOUBLE_SIDE;
+  t3_material *light = t3_mesh_standard_material_new(0xffffff);
+  light->color = lin(.12f,.82f,.94f); light->emissive = lin(.05f,.7f,.95f);
+  light->emissive_intensity = 2.0f; light->roughness = .35f;
+  light->side = T3_DOUBLE_SIDE;
+  t3_material *paint = t3_mesh_standard_material_new(0xffffff);
+  paint->color = lin(.94f,.98f,.92f); paint->emissive = lin(.14f,.22f,.2f);
+  paint->emissive_intensity = .4f; paint->roughness = .75f;
+  paint->side = T3_DOUBLE_SIDE;
+  t3_geometry *g = mb_done(&road); add(root,g,deck,true); t3_release(g);
+  g = mb_done(&underside); add(root,g,steel,true); t3_release(g);
+  g = mb_done(&rim); add(root,g,light,false); t3_release(g);
+  g = mb_done(&lanes); add(root,g,paint,false); t3_release(g);
+  t3_release(deck); t3_release(steel); t3_release(light); t3_release(paint);
 }
 
 /* ── the far landforms ─────────────────────────────────────────────────
@@ -2582,6 +2673,7 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
   t3_object *root = t3_group_new();
   ground_build(t);
   ribbon(root, t, th);
+  corkscrews_build(root, t);
   bank(root, t, th);
   markers(root, t);
   int still0 = root->child_count;
@@ -2778,7 +2870,7 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
   const char *const *wx = !strcmp(th->name, "scary") ? bats_kv : !strcmp(th->name, "xmas") ? snow_kv
                          : !strcmp(th->name, "moon") ? dust_hang_kv : !strcmp(th->name, "beach") ? gulls_kv
                          : !strcmp(th->name, "mars") ? devils_kv
-                         : !strcmp(th->name, "alpine") ? snow_kv : !strcmp(th->name, "coast") ? rain_kv
+                         : !strcmp(th->name, "alpine") ? snow_kv : !strcmp(th->name, "coast") ? (t->corkscrew_count ? gulls_kv : rain_kv)
                          : !strcmp(th->name, "autumn") ? leaves_kv : !strcmp(th->name, "cosmic") ? stars_kv
                          : !strcmp(th->name, "desert") ? sand_kv : !strcmp(th->name, "jungle") || !strcmp(th->name, "neon") ? fireflies_kv
                          : motes_kv;

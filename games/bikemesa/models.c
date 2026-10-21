@@ -42,6 +42,8 @@ typedef struct model_t {
 } model_t;
 static model_t MS[MAX_RIDERS];
 static model_t *Mc = MS;
+static const track_desc *model_track;
+void models_set_track(const track_desc *t) { model_track = t; }
 #define M (*Mc)
 /* each rider's colours (bike paint, shirt), so split screen tells them apart */
 static const float PAINT[MAX_RIDERS][3] = { { 0.05f, 0.34f, 0.16f }, { 0.55f, 0.06f, 0.05f }, { 0.06f, 0.2f, 0.6f }, { 0.75f, 0.55f, 0.05f } };
@@ -1063,6 +1065,8 @@ void models_refresh(int idx) {
 static void models_sync_rider_(const bike_pose *p, float z) {
   if (p->ragdoll) { /* a crash: every piece where the crash world has it (world space) */
     if (cw_node_valid(M.node)) cw_node3d_set_position(M.node, (t3_vec3){ 0, 0, 0 });
+    M.root->position = (t3_vec3){ 0, 0, 0 };
+    t3_object_set_rotation(M.root, 0, 0, 0);
     put3(M.frame, p->frame3);
     put3(M.rear, p->rear3);
     put3(M.front, p->front3);
@@ -1088,7 +1092,17 @@ static void models_sync_rider_(const bike_pose *p, float z) {
     if (M.cap) put3(M.cap, p->cap3);
     return;
   }
-  if (cw_node_valid(M.node)) cw_node3d_set_position(M.node, (t3_vec3){ 0, 0, z });
+  t3_vec3 transformed;
+  float roll;
+  if (track_corkscrew_pose(model_track, p->frame.p.x, 0, z, &transformed, &roll)) {
+    if (cw_node_valid(M.node)) cw_node3d_set_position(M.node, (t3_vec3){ 0, 0, 0 });
+    M.root->position = (t3_vec3){ 0, transformed.y, transformed.z };
+    t3_object_set_rotation(M.root, roll, 0, 0);
+  } else {
+    if (cw_node_valid(M.node)) cw_node3d_set_position(M.node, (t3_vec3){ 0, 0, z });
+    M.root->position = (t3_vec3){ 0, 0, 0 };
+    t3_object_set_rotation(M.root, 0, 0, 0);
+  }
   put(M.frame, p->frame);
   put(M.rear, p->rear);
   put(M.front, p->front);
