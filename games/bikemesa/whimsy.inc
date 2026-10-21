@@ -566,6 +566,7 @@ static void fantasy_settlement(t3_object *root,const whimsy_parts *p,const track
 #include "discoveries.inc"
 #include "mesa.inc"
 #include "city.inc"
+#include "fantasy.inc"
 
 static void whimsical_props(t3_object *root, const track_desc *t, const theme *th) {
   const char *n=th->name;
@@ -598,6 +599,8 @@ static void whimsical_props(t3_object *root, const track_desc *t, const theme *t
   if(jungle) {
     stone_circle(root,&p,t->finish_x*.58f,-8.5f);
     temple_guardian(root,&p,t->finish_x*.82f,-8);
+    fantasy_camp(root,&p);
+    forest_deer_build(root,&p);
   }
   if(moon) {
     lunar_wreck(root,&p,t->finish_x*.62f,-9);

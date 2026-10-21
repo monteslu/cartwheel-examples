@@ -3556,7 +3556,7 @@
       ],
       "note": "WebGPU on every host against the GL reference: the canyon's grass tufts are sub-pixel blades whose edges rasterize a pixel apart across backends."
     },
-    "note": "The canyon is thousands of thin grass blades and dust: native and the carts rasterize their edges a pixel apart (tex.hash and wind.hash prove the data identical), so frames compare at 5% over 16 levels; named state (the Box2D bike, bike.pos, state.hash) is exact. Neon Rooftops: a wrecking ball swings over the track (it only reaches a rider in the air). Pedalling only rides through it to the finish (the set piece is in the sim and the state hash). The control runs without the track request (the title).",
+    "note": "The canyon is thousands of thin grass blades and dust: native and the carts rasterize their edges a pixel apart (tex.hash and wind.hash prove the data identical), so frames compare at 5% over 16 levels; named state (the Box2D bike, bike.pos, state.hash) is exact. Downtown: a wrecking ball swings over the track (it only reaches a rider in the air). Pedalling only rides through it to the finish (the set piece is in the sim and the state hash). The control runs without the track request (the title).",
     "name": "bikemesa-wreck",
     "app": "bikemesa_unlocked",
     "frames": 2100,
@@ -3685,10 +3685,10 @@
       ],
       "note": "WebGPU on every host against the GL reference: the canyon's grass tufts are sub-pixel blades whose edges rasterize a pixel apart across backends."
     },
-    "note": "Temple Vines's loop: pedalling through the boost strip on the run-in carries the bike up the wall, over the top upside down and out the other side (the climb and the descent are one-sided arcs on two layers, swapped at the top), so loops 1 with no crash. The strip on a loop's run-in only boosts pedalling, and only 8 m of it: the control stops pedalling at the last checkpoint and coasts through the run-in and the strip, too slow up the wall, the bike drops off the top and the rider falls (loops 0, a crash).",
+    "note": "Red Rock Run now opens with the small powered loop after checkpoint one. Pedalling clears it; the control releases the pedal before the run-in and does not complete it.",
     "name": "bikemesa-loop",
     "app": "bikemesa_unlocked",
-    "frames": 2400,
+    "frames": 1300,
     "input": "bikemesa-pedal-cmd.json",
     "controlInput": "bikemesa-loop-coast.json",
     "expect": {
@@ -3696,10 +3696,10 @@
       "crashes": 0
     },
     "startCmds": [
-      "track 4"
+      "track 1"
     ],
     "controlStartCmds": [
-      "track 4"
+      "track 1"
     ]
   },
   {
@@ -3751,7 +3751,7 @@
       ],
       "note": "WebGPU on every host against the GL reference: the canyon's grass tufts are sub-pixel blades whose edges rasterize a pixel apart across backends."
     },
-    "note": "Scary Town's ghost-train loop (radius 5.6 m, 1.6x Temple Vines's), after the third checkpoint with a 12 m pedal-only boost strip on its run-in: pedalling all the way rides it round (loops 1, no crash; it needs the pedals in the loop too). The control stops pedalling at the checkpoint and coasts: it never gets up the wall (loops 0).",
+    "note": "Scary Town's ghost-train loop (radius 5.6 m, 1.6x Red Rock Run's), after the third checkpoint with a 12 m pedal-only boost strip on its run-in: pedalling all the way rides it round (loops 1, no crash; it needs the pedals in the loop too). The control stops pedalling at the checkpoint and coasts: it never gets up the wall (loops 0).",
     "name": "bikemesa-loop-big",
     "app": "bikemesa_unlocked",
     "frames": 2300,
@@ -3824,7 +3824,7 @@
       ],
       "note": "WebGPU on every host against the GL reference: the canyon's grass tufts are sub-pixel blades whose edges rasterize a pixel apart across backends."
     },
-    "note": "Temple Vines's loop with both entry lanes ridden: P1 in lane 0 and P2 in lane 1 pedal through the pinch onto the loop's run-in (the back lanes), round the helix side by side, and out on the front lanes, each two along (race.lanes [2, 3]). The control moves P2 down to lane 3 before the pinch: it meets the barrier, and again after its respawn (race.crashes [0, 2]).",
+    "note": "Red Rock Run's loop with two riders side by side: P1 starts in lane 0 and P2 in lane 1; both ride the loop and continue toward the later pinch. The control changes P2's lane twice.",
     "name": "bikemesa-loop-lanes",
     "app": "bikemesa_unlocked",
     "frames": 2400,
@@ -3841,18 +3841,18 @@
       ],
       "race.crashes": [
         0,
-        0,
+        1,
         0,
         0
       ]
     },
     "startCmds": [
       "players 2",
-      "track 4"
+      "track 1"
     ],
     "controlStartCmds": [
       "players 2",
-      "track 4"
+      "track 1"
     ]
   },
   {

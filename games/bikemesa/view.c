@@ -1265,6 +1265,30 @@ static t3_texture *window_tex(void) {
   return t;
 }
 
+/* Leaf silhouettes live in shared geometry, so the opaque three.c Standard
+ * shader shades them without alpha overdraw or a separate draw per leaf. */
+static t3_geometry *forest_leaf_cluster(void) {
+  mb b={0};
+  static const float outline[6][2]={{0,-.35f},{-.35f,-.13f},{-.29f,.16f},{0,.42f},{.29f,.16f},{.35f,-.13f}};
+  for(int i=0;i<10;i++) {
+    float a=i*2.39996323f,h=.1f+.63f*((i*7)%13)/13.0f;
+    float r=.32f+.45f*((i*11)%17)/17.0f;
+    float cx=cw_cos(a)*r,cz=cw_sin(a)*r,sz=.38f+.13f*(i%3);
+    float side=cw_cos(a*.7f),depth=cw_sin(a*.7f);
+    t3_vec3 n={-depth,.24f,side};
+    int center=mb_v(&b,(t3_vec3){cx,h+.03f,cz},n,.5f,.5f,1);
+    for(int v=0;v<6;v++) {
+      float w=outline[v][0],up=outline[v][1];
+      mb_v(&b,(t3_vec3){cx+side*w*sz*2,h+up,cz+depth*w*sz*2},n,.5f+w,.5f+up,1);
+    }
+    for(int v=0;v<6;v++) {
+      mb_t(&b,center,center+1+v,center+1+(v+1)%6);
+      mb_t(&b,center,center+1+(v+1)%6,center+1+v);
+    }
+  }
+  return mb_done(&b);
+}
+
 static void tree(t3_object *root, t3_geometry *trunk, t3_geometry *crown, t3_material *bark, t3_material *leaves, float x, float y,
                  float z, float h, float r, bool conifer) {
   t3_mesh *tk = add(root, trunk, bark, true);
@@ -1348,20 +1372,26 @@ static void props(t3_object *root, const track_desc *t, const theme *th) {
   } else if (!strcmp(n, "jungle") || !strcmp(n, "autumn")) {
     bool jungle = !strcmp(n, "jungle");
     t3_material *bark = mat(TEX_BARK, (float[3]){ 0.75f, 0.65f, 0.55f }, 1, 1, 1.4f, 0.9f);
-    float leaf[3] = { 0.35f, 0.62f, 0.25f }, leaf2[3] = { 1.0f, 0.55f, 0.18f };
-    t3_material *crown = mat(TEX_LEAVES, jungle ? leaf : leaf2, 2, 2, .65f, 0.9f);
-    float leaf3[3] = { 0.95f, 0.32f, 0.12f }, leaf4[3] = { 0.25f, 0.5f, 0.2f };
-    t3_material *crown2 = mat(TEX_LEAVES, jungle ? leaf4 : leaf3, 2, 2, .65f, 0.9f);
+    float leaf2[3] = { 1.0f, 0.55f, 0.18f };
+    t3_material *crown = jungle ? t3_mesh_standard_material_new(0xffffff) : mat(TEX_LEAVES, leaf2, 2, 2, .65f, 0.9f);
+    float leaf3[3] = { 0.95f, 0.32f, 0.12f };
+    t3_material *crown2 = jungle ? t3_mesh_standard_material_new(0xffffff) : mat(TEX_LEAVES, leaf3, 2, 2, .65f, 0.9f);
+    if(jungle) {
+      crown->color=lin(.34f,.58f,.27f);crown2->color=lin(.24f,.45f,.21f);
+      crown->roughness=crown2->roughness=1.0f;
+    }
     crown->sheen = crown2->sheen = 0;
-    t3_geometry *ico = t3_icosahedron_geometry_new(1, 1);
+    t3_geometry *ico = jungle ? forest_leaf_cluster() : t3_icosahedron_geometry_new(1, 1);
     /* Shared coarse leaf cluster: irregular silhouette at a lower triangle
      * count than the old smooth spheres, reused by every broadleaf tree. */
-    t3_attribute *pa=ico->attributes[T3_ATTR_POSITION];float *pv=pa->array;
-    for(int k=0;k<pa->count;k++) {
-      float f=.86f+.28f*noise3(pv[k*3]*3,pv[k*3+1]*3,pv[k*3+2]*3,731);
-      pv[k*3]*=f;pv[k*3+1]*=f;pv[k*3+2]*=f;
+    if(!jungle) {
+      t3_attribute *pa=ico->attributes[T3_ATTR_POSITION];float *pv=pa->array;
+      for(int k=0;k<pa->count;k++) {
+        float f=.86f+.28f*noise3(pv[k*3]*3,pv[k*3+1]*3,pv[k*3+2]*3,731);
+        pv[k*3]*=f;pv[k*3+1]*=f;pv[k*3+2]*=f;
+      }
+      pa->version++;
     }
-    pa->version++;
     for (int i = 0; i < 90; i++) {
       float x = -30 + rnd() * (t->length + 60), z = -TRACK_HALF_W - 2.5f - rnd() * 42, h = 2.5f + rnd() * 3.5f, r = 1.2f + rnd() * 1.2f;
       bool two = rnd() < 0.5f;
@@ -2365,6 +2395,7 @@ static void movers_frame(float alpha) {
 
 void view_frame(float alpha) {
   movers_frame(alpha);
+  forest_deer_frame(alpha);
   flags_wave(1.0f / 60);
   pumpkins_frame(1.0f / 60);
   whimsy_tick();
@@ -2781,6 +2812,8 @@ void view_grass(const cw_node *cameras, int n) {
 }
 
 void view_forget(void) {
+  memset(forest_deer,0,sizeof forest_deer);
+  memset(forest_legs,0,sizeof forest_legs);
   chocolate_track=NULL;chocolate_parent=(cw_node){0};
   if(city_stream)cw_stream_destroy(city_stream);
   city_stream=NULL;

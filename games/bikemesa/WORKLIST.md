@@ -2178,3 +2178,35 @@ Candy performance before latest bear correction: `out/candy-depth-perf/results.j
 - Reference research archive HTML/WRL and generated pycache excluded from
   release prep commit; keep them local. Original/reconstructed runtime art,
   needed rover models, source credits, and detailed WORKLIST are staged.
+
+### 2026-10-21 — Downtown and Enchanted Forest update
+- Displayed names now use **Downtown** (track 3) and **Enchanted Forest**
+  (track 4); indices and saved progress stay the same.
+- Moved the 7 m diameter powered loop from track 4 to Red Rock Run immediately
+  after its first checkpoint. Generated track 1 is 486 m with finish at 426 m;
+  Enchanted Forest retains its 528 m length and finish at 468 m.
+- Enchanted Forest has two rider triggered deer crossings, at x=106 and 334.
+  Deer move across depth on a fixed tick schedule shared by all players; a
+  collision uses the existing 3D ragdoll wipeout. No early level preview.
+- Added three forest cabins, a campfire, two small woodland travelers, one
+  farther elf and an original blue robed wizard. Clothing uses rough, nonmetal cloth
+  materials. Buildings and figures sit deep on the bank around x=190–230,
+  with another cabin after the second crossing.
+- Replaced the new cone trees and the forest's old solid canopy look with
+  leaf shaped, double wound geometry and two rough three.c Standard materials.
+  It remains opaque and static chunk batching merges the leaves. The attempted
+  alpha cutout material had a missing state in the current build; the shared
+  geometry uses an available shaded state without alpha overdraw.
+- Current WGPU cart: `build/whimsy-cart/carts/bikemesa.wasc`. Native and cart
+  builds pass. Romdev verified: track 1 pedal only clears loop (`loops=1`,
+  `crashes=0`); coasting from frame 700 gives `loops=0`, `crashes=1`;
+  track 4 pedal only triggers first deer hit (`deer.hits=1`, `crashes=1`),
+  with `cw.gpu.errors=0` and `cw.three.missing=0`. Visual captures:
+  `out/enchanted-forest-final-leaves.png`,
+  `out/enchanted-forest-camp-close.png`,
+  `out/enchanted-forest-deer-approach.png`,
+  `out/enchanted-forest-deer-hit.png`.
+- Updated loop gate definitions for Red Rock. Full gate runner currently uses
+  `build/native` against pinned engine v0.13.0 and cannot rebuild because
+  `cartwheel/quality_menu.h` is unavailable. Re-run on v0.14.0 SDK after the
+  other agent publishes it; the romdev runs above validate the key behavior.

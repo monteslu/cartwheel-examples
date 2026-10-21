@@ -326,7 +326,7 @@ static void save_check(void) {
     SAVE.size = (uint16_t)sizeof SAVE;
     SAVE.checksum = save_sum();
   }
-  /* Neon Rooftops now finishes at 873 m instead of 289/385/729 m. Retain unlocks,
+  /* Downtown now finishes at 873 m instead of 289/385/729 m. Retain unlocks,
    * trick achievements and other tracks; the old time/medal is incomparable. */
   if (SAVE.magic == SAVE_MAGIC && (SAVE.version == 4 || SAVE.version == 5 || SAVE.version == 6) && SAVE.size == sizeof SAVE && SAVE.checksum == save_sum()) {
     SAVE.tr[2].best_ticks = 0;

@@ -21,6 +21,7 @@
 #include <string.h>
 
 #include "game.h"
+#include "cartwheel/debug.h"
 
 /* the loops' two halves sit on their own layers: the bike meets the climb
  * (A) until it is past the top, then the descent (B) until it is out the
@@ -52,6 +53,8 @@ static const cw_vec2 HIP = { -0.12f, 0.84f }, SHOULDER = { 0.2f, 1.3f }, HEAD = 
 #define MAX_PLANKS 96
 #define MAX_MOVERS 8
 #define MAX_LOGS 6
+static const float DEER_X[DEER_CROSSINGS]={106.0f,334.0f};
+static const float DEER_PERIOD[DEER_CROSSINGS]={8.0f,9.5f};
 typedef struct mover {
   int kind;
   float x, y, len;
@@ -78,11 +81,13 @@ static struct {
   mover movers[MAX_MOVERS];
   int mover_count;
   int tick;                       /* steps since the world was made: drives the set pieces */
+  int deer_start[DEER_CROSSINGS];
   int bumps;                      /* contacts begun between two riders' bikes */
   /* the planks and set pieces mirrored in the crash world (kinematic, made at the first crash) */
   bool mirrored;
   cw_body3d plank3[MAX_PLANKS], mover3[MAX_MOVERS], log3[MAX_MOVERS][MAX_LOGS];
 } WD;
+static int deer_hits;
 
 /* one bicycle and its rider (up to MAX_RIDERS share the world, each on its
  * own lane: a collision layer, so riders in one lane bump and riders in
@@ -316,6 +321,9 @@ void bike_world_create(const track_desc *t) {
     }
   }
   WD.tick = 0;
+  for(int i=0;i<DEER_CROSSINGS;i++)WD.deer_start[i]=-1;
+  deer_hits = 0;
+  cw_debug_i32("deer.hits", &deer_hits);
   /* a wall past the run-out */
   const track_piece *last = &t->pieces[t->piece_count - 1];
   float ex = last->pts[(last->count - 1) * 2], ey = last->pts[(last->count - 1) * 2 + 1];
@@ -1044,6 +1052,37 @@ static void movers_tick(void) {
   }
 }
 
+/* Deer run across depth, not along the 2D riding line. Use the same fixed
+ * tick phase for collision and rendering so every multiplayer view agrees. */
+int bike_deer_poses(float alpha,t3_vec3 out[DEER_CROSSINGS]) {
+  if(!T || strcmp(T->theme,"jungle"))return 0;
+  int active=0;
+  for(int i=0;i<DEER_CROSSINGS;i++) {
+    if(WD.deer_start[i]<0)continue;
+    float time=((float)(WD.tick-WD.deer_start[i]-1)+alpha)/TICK_HZ;
+    if(time<0)continue;
+    float phase=cw_fmodf_pos(time,DEER_PERIOD[i]);
+    if(phase>=3.0f)continue;
+    float run=phase/3.0f;
+    out[i]=(t3_vec3){DEER_X[i],track_height_at(DEER_X[i],NULL),-7.0f+11.0f*run};
+    active|=1<<i;
+  }
+  return active;
+}
+
+static void deer_tick(void) {
+  if(!T||strcmp(T->theme,"jungle"))return;
+  for(int i=0;i<DEER_CROSSINGS;i++) {
+    if(WD.deer_start[i]>=0)continue;
+    for(int r=0;r<NB;r++) {
+      bike_state *s=&BK[r].st;
+      float lead=cw_clampf(fabsf(s->vx)*1.8f,16.0f,32.0f);
+      if(!s->alive||s->x<DEER_X[i]-lead||s->x>DEER_X[i]+1)continue;
+      WD.deer_start[i]=WD.tick;break;
+    }
+  }
+}
+
 int bike_movers(float alpha, mover_pose *out, int cap) {
   int n = 0;
   float t = ((float)WD.tick - 1 + alpha) / TICK_HZ;
@@ -1361,6 +1400,19 @@ static void bike_post(bool air) {
       break;
     }
   }
+  if (s->alive) {
+    t3_vec3 deer[DEER_CROSSINGS];
+    int active=bike_deer_poses(1,deer);
+    for(int i=0;i<DEER_CROSSINGS;i++) {
+      if(!(active&(1<<i)) || fabsf(f.p.x-deer[i].x)>1.05f || fabsf(B.draw_z-deer[i].z)>.85f ||
+         fabsf(f.p.y-deer[i].y)>2.2f)continue;
+      cw_vec2 v=cw_body2d_velocity(B.frame);
+      s->alive=false;B.crashed_now=true;
+      B.crash_v=(cw_vec2){v.x*.45f,fmaxf(v.y,3.5f)};
+      deer_hits++;
+      break;
+    }
+  }
   /* falling into a gap */
   if (s->alive && f.p.y < WD.kill_y) {
     s->alive = false;
@@ -1432,6 +1484,7 @@ void bike_step_all(const bike_input *in, const bool *boosting) {
    * per step, which at 60 Hz capped a small wheel near 9 m/s (it skidded and
    * pitched the bike over the bars); at 180 Hz a 16-inch wheel rolls to 28 m/s */
   movers_tick();
+  deer_tick();
   for (int i = 0; i < NB; i++)
     if (act[i]) cur = &BK[i], bike_pre(&in[i], &air[i]);
   for (int h = 0; h < SUBSTEPS; h++) {

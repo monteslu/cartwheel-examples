@@ -179,6 +179,9 @@ float track_height_at(float x, bool *found);
 uint32_t bike_hash(uint32_t h);
 int bike_planks(float alpha, cw_xform2 *out, float *half_w, int cap);
 enum { MOVER_NONE, MOVER_DRAWBRIDGE, MOVER_SEESAW, MOVER_WRECK, MOVER_LOGS, MOVER_TRAIN };
+#define DEER_CROSSINGS 2
+/* Deterministic fantasy-forest crossings, shared by the ride and its view. */
+int bike_deer_poses(float alpha, t3_vec3 out[DEER_CROSSINGS]);
 /* a set piece's pose for drawing; a, b: its size, or the wrecking ball's
  * pivot, or the train's depth z and length */
 typedef struct mover_pose { int kind; cw_xform2 x; float a, b; } mover_pose;

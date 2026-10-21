@@ -87,6 +87,7 @@ export const TRACKS = [
   { name: 'Red Rock Run', theme: 'canyon', par: 30, ready: true, ramps: [[32.3, 2.4, 0.6, 1.2, 2.2, 2, 3], [83.5, 2, 0.5, 1.5, 2, 0, 0], [132, 3, 0.9, 0, 3, 2, 3], [265.5, 2.5, 0.8, 1, 2.5, 3, 3], [266, 2.5, 0.7, 1, 2.5, 0, 0]], pieces: [
     ['flat', 14], ['slope', 18, -4], ['flat', 6], ['rollers', 3, 0.7, 6], ['flat', 4],
     ['kicker', 6, 1.4], ['gap', 7, -1.2], ['landing', 10, 2.2], ['flat', 8], ['check'],
+    ['flat', 8], ['boost', 8], ['flat', 12], ['loop', 3.5], ['flat', 8],
     ['slope', 12, 3.5], ['flat', 4], ['bump', 8, 1.2], ['slope', 16, -5], ['boost', 10], ['flat', 12],
     ['kicker', 7, 1.8], ['gap', 9, -2.5], ['landing', 14, 3.5], ['flat', 6], ['check'],
     ['rollers', 4, 0.9, 7], ['pinch', 40, 1, 2], ['dip', 14, 2.0], ['flat', 6], ['kicker', 5, 1.2], ['gap', 5, -0.5], ['landing', 8, 1.5],
@@ -102,7 +103,7 @@ export const TRACKS = [
     ['flat', 6], ['check'], ['slope', 26, -9], ['boost', 14], ['flat', 10], ['kicker', 10, 3.0], ['gap', 20, -5],
     ['landing', 18, 5], ['flat', 8], ['finish'], ['flat', 60],
   ] },
-  { name: 'Neon Rooftops', theme: 'neon', par: 65, ready: true, pieces: [
+  { name: 'Downtown', theme: 'neon', par: 65, ready: true, pieces: [
     ['flat', 16], ['kicker', 5, 1.0], ['gap', 5, -0.8], ['flat', 4], ['wreck', 12], ['flat', 4], ['kicker', 5, 1.2], ['gap', 6, -1.5], ['flat', 12],
     ['check'], ['slope', 10, -3], ['boost', 10], ['flat', 10], ['kicker', 7, 2.0], ['gap', 12, -3], ['flat', 10],
     ['bump', 6, 0.8], ['flat', 6], ['kicker', 4, 0.9], ['gap', 4, 0.6], ['flat', 10], ['check'],
@@ -127,12 +128,12 @@ export const TRACKS = [
     ['gap', 8, -1.3], ['landing', 10, 1.8], ['rollers', 2, .45, 5], ['flat', 8],
     ['finish'], ['flat', 60],
   ] },
-  { name: 'Temple Vines', theme: 'jungle', par: 38, ready: true, pieces: [
+  { name: 'Enchanted Forest', theme: 'jungle', par: 38, ready: true, pieces: [
     ['flat', 12], ['rollers', 4, 0.9, 6], ['slope', 14, -4], ['kicker', 6, 1.6], ['gap', 8, -1.5], ['landing', 12, 3],
     ['check'], ['slope', 14, 4], ['flat', 4], ['dip', 18, 3.5], ['slope', 10, -2], ['kicker', 7, 2.2], ['gap', 10, -2],
     ['landing', 12, 3.5], ['flat', 6], ['check'], ['rollers', 6, 1.0, 6.5], ['slope', 24, -8],
     ['flat', 8], ['kicker', 8, 2.2], ['gap', 15, -3.5], ['landing', 22, 4.5], ['flat', 8], ['check'],
-    ['flat', 6], ['boost', 8], ['flat', 26], ['loop', 3.5], ['flat', 10], ['bump', 10, 2.0],
+    ['flat', 6], ['boost', 8], ['flat', 26], ['flat', 13], ['flat', 10], ['bump', 10, 2.0],
     ['slope', 12, -4], ['kicker', 6, 1.4], ['gap', 6, 0.5], ['flat', 6], ['slope', 18, -6], ['kicker', 9, 2.8],
     ['gap', 17, -4], ['landing', 16, 4.5], ['flat', 8], ['finish'], ['flat', 60],
   ] },

@@ -1,4 +1,4 @@
-/* User-ordered Neon Rooftops placement, in track meters.
+/* User-ordered Downtown placement, in track meters.
  * Reorder storefronts here without editing their facade models in mesa.inc.
  * Worth/Burritoholics move as one adjacent pair (Worth on the left).
  * Photo references and queued venues: landmark-references.json. */
