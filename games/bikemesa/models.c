@@ -358,7 +358,7 @@ static t3_object *limb_group(t3_object *root) {
 /* Opaque curved hair cards: broad coverage near the crown, tapered overlapping
  * clumps at the hairline. Their length varies by region so the face and ears
  * remain visible while the back reaches the nape. */
-static t3_geometry *medium_hair_cards(void) {
+static t3_geometry *medium_hair_cards(bool fuller) {
   enum { CLUMPS = 32, ROWS = 7, VERTS = CLUMPS * ROWS * 3, INDICES = CLUMPS * (ROWS - 1) * 24 };
   float *pos = malloc(sizeof(float) * 3 * VERTS);
   uint32_t *idx = malloc(sizeof(uint32_t) * INDICES);
@@ -367,14 +367,14 @@ static t3_geometry *medium_hair_cards(void) {
     float phi = 6.2831853f * c / CLUMPS;
     float front = -cw_cos(phi);
     float end = front > 0.4f ? 1.02f : front < -0.35f ? 2.13f : 1.53f;
-    end += 0.055f * cw_sin(c * 2.4f);
+    end += 0.055f * cw_sin(c * 2.4f) + (fuller ? (front > 0.4f ? 0.08f : 0.19f) : 0);
     for (int row = 0; row < ROWS; row++) {
       float t = (float)row / (ROWS - 1);
       float theta = 0.13f + (end - 0.13f) * t;
       float half = 0.135f * (1 - 0.25f * t);
       for (int side = 0; side < 3; side++) {
         float p = phi + (side - 1) * half + 0.18f * t;
-        float r = 0.118f + (side == 1 ? 0.008f : 0) + 0.003f * cw_sin(t * 3.1415927f);
+        float r = 0.118f + (fuller ? 0.012f : 0) + (side == 1 ? 0.008f : 0) + 0.003f * cw_sin(t * 3.1415927f);
         int v = (c * ROWS * 3 + row * 3 + side) * 3;
         pos[v] = 0.01f - r * cw_cos(p) * cw_sin(theta);
         pos[v + 1] = -0.015f + r * cw_cos(theta);
@@ -1028,15 +1028,15 @@ void models_build_rider(cw_node parent, int idx) {
   t3_material *hair = t3_mesh_standard_material_new(0xffffff);
   hair->color = lin(0.012f, 0.012f, 0.015f);
   hair->roughness = 0.95f;
-  t3_geometry *scalp = t3_sphere_geometry_new_ex(bare_hair ? 0.114f : 0.113f, 24, 12, 0, 6.2831853f, 0, bare_hair ? 0.9f : 1.48f);
+  t3_geometry *scalp = t3_sphere_geometry_new_ex(jeans ? 0.122f : bare_hair ? 0.114f : 0.113f, 24, 12, 0, 6.2831853f, 0, bare_hair ? 0.9f : 1.48f);
   t3_mesh *hm = mesh(head, scalp, hair);
   hm->base.position = fm->base.position;
   if (bare_hair) {
-    t3_geometry *backing = t3_sphere_geometry_new_ex(0.114f, 20, 12, -1.45f, 2.9f, 0.85f, 1.3f);
+    t3_geometry *backing = t3_sphere_geometry_new_ex(jeans ? 0.122f : 0.114f, 20, 12, -1.45f, 2.9f, 0.85f, 1.3f);
     t3_mesh *bm = mesh(head, backing, hair);
     bm->base.position = fm->base.position;
     t3_release(backing);
-    t3_geometry *cards = medium_hair_cards();
+    t3_geometry *cards = medium_hair_cards(jeans);
     mesh(head, cards, hair);
     t3_release(cards);
   }
@@ -1044,7 +1044,7 @@ void models_build_rider(cw_node parent, int idx) {
   t3_release(hair);
   /* a short, neat chin beard: dark brown, a few mm proud of the chin, a
    * slight sheen */
-  if (!slim) {
+  if (!slim && !jeans) {
   t3_material *beard = t3_mesh_physical_material_new(0xffffff);
   beard->color = lin(0.09f, 0.06f, 0.045f);
   beard->roughness = 0.75f;

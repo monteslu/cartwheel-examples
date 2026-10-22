@@ -87,3 +87,4 @@ standard+map+rep+nmap+shadow+senv+ds+l1001
 standard+map+rep+nearest+nmap+rmap+mmap+shadow+senv+ds+l1001
 standard+shadow+senv+ds+l1001
 standard+map+rep+rmap+mmap+shadow+senv+ds+l1001
+standard+trans+shadow+senv+l1001

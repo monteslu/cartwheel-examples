@@ -598,10 +598,14 @@ static void corkscrews_build(t3_object *root, const track_desc *t) {
   }
   t3_material *deck = t3_mesh_standard_material_new(0xffffff);
   deck->color = lin(.22f,.44f,.54f); deck->roughness = .72f; deck->metalness = .28f;
-  deck->side = T3_DOUBLE_SIDE;
+  /* The fixed side camera must see the rider through the far side of the
+   * spiral. Draw the riding face only from above and leave its underside as
+   * a translucent shell; the bright edges still trace the whole roll. */
+  deck->side = T3_FRONT_SIDE;
   t3_material *steel = t3_mesh_standard_material_new(0xffffff);
   steel->color = lin(.08f,.17f,.25f); steel->roughness = .58f; steel->metalness = .55f;
-  steel->side = T3_DOUBLE_SIDE;
+  steel->side = T3_FRONT_SIDE;
+  steel->transparent = true; steel->opacity = .2f; steel->depth_write = false;
   t3_material *light = t3_mesh_standard_material_new(0xffffff);
   light->color = lin(.12f,.82f,.94f); light->emissive = lin(.05f,.7f,.95f);
   light->emissive_intensity = 2.0f; light->roughness = .35f;

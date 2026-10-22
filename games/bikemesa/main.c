@@ -50,7 +50,7 @@ static int visible_tracks(void) {
 }
 #define RIDER_CHARACTER_COUNT 3
 #define RIDER_BIKE_COUNT BIKE_MODEL_COUNT
-static const char *const RIDER_NAMES[RIDER_CHARACTER_COUNT] = { "RIDER 1", "RIDER 2", "RIDER 3" };
+static const char *const RIDER_NAMES[RIDER_CHARACTER_COUNT] = { "LM", "LJ", "JP" };
 static const char *const BIKE_NAMES[RIDER_BIKE_COUNT] = { "FOLDING 16\"", "CRUISER 26\"", "E-BIKE 27.5\"" };
 static const char *const COLOR_NAMES[BIKE_COLOR_COUNT] = { "GREEN", "RED", "BLUE", "YELLOW", "ORANGE", "PURPLE", "BLACK", "WHITE" };
 int TRACK_COUNT;
@@ -839,17 +839,26 @@ static void cmd_progress(int argc, const char **argv, cw_reply *r) {
 
 /* ── the camera ─────────────────────────────────────────────────────── */
 
+/* Frame the center of the road's roll before entry and through the exit.
+ * The rider travels around this fixed axis; the lens stays outside it. */
+static float corkscrew_camera_weight(const track_desc *t, float x, float *axis_y) {
+  float weight = 0;
+  if (!t) return 0;
+  for (int i = 0; i < t->corkscrew_count; i++) {
+    const float *c = t->corkscrews + i * 5;
+    float w = cw_smoothstep(c[0] - 16, c[0] + 10, x) *
+              (1 - cw_smoothstep(c[1] - 10, c[1] + 16, x));
+    if (w > weight) { weight = w; if (axis_y) *axis_y = c[2] + c[3]; }
+  }
+  return weight;
+}
+
 static void camera_tick(void) {
   const bike_state *b = bike_get();
   float speed = sqrtf(b->vx * b->vx + b->vy * b->vy);
   bool air = !b->grounded_rear && !b->grounded_front;
   /* look ahead along the motion, pull back with speed and in big air */
   t3_vec3 at = { b->x + cw_clampf(b->vx * 0.32f, -3, 6), b->y + 1.1f + cw_clampf(b->vy * 0.08f, -1.5f, 1.5f), 0 };
-  t3_vec3 cork_at;
-  if (G.t && b->alive && track_corkscrew_pose(G.t, b->x, at.y, rider_z((int)(P - RD)), &cork_at, NULL)) {
-    at.y = cork_at.y;
-    at.z = cork_at.z;
-  }
   /* a crash: the camera follows the tumbling rider, across the track and off it too */
   t3_vec3 down_at;
   if (bike_crash_focus(&down_at, NULL)) at.z = down_at.z;
@@ -865,11 +874,11 @@ static void camera_tick(void) {
     at.y += (G.t->loops[l*3+1]+r-at.y)*near*.8f;
     dist += (fmaxf(dist, r*3.2f)-dist)*near;
   }
-  if (G.t && b->alive) for (int c = 0; c < G.t->corkscrew_count; c++) {
-    const float *v = G.t->corkscrews + 5*c;
-    float near = 1 - cw_smoothstep(9, 25, fminf(fabsf(b->x-v[0]), fabsf(b->x-v[1])));
-    if (b->x >= v[0] && b->x <= v[1]) near = 1;
-    if (near > 0) dist += (fmaxf(dist, 12.5f)-dist)*near;
+  if (G.t && b->alive) {
+    float axis_y = 0;
+    float near = corkscrew_camera_weight(G.t, b->x, &axis_y);
+    at.y += (axis_y - at.y) * near;
+    dist += (fmaxf(dist, 16.0f) - dist) * near;
   }
   if (getenv("BIKEMESA_CAM_CLOSE")) { /* dev aid: a close look at the bike */
     dist = 2.6f;
@@ -929,17 +938,8 @@ static void camera_frame(double alpha) {
   bool city_view = NRID == 1 && G.t && !strcmp(G.t->theme, "neon");
   if (city_view) { d += 1.2f; at.y += .5f; }
   if (NRID == 1 && G.t && !strcmp(G.t->theme,"candy")) { d += 3; at.y += .7f; }
-  t3_vec3 eye = { at.x - d * 0.16f, at.y + d * (city_view ? .18f : .36f), at.z + d };
-  float cork_roll;
-  if (G.t && G.state == GS_RIDE && track_corkscrew_pose(G.t, bike_get()->x, 0, 0, NULL, &cork_roll)) {
-    /* Keep the lens on the same side of the road as the bike through the
-     * inversion. World-up stays vertical so the rotation reads on screen. */
-    float sn = sinf(cork_roll), cs = cosf(cork_roll);
-    float pull = fmaxf(d, 14.5f);
-    eye = (t3_vec3){ at.x - pull*.23f,
-                      at.y + pull*(.34f*cs-sn),
-                      at.z + pull*(.34f*sn+cs) };
-  }
+  float cork_view = G.state == GS_RIDE ? corkscrew_camera_weight(G.t, at.x, NULL) : 0;
+  t3_vec3 eye = { at.x - d * 0.16f, at.y + d * (city_view ? .18f : .36f - .18f * cork_view), at.z + d };
   if (getenv("BIKEMESA_CAM_34")) eye = (t3_vec3){ at.x - d * 0.75f, at.y + d * 0.5f, d * 0.7f }; /* dev aid: a three-quarter view from ahead */
   if (getenv("BIKEMESA_CAM_TOP")) eye = (t3_vec3){ at.x, at.y + 16, 0.5f }; /* dev aid: from above */
   if (getenv("BIKEMESA_CAM_WIDE")) { /* dev aid: pulled back and level, the distant land in view */
@@ -1011,8 +1011,7 @@ static void replay_camera(cw_node cam, const bike_pose *p, float u,
   /* the torso and the head: in the crash world once the rider is off, else the riding pose at its depth */
   t3_vec3 c = p->ragdoll ? p->limb3[RAG_TORSO].p : (t3_vec3){ p->limb[RAG_TORSO].p.x, p->limb[RAG_TORSO].p.y, p->z };
   t3_vec3 h = p->ragdoll ? p->limb3[RAG_HEAD].p : (t3_vec3){ p->limb[RAG_HEAD].p.x, p->limb[RAG_HEAD].p.y, p->z };
-  float cork_roll = 0;
-  bool cork = !p->ragdoll && track_corkscrew_pose(G.t,p->frame.p.x,c.y,p->z,&c,&cork_roll);
+  bool cork = !p->ragdoll && track_corkscrew_pose(G.t,p->frame.p.x,c.y,p->z,&c,NULL);
   if (cork) {
     c.x=p->limb[RAG_TORSO].p.x;
     t3_vec3 hh;
@@ -1036,10 +1035,6 @@ static void replay_camera(cw_node cam, const bike_pose *p, float u,
   float sy, cy;
   cw_sincos(yaw, &sy, &cy);
   t3_vec3 eye = { at.x + sy * d, at.y + 0.25f - 0.15f * push, at.z + cy * d };
-  if (cork) {
-    eye.y += d*(.28f*cosf(cork_roll)-sinf(cork_roll));
-    eye.z = at.z + d*(.28f*sinf(cork_roll)+cosf(cork_roll));
-  }
   cw_node3d_set_position(cam, eye);
   cw_node3d_look_at(cam, at, (t3_vec3){ 0, 1, 0 });
 }
@@ -2271,8 +2266,12 @@ static void draw_carousel(float W, float H, float s) {
   const char *name = rider ? RIDER_NAMES[G.chr[0]] : paint ? COLOR_NAMES[G.color[0]] : BIKE_NAMES[G.bike[0]];
   title_text(rider ? "CHOOSE YOUR RIDER" : paint ? "CHOOSE YOUR COLOR" : "CHOOSE YOUR BIKE", 0, H * 0.055f, 44 * s,
              rgba(1, 0.67f, 0.22f, 1), CW_ALIGN_CENTER, W);
-  chip(name, W * 0.18f, H * 0.26f, 28 * s, 1);
-  text(name, W * 0.02f, H * 0.26f, 28 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, W * 0.32f);
+  if (rider) {
+    text(name, 18 * s, H - 30 * s, 10 * s, rgba(1, 1, 1, 0.65f), CW_ALIGN_LEFT, 0);
+  } else {
+    chip(name, W * 0.18f, H * 0.26f, 28 * s, 1);
+    text(name, W * 0.02f, H * 0.26f, 28 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, W * 0.32f);
+  }
   cw_rect confirm = confirm_rect(W, H);
   round_rect(confirm, 14 * s, rgba(1, 0.5f, 0.12f, 0.95f));
   text("SELECT", confirm.x, confirm.y + 10 * s, 24 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, confirm.w);
@@ -2305,8 +2304,12 @@ static void draw_player_views(float W, float H, float s) {
     const char *name = st == SLOT_RIDER ? RIDER_NAMES[G.chr[v]] : st == SLOT_COLOR ? COLOR_NAMES[G.color[v]] : BIKE_NAMES[G.bike[v]];
     if (st == SLOT_READY) snprintf(b, sizeof b, "%s %s", COLOR_NAMES[G.color[v]], BIKE_NAMES[G.bike[v]]);
     else snprintf(b, sizeof b, "<   %s   >", name);
-    chip(b, r.x + r.w * 0.5f, r.y + r.h - 76 * k, 24 * k, 1);
-    text(b, r.x, r.y + r.h - 76 * k, 24 * k, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, r.w);
+    if (st == SLOT_RIDER) {
+      text(name, r.x + 14 * k, r.y + r.h - 22 * k, 10 * k, rgba(1, 1, 1, 0.65f), CW_ALIGN_LEFT, 0);
+    } else {
+      chip(b, r.x + r.w * 0.5f, r.y + r.h - 76 * k, 24 * k, 1);
+      text(b, r.x, r.y + r.h - 76 * k, 24 * k, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, r.w);
+    }
     const char *hint = st == SLOT_READY ? "(B) change" : v == 0 ? "(A) select   (B) back" : st == SLOT_RIDER ? "(A) select   (B) leave" : "(A) select   (B) back";
     if (v == 0 && last_device == DEV_KEYS) hint = st == SLOT_READY ? "Esc: change" : "Enter: select   Esc: back";
     text(hint, r.x, r.y + r.h - 36 * k, 18 * k, rgba(1, 0.85f, 0.6f, 0.95f), CW_ALIGN_CENTER, r.w);
