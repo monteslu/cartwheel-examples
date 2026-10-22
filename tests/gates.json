@@ -4926,5 +4926,19 @@
     "controlStartCmds": [
       "track 14"
     ]
+  },
+  {
+    "name": "bikemesa-liberty-leap",
+    "app": "bikemesa_unlocked",
+    "frames": 1850,
+    "input": "bikemesa-pedal-cmd.json",
+    "startCmds": ["track 18"],
+    "controlFrames": 1100,
+    "controlStartCmds": ["track 18"],
+    "fields": ["game.state", "game.track", "finished", "crashes", "checkpoint", "score", "tricks", "hoop.hits", "bike.pos", "state.hash"],
+    "expect": { "game.state": 5, "game.track": 18, "finished": 1, "crashes": 0, "checkpoint": 3, "hoop.hits": 1 },
+    "maxGt16": 0.05,
+    "webgpu": { "vsGl": 0.25, "maxGt16": 0.05, "hosts": ["native", "romdev", "chromium"] },
+    "note": "Liberty Leap: pedal over the buses, pass through the flaming hoop, and finish without a crash. The earlier control ends before the finish."
   }
 ]

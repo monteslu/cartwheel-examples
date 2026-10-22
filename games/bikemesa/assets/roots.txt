@@ -19,6 +19,7 @@ scenes/track14.cwscene
 scenes/track15.cwscene
 scenes/track16.cwscene
 scenes/track17.cwscene
+scenes/track18.cwscene
 grades/alpine.cube
 grades/autumn.cube
 grades/beach.cube
@@ -42,6 +43,7 @@ audio/land.wav
 audio/locked.wav
 audio/music.ogg
 audio/music_circus.ogg
+audio/music_stunt.ogg
 audio/music_beach.ogg
 audio/music_mars.ogg
 audio/music_moon.ogg

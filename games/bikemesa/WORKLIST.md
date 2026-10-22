@@ -2322,3 +2322,14 @@ Candy performance before latest bear correction: `out/candy-depth-perf/results.j
   black long sleeve shirt and full dark blue denim pants without cargo
   pockets. Tested the selection flow and rider fit on the cruiser in romdev
   WebGPU: `out/bikemesa-rider3-denim.png`.
+
+### 2026-10-22 — Liberty Leap
+
+- Added track 18, a deliberately excessive arena stunt show with two boosted
+  gaps over four school buses, a flaming hoop over the second jump, American
+  flags, grandstands and an original synthesized brass-band march.
+- The camera frames the rider and buses together during both jumps. A pass
+  through the hoop scores 1200 points after the rider clears the ring.
+- Save version 10 migrates the previous 17-track save without losing scores
+  or graphics settings. The new Liberty Leap gate finishes with zero crashes
+  and one hoop hit on native GL, native WebGPU and romdev WebGPU.

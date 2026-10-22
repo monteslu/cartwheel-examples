@@ -101,6 +101,9 @@ Circus music: Julius Fučík, Entrance of the Gladiators (1897).
   BikeMesa edit: mono 32kHz / 48kbps Vorbis; 0.75-second circular tail overlap.
   Reproduction: tools/make-circus-music.py (checks source SHA-256).
 
+Liberty Leap music: original brass-band march synthesized by
+  tools/make-stunt-music.py. No source recording or borrowed melody.
+
 Spirit and Opportunity rover model: NASA.
 https://science.nasa.gov/resource/spirit-and-opportunity-rover-3d-model/
 Source: 24883_MER_static.glb. Reduced geometry and texture resolution for BikeMesa.

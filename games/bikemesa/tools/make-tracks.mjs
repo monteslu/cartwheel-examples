@@ -76,6 +76,8 @@ export const THEMES = {
     amb: [1, 0.75, 0.55], hemi: 0.4, tonemap: 'AGX', exposure: 1.0, grade: 'mars' },
   circus: { tod: 16.2, lat: 30, north: 75, sun: 5.0, sky: 1.0, mie: 0.8, fog: 0.0025, fogh: 0.06, ground: [0.35, 0.16, 0.25],
     amb: [1, 0.85, 0.75], hemi: 0.45, tonemap: 'AGX', exposure: 1.05, grade: 'beach' },
+  stuntshow: { tod: 14.5, lat: 35, north: 70, sun: 6.4, sky: 1.0, mie: 0.65, fog: 0.002, fogh: 0.04, ground: [0.3, 0.32, 0.38],
+    amb: [1, 0.92, 0.82], hemi: 0.38, tonemap: 'AGX', exposure: 1.0, grade: 'beach' },
   candy: { tod: 10.8, lat: 25, north: 85, sun: 5.2, sky: 1.0, mie: 0.7, fog: 0.003, fogh: 0.05, ground: [0.6, 0.35, 0.5],
     amb: [1, 0.85, 0.95], hemi: 0.5, tonemap: 'AGX', exposure: 1.0, grade: 'beach' },
   toybox: { tod: 15.5, lat: 35, north: 70, sun: 5.4, sky: 0.95, mie: 0.8, fog: 0.003, fogh: 0.06, ground: [0.3, 0.35, 0.5],
@@ -245,6 +247,16 @@ export const TRACKS = [
     ['slope', 18, -5], ['boost', 14], ['flat', 10], ['corkscrew', 48, 2.7, -1], ['flat', 12], ['check'],
     ['rollers', 3, 0.7, 8], ['slope', 16, -4], ['kicker', 8, 2.1], ['gap', 13, -3], ['landing', 18, 4],
     ['flat', 12], ['finish'], ['flat', 60],
+  ] },
+  // A shameless arena stunt show: two bus leaps and a fiery hoop above the
+  // second gap. Boosted run-ups let the bike clear the parked buses.
+  { name: 'Liberty Leap', theme: 'stuntshow', par: 38, ready: true, music: 'music_stunt', pieces: [
+    ['flat', 18], ['slope', 18, -3], ['flat', 12], ['check'],
+    ['boost', 18], ['flat', 10], ['kicker', 10, 3.2], ['pit', 20, -4], ['landing', 22, 4], ['flat', 12], ['check'],
+    ['rollers', 3, 0.55, 8], ['slope', 14, -3], ['boost', 18], ['flat', 10],
+    ['kicker', 11, 3.6], ['pit', 24, -4], ['landing', 24, 4], ['flat', 12], ['check'],
+    ['slope', 18, -4], ['boost', 12], ['flat', 10], ['kicker', 8, 1.6], ['gap', 10, -2], ['landing', 16, 3],
+    ['flat', 14], ['finish'], ['flat', 60],
   ] },
 
 ];

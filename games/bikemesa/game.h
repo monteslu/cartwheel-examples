@@ -17,7 +17,7 @@
 #define GAME_TITLE "BikeMesa"
 
 #define TICK_HZ 60
-#define BIKEMESA_TRACKS_MAX 17
+#define BIKEMESA_TRACKS_MAX 18
 #define MAX_POPUPS 16
 #define TRACK_HALF_W 2.0f   /* the riding surface spans z -W..W */
 /* four lanes across it: lane 0 at the back (-z),

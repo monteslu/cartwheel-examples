@@ -109,6 +109,8 @@ static const theme THEMES[] = {
     { 0.5f, 0.9f, 0.75f }, { 1, 0.5f, 0.8f }, 3, 0.45f },
   { "toybox", TEX_WOOD, TEX_WOOD, TEX_ROCK, { 1, 0.8f, 0.5f }, { 0.3f, 0.5f, 0.8f }, { 0.55f, 0.65f, 0.85f },
     { 0.6f, 0.7f, 0.9f }, { 0.9f, 0.6f, 0.25f }, 2, 0.6f },
+  { "stuntshow", TEX_ASPHALT, TEX_CONCRETE, TEX_GRASS, { 0.82f, 0.84f, 0.9f }, { 0.57f, 0.59f, 0.64f }, { 0.5f, 0.6f, 0.5f },
+    { 0.65f, 0.72f, 0.55f }, { 0.8f, 0.75f, 0.55f }, 3, 0.72f },
 
 };
 /* themes where nothing grows along the track */
@@ -730,6 +732,7 @@ static float bank_y(float x, float z, int kind) {
   near = track_height_at(x, &f);
   if (!f) near = ground_at(x);
   float base = near + (ground_at(x) - near) * cw_clampf(d / 4, 0, 1);
+  if (kind == 3) return base - .08f - 3.5f * cw_clampf(d / 4, 0, 1);
   if (kind == 2) return near + (ground_at(x) - near) * cw_clampf(d / 1.2f, 0, 1) - 1.8f * cw_clampf(d / 1.2f, 0, 1);
   float und = 1.6f * cw_sin(x * 0.11f + z * 0.07f) + 0.9f * cw_sin(x * 0.27f - z * 0.19f + 1.3f) + 0.35f * cw_sin(x * 0.9f + z * 0.6f);
   float dd = d < 10 ? d : 10, far = d > 10 ? d - 10 : 0;
@@ -765,7 +768,7 @@ static void bank(t3_object *root, const track_desc *t, const theme *th) {
   /* the bank: the riding surface's ground, paler (dust and sun) */
   float pale[3] = { th->top[0] * 1.08f, th->top[1] * 1.06f, th->top[2] * 1.02f };
   int bank_tex = th->top_tex;
-  if (!strcmp(th->name,"neon")) {
+  if (!strcmp(th->name,"neon") || !strcmp(th->name,"stuntshow")) {
     bank_tex=TEX_ASPHALT;
     pale[0]=.22f;pale[1]=.25f;pale[2]=.30f;
   }
@@ -782,9 +785,9 @@ static void bank(t3_object *root, const track_desc *t, const theme *th) {
       float x = x0 + i * 1.0f;
       for (int j = j0; j < j1; j++) {
         float z = -TRACK_HALF_W - 0.3f - BANK_ZS[j];
-        float y = bank_y(x, z, th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0) - (j == 0 ? 0.08f : 0);
-        float yx = bank_y(x + 0.5f, z, th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0) - bank_y(x - 0.5f, z, th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0);
-        float yz = bank_y(x, z + 0.5f, th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0) - bank_y(x, z - 0.5f, th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0);
+        float y = bank_y(x, z, bank_kind) - (j == 0 ? 0.08f : 0);
+        float yx = bank_y(x + 0.5f, z, bank_kind) - bank_y(x - 0.5f, z, bank_kind);
+        float yz = bank_y(x, z + 0.5f, bank_kind) - bank_y(x, z - 0.5f, bank_kind);
         mb_v(&b, (t3_vec3){ x, y, z }, (t3_vec3){ -yx, 1, -yz }, x / 5, z / 5, 1);
         if (i > 0 && j > j0) {
           int a = (i - 1) * nz + j - j0 - 1, c = i * nz + j - j0 - 1;
@@ -2697,6 +2700,110 @@ static cw_node particles(cw_node parent, const char *name, const char *const *kv
   return n;
 }
 
+/* A deliberately excessive arena show: yellow buses in the two gaps, a
+ * flaming hoop over the second, and little red-white-blue grandstands. */
+static t3_mesh *stunt_part(t3_object *root, t3_geometry *g, t3_material *m,
+                           float x, float y, float z, float sx, float sy, float sz) {
+  t3_mesh *part = add(root, g, m, true);
+  part->base.position = (t3_vec3){ x, y, z };
+  part->base.scale = (t3_vec3){ sx, sy, sz };
+  return part;
+}
+static t3_material *stunt_color(float r, float g, float b, float light) {
+  t3_material *m = t3_mesh_standard_material_new(0xffffff);
+  m->color = lin(r, g, b);
+  m->roughness = .66f;
+  if (light > 0) { m->emissive = lin(r, g, b); m->emissive_intensity = light; }
+  return m;
+}
+static void stuntshow_build(t3_object *root, const track_desc *t) {
+  if (strcmp(t->theme, "stuntshow")) return;
+  t3_geometry *box = t3_box_geometry_new(1, 1, 1, 1, 1, 1);
+  t3_geometry *wheel = t3_cylinder_geometry_new(.43f, .43f, .19f, 12, 1, false);
+  t3_geometry *hoop = t3_torus_geometry_new(2.45f, .17f, 10, 48, 6.2831853f);
+  t3_geometry *flame = t3_cone_geometry_new(1, 1, 7, 1, false);
+  t3_material *yellow = stunt_color(1, .72f, .045f, 0);
+  t3_material *black = stunt_color(.025f, .035f, .055f, 0);
+  t3_material *glass = stunt_color(.13f, .28f, .4f, 0);
+  t3_material *red = stunt_color(.88f, .045f, .055f, 0);
+  t3_material *white = stunt_color(.94f, .93f, .84f, 0);
+  t3_material *blue = stunt_color(.035f, .12f, .63f, 0);
+  t3_material *gold = stunt_color(1, .42f, .015f, 4);
+  t3_material *fire = stunt_color(1, .1f, .015f, 3);
+  float hoop_x = 0, hoop_y = 0;
+  int gaps = 0;
+  for (int p = 0; p + 1 < t->piece_count && gaps < 2; p++) {
+    const track_piece *a = &t->pieces[p], *b = &t->pieces[p + 1];
+    float x0 = a->pts[(a->count - 1) * 2], x1 = b->pts[0];
+    if (x1 - x0 < 12) continue;
+    float lip_y = a->pts[(a->count - 1) * 2 + 1];
+    float exit_y = b->pts[1];
+    float bus_y = exit_y + .1f;
+    for (int j = 0; j < 2; j++) {
+      float x = x0 + (j + .5f) * (x1 - x0) / 2;
+      /* Slightly staggered full-size school buses fill the void below the rider. */
+      stunt_part(root, box, yellow, x, bus_y, -.12f, 8.4f, 2.25f, 2.2f);
+      stunt_part(root, box, yellow, x - .05f, bus_y + 1.13f, -.12f, 7.85f, .3f, 2.05f);
+      stunt_part(root, box, black, x, bus_y - .65f, 1.01f, 8.25f, .13f, .025f);
+      for (int w = 0; w < 6; w++)
+        stunt_part(root, box, glass, x - 3.1f + w * 1.22f, bus_y + .46f, 1.005f, .91f, .73f, .035f);
+      for (int w = 0; w < 2; w++) for (int side = -1; side <= 1; side += 2) {
+        t3_mesh *wh = stunt_part(root, wheel, black, x + (w ? 2.95f : -2.95f), bus_y - 1.08f, side * 1.18f, 1, 1, 1);
+        t3_object_set_rotation(&wh->base, 1.5707963f, 0, 0);
+      }
+      stunt_part(root, box, white, x + 4.23f, bus_y + .16f, 0, .055f, .46f, 1.6f);
+      stunt_part(root, box, red, x - 4.23f, bus_y + .16f, 0, .055f, .28f, 1.6f);
+      stunt_part(root, box, black, x + 3.05f, bus_y + .48f, 1.045f, .65f, .65f, .06f); /* folding door */
+    }
+    if (gaps == 1) { hoop_x = (x0 + x1) * .5f; hoop_y = lip_y + 8.6f; }
+    gaps++;
+  }
+  if (gaps > 1) {
+    stunt_part(root, hoop, gold, hoop_x, hoop_y, -.2f, 1, 1, 1);
+    for (int i = 0; i < 32; i++) {
+      float a = i * 6.2831853f / 32;
+      float x = hoop_x + 2.45f * cosf(a), y = hoop_y + 2.45f * sinf(a);
+      t3_mesh *f = stunt_part(root, flame, i & 1 ? fire : gold, x, y, -.02f,
+                              .22f, .55f + .16f * sinf(i * 3.7f), .17f);
+      t3_object_set_rotation(&f->base, 0, 0, a - 1.5707963f);
+    }
+  }
+  for (int i = 0; i < 18; i++) {
+    float x = 10 + i * 17.5f, y = track_height_at(x, NULL);
+    for (int side = -1; side <= 1; side += 2) {
+      float z = side * 6.5f;
+      stunt_part(root, box, black, x, y + 2.25f, z, .08f, 4.5f, .08f);
+      stunt_part(root, box, white, x + 1.05f, y + 3.65f, z, 2.1f, .96f, .045f);
+      for (int stripe = 0; stripe < 4; stripe++)
+        stunt_part(root, box, red, x + 1.05f, y + 4.06f - stripe * .25f, z + .035f,
+                   2.1f, .1f, .024f);
+      stunt_part(root, box, blue, x + .43f, y + 3.9f, z + .065f, .86f, .48f, .025f);
+      for (int star = 0; star < 6; star++)
+        stunt_part(root, box, white, x + .14f + (star % 3) * .25f,
+                   y + 4.02f - (star / 3) * .22f, z + .085f, .055f, .055f, .01f);
+    }
+  }
+  /* Simple grandstands along the rear side keep the arena visible from the
+   * side camera without masking the jump. */
+  for (int stand = 0; stand < 3; stand++) {
+    float x = 82 + stand * 105, y = ground_at(x) - 1.5f;
+    for (int support = -1; support <= 1; support++)
+      stunt_part(root, box, black, x + support * 14, y - 1.05f, -22.2f,
+                 .34f, 2.2f, 4.3f);
+    for (int row = 0; row < 4; row++) {
+      t3_material *c = row % 3 == 0 ? red : row % 3 == 1 ? white : blue;
+      stunt_part(root, box, c, x, y + row * 1.1f, -20.5f - row * 1.15f, 34, .3f, 1.2f);
+      for (int seat = 0; seat < 12; seat++)
+        stunt_part(root, box, seat % 3 == 0 ? blue : seat % 3 == 1 ? red : white,
+                   x - 15 + seat * 2.7f, y + row * 1.1f + .65f, -20.5f - row * 1.15f,
+                   .55f, 1.0f, .35f);
+    }
+  }
+  t3_release(box); t3_release(wheel); t3_release(hoop); t3_release(flame);
+  t3_release(yellow); t3_release(black); t3_release(glass); t3_release(red);
+  t3_release(white); t3_release(blue); t3_release(gold); t3_release(fire);
+}
+
 void view_build(cw_node parent, const track_desc *t, int track_index) {
   discovery_parent=parent;
   chocolate_parent=parent;chocolate_track=t;
@@ -2704,7 +2811,7 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
   chocolate_marks=0;cw_debug_i32("chocolate.marks",&chocolate_marks);
   const theme *th = theme_for(t->theme);
   S = (uint32_t)(track_index + 1) * 2654435761u + 11;
-  bank_kind = th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0;
+  bank_kind = !strcmp(th->name, "stuntshow") ? 3 : th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0;
   t3_object *root = t3_group_new();
   ground_build(t);
   ribbon(root, t, th);
@@ -2712,12 +2819,15 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
   bank(root, t, th);
   markers(root, t);
   int still0 = root->child_count;
-  landforms(root, t, th, !backdrop_build(parent, t, track_index));
-  if (strcmp(th->name, "neon")) fill(root, t, th);
-  props(root, t, th);
-  props2(root, t, th);
+  if (strcmp(th->name, "stuntshow")) {
+    landforms(root, t, th, !backdrop_build(parent, t, track_index));
+    if (strcmp(th->name, "neon")) fill(root, t, th);
+    props(root, t, th);
+    props2(root, t, th);
+  }
   int chocolate_first=root->child_count;
   whimsical_props(root, t, th);
+  stuntshow_build(root, t);
   chocolate_colliders_build(root,chocolate_first,t);
   loose_toys_build(root,t);
   chocolate_fx_build(root,t);

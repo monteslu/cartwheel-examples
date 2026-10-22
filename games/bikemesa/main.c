@@ -79,9 +79,10 @@ const track_desc *track_get(int i) { return i >= 0 && i < (int)CW_ARRAY_LEN(TRAC
 #define LAND_PERFECT 0.12f
 #define LAND_CLEAN 0.35f
 #define SAVE_MAGIC 0x534D4B42u /* 'BKMS' */
-#define SAVE_VERSION 9
+#define SAVE_VERSION 10
 #define SAVE_V3_SIZE 204
 #define SAVE_V8_SIZE 208
+#define SAVE_V9_SIZE 220
 #define STAR2 3000 /* a run's score for the second star */
 #define STAR3 8000
 
@@ -91,6 +92,8 @@ save_data SAVE;
 typedef struct rider_t {
   int32_t crashes, checkpoint, score, flips, tricks, finished;
   uint32_t cork_done;
+  bool hoop_done, hoop_award;
+  int32_t hoop_hits;
   int32_t landings, air_max, resets, combo, combo_max;
   /* landings by quality, landings in a pose, the trick the third star wants, this air's points, the air tricks' points banked */
   int32_t perfects, sketchy, bails, star3_trick, pending, banked;
@@ -355,7 +358,16 @@ static void save_check(void) {
   if (SAVE.magic == SAVE_MAGIC && SAVE.version == 8 && SAVE.size == SAVE_V8_SIZE && SAVE.checksum == save_sum()) {
     uint32_t old_quality;
     memcpy(&old_quality, (const uint8_t *)&SAVE + 204, sizeof old_quality);
-    memset(&SAVE.tr[16], 0, sizeof SAVE.tr[16]);
+    memset(&SAVE.tr[16], 0, 2 * sizeof SAVE.tr[16]);
+    SAVE.quality = old_quality;
+    SAVE.version = SAVE_VERSION;
+    SAVE.size = (uint16_t)sizeof SAVE;
+    SAVE.checksum = save_sum();
+  }
+  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 9 && SAVE.size == SAVE_V9_SIZE && SAVE.checksum == save_sum()) {
+    uint32_t old_quality;
+    memcpy(&old_quality, (const uint8_t *)&SAVE + 216, sizeof old_quality);
+    memset(&SAVE.tr[17], 0, sizeof SAVE.tr[17]);
     SAVE.quality = old_quality;
     SAVE.version = SAVE_VERSION;
     SAVE.size = (uint16_t)sizeof SAVE;
@@ -853,6 +865,24 @@ static float corkscrew_camera_weight(const track_desc *t, float x, float *axis_y
   return weight;
 }
 
+/* Keep the buses and the rider in one shot while the launch carries the bike
+ * several metres above the stunt arena floor. */
+static float stunt_camera_weight(const track_desc *t, float x, float *target_y) {
+  if (!t || strcmp(t->theme, "stuntshow")) return 0;
+  float weight = 0;
+  for (int i = 0; i + 1 < t->piece_count; i++) {
+    const track_piece *a = &t->pieces[i], *b = &t->pieces[i + 1];
+    float x0 = a->pts[(a->count - 1) * 2], x1 = b->pts[0];
+    if (x1 - x0 < 12) continue;
+    float w = cw_smoothstep(x0 - 32, x0 - 10, x) * (1 - cw_smoothstep(x1 + 12, x1 + 38, x));
+    if (w > weight) {
+      weight = w;
+      if (target_y) *target_y = a->pts[(a->count - 1) * 2 + 1] + 4;
+    }
+  }
+  return weight;
+}
+
 static void camera_tick(void) {
   const bike_state *b = bike_get();
   float speed = sqrtf(b->vx * b->vx + b->vy * b->vy);
@@ -879,6 +909,10 @@ static void camera_tick(void) {
     float near = corkscrew_camera_weight(G.t, b->x, &axis_y);
     at.y += (axis_y - at.y) * near;
     dist += (fmaxf(dist, 16.0f) - dist) * near;
+    float stunt_y = 0;
+    near = stunt_camera_weight(G.t, b->x, &stunt_y);
+    at.y += (stunt_y - at.y) * near;
+    dist += (fmaxf(dist, 24.0f) - dist) * near;
   }
   if (getenv("BIKEMESA_CAM_CLOSE")) { /* dev aid: a close look at the bike */
     dist = 2.6f;
@@ -939,7 +973,8 @@ static void camera_frame(double alpha) {
   if (city_view) { d += 1.2f; at.y += .5f; }
   if (NRID == 1 && G.t && !strcmp(G.t->theme,"candy")) { d += 3; at.y += .7f; }
   float cork_view = G.state == GS_RIDE ? corkscrew_camera_weight(G.t, at.x, NULL) : 0;
-  t3_vec3 eye = { at.x - d * 0.16f, at.y + d * (city_view ? .18f : .36f - .18f * cork_view), at.z + d };
+  float stunt_view = G.state == GS_RIDE ? stunt_camera_weight(G.t, at.x, NULL) : 0;
+  t3_vec3 eye = { at.x - d * 0.16f, at.y + d * (city_view ? .18f : .36f - .18f * cork_view - .13f * stunt_view), at.z + d };
   if (getenv("BIKEMESA_CAM_34")) eye = (t3_vec3){ at.x - d * 0.75f, at.y + d * 0.5f, d * 0.7f }; /* dev aid: a three-quarter view from ahead */
   if (getenv("BIKEMESA_CAM_TOP")) eye = (t3_vec3){ at.x, at.y + 16, 0.5f }; /* dev aid: from above */
   if (getenv("BIKEMESA_CAM_WIDE")) { /* dev aid: pulled back and level, the distant land in view */
@@ -1285,6 +1320,7 @@ static void init(void *u) {
   cw_debug_i32("score", &P->score);
   cw_debug_i32("flips", &P->flips);
   cw_debug_i32("tricks", &P->tricks);
+  cw_debug_i32("hoop.hits", &P->hoop_hits);
   cw_debug_i32("landings", &P->landings);
   cw_debug_i32("air.max", &P->air_max);
   cw_debug_i32("resets", &P->resets);
@@ -1542,6 +1578,24 @@ static void ride_post(void) {
       P->cork_done |= 1u << i;
       trick(c[4] > 0 ? "CORKSCREW" : "REVERSE CORKSCREW", 800);
       game_sfx(SFX_TRICK, .9f);
+    }
+  }
+  if (b->alive && !G.attract && !strcmp(G.t->theme, "stuntshow") && G.t->piece_count > 2) {
+    const track_piece *before_hoop = &G.t->pieces[1], *after_hoop = &G.t->pieces[2];
+    float lip_x = before_hoop->pts[(before_hoop->count - 1) * 2];
+    float hoop_x = (lip_x + after_hoop->pts[0]) * .5f;
+    float hoop_y = before_hoop->pts[(before_hoop->count - 1) * 2 + 1] + 8.6f;
+    if (!P->hoop_done && b->x >= hoop_x) {
+      P->hoop_done = true;
+      P->hoop_award = b->x < hoop_x + 2 && fabsf(b->y - hoop_y) < 2.15f;
+    }
+    /* Announce it after the bike clears the ring, so the popup does not hide
+     * the stunt itself. */
+    if (P->hoop_award && b->x >= hoop_x + 4) {
+      P->hoop_award = false;
+      P->hoop_hits++;
+      trick("FLAMING HOOP", 1200);
+      game_sfx(SFX_TRICK, 1);
     }
   }
   if (P->combo_ticks > 0 && --P->combo_ticks == 0) P->combo = 0;
