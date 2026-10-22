@@ -91,7 +91,7 @@ export const TRACKS = [
     ['flat', 8], ['boost', 8], ['flat', 12], ['loop', 3.5], ['flat', 8],
     ['slope', 12, 3.5], ['flat', 4], ['bump', 8, 1.2], ['slope', 16, -5], ['boost', 10], ['flat', 12],
     ['kicker', 7, 1.8], ['gap', 9, -2.5], ['landing', 14, 3.5], ['flat', 6], ['check'],
-    ['rollers', 4, 0.9, 7], ['pinch', 40, 1, 2], ['dip', 14, 2.0], ['flat', 6], ['kicker', 5, 1.2], ['gap', 5, -0.5], ['landing', 8, 1.5],
+    ['rollers', 4, 0.9, 7], ['pinch', 40, 1, 3], ['dip', 14, 2.0], ['flat', 6], ['kicker', 5, 1.2], ['gap', 5, -0.5], ['landing', 8, 1.5],
     ['slope', 20, -6], ['flat', 10], ['kicker', 7, 2.2], ['gap', 6, -1.0], ['landing', 10, 3], ['flat', 8], ['check'],
     ['slope', 14, -4], ['boost', 12], ['flat', 14], ['kicker', 9, 2.6], ['gap', 18, -3.5], ['landing', 16, 4],
     ['flat', 8], ['finish'], ['flat', 60],

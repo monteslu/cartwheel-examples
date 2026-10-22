@@ -579,6 +579,7 @@ static int32_t dbg_hops, dbg_loops, dbg_pose, dbg_poses, dbg_quality;
  * the ground (a short slide across); not in the air. */
 static int32_t dbg_lanes[MAX_RIDERS], dbg_bumps, dbg_lane_changes;
 static float dbg_race_x[MAX_RIDERS];
+static float dbg_race_z[MAX_RIDERS];
 static int32_t dbg_race_crashes[MAX_RIDERS];
 static void use_rider(int i) {
   P = &RD[i];
@@ -620,10 +621,12 @@ static void lane_input(void) {
   const bike_state *b = bike_get();
   int ly = cw_action_pressed(PL, G.a_up) ? -1 : cw_action_pressed(PL, G.a_down) ? 1 : 0; /* up: a lane further back */
   if (cw_action_pressed(PL, G.a_pose)) ly = 0; /* (Y) + up is a pose */
-  bool fresh = ly != 0 && ly != P->prev_ly;
+  if (!ly) { P->prev_ly = 0; return; }
+  if (ly == P->prev_ly || P->lane_t > 0 || !b->alive) return;
+  /* Keep a press made during a jump or the previous lane change pending until
+   * the bike can move. Consuming it here made up/down appear unresponsive. */
+  if (!b->grounded_rear && !b->grounded_front) return;
   P->prev_ly = ly;
-  if (!fresh || P->lane_t > 0 || !b->alive) return;
-  if (!b->grounded_rear && !b->grounded_front) return; /* not in the air */
   int to = P->lane_to + ly;
   bool closed = false; /* a lane that is shut here, or shuts just ahead */
   for (float ax = 0; ax <= 3; ax += 1) closed |= !track_lane_open(G.t, b->x + ax, to);
@@ -1283,6 +1286,7 @@ static void init(void *u) {
   cw_debug_field("race.lanes", dbg_lanes, CW_DBG_I32, MAX_RIDERS);
   cw_debug_i32("race.bumps", &dbg_bumps);
   cw_debug_f32_array("race.x", dbg_race_x, MAX_RIDERS);
+  cw_debug_f32_array("race.z", dbg_race_z, MAX_RIDERS);
   cw_debug_field("race.crashes", dbg_race_crashes, CW_DBG_I32, MAX_RIDERS);
   cw_debug_i32("race.lane_changes", &dbg_lane_changes);
 
@@ -1723,6 +1727,7 @@ static void mp_tick(void) {
     camera_tick();
     dbg_lanes[i] = P->lane_to;
     dbg_race_x[i] = bike_get()->x;
+    dbg_race_z[i] = rider_z(i);
     dbg_race_crashes[i] = P->crashes;
     x0 = fminf(x0, bike_get()->x), x1 = fmaxf(x1, bike_get()->x);
     y0 = fminf(y0, bike_get()->y), y1 = fmaxf(y1, bike_get()->y);
@@ -1985,6 +1990,10 @@ static void fixed(void *u, double dt) {
     if (G.state == GS_RIDE) lane_input(), auto_lane();
     ride_tick(in2);
     if (P->lane_t > 0 && ++P->lane_t > LANE_TICKS) P->lane_t = 0;
+    dbg_lanes[0] = P->lane_to;
+    dbg_race_x[0] = bike_get()->x;
+    dbg_race_z[0] = rider_z(0);
+    dbg_race_crashes[0] = P->crashes;
     bike_pose_get(1, &ring[0][P->ring_n % RING]);
     bike_deer_visual_poses(1,deer_ring[0][P->ring_n % RING]);
     P->ring_n++;

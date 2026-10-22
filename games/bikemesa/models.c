@@ -1065,6 +1065,7 @@ void models_refresh(int idx) {
 static void models_sync_rider_(const bike_pose *p, float z) {
   if (p->ragdoll) { /* a crash: every piece where the crash world has it (world space) */
     if (cw_node_valid(M.node)) cw_node3d_set_position(M.node, (t3_vec3){ 0, 0, 0 });
+    if (cw_node_valid(M.node)) cw_node3d_set_rotation(M.node, (t3_vec3){ 0, 0, 0 });
     M.root->position = (t3_vec3){ 0, 0, 0 };
     t3_object_set_rotation(M.root, 0, 0, 0);
     put3(M.frame, p->frame3);
@@ -1095,12 +1096,15 @@ static void models_sync_rider_(const bike_pose *p, float z) {
   t3_vec3 transformed;
   float roll;
   if (track_corkscrew_pose(model_track, p->frame.p.x, 0, z, &transformed, &roll)) {
-    if (cw_node_valid(M.node)) cw_node3d_set_position(M.node, (t3_vec3){ 0, 0, 0 });
-    M.root->position = (t3_vec3){ 0, transformed.y, transformed.z };
+    t3_vec3 pos = { 0, transformed.y, transformed.z };
+    if (cw_node_valid(M.node)) cw_node3d_set_position(M.node, pos);
+    if (cw_node_valid(M.node)) cw_node3d_set_rotation(M.node, (t3_vec3){ roll, 0, 0 });
+    M.root->position = pos;
     t3_object_set_rotation(M.root, roll, 0, 0);
   } else {
     if (cw_node_valid(M.node)) cw_node3d_set_position(M.node, (t3_vec3){ 0, 0, z });
-    M.root->position = (t3_vec3){ 0, 0, 0 };
+    if (cw_node_valid(M.node)) cw_node3d_set_rotation(M.node, (t3_vec3){ 0, 0, 0 });
+    M.root->position = (t3_vec3){ 0, 0, z };
     t3_object_set_rotation(M.root, 0, 0, 0);
   }
   put(M.frame, p->frame);
