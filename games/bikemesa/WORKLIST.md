@@ -2258,3 +2258,67 @@ Candy performance before latest bear correction: `out/candy-depth-perf/results.j
   to frame 1600 reaches x=143.08 with no deer hit or crash. No GPU or shader
   errors on these runs. The cross-host gate waited on another GPU suite owner,
   so its CI run remains the release check.
+
+### 2026-10-22 — Powder Line ski jump and Storm Cliffs path clouds
+
+- Powder Line's final boosted jump now has a 12 m rising ramp, a real 24 m
+  open crevasse (`pit`, rather than the solid `gap` tabletop), and a 20 m
+  downhill landing. The course is 471 m. Romdev WebGPU pedal only reaches
+  the finish with zero crashes and resets, so a precisely timed hop is not
+  required. `out/powder-ski-lip.png` and `out/powder-ski-gap.png` show the
+  approach and flight; `out/powder-ski-jump.json` records the full clear.
+- Storm Cliffs has two small, dense, fixed sea clouds centered at x=118 and
+  x=316. Each is a 24 x 6 x 15 m ellipsoid crossing the riding line. The
+  first obscures the approach to the midcourse kicker; the second obscures
+  a stretch before the final ramp. The surrounding scenery remains visible.
+  Clouds are hidden when every rider is more than 28 m away, and at Low
+  effects quality or more than two views, to avoid the volumetric pass for
+  most of the level.
+- Romdev WebGPU captures `out/storm-path-cloud-final-approach.png` and
+  `out/storm-path-cloud-second-final.png` were inspected. The final 2800-frame
+  pedal run reaches the finish with zero crashes, resets, GPU errors, skipped
+  draws and missing shader states (`out/storm-path-cloud-finish-final.json`).
+  The release build of all three BikeMesa carts succeeds, and a romdev WebGPU
+  smoke run on the final release cart reaches the first cloud with zero GPU
+  or missing shader errors (`out/storm-cloud-final-release.json`). No
+  performance speedup claim: no controlled timing comparison was run.
+
+### 2026-10-22 — Selectable cruiser and mid-bar e-bike
+
+- Added separate 26-inch cruiser and 27.5-inch e-bike frames alongside the
+  16-inch folding bike. Cruiser details follow the supplied photo: curved
+  red-style frame, cream tank and whitewalls, concentric front hub, rear fan
+  trim, carrier rack, fenders, lamp and streamers. The e-bike follows the
+  newer mid-bar photo, with the top tube joining low on the seat tube; it
+  has a down-tube battery, black rims, disc rings, cables, lights and a
+  rear hub motor. All frame paint can be green, red, blue, yellow, orange,
+  purple, black or white.
+- The selection flow is rider, frame, color. Wheel radii, axles, saddle,
+  bars and rider pose points are shared between rendering and Box2D. Cruiser
+  fit is more upright; the e-bike fit leans forward. Driving forces and grip
+  have not been separately tuned by model yet.
+- Romdev WebGPU inspected both models riding and both rider builds in the
+  color picker, including a red mid-bar e-bike selected using the menu.
+  Pedaled 320-frame captures for cruiser and e-bike have no crashes or GPU
+  errors. The final mid-bar moving frame reports 105 draw calls. Captures:
+  `out/bikemesa-cruiser-moving.png`, `out/bikemesa-ebike-midbar.png`,
+  `out/bikemesa-ebike-color-menu.png`, `out/bikemesa-slim-ebike.png`,
+  `out/bikemesa-slim-cruiser.png`. Native and cart-wgpu builds pass;
+  `git diff --check` is clean.
+
+### 2026-10-22 — Change Bike menu, cruiser bars, and third rider
+
+- Added a direct Change Bike action to the pause menu, track select and the
+  finish screen. Returning to selection opens at the frame choice and keeps
+  the existing rider, frame and color picks. Romdev WebGPU pad input went
+  from a paused ride through Change Bike to the selector without relaunching;
+  captures: `out/bikemesa-change-bike-menu.png` and
+  `out/bikemesa-change-bike-pause.png`.
+- Replaced the cruiser bar's straight T with two raised, backswept 3D arms
+  and separate grips, using the supplied bike photo and the published 200 mm
+  rise of Electra's Attitude cruiser bar as references. See
+  `out/bikemesa-cruiser-y-bar.png`.
+- Rider 3 is the regular rider's build with Rider 2's uncovered hair, a
+  black long sleeve shirt and full dark blue denim pants without cargo
+  pockets. Tested the selection flow and rider fit on the cruiser in romdev
+  WebGPU: `out/bikemesa-rider3-denim.png`.

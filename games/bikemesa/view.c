@@ -2604,7 +2604,9 @@ static void merge_still(t3_object *root, int a, int b, bool city) {
  * FogVolume3D of drifting ground mist that rides along with the rider. Both
  * cost a pass per view: they are on from Medium effects detail up and with
  * one or two views, and analytic fog stands in otherwise (view_fx). */
-static cw_node hfog, mist;
+static cw_node hfog, mist, coast_fog[2];
+static const float coast_fog_centers[2] = { 118, 316 };
+static bool coast_fog_visible[2];
 static bool hfog_vol;
 static float mist_density;
 static int fx_views = 1;
@@ -2617,10 +2619,34 @@ static bool find_fog(cw_node n, void *u) {
   }
   return true;
 }
-static void fog_build(cw_node parent, const theme *th) {
+static void fog_build(cw_node parent, const theme *th, int track_index) {
   hfog = mist = (cw_node){ 0 };
+  coast_fog[0] = coast_fog[1] = (cw_node){ 0 };
+  coast_fog_visible[0] = coast_fog_visible[1] = false;
   hfog_vol = false;
   cw_node_walk(parent, find_fog, NULL);
+  if (!strcmp(th->name, "coast") && track_index == 6) {
+    /* Two low clouds crossing short stretches of the riding line. The world
+     * around them stays clear. Hide each one away from every rider so the
+     * froxel pass has no cost for the rest of the course. */
+    for (int i = 0; i < 2; i++) {
+      cw_node n = cw_node_new("FogVolume3D", i ? "Wreck Fog" : "Lighthouse Fog");
+      coast_fog[i] = n;
+      cw_node_set(n, "shape", cw_val_enum("ELLIPSOID"));
+      cw_node_set(n, "size", cw_val_vec3(24, 6, 15));
+      cw_node_set(n, "density", cw_val_float(0.44f));
+      cw_node_set(n, "albedo", cw_val_color(0.77f, 0.85f, 0.9f, 1));
+      cw_node_set(n, "emission", cw_val_color(0.08f, 0.1f, 0.12f, 1));
+      cw_node_set(n, "height_falloff", cw_val_float(0.1f));
+      cw_node_set(n, "edge_fade", cw_val_float(0.22f));
+      cw_node_set(n, "noise", cw_val_float(0.65f));
+      cw_node_set(n, "noise_scale", cw_val_float(0.1f));
+      cw_node_set(n, "noise_wind", cw_val_vec3(0.4f, 0.02f, 0.7f));
+      cw_node3d_set_position(n, (t3_vec3){ coast_fog_centers[i], track_height_at(coast_fog_centers[i], NULL) + 1.4f, 0 });
+      cw_node_set(n, "visible", cw_val_bool(false));
+      cw_node_add_child(parent, n);
+    }
+  }
   if (strcmp(th->name, "scary")) return;
   mist = cw_node_new("FogVolume3D", "Mist");
   mist_density = 0.35f;
@@ -2642,6 +2668,11 @@ void view_fx(int views) {
   bool vol = cw_gfx_get(CW_GFX_EFFECTS) >= 1 && fx_views <= 2;
   if (cw_node_valid(hfog) && hfog_vol) cw_node_set(hfog, "volumetric", cw_val_bool(vol));
   if (cw_node_valid(mist)) cw_node_set(mist, "density", cw_val_float(vol ? mist_density : 0));
+  if (!vol) for (int i = 0; i < 2; i++)
+    if (cw_node_valid(coast_fog[i]) && coast_fog_visible[i]) {
+      cw_node_set(coast_fog[i], "visible", cw_val_bool(false));
+      coast_fog_visible[i] = false;
+    }
 }
 
 /* ── particles ─────────────────────────────────────────────────────── */
@@ -2687,7 +2718,7 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
   loose_toys_build(root,t);
   chocolate_fx_build(root,t);
   merge_still(root, still0, root->child_count, !strcmp(th->name, "neon"));
-  fog_build(parent, th);
+  fog_build(parent, th, track_index);
   ice_patches(root, t);
   planks_build(root);
   movers_build(root);
@@ -2895,6 +2926,21 @@ void view_tick(float rider_x, float rider_y, float speed, bool grounded) {
   }
   if (cw_node_valid(motes)) cw_node3d_set_position(motes, (t3_vec3){ rider_x + 12, rider_y + wx_dy, wx_dz });
   if (cw_node_valid(mist)) cw_node3d_set_position(mist, (t3_vec3){ rider_x + 18, rider_y + 1.2f, -14 }); /* its wisps are the world's: only the box moves */
+  if (cw_node_valid(coast_fog[0])) {
+    bool quality = cw_gfx_get(CW_GFX_EFFECTS) >= 1 && fx_views <= 2;
+    for (int j = 0; j < 2; j++) {
+      bool near = quality && fabsf(rider_x - coast_fog_centers[j]) < 28;
+      if (quality && !near) for (int i = 1; i < bike_riders(); i++) {
+        bike_select(i);
+        if (fabsf(bike_get()->x - coast_fog_centers[j]) < 28) { near = true; break; }
+      }
+      if (bike_riders() > 1) bike_select(0); /* view_tick runs after the first rider's update */
+      if (near != coast_fog_visible[j]) {
+        cw_node_set(coast_fog[j], "visible", cw_val_bool(near));
+        coast_fog_visible[j] = near;
+      }
+    }
+  }
   if (cw_node_valid(dust)) {
     bool on = grounded && speed > 2.5f;
     cw_node_set(dust, "emitting", cw_val_bool(on));

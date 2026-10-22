@@ -169,6 +169,23 @@ typedef struct bike_pose {
 enum { RAG_TORSO, RAG_HEAD, RAG_UARM_L, RAG_FARM_L, RAG_UARM_R, RAG_FARM_R, RAG_THIGH_L, RAG_SHIN_L, RAG_THIGH_R, RAG_SHIN_R, RAG_COUNT };
 
 #define MAX_RIDERS 4
+enum { BIKE_FOLDING, BIKE_CRUISER, BIKE_EBIKE, BIKE_MODEL_COUNT };
+#define BIKE_COLOR_COUNT 8
+typedef struct bike_fit {
+  float wheel_r;
+  cw_vec2 rear_axle, front_axle, hip, shoulder, head, bars, saddle;
+} bike_fit;
+/* Frame-local contact and rider points are shared by physics and drawing. */
+static inline bike_fit bike_fit_for(int model) {
+  switch (model) {
+  case BIKE_CRUISER: return (bike_fit){ .wheel_r = 0.3302f, .rear_axle = {-.62f,-.14f}, .front_axle = {.70f,-.14f},
+    .hip = {-.23f,.84f}, .shoulder = {-.07f,1.34f}, .head = {.03f,1.59f}, .bars = {.38f,1.08f}, .saddle = {-.27f,.75f} };
+  case BIKE_EBIKE: return (bike_fit){ .wheel_r = 0.34925f, .rear_axle = {-.64f,-.17f}, .front_axle = {.72f,-.17f},
+    .hip = {-.18f,.89f}, .shoulder = {.17f,1.37f}, .head = {.27f,1.62f}, .bars = {.61f,.99f}, .saddle = {-.24f,.80f} };
+  default: return (bike_fit){ .wheel_r = .20f, .rear_axle = {-.46f,-.05f}, .front_axle = {.56f,-.05f},
+    .hip = {-.12f,.84f}, .shoulder = {.20f,1.30f}, .head = {.32f,1.55f}, .bars = {.42f,1.0f}, .saddle = {-.20f,.76f} };
+  }
+}
 void bike_world_create(const track_desc *t);
 void bike_world_destroy(void);
 /* several riders share one world (local multiplayer): set the count after
@@ -178,6 +195,7 @@ void bike_set_riders(int n);
 int bike_riders(void);
 int bike_bumps(void); /* contacts begun between two riders' bikes this world */
 void bike_select(int i);
+void bike_set_model(int model); /* selected rider; call before spawn */
 void bike_set_lane(int lane); /* the selected rider's lane: riders in one lane bump, other lanes pass through */
 int bike_lane(void);
 void bike_step_all(const bike_input *in, const bool *boosting);
@@ -225,7 +243,7 @@ static inline void set_index(t3_geometry *g, t3_attribute *a) {
   t3_release(a);
 }
 void models_build(cw_node parent);
-void models_set_selection(int idx, int character, int bike); /* rider idx's pick, before models_build_rider */
+void models_set_selection(int idx, int character, int bike, int color); /* rider idx's pick, before models_build_rider */
 void models_turntable(int idx, float angle, float center_x);
 void models_sync(const bike_pose *p);
 void models_build_rider(cw_node parent, int idx); /* rider idx's bike and rider, in its colours */

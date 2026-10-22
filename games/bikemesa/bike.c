@@ -33,9 +33,8 @@ enum { L_TRACK, L_BIKE, L_LOOP_A, L_LOOP_B, L_LANE0, L_RAMP0 = L_LANE0 + 4 };
  * the track, the loop half in use and the bikes in their own lane */
 #define LANE_BITS (((1u << MAX_RIDERS) - 1) << L_LANE0)
 #define MAX_LOOPS 4
-/* a folding bike: 16-inch wheels, a 1.02 m wheelbase, the bottom bracket a
- * little above the axles; the rider sits as on a full-size bike */
-#define WHEEL_R 0.2f
+/* Wheel and rider fit comes from bike_fit_for for the selected frame. */
+#define WHEEL_R (B.fit.wheel_r)
 #define HOP_V 5.5f   /* the hop: the upward speed it gives the bike, m/s */
 #define SUBSTEPS 3        /* Box2D steps a tick (see bike_step) */
 #define TOP_SPIN 80.0f    /* rad/s the legs can turn the rear wheel: 16 m/s */
@@ -44,9 +43,12 @@ enum { L_TRACK, L_BIKE, L_LOOP_A, L_LOOP_B, L_LANE0, L_RAMP0 = L_LANE0 + 4 };
  * shove, not a wipeout; a hard landing on someone or a fast rear-end crashes */
 #define BUMP_CRASH_V 6.0f
 #define AIR_SPIN_MAX 11.0f /* rad/s: the most the bike turns in the air (1.75 turns a second) */
-static const cw_vec2 REAR_AXLE = { -0.46f, -0.05f }, FRONT_AXLE = { 0.56f, -0.05f };
+#define REAR_AXLE (B.fit.rear_axle)
+#define FRONT_AXLE (B.fit.front_axle)
 /* the rider's collision shapes on the frame (frame-local) */
-static const cw_vec2 HIP = { -0.12f, 0.84f }, SHOULDER = { 0.2f, 1.3f }, HEAD = { 0.32f, 1.55f };
+#define HIP (B.fit.hip)
+#define SHOULDER (B.fit.shoulder)
+#define HEAD (B.fit.head)
 #define TORSO_R 0.14f
 #define HEAD_R 0.14f
 
@@ -95,6 +97,7 @@ static int deer_hits;
  * different lanes pass through each other) */
 typedef struct bk {
   int idx, lane;
+  bike_fit fit;
   cw_body2d frame, rear, front;
   cw_joint2d j_rear, j_front;
   cw_shape2d torso, head;
@@ -349,6 +352,7 @@ void bike_set_riders(int n) { NB = CW_CLAMP(n, 1, MAX_RIDERS); }
 int bike_riders(void) { return NB; }
 int bike_bumps(void) { return WD.bumps; }
 void bike_select(int i) { cur = &BK[CW_CLAMP(i, 0, MAX_RIDERS - 1)]; }
+void bike_set_model(int model) { B.fit = bike_fit_for(model); }
 
 /* the layer and mask of the riding bike's shapes */
 static uint32_t bike_mask(void) { return 1u << L_TRACK | 1u << B.loop_layer | 1u << (L_LANE0 + B.lane) | 1u << (L_RAMP0 + B.lane); }
@@ -501,6 +505,7 @@ static cw_joint2d axle(cw_body2d w, cw_vec2 local) {
 }
 
 void bike_spawn(float x, float y, float v0) {
+  if (B.fit.wheel_r <= 0) B.fit = bike_fit_for(BIKE_FOLDING);
   destroy_bike();
   /* the bridges are whole again */
   for (int i = 0; i < WD.plank_count; i++) {
@@ -1685,7 +1690,7 @@ void bike_pose_get(float alpha, bike_pose *out) {
   float L = out->lean;
   cw_vec2 hip = { HIP.x - 0.1f * L, HIP.y - 0.02f * cw_clampf(L, 0, 1) };
   cw_vec2 sh = { SHOULDER.x + 0.18f * L, SHOULDER.y - 0.12f * cw_clampf(L, 0, 1) + 0.04f * cw_clampf(-L, 0, 1) };
-  cw_vec2 bars = { 0.42f, 1.0f };
+  cw_vec2 bars = B.fit.bars;
   float cs, cc;
   cw_sincos(B.crank, &cs, &cc);
   cw_vec2 pedal_l = { 0.17f * cc, 0.17f * cs }, pedal_r = { -0.17f * cc, -0.17f * cs };

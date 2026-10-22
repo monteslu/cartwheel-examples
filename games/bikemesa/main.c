@@ -48,10 +48,11 @@ static int visible_tracks(void) {
   while (n < (int)CW_ARRAY_LEN(TRACKS) && (all || TRACKS[n].ready)) n++;
   return n;
 }
-#define RIDER_CHARACTER_COUNT 2
-#define RIDER_BIKE_COUNT 4
-static const char *const RIDER_NAMES[RIDER_CHARACTER_COUNT] = { "RIDER 1", "RIDER 2" };
-static const char *const BIKE_NAMES[RIDER_BIKE_COUNT] = { "GREEN FOLDING BIKE", "RED FOLDING BIKE", "BLUE FOLDING BIKE", "GOLD FOLDING BIKE" };
+#define RIDER_CHARACTER_COUNT 3
+#define RIDER_BIKE_COUNT BIKE_MODEL_COUNT
+static const char *const RIDER_NAMES[RIDER_CHARACTER_COUNT] = { "RIDER 1", "RIDER 2", "RIDER 3" };
+static const char *const BIKE_NAMES[RIDER_BIKE_COUNT] = { "FOLDING 16\"", "CRUISER 26\"", "E-BIKE 27.5\"" };
+static const char *const COLOR_NAMES[BIKE_COLOR_COUNT] = { "GREEN", "RED", "BLUE", "YELLOW", "ORANGE", "PURPLE", "BLACK", "WHITE" };
 int TRACK_COUNT;
 const track_desc *track_get(int i) { return i >= 0 && i < (int)CW_ARRAY_LEN(TRACKS) ? &TRACKS[i] : NULL; }
 
@@ -148,7 +149,7 @@ static struct {
   /* local multiplayer: pads 2-4 join on the player select */
   int32_t players;           /* riders in the next race (1 = solo) */
   int32_t slot[MAX_RIDERS];  /* each player's place in the player select (SLOT_*); P1 is always in */
-  int32_t chr[MAX_RIDERS], bike[MAX_RIDERS]; /* each player's rider and bike */
+  int32_t chr[MAX_RIDERS], bike[MAX_RIDERS], color[MAX_RIDERS]; /* rider, frame, paint */
   int slot_ticks[MAX_RIDERS]; /* ticks since the slot last changed */
   int32_t finish_count, race_over_ticks;
   int32_t places[MAX_RIDERS]; /* debug field: each rider's place at the line (0: not finished) */
@@ -167,7 +168,7 @@ static struct {
 /* the replay rings: each rider's every ride / crash tick's pose (presentation only) */
 static bike_pose ring[MAX_RIDERS][RING];
 static deer_pose deer_ring[MAX_RIDERS][RING][DEER_CROSSINGS];
-enum { SLOT_OUT, SLOT_RIDER, SLOT_BIKE, SLOT_READY };
+enum { SLOT_OUT, SLOT_RIDER, SLOT_BIKE, SLOT_COLOR, SLOT_READY };
 static int TOUCH_HOP = -1, TOUCH_PEDAL = -1, TOUCH_BRAKE = -1, TOUCH_STICK = -1, TOUCH_RESET = -1, TOUCH_PAUSE = -1, TOUCH_POSE[3] = { -1, -1, -1 };
 
 /* ── autopilot (bikemesa_auto): a session played with no one at the pads ──
@@ -293,8 +294,12 @@ static cw_vec2 mouse_canvas(void) {
   return cw_r2d_window_to_canvas(cw_v2(in->mouse_x, in->mouse_y));
 }
 static bool in_rect(cw_vec2 m, cw_rect r) { return m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h; }
-enum { PAUSE_RESUME, PAUSE_CHECKPOINT, PAUSE_RESTART, PAUSE_TRACKS, PAUSE_ITEMS };
+enum { PAUSE_RESUME, PAUSE_CHECKPOINT, PAUSE_RESTART, PAUSE_BIKES, PAUSE_TRACKS, PAUSE_ITEMS };
 static cw_rect pause_rect(int i, float W, float H, float s) { return cw_rect_make(W * 0.5f - 150 * s, H * 0.27f + i * 50 * s, 300 * s, 44 * s); }
+static cw_rect change_bike_rect(float W, float H, float s) { return cw_rect_make(20 * s, H - 48 * s, 180 * s, 38 * s); }
+static cw_rect finish_action_rect(int i, float W, float H, float s) {
+  return cw_rect_make(W * 0.5f + (-220 + i * 150) * s, H * 0.72f, 140 * s, 50 * s);
+}
 
 /* ── save data ──────────────────────────────────────────────────────── */
 
@@ -473,7 +478,7 @@ static bool load_track(int index, bool attract, int riders) {
   bike_world_create(G.t); /* first: the scenery asks it for the ground's height */
   view_build(G.scene, G.t, index);
   crash_world_build(G.t); /* after the scenery: a crash tumbles against the bank and the rocks it placed */
-  for (int i = 0; i < MAX_RIDERS; i++) models_set_selection(i, G.chr[i], G.bike[i]);
+  for (int i = 0; i < MAX_RIDERS; i++) models_set_selection(i, G.chr[i], G.bike[i], G.color[i]);
   models_build(G.scene);
   NRID = CW_CLAMP(riders, 1, MAX_RIDERS);
   memset(RD, 0, sizeof RD);
@@ -482,6 +487,7 @@ static bool load_track(int index, bool attract, int riders) {
   bike_set_riders(NRID);
   for (int i = 0; i < NRID; i++) {
     use_rider(i);
+    bike_set_model(G.bike[i]);
     if (i) models_build_rider(G.scene, i);
     P->check_x = 2;
     P->check_y = 0;
@@ -534,6 +540,16 @@ static void preview_load(void) {
     P->cam_snap = true;
   }
   use_rider(0);
+}
+
+static void return_to_bikes(void) {
+  G.slot[0] = SLOT_BIKE;
+  G.slot_ticks[0] = 0;
+  for (int p = 0; p < MAX_RIDERS; p++)
+    if (p > 0 && G.slot[p] == SLOT_READY) G.slot[p] = SLOT_BIKE, G.slot_ticks[p] = 0;
+  G.paused = false;
+  enter(GS_CHARACTER);
+  preview_load();
 }
 
 static void start_track(int index) {
@@ -802,6 +818,18 @@ static void cmd_players(int argc, const char **argv, cw_reply *r) {
     players_set = true;
   }
   cw_reply_printf(r, "{\"players\":%d}", G.players);
+}
+/* Inspection hook: same selection and reload path as the player carousel. */
+static void cmd_bike_pick(int argc, const char **argv, cw_reply *r) {
+  if (argc > 1) G.bike[0] = CW_CLAMP(atoi(argv[1]), 0, BIKE_MODEL_COUNT - 1);
+  if (argc > 2) G.color[0] = CW_CLAMP(atoi(argv[2]), 0, BIKE_COLOR_COUNT - 1);
+  if (argc > 1) {
+    int st = G.state;
+    load_track(G.track > 0 ? G.track - 1 : 0, false, NRID);
+    if (st == GS_CHARACTER) enter(GS_CHARACTER);
+    else if (st == GS_RIDE || st == GS_COUNT) start_track(G.track - 1);
+  }
+  cw_reply_printf(r, "{\"model\":%d,\"color\":%d}", G.bike[0], G.color[0]);
 }
 static void cmd_progress(int argc, const char **argv, cw_reply *r) {
   if (argc >= 3 && !strcmp(argv[1], "preset")) save_preset(atoi(argv[2]));
@@ -1309,11 +1337,12 @@ static void init(void *u) {
   cw_debug_field("sweep.fail", dbg_sweep_fail, CW_DBG_I32, 5);
   cw_debug_command("chocolate", "chocolate [crash|ride [1|2]]: inspect decals or exercise either river",cmd_chocolate);
   cw_debug_command("players", "players <1..4>: riders in the next race (split screen)", cmd_players);
+  cw_debug_command("bike_pick", "bike_pick <0..2> <0..7>: inspect a frame and paint", cmd_bike_pick);
   cw_debug_command("progress", "progress [show | preset <n>]: the save data", cmd_progress);
   cw_tree_add_hook(cw_scene_app_tree(), 2, 0, frame_hook, NULL);
   G.state_hash = CW_HASH32_INIT;
   G.players = 1;
-  for (int p = 0; p < MAX_RIDERS; p++) G.bike[p] = p;
+  for (int p = 0; p < MAX_RIDERS; p++) G.bike[p] = 0, G.color[p] = p;
   cw_pipeline_set_view_hook(cw_pipeline_of(cw_scene_app_tree()), view_hook, NULL);
   load_track(0, true, 1);
   enter(GS_TITLE);
@@ -1783,7 +1812,7 @@ static void players_tick(cw_vec2 m, cw_vec2 cs, bool ok1) {
     case SLOT_OUT:
       if (ok) {
         slot_set(p, SLOT_RIDER);
-        G.bike[p] = p; /* each player's own colour to begin with */
+        G.color[p] = p; /* each player's own colour to begin with */
         changed = true;
         game_sfx(SFX_SELECT, 0.7f);
       }
@@ -1795,7 +1824,7 @@ static void players_tick(cw_vec2 m, cw_vec2 cs, bool ok1) {
         game_sfx(SFX_SELECT, 0.5f);
       } else if (ok) {
         slot_set(p, SLOT_BIKE);
-        if (p == 0) G.bike[0] = G.chr[0] == 1 ? 1 : 0, changed = true; /* P1's riders each have a bike of their own */
+        if (p == 0) G.color[0] = G.chr[0] == 1 ? 1 : G.chr[0] == 2 ? 2 : 0, changed = true;
         game_sfx(SFX_SELECT, 1);
       } else if (back && p == 0) {
         for (int q = 1; q < MAX_RIDERS; q++)
@@ -1815,12 +1844,22 @@ static void players_tick(cw_vec2 m, cw_vec2 cs, bool ok1) {
         changed = true;
         game_sfx(SFX_SELECT, 0.5f);
       } else if (ok) {
-        slot_set(p, SLOT_READY);
+        slot_set(p, SLOT_COLOR);
         game_sfx(SFX_SELECT, 1);
       } else if (back) slot_set(p, SLOT_RIDER);
       break;
+    case SLOT_COLOR:
+      if (step) {
+        G.color[p] = (G.color[p] + step + BIKE_COLOR_COUNT) % BIKE_COLOR_COUNT;
+        changed = true;
+        game_sfx(SFX_SELECT, 0.5f);
+      } else if (ok) {
+        slot_set(p, SLOT_READY);
+        game_sfx(SFX_SELECT, 1);
+      } else if (back) slot_set(p, SLOT_BIKE);
+      break;
     case SLOT_READY:
-      if (back) slot_set(p, SLOT_BIKE);
+      if (back) slot_set(p, SLOT_COLOR);
       break;
     }
   }
@@ -1887,6 +1926,10 @@ static void fixed(void *u, double dt) {
   case GS_SELECT: {
     ride_tick(autopilot());
     menu_select();
+    if (mouse_clicked && in_rect(m, change_bike_rect(cs.x, cs.y, cs.y / 540.0f))) {
+      return_to_bikes();
+      return;
+    }
     if (mouse_clicked)
       for (int i = 0; i < TRACK_COUNT; i++)
         if (in_rect(m, tile_rect(i, cs.x, cs.y))) {
@@ -1898,12 +1941,7 @@ static void fixed(void *u, double dt) {
       pick_track(G.select_cursor);
       return;
     }
-    if (cw_action_just_pressed(0, G.m_back)) { /* back to the bikes, everyone */
-      for (int p = 0; p < MAX_RIDERS; p++)
-        if (G.slot[p] == SLOT_READY && (p == 0 || !players_set)) G.slot[p] = SLOT_BIKE, G.slot_ticks[p] = 0;
-      enter(GS_CHARACTER);
-      preview_load();
-    }
+    if (cw_action_just_pressed(0, G.m_back)) return_to_bikes();
     break;
   }
   case GS_COUNT: {
@@ -1946,6 +1984,7 @@ static void fixed(void *u, double dt) {
           P->resets++;
           respawn();
         } else if (G.pause_cursor == PAUSE_RESTART) start_track(G.track - 1);
+        else if (G.pause_cursor == PAUSE_BIKES) return_to_bikes();
         else if (G.pause_cursor == PAUSE_TRACKS) {
           load_track(0, true, 1);
           enter(GS_SELECT);
@@ -2041,10 +2080,15 @@ static void fixed(void *u, double dt) {
     else ride_tick(coast);
     if (G.state_ticks > (pit?420:60)) {
       float W = cs.x, H = cs.y, s = H / 540.0f;
-      bool next_hit = mouse_clicked && in_rect(m, cw_rect_make(W * 0.5f + 10 * s, H * 0.72f, 170 * s, 50 * s));
-      bool retry_hit = mouse_clicked && in_rect(m, cw_rect_make(W * 0.5f - 180 * s, H * 0.72f, 170 * s, 50 * s));
+      bool retry_hit = mouse_clicked && in_rect(m, finish_action_rect(0, W, H, s));
+      bool bike_hit = mouse_clicked && in_rect(m, finish_action_rect(1, W, H, s));
+      bool next_hit = mouse_clicked && in_rect(m, finish_action_rect(2, W, H, s));
       if (retry_hit || cw_action_just_pressed(0, G.a_pause) || cw_input_raw()->keys_pressed[21 /* R */]) {
         start_track(G.track - 1);
+        return;
+      }
+      if (bike_hit || cw_action_just_pressed(0, G.m_back)) {
+        return_to_bikes();
         return;
       }
       if (next_hit || ok) {
@@ -2163,8 +2207,9 @@ static const char *prompt(void) {
          : last_device == DEV_PAD ? "left / right: choose   (A): select   (B): back"
                                   : "left / right: choose   Enter: select   Esc: back";
   if (G.state == GS_SELECT)
-    return last_device == DEV_TOUCH ? "tap a track" : last_device == DEV_MOUSE ? "click a track" : last_device == DEV_PAD ? "d-pad: choose   (A): ride   (B): back"
-                                                                               : "arrows: choose   Enter: ride   Esc: back";
+    return last_device == DEV_TOUCH ? "tap a track or change bike" : last_device == DEV_MOUSE ? "click a track or change bike"
+         : last_device == DEV_PAD ? "d-pad: choose   (A): ride   (B): change bike"
+                                  : "arrows: choose   Enter: ride   Esc: change bike";
   if ((G.state == GS_RIDE || G.state == GS_COUNT) && !G.paused)
     return last_device == DEV_TOUCH ? ""
          : last_device == DEV_PAD ? "(A) pedal  (B) brake  left / right: lean  (X) hop  (Y) + left / right / up: pose  SELECT: checkpoint"
@@ -2222,9 +2267,9 @@ static void draw_title(float W, float H, float s) {
 
 static void draw_carousel(float W, float H, float s) {
   bool rider = G.slot[0] == SLOT_RIDER;
-  int choice = rider ? G.chr[0] : G.bike[0];
-  const char *name = rider ? RIDER_NAMES[choice] : BIKE_NAMES[choice];
-  title_text(rider ? "CHOOSE YOUR RIDER" : "CHOOSE YOUR BIKE", 0, H * 0.055f, 44 * s,
+  bool paint = G.slot[0] == SLOT_COLOR;
+  const char *name = rider ? RIDER_NAMES[G.chr[0]] : paint ? COLOR_NAMES[G.color[0]] : BIKE_NAMES[G.bike[0]];
+  title_text(rider ? "CHOOSE YOUR RIDER" : paint ? "CHOOSE YOUR COLOR" : "CHOOSE YOUR BIKE", 0, H * 0.055f, 44 * s,
              rgba(1, 0.67f, 0.22f, 1), CW_ALIGN_CENTER, W);
   chip(name, W * 0.18f, H * 0.26f, 28 * s, 1);
   text(name, W * 0.02f, H * 0.26f, 28 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, W * 0.32f);
@@ -2255,10 +2300,10 @@ static void draw_player_views(float W, float H, float s) {
     char b[48];
     snprintf(b, sizeof b, "P%d", v + 1);
     title_text(b, r.x + 14 * k, r.y + 10 * k, 40 * k, rider_col(v, 1), CW_ALIGN_LEFT, 0);
-    const char *head = st == SLOT_RIDER ? "CHOOSE YOUR RIDER" : st == SLOT_BIKE ? "CHOOSE YOUR BIKE" : "READY!";
+    const char *head = st == SLOT_RIDER ? "CHOOSE YOUR RIDER" : st == SLOT_BIKE ? "CHOOSE YOUR BIKE" : st == SLOT_COLOR ? "CHOOSE YOUR COLOR" : "READY!";
     title_text(head, r.x, r.y + 14 * k, 30 * k, st == SLOT_READY ? rgba(0.45f, 1, 0.5f, 1) : rgba(1, 0.67f, 0.22f, 1), CW_ALIGN_CENTER, r.w);
-    const char *name = st == SLOT_RIDER ? RIDER_NAMES[G.chr[v]] : BIKE_NAMES[G.bike[v]];
-    if (st == SLOT_READY) snprintf(b, sizeof b, "%s", BIKE_NAMES[G.bike[v]]);
+    const char *name = st == SLOT_RIDER ? RIDER_NAMES[G.chr[v]] : st == SLOT_COLOR ? COLOR_NAMES[G.color[v]] : BIKE_NAMES[G.bike[v]];
+    if (st == SLOT_READY) snprintf(b, sizeof b, "%s %s", COLOR_NAMES[G.color[v]], BIKE_NAMES[G.bike[v]]);
     else snprintf(b, sizeof b, "<   %s   >", name);
     chip(b, r.x + r.w * 0.5f, r.y + r.h - 76 * k, 24 * k, 1);
     text(b, r.x, r.y + r.h - 76 * k, 24 * k, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, r.w);
@@ -2337,6 +2382,9 @@ static void draw_select(float W, float H, float s) {
   const char *p = prompt();
   chip(p, W * 0.5f, H * 0.88f, 20 * s, 1);
   text(p, 0, H * 0.88f, 20 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, W);
+  cw_rect bikes = change_bike_rect(W, H, s);
+  round_rect(bikes, 10 * s, rgba(0.15f, 0.19f, 0.24f, 0.94f));
+  text("CHANGE BIKE", bikes.x, bikes.y + 9 * s, 19 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, bikes.w);
 }
 
 static bool project(t3_vec3 p, float W, float H, cw_vec2 *out) {
@@ -2645,13 +2693,16 @@ static void draw_finish(float W, float H, float s) {
     text("third star: land a PERFECT frontflip, or a pose and a flip in one air", r.x, r.y + 254 * s, 14 * s, rgba(1, 0.85f, 0.5f, a),
          CW_ALIGN_CENTER, r.w);
   if (G.state_ticks > 60) {
-    cw_rect retry = cw_rect_make(W * 0.5f - 180 * s, H * 0.72f, 170 * s, 50 * s), next = cw_rect_make(W * 0.5f + 10 * s, H * 0.72f, 170 * s, 50 * s);
+    cw_rect retry = finish_action_rect(0, W, H, s), bikes = finish_action_rect(1, W, H, s), next = finish_action_rect(2, W, H, s);
     round_rect(retry, 14 * s, rgba(0.25f, 0.25f, 0.3f, 0.95f));
+    round_rect(bikes, 14 * s, rgba(0.22f, 0.30f, 0.38f, 0.95f));
     round_rect(next, 14 * s, rgba(1, 0.5f, 0.12f, 0.95f));
-    const char *rl = last_device == DEV_PAD ? "(START) RETRY" : last_device == DEV_KEYS ? "R  RETRY" : "RETRY";
-    const char *nl = last_device == DEV_PAD ? "(A) TRACKS" : last_device == DEV_KEYS ? "Enter  TRACKS" : "TRACKS";
-    text(rl, retry.x, retry.y + 12 * s, 20 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, retry.w);
-    text(nl, next.x, next.y + 12 * s, 20 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, next.w);
+    const char *rl = last_device == DEV_PAD ? "START RETRY" : last_device == DEV_KEYS ? "R  RETRY" : "RETRY";
+    const char *bl = last_device == DEV_PAD ? "(B) BIKES" : last_device == DEV_KEYS ? "ESC BIKES" : "BIKES";
+    const char *nl = last_device == DEV_PAD ? "(A) TRACKS" : last_device == DEV_KEYS ? "ENTER TRACKS" : "TRACKS";
+    text(rl, retry.x, retry.y + 12 * s, 17 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, retry.w);
+    text(bl, bikes.x, bikes.y + 12 * s, 17 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, bikes.w);
+    text(nl, next.x, next.y + 12 * s, 17 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, next.w);
   }
 }
 
@@ -2718,7 +2769,7 @@ static void draw_gfx(float W, float H, float s) {
 static void draw_pause(float W, float H, float s) {
   cw_r2d_rect(cw_rect_make(0, 0, W, H), rgba(0, 0, 0, 0.45f));
   title_text("PAUSED", 0, H * 0.12f, 56 * s, rgba(1, 0.65f, 0.2f, 1), CW_ALIGN_CENTER, W);
-  static const char *const items[PAUSE_ITEMS] = { "RESUME", "CHECKPOINT", "RESTART", "TRACKS" };
+  static const char *const items[PAUSE_ITEMS] = { "RESUME", "CHECKPOINT", "RESTART", "CHANGE BIKE", "TRACKS" };
   for (int i = 0; i < PAUSE_ITEMS; i++) {
     cw_rect r = pause_rect(i, W, H, s);
     round_rect(r, 14 * s, i == G.pause_cursor ? rgba(1, 0.5f, 0.12f, 0.95f) : rgba(0.12f, 0.12f, 0.16f, 0.9f));

@@ -101,8 +101,10 @@ export const TRACKS = [
     ['flat', 6], ['check'], ['slope', 10, 2.5], ['bump', 10, 1.4], ['slope', 22, -8], ['boost', 10], ['flat', 10],
     ['kicker', 8, 2.2], ['split', 40, 6.2, -4, 18], ['landing', 14, 3], ['flat', 6], ['check'],
     ['dip', 16, 2.5], ['rollers', 5, 0.7, 5], ['slope', 18, -6], ['kicker', 6, 1.6], ['gap', 6, -2.5], ['landing', 12, 3],
-    ['flat', 6], ['check'], ['slope', 26, -9], ['boost', 14], ['flat', 10], ['kicker', 10, 3.0], ['gap', 20, -5],
-    ['landing', 18, 5], ['flat', 8], ['finish'], ['flat', 60],
+    // The late ski jump clears an actual missing section of track. The long
+    // boosted approach makes it possible without a precisely timed hop.
+    ['flat', 6], ['check'], ['slope', 26, -9], ['boost', 14], ['flat', 10], ['kicker', 12, 4.2], ['pit', 24, -7],
+    ['landing', 20, 5], ['flat', 8], ['finish'], ['flat', 60],
   ] },
   { name: 'Downtown', theme: 'neon', par: 70, ready: true, pieces: [
     ['flat', 16], ['kicker', 5, 1.0], ['gap', 5, -0.8], ['flat', 4], ['wreck', 12], ['flat', 4], ['kicker', 5, 1.2], ['gap', 6, -1.5], ['flat', 12],
