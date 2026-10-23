@@ -4940,5 +4940,19 @@
     "maxGt16": 0.05,
     "webgpu": { "vsGl": 0.25, "maxGt16": 0.05, "hosts": ["native", "romdev", "chromium"] },
     "note": "Liberty Leap: pedal over the buses, pass through the flaming hoop, and finish without a crash. The earlier control ends before the finish."
+  },
+  {
+    "name": "bikemesa-djbike",
+    "app": "bikemesa",
+    "frames": 600,
+    "input": "bikemesa-djbike-input.json",
+    "expect": {
+      "game.state": 3,
+      "bike.model": 3,
+      "crashes": 0,
+      "race.lane_changes": 1,
+      "render.skipped": 0
+    },
+    "controlInput": "bikemesa-ride.json"
   }
 ]

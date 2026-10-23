@@ -1,0 +1,69 @@
+[scene format=1]
+
+[node name="Track" type="Node3D"]
+
+[node name="Sky" parent="." type="ProceduralSky"]
+sun = ""
+time_of_day = 23.5
+latitude = 35
+declination = 12
+north = 70
+sun_energy = 0
+sky_energy = 0.12
+mie = 0.1
+sun_disk_intensity = 1.2
+ground_color = color(0.025, 0.045, 0.085, 1)
+env_update_angle = 2
+
+[node name="Sun" parent="." type="DirectionalLight3D"]
+position = vec3(0, 0, 0)
+rotation = vec3(-0.65, -0.4, 0)
+color = color(0.48, 0.65, 1, 1)
+energy = 1.4
+shadow = true
+shadow_size = 2048
+shadow_extent = 16
+shadow_far = 120
+shadow_bias = -0.0002
+shadow_normal_bias = 0.02
+
+[node name="Env" parent="." type="WorldEnvironment"]
+ambient_color = color(0.38, 0.53, 0.85, 1)
+ambient_energy = 0.05
+hemi_energy = 0.8
+
+[node name="Fog" parent="." type="HeightFog"]
+density = 0.002
+height_falloff = 0.035
+base_height = -27.4
+use_sky_color = false
+color = color(0.04, 0.07, 0.12, 1)
+sun_scatter = 0.35
+sun_g = 0.8
+max_opacity = 0.7
+start_distance = 30
+sky_distance = 500
+
+[node name="Post" parent="." type="PostProcess"]
+tonemap = AGX
+exposure = 1.25
+bloom = true
+bloom_intensity = 0.12
+bloom_threshold = 1
+bloom_knee = 0.6
+ssao = true
+ssao_radius = 0.8
+ssao_intensity = 1
+aa = SMAA
+vignette = true
+vignette_intensity = 0.25
+vignette_smoothness = 0.6
+grade = false
+lut = "grades/neon.cube"
+grade_intensity = 0.75
+
+[node name="Camera" parent="." type="Camera3D"]
+position = vec3(0, 3, 14)
+fov = 46
+near = 0.3
+far = 20000

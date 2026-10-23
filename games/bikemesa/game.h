@@ -17,7 +17,7 @@
 #define GAME_TITLE "BikeMesa"
 
 #define TICK_HZ 60
-#define BIKEMESA_TRACKS_MAX 18
+#define BIKEMESA_TRACKS_MAX 19
 #define MAX_POPUPS 16
 #define TRACK_HALF_W 2.0f   /* the riding surface spans z -W..W */
 /* four lanes across it: lane 0 at the back (-z),
@@ -155,29 +155,71 @@ typedef struct bike_state {
   int loops;                 /* loops ridden all the way round (this ride) */
 } bike_state;
 
+#define ALIEN_PARTS 8
+/* Torso, head, paired upper/forearms and feet, in frame coordinates. */
+static const t3_vec3 ALIEN_HOME[ALIEN_PARTS] = {
+  {.76f,.785f,0}, {.795f,.995f,0},
+  {.753f,.848f,.133f}, {.802f,.750f,.154f},
+  {.753f,.848f,-.133f}, {.802f,.750f,-.154f},
+  {.795f,.603f,.070f}, {.795f,.603f,-.070f}
+};
 typedef struct bike_pose {
   cw_xform2 frame, rear, front;
-  float crank, lean;
+  float crank, lean, steering;
   float z;                   /* riding: the lane's depth the rider is drawn at (main.c fills it in) */
   cw_xform2 limb[10];        /* RAG_*: the riding pose, in the frame's plane */
   cw_xform2 cap;             /* the cap on the head */
   /* a crash: the rider, the bike and the cap tumbling in the 3D world (world
    * space, z included); the 2D fields above are not used */
-  bool ragdoll;
+  bool ragdoll, hands_free, feet_free, alien_gone;
+  cw_xform3 alien[ALIEN_PARTS];
   cw_xform3 limb3[10], frame3, rear3, front3, cap3;
 } bike_pose;
 enum { RAG_TORSO, RAG_HEAD, RAG_UARM_L, RAG_FARM_L, RAG_UARM_R, RAG_FARM_R, RAG_THIGH_L, RAG_SHIN_L, RAG_THIGH_R, RAG_SHIN_R, RAG_COUNT };
 
 #define MAX_RIDERS 4
-enum { BIKE_FOLDING, BIKE_CRUISER, BIKE_EBIKE, BIKE_MODEL_COUNT };
+enum { BIKE_FOLDING, BIKE_CRUISER, BIKE_EBIKE, BIKE_DJ, BIKE_PENNY, BIKE_BMX, BIKE_BIGWHEEL, BIKE_MODEL_COUNT };
 #define BIKE_COLOR_COUNT 8
+static const float BIKE_PAINT[BIKE_COLOR_COUNT][3] = {
+  {.05f,.34f,.16f},{.72f,.035f,.035f},{.055f,.19f,.68f},{.95f,.67f,.035f},
+  {.95f,.24f,.025f},{.38f,.12f,.63f},{.025f,.025f,.03f},{.88f,.9f,.88f}
+};
+void models_person_only(int idx,bool person);
+/* Paint defaults belong to the frame, independently of the rider. */
+static inline int bike_default_color(int model) {
+  switch (model) {
+  case BIKE_CRUISER: case BIKE_DJ: case BIKE_BIGWHEEL: return 1; /* red */
+  case BIKE_EBIKE: return 7; /* white */
+  case BIKE_BMX: return 2; /* blue */
+  case BIKE_PENNY: return 6; /* black */
+  default: return 0; /* Brompton green */
+  }
+}
+/* A 60-inch ordinary needs a longer inseam to clear the tire at the saddle. */
+static inline float bike_leg_length(int model) { return model == BIKE_PENNY ? .50f : .44f; }
 typedef struct bike_fit {
-  float wheel_r;
+  float wheel_r, front_r; /* front_r == 0 uses rear radius */
   cw_vec2 rear_axle, front_axle, hip, shoulder, head, bars, saddle;
 } bike_fit;
 /* Frame-local contact and rider points are shared by physics and drawing. */
 static inline bike_fit bike_fit_for(int model) {
   switch (model) {
+  case BIKE_BIGWHEEL: return (bike_fit){ .wheel_r=.1524f,.front_r=.3302f,
+    .rear_axle={-.94f,-.1778f},.front_axle={0,0},
+    .hip={-.65f,.11f},.shoulder={-.70f,.63f},.head={-.64f,.88f},
+    .bars={-.20f,.65f},.saddle={-.70f,.035f} };
+  case BIKE_BMX: return (bike_fit){ .wheel_r=.254f,
+    .rear_axle={-.50f,-.08f}, .front_axle={.57f,-.08f},
+    .hip={-.19f,.76f}, .shoulder={.12f,1.24f}, .head={.22f,1.49f},
+    .bars={.38f,.955f}, .saddle={-.22f,.68f} };
+  case BIKE_PENNY: return (bike_fit){ .wheel_r=.2032f, .front_r=.762f,
+    .rear_axle={-1.10f,-.5588f}, .front_axle={0,0},
+    .hip={-.18f,.90f}, .shoulder={.04f,1.37f}, .head={.14f,1.62f},
+    .bars={.18f,.98f}, .saddle={-.20f,.825f} };
+  case BIKE_DJ: return (bike_fit){ .wheel_r=.3302f, .front_r=.254f,
+    .rear_axle={-.64f,-.14f}, .front_axle={1.12f,-.2162f},
+    .hip={-.20f,.84f}, .shoulder={.06f,1.34f}, .head={.16f,1.59f},
+    .bars={.56f,.9638f}, .saddle={-.25f,.75f} };
   case BIKE_CRUISER: return (bike_fit){ .wheel_r = 0.3302f, .rear_axle = {-.62f,-.14f}, .front_axle = {.70f,-.14f},
     .hip = {-.23f,.84f}, .shoulder = {-.07f,1.34f}, .head = {.03f,1.59f}, .bars = {.38f,1.08f}, .saddle = {-.27f,.75f} };
   case BIKE_EBIKE: return (bike_fit){ .wheel_r = 0.34925f, .rear_axle = {-.64f,-.17f}, .front_axle = {.72f,-.17f},
@@ -312,7 +354,7 @@ void game_sfx(sfx_id id, float volume);
 #define LOOSE_TOYS (TOY_PIT_START+TOY_PIT_BALLS)
 int crash_toys_count(void);
 cw_xform3 crash_toy_pose(int i, float alpha);
-void crash_toy_wheels(int rider, cw_xform2 rear, cw_xform2 front, float z, bool alive);
+void crash_riding_wheels(int rider, cw_xform3 rear, cw_xform3 front, int model, bool alive);
 uint32_t crash_toys_hash(uint32_t h);
 float chocolate_amount(const track_desc *t, float x);
 

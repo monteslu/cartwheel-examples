@@ -21,14 +21,32 @@ what is what.
 ![BikeMesa: riding the Red Rock Run canyon track](docs/screenshots/bikemesa.jpg)
 
 A downhill bike game. A 2D Box2D bicycle and rider ride hand-shaped lines
-through sixteen 3D worlds, from a red rock canyon and a snowy slope to a
+through nineteen 3D worlds, from a red rock canyon and a snowy slope to a
 Downtown Mesa streets, a haunted town, the Moon and Mars, a big-top circus, a low-gravity candy world and a giant toybox.
 Pedal, hop, lean into flips, hold poses in the air and land clean; get it
 wrong and the rider tumbles through a full 3D crash. Up to four players race
 split screen in four lanes, one pad each: two share the screen top and
 bottom, three or four take its quarters (with three, the last quarter holds
 the race clock, a mini map of the course and the standings). Each player
-picks a rider and a bike before the run.
+picks a rider and a bike before the run. The folding bike, cruiser, e-bike,
+DJ cargo tricycle, penny-farthing, BMX, and adult Big Wheel have distinct frame and wheel geometry. The DJ bike
+carries twin speakers, a sloped controller deck and laptop; its two 20-inch
+front wheels and cargo assembly steer together ahead of a 26-inch rear wheel.
+It accelerates more slowly and takes longer to change lanes. The penny-farthing
+has a direct-drive 60-inch front wheel, a 16-inch rear wheel, a curved backbone,
+and a raised leather saddle. Its pedals turn with the front wheel even while
+coasting. Each frame starts in its own default paint: green folding bike, red
+cruiser, DJ bike and Big Wheel, white e-bike, black penny-farthing, and blue BMX; paint can still be
+changed in the next selection step. The 20-inch BMX carries a brown, blanket-wrapped
+alien in a standard 13 × 13 × 11-inch front milk crate. Hard landings and crashes
+can eject him into the 3D physics world, arms flailing; he stays behind through
+checkpoint resets, can be knocked along the ground by passing bikes, and returns for the next level. The e-bike has extra low-speed
+motor assist that tapers out by 6 m/s. The adult Big Wheel has a 26-inch direct-drive
+front wheel, twin 12-inch rear drums, a low bucket seat and forward pedals.
+Its fork, handlebars, hub pedals and rider articulate during lane changes.
+Night Burbs adds three big suburban jumps, oak and elm trees, warm porch lights,
+and a huge glowing Moon using NASA lunar imagery. The BMX and alien cross its
+face in normal play; the Moon stays distant throughout the course.
 `games/bikemesa/`
 
 ### BomberDude

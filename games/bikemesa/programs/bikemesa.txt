@@ -88,3 +88,10 @@ standard+map+rep+nearest+nmap+rmap+mmap+shadow+senv+ds+l1001
 standard+shadow+senv+ds+l1001
 standard+map+rep+rmap+mmap+shadow+senv+ds+l1001
 standard+trans+shadow+senv+l1001
+
+# Waving Liberty Leap cloth under directional sun and ring firelight.
+standard+map+nmap+ao+rmap+shadow+senv+ds+l1101+s100
+basic+vcol
+
+basic+instbig
+basic+map+vcol

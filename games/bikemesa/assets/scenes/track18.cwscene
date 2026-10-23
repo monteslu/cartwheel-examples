@@ -4,15 +4,15 @@
 
 [node name="Sky" parent="." type="ProceduralSky"]
 sun = "../Sun"
-time_of_day = 14.5
+time_of_day = 15.3
 latitude = 35
 declination = 12
 north = 70
-sun_energy = 6.4
+sun_energy = 5.5
 sky_energy = 1
-mie = 0.65
+mie = 0.25
 sun_disk_intensity = 1.2
-ground_color = color(0.3, 0.32, 0.38, 1)
+ground_color = color(0.12, 0.16, 0.24, 1)
 env_update_angle = 2
 
 [node name="Sun" parent="." type="DirectionalLight3D"]
@@ -25,15 +25,16 @@ shadow_bias = -0.0002
 shadow_normal_bias = 0.02
 
 [node name="Env" parent="." type="WorldEnvironment"]
-ambient_color = color(1, 0.92, 0.82, 1)
+ambient_color = color(0.72, 0.82, 1, 1)
 ambient_energy = 0.05
-hemi_energy = 0.38
+hemi_energy = 0.65
 
 [node name="Fog" parent="." type="HeightFog"]
-density = 0.002
+density = 0.003
 height_falloff = 0.04
 base_height = -32.6
-use_sky_color = true
+use_sky_color = false
+color = color(0.36, 0.5, 0.68, 1)
 sun_scatter = 0.35
 sun_g = 0.8
 max_opacity = 0.7
@@ -42,7 +43,7 @@ sky_distance = 500
 
 [node name="Post" parent="." type="PostProcess"]
 tonemap = AGX
-exposure = 1
+exposure = 1.1
 bloom = true
 bloom_intensity = 0.06
 bloom_threshold = 1
@@ -54,9 +55,9 @@ aa = SMAA
 vignette = true
 vignette_intensity = 0.25
 vignette_smoothness = 0.6
-grade = true
+grade = false
 lut = "grades/beach.cube"
-grade_intensity = 0.75
+grade_intensity = 0.12
 
 [node name="Camera" parent="." type="Camera3D"]
 position = vec3(0, 3, 14)

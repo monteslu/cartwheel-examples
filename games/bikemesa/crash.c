@@ -32,6 +32,7 @@ static cw_world3d W3;
 static cw_mesh3d scene_mesh;
 static cw_body3d toys[LOOSE_TOYS], toy_wheels[MAX_RIDERS][2];
 static int n_toys;
+static int32_t alien_bike_hits;
 static float toy_debug[LOOSE_TOYS*3];
 static int32_t toy_hits[3];
 int crash_toys_count(void) { return n_toys; }
@@ -42,11 +43,39 @@ uint32_t crash_toys_hash(uint32_t h) {
     uint32_t state=cw_world3d_stats(W3).hash;h=cw_hash32(&state,sizeof state,h); }
   return h;
 }
-void crash_toy_wheels(int rider,cw_xform2 rear,cw_xform2 front,float z,bool alive) {
-  if(!n_toys)return;
-  cw_xform2 pose[2]={rear,front};
+/* Riding remains Box2D; kinematic wheel proxies push loose Box3D bodies
+ * on any course. They survive checkpoint resets with the crash world. */
+void crash_riding_wheels(int rider,cw_xform3 rear,cw_xform3 front,int model,bool alive) {
+  if(!cw_world3d_valid(W3))return;
+  bike_fit fit=bike_fit_for(model);
+  cw_xform3 pose[2]={rear,front};
   for(int j=0;j<2;j++) {
-    cw_xform3 target=cw_xform3_at(pose[j].p.x,pose[j].p.y,alive?z:-1000);
+    cw_xform3 target=pose[j];
+    if(!alive)target.p.z=-1000;
+    if(!cw_body3d_valid(toy_wheels[rider][j])) {
+      if(!alive)continue;
+      cw_body3d_def bd=cw_body3d_default_def();bd.type=CW_BODY_KINEMATIC;
+      bd.position=target.p;bd.rotation=target.q;bd.name="riding wheel collider";
+      toy_wheels[rider][j]=cw_body3d_create(W3,&bd);
+      cw_shape3d_def sd=cw_shape3d_default_def();
+      sd.layer=L3_BIKE;sd.mask=1u<<L3_TOY;sd.material.restitution=.25f;
+      sd.material.user_material=202;sd.hit_events=true;
+      float radius=j&&fit.front_r>0?fit.front_r:fit.wheel_r;
+      /* A thin wheel hull keeps lane contact faithful to the visible tire. */
+      t3_vec3 rim[40];
+      int count=(model==BIKE_DJ&&j==1)||(model==BIKE_BIGWHEEL&&j==0)?2:1;
+      for(int wheel=0;wheel<count;wheel++) {
+        float offset=model==BIKE_BIGWHEEL?.36f:.49f;
+        float z=count==2?(wheel?-offset:offset):0;
+        float half_width=model==BIKE_BIGWHEEL&&j==0?.08f:.032f;
+        for(int k=0;k<20;k++) {
+          float a=k*6.2831853f/20;
+          rim[k*2]=(t3_vec3){radius*cw_cos(a),radius*cw_sin(a),z-half_width};
+          rim[k*2+1]=(t3_vec3){rim[k*2].x,rim[k*2].y,z+half_width};
+        }
+        cw_shape3d_hull(toy_wheels[rider][j],&sd,rim,40);
+      }
+    }
     cw_xform3 old=cw_body3d_transform(toy_wheels[rider][j]);
     float dx=target.p.x-old.p.x,dy=target.p.y-old.p.y,dz=target.p.z-old.p.z;
     if(dx*dx+dy*dy+dz*dz>9)cw_body3d_set_transform(toy_wheels[rider][j],target);
@@ -59,6 +88,9 @@ int crash_toy_kind(int i) { return i>=TOY_PIT_START?4:i>=LOOSE_SCATTER?6:i%9; } 
 float crash_toy_size(int i) { return i>=LOOSE_SCATTER?1:.65f+toy_unit(i,8)*.7f; }
 void crash_toy_sounds(const cw_phys_event3d *ev,int n) {
   float strength[3]={0};
+  for(int j=0;j<n;j++)if(ev[j].type==CW_PHYS_HIT &&
+    ((ev[j].material_a==201&&ev[j].material_b==202)||
+     (ev[j].material_a==202&&ev[j].material_b==201)))alien_bike_hits++;
   for(int j=0;j<n;j++)if(ev[j].type==CW_PHYS_HIT) {
     float near=1e20f;
     for(int r=0;r<MAX_RIDERS;r++)if(cw_body3d_valid(toy_wheels[r][0])) {
@@ -122,13 +154,7 @@ static void toys_build(const track_desc *t) {
   for(int side=-1;side<=1;side+=2)cw_shape3d_box(pit,&ps,(t3_vec3){4.5f,1.35f,.15f},cw_xform3_at(px,py+1.35f,side*2.7f));
   for(int end=-1;end<=1;end+=2)cw_shape3d_box(pit,&ps,(t3_vec3){.2f,1.35f,2.8f},cw_xform3_at(px+end*4.3f,py+1.35f,0));
   n_toys=LOOSE_TOYS;memset(toy_hits,0,sizeof toy_hits);cw_debug_field("toys.hits",toy_hits,CW_DBG_I32,3);cw_debug_f32_array("toys.positions",toy_debug,LOOSE_TOYS*3);
-  sd.layer=L3_BIKE;sd.mask=1u<<L3_TOY;sd.material.restitution=.25f;sd.material.user_material=0;
-  for(int i=0;i<MAX_RIDERS;i++)for(int j=0;j<2;j++) {
-    cw_body3d_def bd=cw_body3d_default_def();bd.type=CW_BODY_KINEMATIC;
-    bd.position=(t3_vec3){0,0,-1000};bd.name="riding wheel toy collider";
-    toy_wheels[i][j]=cw_body3d_create(W3,&bd);
-    cw_shape3d_sphere(toy_wheels[i][j],&sd,(t3_vec3){0},.36f);
-  }
+
 }
 
 /* a growable triangle list */
@@ -290,6 +316,7 @@ void crash_world_build(const track_desc *t) {
   wd.substeps = 4;
   wd.workers = 0; /* every job-pool thread: Box3D gives the same result at any worker count */
   wd.hit_speed = 2.5f;
+  alien_bike_hits=0;cw_debug_i32("alien.bike_hits",&alien_bike_hits);
   wd.layers[L3_SCENE] = "scene";
   wd.layers[L3_RIDER] = "rider";
   wd.layers[L3_BIKE] = "bike";

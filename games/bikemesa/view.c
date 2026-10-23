@@ -87,8 +87,8 @@ static const theme THEMES[] = {
     { 0.3f, 0.6f, 0.2f }, { 0.4f, 0.7f, 0.25f }, 3, 0.9f },
   { "desert", TEX_SAND, TEX_SANDSTONE, TEX_SAND, { 1, 0.92f, 0.8f }, { 1, 0.78f, 0.58f }, { 1, 0.8f, 0.6f },
     { 0.8f, 0.72f, 0.45f }, { 0.65f, 0.6f, 0.35f }, 3, 1 },
-  { "autumn", TEX_DIRT, TEX_ROCK, TEX_ROCK, { 0.8f, 0.68f, 0.55f }, { 0.75f, 0.7f, 0.65f }, { 0.65f, 0.55f, 0.45f },
-    { 0.85f, 0.5f, 0.2f }, { 0.75f, 0.35f, 0.15f }, 1, 1 },
+  { "autumn", TEX_DIRT, TEX_MOSSROCK, TEX_GRASS, { .48f,.43f,.32f }, { .40f,.48f,.29f }, { .38f,.46f,.35f },
+    { .49f,.52f,.24f }, { .63f,.48f,.20f }, 3, 1 },
   { "coast", TEX_GRASS, TEX_ROCK, TEX_ROCK, { 0.85f, 0.95f, 0.8f }, { 0.55f, 0.57f, 0.58f }, { 0.5f, 0.55f, 0.58f },
     { 0.5f, 0.65f, 0.4f }, { 0.65f, 0.7f, 0.45f }, 1, 0.95f },
   { "cosmic", TEX_ROCK, TEX_ROCK, TEX_ROCK, { 0.8f, 0.75f, 1 }, { 0.55f, 0.5f, 0.8f }, { 0.6f, 0.5f, 0.9f },
@@ -109,6 +109,8 @@ static const theme THEMES[] = {
     { 0.5f, 0.9f, 0.75f }, { 1, 0.5f, 0.8f }, 3, 0.45f },
   { "toybox", TEX_WOOD, TEX_WOOD, TEX_ROCK, { 1, 0.8f, 0.5f }, { 0.3f, 0.5f, 0.8f }, { 0.55f, 0.65f, 0.85f },
     { 0.6f, 0.7f, 0.9f }, { 0.9f, 0.6f, 0.25f }, 2, 0.6f },
+  { "nightburbs", TEX_ASPHALT,TEX_CONCRETE,TEX_GRASS,{.40f,.45f,.55f},{.27f,.31f,.40f},{.15f,.25f,.22f},
+    {.12f,.23f,.18f},{.18f,.30f,.22f},3,.8f },
   { "stuntshow", TEX_ASPHALT, TEX_CONCRETE, TEX_GRASS, { 0.82f, 0.84f, 0.9f }, { 0.57f, 0.59f, 0.64f }, { 0.5f, 0.6f, 0.5f },
     { 0.65f, 0.72f, 0.55f }, { 0.8f, 0.75f, 0.55f }, 3, 0.72f },
 
@@ -491,10 +493,10 @@ static void ribbon(t3_object *root, const track_desc *t, const theme *th) {
   }
   /* City concrete is a compact riding slab; rubble-strength normals made
    * every aggregate fleck catch streetlights like polished loose gravel. */
-  bool city_slab = !strcmp(th->name, "neon");
+  bool city_slab = !strcmp(th->name, "neon") || !strcmp(th->name,"nightburbs");
   t3_material *mt = mat(th->top_tex, th->top, 1, 1,
                         city_slab ? .12f : 1.2f, city_slab ? .92f : th->top_rough);
-  t3_material *mf = mat(th->face_tex, th->face, 1, 1, 1.3f, 0.95f);
+  t3_material *mf = mat(th->face_tex, th->face, 1, 1, !strcmp(th->name,"nightburbs")?.08f:1.3f, 0.95f);
   /* the surface tiles every 4 m along and once across */
   t3_geometry *gt = mb_done(&top), *gf = mb_done(&face);
   add(root, gt, mt, true);
@@ -732,6 +734,7 @@ static float bank_y(float x, float z, int kind) {
   near = track_height_at(x, &f);
   if (!f) near = ground_at(x);
   float base = near + (ground_at(x) - near) * cw_clampf(d / 4, 0, 1);
+  if (kind == 4) return base-.12f;
   if (kind == 3) return base - .08f - 3.5f * cw_clampf(d / 4, 0, 1);
   if (kind == 2) return near + (ground_at(x) - near) * cw_clampf(d / 1.2f, 0, 1) - 1.8f * cw_clampf(d / 1.2f, 0, 1);
   float und = 1.6f * cw_sin(x * 0.11f + z * 0.07f) + 0.9f * cw_sin(x * 0.27f - z * 0.19f + 1.3f) + 0.35f * cw_sin(x * 0.9f + z * 0.6f);
@@ -775,6 +778,10 @@ static void bank(t3_object *root, const track_desc *t, const theme *th) {
   if (!strcmp(th->name, "circus") || !strcmp(th->name, "toybox")) {
     bank_tex = TEX_GRASS;
     pale[0] = 0.48f; pale[1] = 0.68f; pale[2] = 0.48f;
+  }
+  if (!strcmp(th->name,"nightburbs")) {bank_tex=TEX_GRASS;pale[0]=.18f;pale[1]=.29f;pale[2]=.24f;}
+  if (!strcmp(th->name,"autumn")) {
+    bank_tex=TEX_MOSS; pale[0]=.42f;pale[1]=.51f;pale[2]=.28f;
   }
   float x0 = GH_X0 + 4, x1 = t->length + 100;
   int nx = (int)((x1 - x0) / 1.0f) + 1;
@@ -1082,7 +1089,7 @@ static void rocks(t3_object *root, const track_desc *t, const theme *th) {
 }
 
 static void fill(t3_object *root, const track_desc *t, const theme *th) {
-  if (strcmp(th->name, "circus") && strcmp(th->name, "candy") && strcmp(th->name, "toybox")) rocks(root, t, th);
+  if (strcmp(th->name,"autumn") && strcmp(th->name, "circus") && strcmp(th->name, "candy") && strcmp(th->name, "toybox")) rocks(root, t, th);
   /* ground plains behind the track at bedrock height */
   t3_material *plain = far_mat(mat(th->top_tex, th->top, 40, 40, 1.0f, 1));
   t3_geometry *pl = t3_plane_geometry_new(1, 1, 1, 1);
@@ -1212,7 +1219,7 @@ static t3_texture *checker_tex(void) {
  * that waves (its vertices re-posed every frame from render time; drawn only) */
 enum { FLAG_SEG = 16, FLAG_ROWS = 6 };
 typedef struct flag { t3_geometry *g; float w, h; } flag;
-static flag flags[2];
+static flag flags[64];
 static int n_flags;
 static float flag_time;
 static void flag_build(t3_object *root, float x, float y, float w, float h, t3_material *cloth, t3_material *pole) {
@@ -1227,7 +1234,7 @@ static void flag_build(t3_object *root, float x, float y, float w, float h, t3_m
   t3_mesh *c = add(root, g, cloth, true);
   c->base.position = (t3_vec3){ x + w * 0.5f + 0.05f, y + 4.55f - h * 0.5f, z };
   c->base.frustum_culled = false;
-  if (n_flags < 2) flags[n_flags++] = (flag){ g, w, h };
+  if (n_flags < (int)CW_ARRAY_LEN(flags)) flags[n_flags++] = (flag){ g, w, h };
   t3_release(pg);
   t3_release(fin);
   t3_release(g);
@@ -1387,6 +1394,25 @@ static t3_geometry *forest_leaf_cluster(void) {
   return mb_done(&b);
 }
 
+/* A layered crown of individual folded leaves, rather than a rock-textured blob. */
+static t3_geometry *autumn_leaf_cluster(void) {
+  mb b={0};
+  for(int i=0;i<38;i++) {
+    float a=i*2.3999632f,yy=1-2*(i+.5f)/38,rr=sqrtf(1-yy*yy);
+    t3_vec3 center={rr*cw_cos(a),yy*.64f,rr*cw_sin(a)};
+    float tilt=.35f+.45f*cw_sin(i*1.7f),size=.22f+.07f*((i*7)%11)/11;
+    t3_vec3 n={cw_cos(a)*tilt,1,cw_sin(a)*tilt};
+    int c=mb_v(&b,center,n,.5f,.5f,1);
+    static const float xy[8][2]={{0,-1},{-.48f,-.3f},{-.95f,.15f},{-.37f,.32f},{0,1},{.37f,.32f},{.95f,.15f},{.48f,-.3f}};
+    for(int k=0;k<8;k++) {
+      float x=xy[k][0]*size,z=xy[k][1]*size;
+      mb_v(&b,(t3_vec3){center.x+x*cw_cos(a)-z*cw_sin(a),center.y-.07f+z*tilt,center.z+x*cw_sin(a)+z*cw_cos(a)},n,0,0,1);
+    }
+    for(int k=0;k<8;k++){mb_t(&b,c,c+1+k,c+1+(k+1)%8);mb_t(&b,c,c+1+(k+1)%8,c+1+k);}
+  }
+  return mb_done(&b);
+}
+
 static void tree(t3_object *root, t3_geometry *trunk, t3_geometry *crown, t3_material *bark, t3_material *leaves, float x, float y,
                  float z, float h, float r, bool conifer) {
   t3_mesh *tk = add(root, trunk, bark, true);
@@ -1470,16 +1496,19 @@ static void props(t3_object *root, const track_desc *t, const theme *th) {
   } else if (!strcmp(n, "jungle") || !strcmp(n, "autumn")) {
     bool jungle = !strcmp(n, "jungle");
     t3_material *bark = mat(TEX_BARK, (float[3]){ 0.75f, 0.65f, 0.55f }, 1, 1, 1.4f, 0.9f);
-    float leaf2[3] = { 1.0f, 0.55f, 0.18f };
-    t3_material *crown = jungle ? t3_mesh_standard_material_new(0xffffff) : mat(TEX_LEAVES, leaf2, 2, 2, .65f, 0.9f);
-    float leaf3[3] = { 0.95f, 0.32f, 0.12f };
-    t3_material *crown2 = jungle ? t3_mesh_standard_material_new(0xffffff) : mat(TEX_LEAVES, leaf3, 2, 2, .65f, 0.9f);
+    float leaf2[3] = { .95f, .67f, .19f };
+    t3_material *crown = t3_mesh_standard_material_new(0xffffff);
+    float leaf3[3] = { .72f, .22f, .12f };
+    t3_material *crown2 = t3_mesh_standard_material_new(0xffffff);
+    crown->color=lin(leaf2[0],leaf2[1],leaf2[2]);
+    crown2->color=lin(leaf3[0],leaf3[1],leaf3[2]);
+    crown->roughness=crown2->roughness=1;
     if(jungle) {
       crown->color=lin(.34f,.58f,.27f);crown2->color=lin(.24f,.45f,.21f);
       crown->roughness=crown2->roughness=1.0f;
     }
     crown->sheen = crown2->sheen = 0;
-    t3_geometry *ico = jungle ? forest_leaf_cluster() : t3_icosahedron_geometry_new(1, 1);
+    t3_geometry *ico = jungle ? forest_leaf_cluster() : autumn_leaf_cluster();
     /* Shared coarse leaf cluster: irregular silhouette at a lower triangle
      * count than the old smooth spheres, reused by every broadleaf tree. */
     if(!jungle) {
@@ -1494,7 +1523,7 @@ static void props(t3_object *root, const track_desc *t, const theme *th) {
      * depth. Keep openings at the deer crossings and the little village so
      * those discoveries remain readable from the bike. Static geometry is
      * merged into spatial chunks below, so distant groves are culled. */
-    int count = jungle ? 560 : 90;
+    int count = jungle ? 560 : 460;
     for (int i = 0; i < count; i++) {
       float x = -30 + rnd() * (t->length + 60);
       bool sapling = jungle && i < 150;
@@ -1502,15 +1531,16 @@ static void props(t3_object *root, const track_desc *t, const theme *th) {
                     jungle ? (i % 3 == 0 ? 2.6f + rnd() * 7.4f :
                             i % 3 == 1 ? 10.0f + rnd() * 17.0f :
                                          27.0f + rnd() * 19.0f)
-                           : 2.5f + rnd() * 42.0f;
+                           : (i%3==0 ? 3.5f+rnd()*6 : i%3==1 ? 12+rnd()*14 : 29+rnd()*18);
       float z = -TRACK_HALF_W - depth;
-      float h = sapling ? 1.8f + rnd() * 2.8f : jungle ? 3.4f + rnd() * 4.4f : 2.5f + rnd() * 3.5f;
-      float r = sapling ? .8f + rnd() * .75f : jungle ? 1.4f + rnd() * 1.5f : 1.2f + rnd() * 1.2f;
+      float h = sapling ? 1.8f + rnd() * 2.8f : jungle ? 3.4f + rnd() * 4.4f : (depth<10 ? 2.1f+rnd()*1.8f : 3.5f+rnd()*3.8f);
+      float r = sapling ? .8f + rnd() * .75f : jungle ? 1.4f + rnd() * 1.5f : (depth<10 ? 1.3f+rnd()*1.0f : 1.8f+rnd()*1.7f);
       bool two = rnd() < 0.5f;
       if(jungle && (((fabsf(x-106)<3+r || fabsf(x-334)<3+r) && depth<4) ||
                     (x>185-r && x<235+r && depth<22) ||
                     (fabsf(x-412)<7+r && depth<17) ||
                     (fabsf(x-t->finish_x*.82f)<5+r && z>-12-r)))continue;
+      if(!jungle && fabsf(x-t->finish_x*.31f)<10+r && z>-18-r)continue;
       if(!jungle && (fabsf(x-t->finish_x*.54f)<4+r || fabsf(x-t->finish_x*.81f)<4+r) && z>-11-r)continue;
       tree(root, trunk, ico, bark, two ? crown2 : crown, x, bank_surface_y(x, z, kind) - 0.2f, z, h, r, false);
     }
@@ -2546,6 +2576,8 @@ static bool still_ok(t3_object *o) {
   if (mt->transparent || mt->transmission > 0) return false;
   for (int i = 0; i < n_pk; i++)
     if (pks[i].flame == m) return false;
+  for (int i = 0; i < n_flags; i++)
+    if (flags[i].g == m->geometry) return false;
   for (int i = 0; i < whimsy_motion_count; i++)
     if (whimsy_motion_list[i].object == &m->base) return false;
   return true;
@@ -2700,109 +2732,9 @@ static cw_node particles(cw_node parent, const char *name, const char *const *kv
   return n;
 }
 
-/* A deliberately excessive arena show: yellow buses in the two gaps, a
- * flaming hoop over the second, and little red-white-blue grandstands. */
-static t3_mesh *stunt_part(t3_object *root, t3_geometry *g, t3_material *m,
-                           float x, float y, float z, float sx, float sy, float sz) {
-  t3_mesh *part = add(root, g, m, true);
-  part->base.position = (t3_vec3){ x, y, z };
-  part->base.scale = (t3_vec3){ sx, sy, sz };
-  return part;
-}
-static t3_material *stunt_color(float r, float g, float b, float light) {
-  t3_material *m = t3_mesh_standard_material_new(0xffffff);
-  m->color = lin(r, g, b);
-  m->roughness = .66f;
-  if (light > 0) { m->emissive = lin(r, g, b); m->emissive_intensity = light; }
-  return m;
-}
-static void stuntshow_build(t3_object *root, const track_desc *t) {
-  if (strcmp(t->theme, "stuntshow")) return;
-  t3_geometry *box = t3_box_geometry_new(1, 1, 1, 1, 1, 1);
-  t3_geometry *wheel = t3_cylinder_geometry_new(.43f, .43f, .19f, 12, 1, false);
-  t3_geometry *hoop = t3_torus_geometry_new(2.45f, .17f, 10, 48, 6.2831853f);
-  t3_geometry *flame = t3_cone_geometry_new(1, 1, 7, 1, false);
-  t3_material *yellow = stunt_color(1, .72f, .045f, 0);
-  t3_material *black = stunt_color(.025f, .035f, .055f, 0);
-  t3_material *glass = stunt_color(.13f, .28f, .4f, 0);
-  t3_material *red = stunt_color(.88f, .045f, .055f, 0);
-  t3_material *white = stunt_color(.94f, .93f, .84f, 0);
-  t3_material *blue = stunt_color(.035f, .12f, .63f, 0);
-  t3_material *gold = stunt_color(1, .42f, .015f, 4);
-  t3_material *fire = stunt_color(1, .1f, .015f, 3);
-  float hoop_x = 0, hoop_y = 0;
-  int gaps = 0;
-  for (int p = 0; p + 1 < t->piece_count && gaps < 2; p++) {
-    const track_piece *a = &t->pieces[p], *b = &t->pieces[p + 1];
-    float x0 = a->pts[(a->count - 1) * 2], x1 = b->pts[0];
-    if (x1 - x0 < 12) continue;
-    float lip_y = a->pts[(a->count - 1) * 2 + 1];
-    float exit_y = b->pts[1];
-    float bus_y = exit_y + .1f;
-    for (int j = 0; j < 2; j++) {
-      float x = x0 + (j + .5f) * (x1 - x0) / 2;
-      /* Slightly staggered full-size school buses fill the void below the rider. */
-      stunt_part(root, box, yellow, x, bus_y, -.12f, 8.4f, 2.25f, 2.2f);
-      stunt_part(root, box, yellow, x - .05f, bus_y + 1.13f, -.12f, 7.85f, .3f, 2.05f);
-      stunt_part(root, box, black, x, bus_y - .65f, 1.01f, 8.25f, .13f, .025f);
-      for (int w = 0; w < 6; w++)
-        stunt_part(root, box, glass, x - 3.1f + w * 1.22f, bus_y + .46f, 1.005f, .91f, .73f, .035f);
-      for (int w = 0; w < 2; w++) for (int side = -1; side <= 1; side += 2) {
-        t3_mesh *wh = stunt_part(root, wheel, black, x + (w ? 2.95f : -2.95f), bus_y - 1.08f, side * 1.18f, 1, 1, 1);
-        t3_object_set_rotation(&wh->base, 1.5707963f, 0, 0);
-      }
-      stunt_part(root, box, white, x + 4.23f, bus_y + .16f, 0, .055f, .46f, 1.6f);
-      stunt_part(root, box, red, x - 4.23f, bus_y + .16f, 0, .055f, .28f, 1.6f);
-      stunt_part(root, box, black, x + 3.05f, bus_y + .48f, 1.045f, .65f, .65f, .06f); /* folding door */
-    }
-    if (gaps == 1) { hoop_x = (x0 + x1) * .5f; hoop_y = lip_y + 8.6f; }
-    gaps++;
-  }
-  if (gaps > 1) {
-    stunt_part(root, hoop, gold, hoop_x, hoop_y, -.2f, 1, 1, 1);
-    for (int i = 0; i < 32; i++) {
-      float a = i * 6.2831853f / 32;
-      float x = hoop_x + 2.45f * cosf(a), y = hoop_y + 2.45f * sinf(a);
-      t3_mesh *f = stunt_part(root, flame, i & 1 ? fire : gold, x, y, -.02f,
-                              .22f, .55f + .16f * sinf(i * 3.7f), .17f);
-      t3_object_set_rotation(&f->base, 0, 0, a - 1.5707963f);
-    }
-  }
-  for (int i = 0; i < 18; i++) {
-    float x = 10 + i * 17.5f, y = track_height_at(x, NULL);
-    for (int side = -1; side <= 1; side += 2) {
-      float z = side * 6.5f;
-      stunt_part(root, box, black, x, y + 2.25f, z, .08f, 4.5f, .08f);
-      stunt_part(root, box, white, x + 1.05f, y + 3.65f, z, 2.1f, .96f, .045f);
-      for (int stripe = 0; stripe < 4; stripe++)
-        stunt_part(root, box, red, x + 1.05f, y + 4.06f - stripe * .25f, z + .035f,
-                   2.1f, .1f, .024f);
-      stunt_part(root, box, blue, x + .43f, y + 3.9f, z + .065f, .86f, .48f, .025f);
-      for (int star = 0; star < 6; star++)
-        stunt_part(root, box, white, x + .14f + (star % 3) * .25f,
-                   y + 4.02f - (star / 3) * .22f, z + .085f, .055f, .055f, .01f);
-    }
-  }
-  /* Simple grandstands along the rear side keep the arena visible from the
-   * side camera without masking the jump. */
-  for (int stand = 0; stand < 3; stand++) {
-    float x = 82 + stand * 105, y = ground_at(x) - 1.5f;
-    for (int support = -1; support <= 1; support++)
-      stunt_part(root, box, black, x + support * 14, y - 1.05f, -22.2f,
-                 .34f, 2.2f, 4.3f);
-    for (int row = 0; row < 4; row++) {
-      t3_material *c = row % 3 == 0 ? red : row % 3 == 1 ? white : blue;
-      stunt_part(root, box, c, x, y + row * 1.1f, -20.5f - row * 1.15f, 34, .3f, 1.2f);
-      for (int seat = 0; seat < 12; seat++)
-        stunt_part(root, box, seat % 3 == 0 ? blue : seat % 3 == 1 ? red : white,
-                   x - 15 + seat * 2.7f, y + row * 1.1f + .65f, -20.5f - row * 1.15f,
-                   .55f, 1.0f, .35f);
-    }
-  }
-  t3_release(box); t3_release(wheel); t3_release(hoop); t3_release(flame);
-  t3_release(yellow); t3_release(black); t3_release(glass); t3_release(red);
-  t3_release(white); t3_release(blue); t3_release(gold); t3_release(fire);
-}
+#include "liberty.inc"
+#include "autumn.inc"
+#include "nightburbs.inc"
 
 void view_build(cw_node parent, const track_desc *t, int track_index) {
   discovery_parent=parent;
@@ -2811,7 +2743,7 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
   chocolate_marks=0;cw_debug_i32("chocolate.marks",&chocolate_marks);
   const theme *th = theme_for(t->theme);
   S = (uint32_t)(track_index + 1) * 2654435761u + 11;
-  bank_kind = !strcmp(th->name, "stuntshow") ? 3 : th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0;
+  bank_kind = !strcmp(th->name,"nightburbs") ? 4 : !strcmp(th->name, "stuntshow") ? 3 : th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0;
   t3_object *root = t3_group_new();
   ground_build(t);
   ribbon(root, t, th);
@@ -2819,7 +2751,7 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
   bank(root, t, th);
   markers(root, t);
   int still0 = root->child_count;
-  if (strcmp(th->name, "stuntshow")) {
+  if (strcmp(th->name, "stuntshow") && strcmp(th->name,"nightburbs")) {
     landforms(root, t, th, !backdrop_build(parent, t, track_index));
     if (strcmp(th->name, "neon")) fill(root, t, th);
     props(root, t, th);
@@ -2827,7 +2759,9 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
   }
   int chocolate_first=root->child_count;
   whimsical_props(root, t, th);
-  stuntshow_build(root, t);
+  stuntshow_build(parent, root, t);
+  autumn_build(root,t);
+  nightburbs_build(parent,root,t);
   chocolate_colliders_build(root,chocolate_first,t);
   loose_toys_build(root,t);
   chocolate_fx_build(root,t);
@@ -3020,6 +2954,7 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
                          : !strcmp(th->name, "desert") ? sand_kv : !strcmp(th->name, "jungle") || !strcmp(th->name, "neon") ? fireflies_kv
                          : motes_kv;
   motes = particles(parent, "Weather", wx);
+  if (!strcmp(th->name,"stuntshow")||!strcmp(th->name,"nightburbs")) cw_node_set(motes,"emitting",cw_val_bool(false));
   wx_dy = wx == snow_kv ? 8 : wx == rain_kv ? 11 : wx == stars_kv ? 10 : wx == leaves_kv ? 5 : wx == gulls_kv || wx == bats_kv ? 7 : 3;
   wx_dz = wx == stars_kv ? -45 : wx == devils_kv ? -9 : wx == gulls_kv ? -8 : -2;
 
