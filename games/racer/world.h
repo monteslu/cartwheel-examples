@@ -24,12 +24,17 @@ typedef struct kart_model {
 extern const float KART_RGB[8][3];
 void kart_build(kart_model *m, int veh, int colour);
 
+/* kartgfx.c: the karts as drawn: nodes, wheels, body motion, effects that belong to a kart (shield, flames) */
+void kartgfx_build(cw_node parent, const sim *s);
+void kartgfx_reset(void);
+void kartgfx_tick(const sim *s);               /* fixed tick: pose from the sim */
+cw_node kartgfx_node(int i);
+
 /* world.c */
 void world_build(cw_node scene, const sim *s, const map_def *map);
 void world_reset(void);
 void world_tick(const sim *s);
 const track_geo *world_geo(void);
-cw_node world_kart_node(int i);
 
 /* fx.c: everything that flies and flashes (particles, sparks, smoke, splashes, speed lines, shake) */
 void fx_init(cw_node scene, const sim *s, const map_def *map);

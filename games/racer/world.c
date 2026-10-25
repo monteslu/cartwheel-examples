@@ -47,17 +47,14 @@ void add_mesh(cw_node parent, const char *name, t3_geometry *g, t3_material *m, 
 static struct {
   cw_node root;
   track_geo geo;
-  kart_model km[MAXK];
-  cw_node kart_node[MAXK];
-  cw_node wheel_node[MAXK][4];
   bool built;
   const map_def *map;
 } W;
 
 const track_geo *world_geo(void) { return &W.geo; }
-cw_node world_kart_node(int i) { return W.kart_node[i]; }
 
 void world_reset(void) {
+  kartgfx_reset();
   if (W.built) track_geo_free(&W.geo);
   memset(&W, 0, sizeof W);
 }
@@ -119,31 +116,8 @@ void world_build(cw_node scene, const sim *s, const map_def *map) {
     t3_release(me);
     t3_release(m);
   }
-  for (int i = 0; i < MAXK; i++) {
-    const kart *k = &s->k[i];
-    if (!k->on) continue;
-    kart_build(&W.km[i], k->veh, k->colour);
-    W.kart_node[i] = hang(W.root, "Kart", W.km[i].root);
-    cw_node3d_set_position(W.kart_node[i], k->p);
-    cw_node3d_set_quaternion(W.kart_node[i], k->q);
-  }
+  kartgfx_build(W.root, s);
   if (map->scenery) map->scenery(scene, s->track, 1234);
 }
 
-void world_tick(const sim *s) {
-  for (int i = 0; i < MAXK; i++) {
-    const kart *k = &s->k[i];
-    if (!k->on || !cw_node_valid(W.kart_node[i])) continue;
-    cw_node n = W.kart_node[i];
-    cw_node3d_snapshot(n);
-    cw_node3d_set_position(n, k->p);
-    cw_node3d_set_quaternion(n, k->q);
-    for (int w = 0; w < 4; w++) {
-      t3_object *wo = W.km[i].wheel[w];
-      if (!wo) continue;
-      cw_xform3 lw = cw_vehicle3d_wheel_local(sim_car(s, i), w, 1.0f);
-      t3_object_set_position(wo, lw.p.x, lw.p.y, lw.p.z);
-      t3_object_set_quaternion(wo, lw.q);
-    }
-  }
-}
+void world_tick(const sim *s) { kartgfx_tick(s); }

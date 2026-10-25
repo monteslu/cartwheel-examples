@@ -3,6 +3,8 @@
 # from programs/racer.txt plus the states a run reported missing (lines like "physical+senv+l1001+xcluster" in a run's log).
 # Runs in the engine's GPU sandbox (the test GPU only, never the desktop).
 set -euo pipefail
+exec 8>"$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/out/racer-programs.lock"
+flock 8
 D="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 E="$D/../../deps/cartwheel-engine"
 EXT=()
