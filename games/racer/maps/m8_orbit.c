@@ -2052,6 +2052,73 @@ static void build_pits(cw_node root, const track *t) {
   }
 }
 
+/* ── docking arms, league banners and far-off pieces of the station ─────────────────────────────────── */
+
+/* a truss arm from the spine toward a leg of the road, ending in a cradle that holds a ship (nose along the road) */
+static void docking_arm(t3_vec3 from, t3_vec3 to, int variant, float shipL, pcol paint, uint32_t seed) {
+  truss_span(PLAIN, from, to, 4.2f, 6.0f, K.hull2);
+  /* a cradle: a ring of metal and two lit claws, then the ship sitting in it */
+  pm *b = pose(PLAIN, to, V3(1, 0, 0), V3(0, 1, 0), V3(0, 0, 1));
+  pm_layer(b, PL_METAL);
+  pm_push(b);
+  pm_roty(b, CW_PI * 0.5f);
+  pm_ring(b, 5.0f, 0.5f, 24, 6, K.hull2);
+  pm_pop(b);
+  pm_layer(b, PL_GLOW);
+  for (int c = -1; c <= 1; c += 2) pm_ball(b, 0.4f, 0.4f, 0.4f, 0, 0, glow(c < 0 ? K.cyan : K.magenta, 4.0f), glow(K.white, 5.0f));
+  pm_pop(b);
+  pm *sb = pose(PLAIN, vadd(to, V3(variant & 1 ? 6.0f : -6.0f, 0, 0)), V3(1, 0, 0), V3(0, 1, 0), V3(0, 0, variant & 2 ? -1.0f : 1.0f));
+  pm_rotz(sb, (hf(seed) - 0.5f) * 0.3f);
+  ship_model(sb, shipL, variant & 1, paint, K.hull2);
+  pm_pop(sb);
+}
+
+static void build_arms(void) {
+  const float X = 75, Y = 22;
+  struct { float z; float r; float side; float reach; } A[] = {
+    { 30, 22, -1, 36 }, { 150, 18, 1, 52 }, { 245, 17, -1, 38 }, { 590, 20, 1, 50 }, { 700, 16, -1, 80 }, { 480, 18, 1, 54 },
+  };
+  for (int i = 0; i < 6; i++) {
+    float far = A[i].z > 440 ? 1.0f : 0.0f;
+    float x0 = X + far * 11 + A[i].side * A[i].r, y0 = Y + far * 5 - 3 + (float)(i % 3) * 3.0f;
+    float x1 = x0 + A[i].side * A[i].reach;
+    docking_arm(V3(x0, y0, A[i].z), V3(x1, y0 - 2.0f, A[i].z + 2.0f), i, 13.0f + 3.0f * (float)(i % 3), pc_mix(K.hull, i & 1 ? K.orange : K.cyan, 0.45f), 900u + (uint32_t)i);
+  }
+}
+
+/* big torn banners on masts above the spine, facing the drivers on both legs */
+static void build_flags(void) {
+  const float X = 75, Y = 22;
+  static const struct { float z, r, h; int a, b; } F[] = {
+    { 118, 18, 28, 0, 1 }, { 240, 17, 30, 1, 0 }, { 420, 17, 26, 0, 1 }, { 655, 21, 32, 1, 0 }, { 6, 22, 26, 1, 2 },
+  };
+  for (int i = 0; i < 5; i++) {
+    float far = F[i].z > 440 ? 1.0f : 0.0f;
+    t3_vec3 base = V3(X + far * 11, Y + far * 5 + F[i].r - 1.0f, F[i].z);
+    pm *b = pose(PLAIN, base, V3(1, 0, 0), V3(0, 1, 0), V3(0, 0, 1));
+    pm_layer(b, PL_METAL);
+    pm_beam(b, V3(0, 0, 0), V3(0, F[i].h, 0), 0.9f, K.hull2);
+    pm_beam(b, V3(-8, F[i].h, 0), V3(8, F[i].h, 0), 0.5f, K.hull2);
+    pm_push(b);
+    pm_move(b, 0, F[i].h - 0.5f, 0);
+    pcol c1 = F[i].a == 0 ? K.magenta : F[i].a == 1 ? K.cyan : K.yellow, c2 = F[i].b == 0 ? K.magenta : F[i].b == 1 ? K.dark : K.orange;
+    banner(b, 14.0f, 24.0f, c1, c2, 400u + (uint32_t)i * 13u);
+    pm_pop(b);
+    pm_pop(b);
+  }
+}
+
+/* three pieces of the station far off, so every direction has depth: long modules with lit windows, a lone wheel */
+static void build_far(void) {
+  hull_module(V3(-430, 150, 760), vnorm(V3(0.25f, 0.02f, 1)), 220, 30, 0, 5001u, 2);
+  hull_module(V3(-400, 150, 1010), vnorm(V3(0.25f, 0.02f, 1)), 120, 24, 2, 5002u, 1);
+  hull_module(V3(640, -40, -520), vnorm(V3(-0.3f, 0.0f, 1)), 260, 34, 1, 5003u, 3);
+  hull_module(V3(600, -40, -250), vnorm(V3(-0.3f, 0.0f, 1)), 150, 26, 0, 5004u, 1);
+  truss_span(PLAIN, V3(-430, 150, 760), V3(-480, 180, 600), 9.0f, 12.0f, K.hull2);
+  solar_wing(V3(-380, 150, 880), V3(0, 1, 0), V3(1, 0, 0), 180.0f, 46.0f, 30.0f, 5, 6100u);
+  solar_wing(V3(640, -40, -380), V3(0, -1, 0), V3(1, 0, 0), 160.0f, 40.0f, 28.0f, 4, 6200u);
+}
+
 /* ── the scenery callback ────────────────────────────────────────────────────────────────────────────── */
 
 /* a hologram beside the road at distance s, facing the drivers who come at it */
@@ -2079,7 +2146,12 @@ static void orbit_scenery(cw_node scene, const track *t, uint32_t seed) {
   ps_chunk(farm, 300), ps_chunk(deck, 320), ps_chunk(masts, 320);
   ps_style(deck, PK_CONTAINER, TEX_WALL_TECH, rgb(0.55f, 0.75f, 0.95f), 1.0f);
   ps_style(deck, PK_CRATE, TEX_WALL_TECH, rgb(0.95f, 0.7f, 0.4f), 1.0f);
-  if (!off("station")) build_station(root, farm);
+  if (!off("station")) {
+    build_station(root, farm);
+    build_arms();
+    build_flags();
+    build_far();
+  }
   if (!off("wheel")) build_wheel(root, V3(75, 22, 337), 64, 8);
   if (!off("reactor")) build_reactor(root, t, 0, K.cyan, K.magenta);
   if (!off("reactor")) build_reactor(root, t, 3, K.magenta, K.orange);
