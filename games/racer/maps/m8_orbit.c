@@ -296,6 +296,7 @@ static t3_texture *make_glow(int kind) {
 
 typedef struct sky_state {
   t3_object *planet, *clouds, *giant, *ring;
+  cw_node root, cam; /* the sky rides on the first view's camera so it never drifts: it is infinitely far */
 } sky_state;
 static sky_state SKY;
 
@@ -442,6 +443,8 @@ static bool off(const char *part) {
 static void build_sky(cw_node scene) {
   cw_node root = cw_node_new("Node3D", "Sky");
   cw_node_add_child(scene, root);
+  SKY.root = root;
+  SKY.cam = cw_node_get(scene, "Camera");
 
   /* the dome */
   if (!off("dome")) {
@@ -880,11 +883,11 @@ static void build_deck(cw_node root, const track *t) {
       else pm_quad(b, C2, B2, B, Cc, K.dark);
       pm_layer(b, PL_GLOW);
       /* an edge light, cyan on one side and magenta on the other, in dashes */
-      if (((i / 6) & 3) != 3) {
+      {
         t3_vec3 g0 = tp(a, l1 - side * 0.2f, ly + 0.02f), g1 = tp(a, l1, ly + 0.02f), g2 = tp(e, l1, ly + 0.02f), g3 = tp(e, l1 - side * 0.2f, ly + 0.02f);
         pcol gc = side > 0 ? K.cyan : K.magenta;
-        if (side > 0) pm_quad(b, g0, g3, g2, g1, glow(gc, 3.0f));
-        else pm_quad(b, g3, g0, g1, g2, glow(gc, 3.0f));
+        if (side > 0) pm_quad(b, g0, g3, g2, g1, glow(gc, 4.2f));
+        else pm_quad(b, g3, g0, g1, g2, glow(gc, 4.2f));
       }
       pm_pop(b);
       /* a post with a lamp every 18 m, leaning out a little */
@@ -1319,25 +1322,25 @@ static void build_reactor(cw_node root, const track *t, int L, pcol c1, pcol c2)
   pm *cb = pm_new(500u + (uint32_t)L);
   pm_layer(cb, PL_GLOW);
   pm_smooth(cb, true);
-  float rc = r.R * 0.19f;
+  float rc = r.R * 0.27f;
   pm_ball(cb, rc, rc, rc, 2, 0, glow(pc_mix(c1, K.white, 0.5f), 6.0f), glow(K.white, 7.0f));
   pm_smooth(cb, false);
   t3_object *core = model_group(root, "Core", cb, -1, false);
   t3_object_set_position(core, r.c.x, r.c.y, r.c.z);
   for (int g = 0; g < 3; g++) {
     pm *gb = pm_new(600u + (uint32_t)(L * 3 + g));
-    float rr = r.R * (0.34f + 0.15f * (float)g);
+    float rr = r.R * (0.5f + 0.15f * (float)g);
     pm_layer(gb, PL_METAL);
-    pm_ring(gb, rr, 0.55f, 48, 6, K.hull2);
+    pm_ring(gb, rr, 0.9f, 56, 6, K.hull2);
     for (int k = 0; k < 4; k++) { /* clamps round the ring */
       float an = CW_TAU * (float)k / 4.0f;
       pm_push(gb);
       pm_move(gb, cosf(an) * rr, sinf(an) * rr, 0);
-      pm_box_c(gb, 1.6f, 1.6f, 1.6f, K.orange);
+      pm_box_c(gb, 1.3f, 1.3f, 1.3f, dk(K.hull2, 0.8f));
       pm_pop(gb);
     }
     pm_layer(gb, PL_GLOW);
-    pm_ring(gb, rr, 0.22f, 48, 5, glow(g == 1 ? c2 : c1, 4.2f));
+    pm_ring(gb, rr, 0.4f, 56, 5, glow(g == 1 ? c2 : c1, 4.6f));
     for (int k = 0; k < 4; k++) { /* spokes of light to the ball */
       float an = CW_TAU * (float)k / 4.0f + 0.4f;
       pm_rod(gb, V3(cosf(an) * rc * 0.9f, sinf(an) * rc * 0.9f, 0), V3(cosf(an) * rr, sinf(an) * rr, 0), 0.12f, 4, glow(c1, 3.0f));
@@ -1346,7 +1349,7 @@ static void build_reactor(cw_node root, const track *t, int L, pcol c1, pcol c2)
     t3_object_set_position(go, r.c.x, r.c.y, r.c.z);
     spin_add(go, vnorm(V3(g == 0 ? 0.2f : g == 1 ? 0.9f : 0.5f, g == 0 ? 0.9f : g == 1 ? 0.1f : 0.5f, g == 2 ? 0.8f : 0.3f)), (g & 1 ? -0.8f : 0.6f) * (1.0f + 0.2f * (float)g), (float)g * 1.7f);
   }
-  point_light(root, "ReactorLight", r.c, pc_mix(c1, K.white, 0.25f), 900.0f, 52.0f);
+  point_light(root, "ReactorLight", r.c, pc_mix(c1, K.white, 0.25f), 1400.0f, 60.0f);
 }
 
 /* ── the corkscrews: ring frames and twisted ribbons round the rolling road ─────────────────────────── */
@@ -1694,11 +1697,11 @@ static void build_uturns(cw_node root, const track *t, prop_set *ps) {
       int k = 0;
       for (int s = i + 10; s < j - 10; s += 26, k++) {
         const tsample *a = &t->s[s];
-        float lat = side * (a->hw + 11.0f + 8.0f * hf((uint32_t)s));
+        float lat = side * (a->hw + 16.0f + 10.0f * hf((uint32_t)s));
         t3_vec3 p = tp(a, lat, -0.5f);
         p.y = fmaxf(p.y, -0.5f);
         float yaw = atan2f(-side * a->r.x, -side * a->r.z);
-        ps_add_ex(ps, PK_LIGHT_POLE, 0, 0, p, t3_quat_from_axis_angle(V3(0, 1, 0), yaw), V3(2.4f, 2.4f, 2.4f), (pcol){ 1, 1, 1 }, (uint32_t)s);
+        ps_add_ex(ps, PK_LIGHT_POLE, 0, 0, p, t3_quat_from_axis_angle(V3(0, 1, 0), yaw), V3(1.5f, 1.5f, 1.5f), (pcol){ 1, 1, 1 }, (uint32_t)s);
         if (k % 3 == 1) holo_sign(root, tp(a, side * (a->hw + 20.0f), -0.5f), yaw, 16.0f, 7.0f, 10.0f, (k / 3) % 5, (k & 1) ? K.cyan : K.magenta, 2.2f, true);
       }
     }
@@ -2161,7 +2164,7 @@ static void orbit_scenery(cw_node scene, const track *t, uint32_t seed) {
   }
   int pf[4], pt[4], np = plate_runs(t, pf, pt, 4);
   if (np > 0 && !off("hangar")) build_hangar(root, t, pf[0], pt[0]);
-  if (np > 1 && !off("hangar")) build_promenade(root, t, pf[1], pt[1]);
+  if (np > 1 && !off("hangar")) build_hangar(root, t, pf[1], pt[1]);
   if (!off("jump")) build_jump(root, t, farm);
   if (!off("uturn")) build_uturns(root, t, masts);
   if (!off("props")) build_deck_props(root, t, deck);
@@ -2210,6 +2213,10 @@ static void orbit_scenery(cw_node scene, const track *t, uint32_t seed) {
 static void orbit_frame(float alpha, double time) {
   (void)alpha;
   float tf = (float)time;
+  if (SKY.root.id && cw_node_valid(SKY.cam)) {
+    t3_vec3 c = cw_node3d_global_position(SKY.cam);
+    cw_node3d_set_position(SKY.root, V3(c.x - SKY_C.x, c.y - SKY_C.y, c.z - SKY_C.z));
+  }
   /* the world turns slowly under the course, its clouds a little faster */
   if (SKY.planet) t3_object_set_rotation(SKY.planet, 0.3f, tf * 0.004f, 0);
   if (SKY.clouds) t3_object_set_rotation(SKY.clouds, 0.3f, tf * 0.0055f, 0);
@@ -2243,7 +2250,7 @@ const map_def map_orbit = {
   .scene = "scenes/orbit.cwscene",
   .spec = &(track_spec){ .name = "orbit", .pieces = SPEC, .npieces = sizeof SPEC / sizeof SPEC[0], .hw0 = 8, .circuit = true },
   .mesh = { .wall_h = { 0, 0.9f, 1.6f, 3.2f }, .curb_w = 0.9f, .tile_v = 8.0f, .tunnel_clear = 8.0f },
-  .look = { .road = { 0.55f, 0.58f, 0.66f }, .kerb_a = { 0.05f, 0.85f, 1.0f }, .kerb_b = { 0.95f, 0.2f, 0.8f }, .wall = { 0.55f, 0.6f, 0.7f },
+  .look = { .road = { 0.85f, 0.9f, 1.0f }, .kerb_a = { 0.05f, 0.85f, 1.0f }, .kerb_b = { 0.95f, 0.2f, 0.8f }, .wall = { 0.55f, 0.6f, 0.7f },
             .wall_top = { 0.8f, 0.85f, 0.95f }, .road_tex = TEX_ROAD_TECH, .wall_tex = TEX_WALL_TECH, .road_rough = 0.7f,
             .wall_emissive = true, .glow = { 0.1f, 0.85f, 1.0f } },
   .laps = 3,
