@@ -10,6 +10,7 @@
 #ifndef RACER_UI_H
 #define RACER_UI_H
 
+#include "cartwheel/render2d.h"
 #include "game.h"
 
 typedef struct race_setup {
@@ -54,5 +55,8 @@ size_t ui_save_size(void);
 /* The canvas size a dev run opens at: RACER_RES=WxH (e.g. 1920x1080, 540x960 for a portrait
  * window). Returns false when it is not set. */
 bool ui_dev_resolution(int *w, int *h);
+
+/* the font the graphics page (cw_quality_menu_draw, drawn by main.c after ui_render) is set in */
+cw_font ui_menu_font(void);
 
 #endif

@@ -602,7 +602,7 @@ static void tick_join(float W, float H) {
   int n = joined_count();
   bool go = false;
   cw_rect cr = join_continue(W, H);
-  if (cw_action_just_pressed(0, U.m_ok) || cw_action_just_pressed(0, U.a_start)) go = true;
+  if (cw_action_just_pressed(0, U.m_ok) || (cw_action_just_pressed(0, U.a_start) && !cw_action_just_pressed(0, U.a_back))) go = true;
   if (N.click && in_rect(N.m, cr)) go = true;
   if (go && U.mt > 12) {
     if (n >= 2) {
@@ -636,8 +636,10 @@ static void tick_vehicle(float W, float H) {
     if (!U.ready[i]) {
       if (dx) move_vehicle(i, dx);
       if (dy) move_colour(i, dy, n);
-      if ((cw_action_just_pressed(i, U.m_ok) || (i == 0 && cw_action_just_pressed(0, U.a_start))) && U.mt > 10) U.ready[i] = true, sfx_ok();
-      else if (cw_action_just_pressed(i, U.a_back) && U.mt > 10) {
+      /* Escape is both back and start: back wins */
+      bool back = cw_action_just_pressed(i, U.a_back);
+      if (!back && (cw_action_just_pressed(i, U.m_ok) || (i == 0 && cw_action_just_pressed(0, U.a_start))) && U.mt > 10) U.ready[i] = true, sfx_ok();
+      else if (back && U.mt > 10) {
         if (i == 0) {
           sfx_back();
           if (n > 1) goto_mode(M_JOIN), U.mt = 20;
@@ -994,7 +996,7 @@ static void scr_tick(void) {
 
 static void draw_title(float W, float H, float s) {
   bool menu = U.title_menu == 1;
-  backdrop(W, H, s, menu ? 0.75f : 0.45f);
+  backdrop(W, H, s, menu ? 0.6f : 0.3f);
   bool por = is_portrait(W, H);
   float logo_size = (menu ? 96 : 150) * s;
   float maxw = W * 0.9f;
@@ -1008,7 +1010,7 @@ static void draw_title(float W, float H, float s) {
     para(cw_rect_make(W * 0.5f - 250 * s, ly + logo_size * 0.62f, 500 * s, 34 * s), 12 * s, alpha(rgba(0.1f, 0.07f, 0.09f, 0.88f), t));
     tx(U.f_hud, "Loops, jumps and junk. Eight tracks.", W * 0.5f, ly + logo_size * 0.62f + 17 * s, 20 * s, alpha(CREAM, t), CW_ALIGN_CENTER);
     const char *p = dev_hint("Press START", "Press ENTER", "Click to start", "Tap to start");
-    float blink = 0.55f + 0.45f * cw_sin(U.time * 4.5f);
+    float blink = 0.8f + 0.2f * cw_sin(U.time * 4.5f);
     float py = H * (por ? 0.7f : 0.78f);
     float bw = fmaxf(tx_width(U.f_title, p, 36 * s) + 90 * s, 300 * s);
     cw_rect r = cw_rect_make(W * 0.5f - bw * 0.5f, py - 30 * s, bw, 60 * s);

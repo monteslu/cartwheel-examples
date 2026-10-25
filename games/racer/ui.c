@@ -417,6 +417,7 @@ static void save_check(void) {
     if (SAVE.col[i] >= N_COLOURS) SAVE.col[i] = (uint8_t)i;
   }
 }
+cw_font ui_menu_font(void) { return U.f_hud; }
 void *ui_save_ptr(void) { return &SAVE; }
 size_t ui_save_size(void) { return sizeof SAVE; }
 

@@ -617,7 +617,7 @@ static void hud_speedlines(const hv *g) {
 
 static void hud_wrong_way(const hv *g) {
   if (g->hs->wrong_t < 50) return;
-  float s = g->s, cx = g->x + g->w * 0.5f, cy = g->y + g->h * 0.2f;
+  float s = g->s, cx = g->x + g->w * 0.5f, cy = g->y + g->h * 0.44f;
   float blink = (g->S->tick / 14) & 1 ? 1.0f : 0.65f;
   cw_rect r = cw_rect_make(cx - 170 * s, cy - 30 * s, 340 * s, 60 * s);
   slab(r, 14 * s, alpha(shade(RED, 0.8f), blink), s);
@@ -707,7 +707,7 @@ static void hud_shared(const hv *g, float W, float H) {
   float qx = W * 0.5f, qy = 0, qw = W * 0.5f, qh = H * 0.5f;
   hv q = *g;
   q.x = qx, q.y = qy, q.w = qw, q.h = qh;
-  q.s = fminf(qw / 960.0f, qh / 540.0f) * 1.3f;
+  q.s = fminf(qw / 960.0f, qh / 540.0f) * 2.0f;
   q.kart = -1;
   cw_r2d_rect(cw_rect_make(qx, qy, qw, qh), rgba(0.06f, 0.05f, 0.08f, 1));
   vgrad(cw_rect_make(qx, qy, qw, qh), rgba(0.2f, 0.12f, 0.1f, 0.35f), rgba(0, 0, 0, 0.1f));
