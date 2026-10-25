@@ -100,6 +100,7 @@ typedef struct anchors {
   int gate;              /* the sample at the spillway's gates (where the lake ends and the white water begins) */
 } anchors;
 static anchors A;
+static int PV = 1; /* the views of this race: split screen thins the detail */
 static cw_node SUN_NODE, SCENE_NODE;
 
 static void build_river(const track *t);
@@ -477,8 +478,8 @@ static t3_geometry *tfinish(tmesh *m) {
 /* the colour of the land at a point: banded canyon strata on the steep parts, dusty ochre on the flat, concrete
  * on the dam, pale gravel by the road */
 static pcol land_colour(float x, float y, float z, float slope, int kind) {
-  pcol strata[6] = { rgb(0.80f, 0.42f, 0.22f), rgb(0.66f, 0.26f, 0.16f), rgb(0.88f, 0.62f, 0.40f), rgb(0.52f, 0.28f, 0.19f),
-                     rgb(0.92f, 0.74f, 0.52f), rgb(0.74f, 0.36f, 0.20f) };
+  pcol strata[6] = { rgb(0.74f, 0.27f, 0.09f), rgb(0.58f, 0.16f, 0.07f), rgb(0.84f, 0.42f, 0.14f), rgb(0.46f, 0.15f, 0.08f),
+                     rgb(0.88f, 0.55f, 0.2f), rgb(0.66f, 0.22f, 0.08f) };
   float warp = ground_noise(x, z, 38, 3.2f, 2, 21) + ground_noise(x * 0.4f + z * 0.9f, y * 3, 9, 0.5f, 1, 22);
   float yy = (y + warp) / 5.2f;
   int band = (int)floorf(yy);
@@ -488,8 +489,8 @@ static pcol land_colour(float x, float y, float z, float slope, int kind) {
   float fine = ground_noise(x * 1.7f, z * 1.7f, 5, 0.5f, 2, 23);
   c = pc_mul(c, 1.0f + 0.35f * fine);
   float steep = sm(0.35f, 1.0f, slope);
-  pcol dusty = pc_mix(rgb(0.78f, 0.58f, 0.38f), rgb(0.64f, 0.50f, 0.34f), 0.5f + 0.5f * ground_noise(x, z, 30, 1.0f, 2, 24));
-  pcol shrub = rgb(0.46f, 0.47f, 0.24f);
+  pcol dusty = pc_mix(rgb(0.78f, 0.26f, 0.07f), rgb(0.62f, 0.2f, 0.06f), 0.5f + 0.5f * ground_noise(x, z, 30, 1.0f, 2, 24));
+  pcol shrub = rgb(0.36f, 0.34f, 0.15f);
   float patch = sm(0.15f, 0.55f, ground_noise(x, z, 24, 1.0f, 2, 25));
   dusty = pc_mix(dusty, shrub, patch * 0.65f * (1.0f - steep));
   c = pc_mix(dusty, c, steep);
@@ -528,12 +529,12 @@ static void terrain_chunk(cw_node group, t3_material *mat, float x0, float z0, f
       float slope = sqrtf(gx * gx + gz * gz);
       pcol c = land_colour(x, hh[k], z, slope, kk[k]);
       /* uv: flat ground maps by x, z; steep faces by along-contour distance and height, so cliffs do not smear */
-      float u = x / 14.0f, v = z / 14.0f;
+      float u = x / 7.0f, v = z / 7.0f;
       float w = sm(0.8f, 1.8f, slope);
       if (w > 0.001f) {
         float hl = sqrtf(gx * gx + gz * gz) + 1e-4f;
         float along = (x * (-gz) + z * gx) / hl;
-        u = lerpf(u, along / 14.0f, w), v = lerpf(v, hh[k] / 14.0f, w);
+        u = lerpf(u, along / 7.0f, w), v = lerpf(v, hh[k] / 7.0f, w);
       }
       int vi = tv(&m, x, hh[k], z, -gx / l, 1 / l, -gz / l, u, v, c);
       if (i == 0 && j == 0) base = vi;
@@ -576,10 +577,10 @@ static void build_terrain(cw_node parent) {
   cw_node_add_child(parent, group);
   t3_material *mat = phys((t3_color){ 1, 1, 1 }, 0.95f, 0);
   mat->vertex_colors = true;
-  tex_apply(mat, TEX_GROUND_ROCK, 1, 1, 0.5f, 0.8f);
+  tex_apply(mat, TEX_NOISE, 1, 1, 0.35f, 0.6f);
   TMAT = t3_retain(mat);
   /* the texture multiplies the vertex colours (strata, dust) and lends the relief; its albedo is dark, so lift it */
-  if (mat->map) mat->color = (t3_color){ 2.6f, 2.6f, 2.6f };
+  if (mat->map) mat->color = (t3_color){ 1.0f, 0.9f, 0.85f };
   const float CH = 128;
   float X0 = -1280, X1 = 1408, Z0 = -1152, Z1 = 1152;
   int chunks = 0;
@@ -1249,6 +1250,18 @@ static void build_valley(cw_node parent, const track *t) {
   t3_vec3 flo[5];
   for (int i = 0; i < 5; i++) flo[i] = v3(-180.0f, yf, -120.0f + (float)i * 110.0f);
   pylon_line(ps, parent, flo, 5, 1.0f, 340);
+  /* a line of pylons up the canyon wall beside the climb */
+  {
+    t3_vec3 cl[6];
+    int nc = 0;
+    for (int i = A.climb0; i < A.loop0 && nc < 6; i += (A.loop0 - A.climb0) / 6) {
+      const tsample *q = &t->s[i];
+      t3_vec3 p = v3add(q->p, v3mul(flat_right(q), 48.0f));
+      p.y = dam_land(p.x, p.z, NULL);
+      cl[nc++] = p;
+    }
+    if (nc >= 3) pylon_line(ps, parent, cl, nc, 1.1f, 380);
+  }
   ps_finish(ps);
 }
 
@@ -1292,7 +1305,7 @@ static void build_land_props(cw_node parent, const track *t) {
     o.kinds[0] = PK_ROCK, o.weight[0] = 3, o.kinds[1] = PK_BOULDERS, o.weight[1] = 1.2f, o.kinds[2] = PK_BUSH, o.weight[2] = 3, o.kinds[3] = PK_GRASS, o.weight[3] = 3,
     o.kinds[4] = PK_CACTUS, o.weight[4] = 0.5f, o.kinds[5] = PK_DEAD_TREE, o.weight[5] = 0.35f, o.nkinds = 6;
     o.scale_min = 0.8f, o.scale_max = 1.8f;
-    o.cx = cx, o.cz = cz, o.half_x = 760, o.half_z = 700, o.density = 0.9f;
+    o.cx = cx, o.cz = cz, o.half_x = 760, o.half_z = 700, o.density = PV > 1 ? 0.45f : 0.9f;
     o.ground = dam_ground_fn, o.mask = mask_ground, o.mask_ud = &mk;
     o.lod_dist = 90, o.far_thin = 0.6f, o.margin = 4, o.seed = 72;
     n += scatter_area(ps, t, &o);
@@ -1303,7 +1316,7 @@ static void build_land_props(cw_node parent, const track *t) {
     scatter_opts o = scatter_defaults();
     o.kinds[0] = PK_ROCK, o.weight[0] = 3, o.kinds[1] = PK_BOULDERS, o.weight[1] = 1, o.kinds[2] = PK_BUSH, o.weight[2] = 2, o.kinds[3] = PK_GRASS, o.weight[3] = 3, o.nkinds = 4;
     o.scale_min = 0.9f, o.scale_max = 2.1f;
-    o.spacing = 13, o.lat_min = 3, o.lat_max = 44, o.lat_curve = 1.5f;
+    o.spacing = PV > 1 ? 24 : 13, o.lat_min = 3, o.lat_max = 44, o.lat_curve = 1.5f;
     o.ground = dam_ground_fn, o.mask = mask_ground, o.mask_ud = &mk;
     o.lod_dist = 80, o.far_thin = 0.3f, o.seed = 73;
     n += scatter_along(ps, t, &o);
@@ -1322,6 +1335,30 @@ static void build_land_props(cw_node parent, const track *t) {
       n++;
     }
   }
+  /* the spillway's right edge: pipe racks, tanks, a dish and bollards, the plant that feeds the turbines */
+  {
+    maskp mk = { A.yfloor - 6.0f, 1e9f, 0.5f, 4 };
+    scatter_opts o = scatter_defaults();
+    o.kinds[0] = PK_PIPE_RACK, o.weight[0] = 3, o.kinds[1] = PK_TANK, o.weight[1] = 1.2f, o.kinds[2] = PK_PIPE, o.weight[2] = 2, o.kinds[3] = PK_DISH, o.weight[3] = 0.6f, o.kinds[4] = PK_BOLLARD, o.weight[4] = 3, o.nkinds = 5;
+    o.scale_min = 1.0f, o.scale_max = 1.7f;
+    o.from_s = t->s[A.gate].s, o.to_s = t->s[A.pool1].s;
+    o.spacing = PV > 1 ? 30 : 15, o.lat_min = 3, o.lat_max = 16, o.sides = SIDE_RIGHT, o.lat_curve = 1.2f;
+    o.ground = dam_ground_fn, o.mask = mask_ground, o.mask_ud = &mk;
+    o.lod_dist = 70, o.seed = 74;
+    n += scatter_along(ps, t, &o);
+  }
+  /* the climb: broken rock, scrub and cacti on both sides of the long ascent */
+  {
+    maskp mk = { A.yfloor, 1e9f, 0.9f, 3 };
+    scatter_opts o = scatter_defaults();
+    o.kinds[0] = PK_BOULDERS, o.weight[0] = 2, o.kinds[1] = PK_ROCK, o.weight[1] = 3, o.kinds[2] = PK_CACTUS, o.weight[2] = 1.5f, o.kinds[3] = PK_DEAD_TREE, o.weight[3] = 1, o.kinds[4] = PK_BUSH, o.weight[4] = 3, o.nkinds = 5;
+    o.scale_min = 1.0f, o.scale_max = 2.0f;
+    o.from_s = t->s[A.climb0 - 30].s, o.to_s = t->s[A.loop0].s;
+    o.spacing = PV > 1 ? 14 : 7, o.lat_min = 2, o.lat_max = 22, o.lat_curve = 1.4f;
+    o.ground = dam_ground_fn, o.mask = mask_ground, o.mask_ud = &mk;
+    o.lod_dist = 70, o.seed = 75;
+    n += scatter_along(ps, t, &o);
+  }
   ps_finish(ps);
   cw_info("dam: %d props", n);
 }
@@ -1339,26 +1376,23 @@ static struct {
 } SKY;
 
 static t3_geometry *make_cloud(uint32_t seed, float size) {
-  pm *b = pm_new(seed);
-  pm_vary(b, 0.06f);
-  pm_smooth(b, true);
-  pcol lo = rgb(0.74f, 0.80f, 0.92f), hi = rgb(1.0f, 1.0f, 1.0f);
-  int balls = 8 + (int)(hashf(seed) * 5);
-  for (int i = 0; i < balls; i++) {
-    float u = (float)i / (float)(balls - 1);
-    float x = (u - 0.5f) * size * 1.5f + pm_rands(b) * size * 0.08f;
-    float yy = size * 0.16f * (1.0f - fabsf(u - 0.5f) * 2.0f) * (0.4f + pm_rand(b)) + pm_rand(b) * size * 0.06f;
-    float r = size * (0.22f + 0.18f * (1.0f - fabsf(u - 0.5f) * 1.6f)) * (0.75f + 0.5f * pm_rand(b));
-    pm_push(b);
-    pm_move(b, x, yy, pm_rands(b) * size * 0.14f);
-    pm_ball(b, r, r * 0.72f, r * 0.9f, 3, 0.1f, lo, hi);
-    pm_pop(b);
+  /* smooth spheres merged: a cumulus is a heap of round puffs with a flat grey-blue belly */
+  int balls = 9 + (int)(hashf(seed) * 5);
+  t3_geometry *g[16];
+  t3_mat4 m[16];
+  int n = 0;
+  t3_geometry *unit = t3_sphere_geometry_new(1.0f, 18, 12);
+  for (int i = 0; i < balls && n < 16; i++) {
+    float u = (float)i / (float)(balls - 1), mid = 1.0f - fabsf(u - 0.5f) * 2.0f;
+    float x = (u - 0.5f) * size * 1.5f + (hashf(seed + 7u * (uint32_t)i) - 0.5f) * size * 0.1f;
+    float r = size * (0.2f + 0.2f * mid) * (0.75f + 0.5f * hashf(seed + 31u * (uint32_t)i + 1));
+    float y = r * 0.55f + size * 0.12f * mid * hashf(seed + 17u * (uint32_t)i);
+    t3_mat4_compose(&m[n], v3(x, y, (hashf(seed + 3u * (uint32_t)i + 2) - 0.5f) * size * 0.2f), (t3_quat){ 0, 0, 0, 1 }, v3(r, r * 0.7f, r * 0.9f));
+    g[n++] = unit;
   }
-  prop_model m = pm_finish(b);
-  t3_geometry *g = m.g[PL_MAIN];
-  if (g) t3_retain(g);
-  prop_model_free(&m);
-  return g;
+  t3_geometry *out = geo_merge(g, m, n);
+  t3_release(unit);
+  return out;
 }
 
 static t3_geometry *make_eagle(void) {
@@ -1389,7 +1423,9 @@ static t3_geometry *make_eagle(void) {
 }
 
 static void build_sky_life(cw_node parent) {
-  t3_material *cm = prop_material(PL_MAIN, -1, (pcol){ 1, 1, 1 }, 1.0f);
+  t3_material *cm = phys(lin(0.97f, 0.96f, 0.93f), 1.0f, 0);
+  cm->emissive = lin(0.55f, 0.62f, 0.8f);
+  cm->emissive_intensity = 0.28f; /* the shaded belly keeps a cool sky glow */
   for (int i = 0; i < NCLOUD; i++) {
     uint32_t h = hash32((uint32_t)(i * 977 + 13));
     float size = 90.0f + 130.0f * hashf(h);
@@ -1862,9 +1898,9 @@ static void build_rainbow(cw_node parent, const char *name, t3_vec3 centre, t3_v
 
 static void build_lake(cw_node parent) {
   water_opts w = water_defaults();
-  w.color = rgb(0.10f, 0.62f, 0.66f);
-  w.deep = rgb(0.01f, 0.20f, 0.30f);
-  w.clarity = 0.45f;
+  w.color = rgb(0.04f, 0.78f, 0.74f);
+  w.deep = rgb(0.0f, 0.30f, 0.38f);
+  w.clarity = 0.2f;
   w.wave_height = 0.18f;
   w.wave_length = 26;
   w.choppy = 0.3f;
@@ -1894,6 +1930,16 @@ static void check_land(const track *t) {
     }
   }
   cw_info("dam check: %d road points under the land", bad);
+  if (getenv("RACER_DAM_CHECK")[0] == 'k')
+    for (int i = 1500; i < 1700; i += 25) {
+      const tsample *s = &t->s[i];
+      for (int g = 6; g <= 30; g += 8) {
+        t3_vec3 p = v3add(s->p, v3mul(s->r, s->hw + (float)g));
+        int kd = -1;
+        float h = dam_land(p.x, p.z, &kd);
+        cw_info("dam kind s=%d g=%d kind=%d h=%.1f road=%.1f", i, g, kd, h, s->p.y);
+      }
+    }
   if (getenv("RACER_DAM_CHECK")[0] == 'p')
     for (int i = A.tun0 - 20; i < A.tun0 + 30; i += 3) {
       const tsample *s = &t->s[i];
@@ -1906,7 +1952,7 @@ static void build_emitters(cw_node parent, const track *t) {
   EM.n = 0;
   int n = 0;
   /* tall plumes just beyond the road's wall, on the descent: the wind carries them across the road */
-  for (int i = A.gate + 25; i < A.spill1 + 20; i += 38) {
+  for (int i = A.gate + 25; i < A.spill1 + 20; i += (PV > 1 ? 76 : 38)) {
     const tsample *s = &t->s[i];
     t3_vec3 p = v3add(s->p, v3mul(flat_right(s), -17.0f));
     p.y = s->p.y - 2.0f;
@@ -1916,7 +1962,7 @@ static void build_emitters(cw_node parent, const track *t) {
     n++;
   }
   /* fine spray right at the wall, over the road, close to the camera */
-  for (int i = A.gate + 40; i < A.spill1 + 10; i += 26) {
+  for (int i = A.gate + 40; i < A.spill1 + 10; i += (PV > 1 ? 52 : 26)) {
     const tsample *s = &t->s[i];
     t3_vec3 p = v3add(s->p, v3mul(flat_right(s), -13.0f));
     p.y = s->p.y + 0.4f;
@@ -1926,7 +1972,7 @@ static void build_emitters(cw_node parent, const track *t) {
     n++;
   }
   /* mist over the churning water at the foot and along the canyon */
-  for (int i = 0; i < NRV; i += 14) {
+  for (int i = 0; i < NRV; i += (PV > 1 ? 28 : 14)) {
     if (RV[i].p.y > A.yfloor - 3.0f) continue;
     t3_vec3 p = RV[i].p;
     p.y += 4.0f;
@@ -1957,11 +2003,15 @@ static void dress_road(cw_node root, const track *t) {
   deco_lights(root, t, 42.0f, LAMP_POLE, run0, t->length, &st);
   deco_supports(root, t, SUP_TRESTLE, dam_ground_fn, NULL, A.yfloor - 3.0f, 3.0f, &st);
   deco_banners(root, t, 120.0f, crest_end - 120.0f, 130.0f, &st);
+  /* the jump: a run of lit hoops leads the eye to the lip, so it cannot be missed */
+  deco_banners(root, t, t->s[A.gap0].s - 150.0f, t->s[A.gap0].s - 20.0f, 32.0f, &st);
+  deco_lights(root, t, 36.0f, LAMP_POLE, t->s[A.climb0].s, t->s[A.loop0].s - 20.0f, &st);
   deco_banners(root, t, run0 + 40.0f, t->length - 60.0f, 130.0f, &st);
 }
 
 static void dam_scenery(cw_node scene, const track *t, uint32_t seed) {
   (void)seed;
+  PV = game_planned_views();
   find_anchors(t);
   cw_info("dam anchors: crest z %.0f..%.0f, spill %d..%d, tunnel %d..%d, cork %d..%d, gap %d..%d, climb %d..%d, loop %d..%d, xc %.0f floor %.1f rim %.1f",
           A.zS, A.zN, A.spill0, A.spill1, A.tun0, A.tun1, A.cork0, A.cork1, A.gap0, A.gap1, A.climb0, A.climb1, A.loop0, A.loop1, A.xc, A.yfloor, A.yrim);
@@ -1972,7 +2022,7 @@ static void dam_scenery(cw_node scene, const track *t, uint32_t seed) {
   if (getenv("RACER_DAM_CHECK")) check_land(t);
   build_terrain(root);
   build_lake(root);
-  t3_vec3 sun_to = v3norm(v3(0.46f, -0.82f, 0.35f)); /* the way the sun's light travels (see the scene file) */
+  t3_vec3 sun_to = v3norm(v3(0.48f, -0.67f, 0.57f)); /* the way the sun's light travels (see the scene file) */
   build_white_water(root, sun_to);
   build_gates(root, t);
   build_valley(root, t);

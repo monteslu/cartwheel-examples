@@ -4,11 +4,11 @@
 
 [node name="Sky" parent="." type="ProceduralSky"]
 sun = "../Sun"
-time_of_day = 14.3
+time_of_day = 15.4
 latitude = 36
 declination = 18
 north = 302
-sun_energy = 5.5
+sun_energy = 3.8
 sky_energy = 1.0
 rayleigh = 1.8
 mie = 0.2
@@ -20,7 +20,7 @@ env_update_angle = 2
 [node name="Sun" parent="." type="DirectionalLight3D"]
 shadow = true
 shadow_size = 2048
-shadow_extent = 34
+shadow_extent = 44
 shadow_far = 170
 shadow_bias = -0.0003
 shadow_normal_bias = 0.03
@@ -37,13 +37,13 @@ ground_color = color(0.62, 0.36, 0.2, 1)
 hemi_energy = 0.8
 
 [node name="Fog" parent="." type="HeightFog"]
-density = 0.00018
+density = 0.00012
 height_falloff = 0.012
 base_height = -60
 use_sky_color = true
 sun_scatter = 0.5
 sun_g = 0.8
-max_opacity = 0.3
+max_opacity = 0.22
 start_distance = 90
 sky_distance = 1800
 volumetric_distance = 1
@@ -51,9 +51,9 @@ volumetric_distance = 1
 [node name="Post" parent="." type="PostProcess"]
 depth_prepass = true
 tonemap = AGX
-exposure = 1.35
+exposure = 1.25
 bloom = true
-bloom_intensity = 0.1
+bloom_intensity = 0.14
 bloom_threshold = 1
 bloom_knee = 0.6
 ssao = true
