@@ -51,7 +51,7 @@ volumetric_distance = 1
 [node name="Post" parent="." type="PostProcess"]
 depth_prepass = true
 tonemap = AGX
-exposure = 1.45
+exposure = 1.35
 bloom = true
 bloom_intensity = 0.1
 bloom_threshold = 1

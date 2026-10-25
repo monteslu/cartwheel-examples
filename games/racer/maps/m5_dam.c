@@ -103,6 +103,7 @@ static anchors A;
 static cw_node SUN_NODE, SCENE_NODE;
 
 static void build_river(const track *t);
+static void build_river2(void);
 static void find_anchors(const track *t) {
   memset(&A, 0, sizeof A);
   A.t = t;
@@ -160,6 +161,7 @@ static void find_anchors(const track *t) {
   A.pool0 = A.spill1;
   A.pool1 = A.tun0;
   build_river(t);
+  build_river2();
   /* the climb: first sample after the gap that rises */
   A.climb0 = A.climb1 = -1;
   for (int k = A.gap1 + 100; k < n; k++) {
@@ -181,6 +183,8 @@ typedef struct rv_pt {
 } rv_pt;
 static rv_pt RV[MAXRV];
 static int NRV;
+static rv_pt RV2[96]; /* the calm river in the valley below the dam */
+static int NRV2;
 static float RV_BED = 0.3f; /* the bed lies this far below the water's surface */
 
 static t3_vec3 flat_dir(t3_vec3 v) {
@@ -246,11 +250,11 @@ static void build_river(const track *t) {
   river_add(P[nl - 1], HW[nl - 1]);
 }
 
-/* squared-free: distance on the ground plane from (x, z) to the river's centre line; also the surface height and half width there */
-static float river_dist(float x, float z, float *wy, float *hw) {
+/* distance on the ground plane from (x, z) to a river's centre line; also the surface height and half width there */
+static float river_dist_in(const rv_pt *rv, int n, float x, float z, float *wy, float *hw) {
   float best = 1e18f, by = 0, bw = 0;
-  for (int i = 0; i + 1 < NRV; i++) {
-    const rv_pt *a = &RV[i], *b = &RV[i + 1];
+  for (int i = 0; i + 1 < n; i++) {
+    const rv_pt *a = &rv[i], *b = &rv[i + 1];
     float ex = b->p.x - a->p.x, ez = b->p.z - a->p.z;
     float l2 = ex * ex + ez * ez + 1e-6f;
     float u = clampf(((x - a->p.x) * ex + (z - a->p.z) * ez) / l2, 0, 1);
@@ -260,6 +264,40 @@ static float river_dist(float x, float z, float *wy, float *hw) {
   if (wy) *wy = by;
   if (hw) *hw = bw;
   return sqrtf(best);
+}
+static float river_dist(float x, float z, float *wy, float *hw) {
+  float w1, h1, w2, h2;
+  float d1 = river_dist_in(RV, NRV, x, z, &w1, &h1), d2 = NRV2 > 1 ? river_dist_in(RV2, NRV2, x, z, &w2, &h2) : 1e9f;
+  /* the nearer by its own bank: whichever has the less distance past its edge */
+  if (NRV2 > 1 && d2 - h2 < d1 - h1) {
+    if (wy) *wy = w2;
+    if (hw) *hw = h2;
+    return d2;
+  }
+  if (wy) *wy = w1;
+  if (hw) *hw = h1;
+  return d1;
+}
+
+/* the calm river below the dam: from the power station's outflow north, then east along the valley's foot */
+static void build_river2(void) {
+  float yf = A.yfloor - 0.7f;
+  static const float RP[][3] = { { -96, -330, 12 }, { -98, -200, 14 }, { -102, -60, 16 }, { -104, 80, 20 }, { -108, 220, 24 }, { -96, 340, 28 }, { -60, 440, 30 },
+                                 { 20, 488, 32 }, { 140, 506, 34 }, { 300, 500, 36 }, { 460, 494, 38 }, { 620, 492, 40 }, { 760, 486, 42 } };
+  int nr = (int)(sizeof RP / sizeof RP[0]);
+  t3_vec3 P[16];
+  for (int i = 0; i < nr; i++) P[i] = v3(RP[i][0], yf - 0.7f, RP[i][1]);
+  NRV2 = 0;
+  for (int i = 0; i < nr - 1; i++) {
+    t3_vec3 a = i ? P[i - 1] : P[0], d = i + 2 < nr ? P[i + 2] : P[nr - 1];
+    for (int k = 0; k < 4 && NRV2 < 95; k++) {
+      float u = (float)k / 4.0f;
+      rv_pt *r = &RV2[NRV2++];
+      r->p = catmull(a, P[i], P[i + 1], d, u);
+      r->hw = lerpf(RP[i][2], RP[i + 1][2], u);
+    }
+  }
+  RV2[NRV2].p = P[nr - 1], RV2[NRV2].hw = RP[nr - 1][2], NRV2++;
 }
 
 /* ── the land ───────────────────────────────────────────────────────────────────────────────────────── */
@@ -338,6 +376,12 @@ static float land_road(float x, float z, int *kind) {
   float gg = fmaxf(g, 0.0f);
   uint32_t fl = sm_->flags;
   float h = h0;
+  /* the ramps either side of the jump stand clear of the ground on trestles: no earth heaped under them */
+  bool ramp = (idx >= A.gap0 - 110 && idx < A.gap0) || (idx > A.gap1 && idx <= A.gap1 + 110);
+  if (ramp && ry - h0 > 4.0f) {
+    if (kind) *kind = KIND_ROCK;
+    return h0;
+  }
   if ((fl & TF_LOOP) || (fl & TF_GAP)) {
     if (kind) *kind = KIND_ROCK;
     return h0;
@@ -1020,7 +1064,7 @@ static void build_dam_skin(cw_node parent, const track *t) {
   conc->color = lin(0.86f, 0.84f, 0.80f);
   conc->vertex_colors = true;
   conc->side = T3_DOUBLE_SIDE;
-  int ranges[2][2] = { { 0, A.spill1 + 30 }, { t->n - 720, t->n - 2 } };
+  int ranges[2][2] = { { 0, A.spill1 + 30 }, { A.loop1 + 60, t->n - 2 } };
   for (int r = 0; r < 2; r++) {
     /* cut each range into pieces a view can cull */
     for (int a = ranges[r][0]; a < ranges[r][1]; a += 120) {
@@ -1046,6 +1090,772 @@ static void build_dam_skin(cw_node parent, const track *t) {
     }
   }
   t3_release(conc);
+}
+
+
+/* ── below the dam: the calm river, the power station at the toe, its switchyard and the lines out ───── */
+
+static t3_vec3 yawed(float yaw, float x, float z) { return v3(x * cosf(yaw) + z * sinf(yaw), 0, -x * sinf(yaw) + z * cosf(yaw)); }
+
+/* a line of lattice pylons through pts (their feet), the cables between the arm tips; returns nothing, adds to ps and cables */
+static void pylon_line(prop_set *ps, cw_node parent, const t3_vec3 *pts, int n, float scale, uint32_t seed) {
+  float h = prop_default_size(PK_PYLON) * scale;
+  float arms[3] = { 0.58f, 0.74f, 0.9f }, ext[3] = { 0.34f, 0.28f, 0.2f };
+  t3_vec3 tip[16][6];
+  for (int i = 0; i < n; i++) {
+    t3_vec3 d = v3sub(pts[i + 1 < n ? i + 1 : i], pts[i > 0 ? i - 1 : i]);
+    float yaw = atan2f(-d.z, d.x); /* local x (the arms) lies across the line */
+    ps_add(ps, PK_PYLON, pts[i], yaw, scale, seed + (uint32_t)i);
+    for (int a = 0; a < 3; a++)
+      for (int k = 0; k < 2; k++) {
+        float e = h * ext[a] * 0.7f * (k ? 1.0f : -1.0f), y = h * arms[a] - h * 0.095f;
+        t3_vec3 o = yawed(yaw, e, 0);
+        tip[i][a * 2 + k] = v3(pts[i].x + o.x, pts[i].y + y, pts[i].z + o.z);
+      }
+  }
+  for (int i = 0; i + 1 < n; i++)
+    for (int c = 0; c < 6; c++) {
+      t3_vec3 pair[2] = { tip[i][c], tip[i + 1][c] };
+      float span = v3len(v3sub(pair[1], pair[0]));
+      deco_cables(parent, pair, 2, span * 0.03f, 0.07f, rgb(0.15f, 0.15f, 0.17f));
+    }
+}
+
+static void build_valley(cw_node parent, const track *t) {
+  (void)t;
+  float yf = A.yfloor - 0.7f;
+  /* the film of the river */
+  {
+    t3_vec3 pts[96];
+    for (int i = 0; i < NRV2; i++) pts[i] = v3(RV2[i].p.x, RV2[i].p.y + 0.35f, RV2[i].p.z);
+    water_opts w = water_defaults();
+    w.color = rgb(0.16f, 0.62f, 0.62f);
+    w.deep = rgb(0.02f, 0.22f, 0.28f);
+    w.clarity = 0.5f;
+    w.reflect = 0.7f;
+    w.flow_x = 0.0f, w.flow_z = 0.8f;
+    water_ribbon(parent, pts, NRV2, 56.0f, &w);
+  }
+  /* ── the power station: a long hall at the dam's toe with a barrel roof, six penstocks down the face ── */
+  pmc *c = pmc_new(80, 61);
+  float zc = -70.0f, len = 170.0f, x0 = -52.0f, wid = 36.0f;
+  pcol wall = rgb(0.80f, 0.77f, 0.70f), wall_d = rgb(0.52f, 0.50f, 0.46f), roof = rgb(0.38f, 0.62f, 0.62f), roof_d = rgb(0.24f, 0.42f, 0.45f);
+  pm *b = pmc_at(c, v3(x0 - wid * 0.5f, yf, zc));
+  pm_push(b);
+  pm_move(b, x0 - wid * 0.5f, yf - 0.6f, zc);
+  pm_vary(b, 0.04f);
+  pm_layer(b, PL_MAIN);
+  pm_box(b, wid, 17.0f, len, wall_d, wall);
+  /* barrel roof: a squashed cylinder laid along the hall */
+  pm_push(b);
+  pm_move(b, 0, 17.0f, 0);
+  pm_rotx(b, 1.5707963f);
+  pm_scale(b, 1, 1, 0.38f);
+  pm_cyl_ex(b, wid * 0.5f, wid * 0.5f, len, 18, roof_d, roof, false, true);
+  pm_pop(b);
+  /* a tall transformer annex and a crane gantry along the east side */
+  pm_push(b);
+  pm_move(b, -wid * 0.5f - 7.0f, 0, -len * 0.5f + 20.0f);
+  pm_box(b, 14.0f, 24.0f, 30.0f, wall_d, wall);
+  pm_pop(b);
+  pm_layer(b, PL_METAL);
+  for (int i = 0; i < 12; i++) {
+    float z = -len * 0.5f + 8.0f + (float)i * (len - 16.0f) / 11.0f;
+    pm_beam(b, v3(-wid * 0.5f - 0.5f, 0, z), v3(-wid * 0.5f - 0.5f, 16.0f, z), 0.3f, rgb(0.35f, 0.38f, 0.42f));
+  }
+  pm_layer(b, PL_GLOW);
+  /* a band of tall windows along both long sides: warm light even by day */
+  for (int side = -1; side <= 1; side += 2)
+    for (int i = 0; i < 28; i++) {
+      float z = -len * 0.5f + 4.0f + (float)i * (len - 8.0f) / 27.0f;
+      pm_push(b);
+      pm_move(b, (float)side * (wid * 0.5f + 0.06f), 10.0f, z);
+      pm_box_c(b, 0.12f, 4.2f, 3.2f, glow(rgb(1.0f, 0.82f, 0.45f), 1.6f));
+      pm_pop(b);
+    }
+  pm_pop(b);
+  /* penstocks: six steel pipes laid on the face, from under the crest to the hall's wall */
+  float base_y = 0.0f; /* the crest road's level over the hall */
+  (void)base_y;
+  for (int p = 0; p < 6; p++) {
+    float z = zc - len * 0.5f + 16.0f + (float)p * (len - 32.0f) / 5.0f;
+    int idx = 0;
+    float bestd = 1e9f;
+    for (int i = 0; i < t->n; i++) {
+      float d = fabsf(t->s[i].p.z - z) + fabsf(t->s[i].p.x) * 10.0f;
+      if (d < bestd) bestd = d, idx = i;
+    }
+    const tsample *s = &t->s[idx];
+    t3_vec3 r = flat_right(s);
+    float reach = s->hw + 1.0f + 0.07f * s->hw + 0.6f, base = s->p.y - 0.4f;
+    t3_vec3 face_n = v3norm(v3add(v3mul(r, SLOPE_K), v3(0, 1, 0)));
+    t3_vec3 prev;
+    pcol pipe = rgb(0.86f, 0.42f, 0.14f), pipe_d = rgb(0.5f, 0.22f, 0.1f);
+    for (int k = 0; k <= 8; k++) {
+      float g = 5.0f + (float)k * (30.0f - 5.0f) / 8.0f;
+      t3_vec3 q = v3add(s->p, v3mul(r, reach + g));
+      q.y = base - SLOPE_K * (g - 2.5f) + 0.28f;
+      q = v3add(q, v3mul(face_n, 2.7f));
+      pm *pb = pmc_at(c, q);
+      pm_layer(pb, PL_METAL);
+      if (k) {
+        pm_rod(pb, prev, q, 2.5f, 10, pipe);
+        pm_rod(pb, v3add(prev, v3mul(v3sub(q, prev), 0.9f)), v3add(prev, v3mul(v3sub(q, prev), 0.98f)), 2.9f, 10, pipe_d); /* a flange */
+      }
+      prev = q;
+    }
+  }
+  pmc_finish(c, parent, "PowerStation", true, TEX_WALL_CONCRETE);
+
+  /* ── the switchyard: transformers in rows, a line of pylons out to the valley's far wall ── */
+  pmc *y = pmc_new(80, 62);
+  for (int row = 0; row < 3; row++)
+    for (int col = 0; col < 8; col++) {
+      t3_vec3 p = v3(-110.0f - (float)row * 26.0f, yf, -150.0f + (float)col * 24.0f);
+      pm *pb = pmc_at(y, p);
+      pm_push(pb);
+      pm_move(pb, p.x, p.y, p.z);
+      pm_vary(pb, 0.05f);
+      pm_layer(pb, PL_METAL);
+      pm_box(pb, 6.0f, 7.0f, 8.0f, rgb(0.3f, 0.34f, 0.38f), rgb(0.52f, 0.56f, 0.6f));
+      for (int f = 0; f < 5; f++) pm_box(pb, 0.4f, 5.0f, 5.0f, rgb(0.28f, 0.3f, 0.34f), rgb(0.4f, 0.42f, 0.46f)), pm_move(pb, 0.9f, 0, 0);
+      pm_pop(pb);
+      pm_push(pb);
+      pm_move(pb, p.x, p.y + 7.0f, p.z);
+      for (int i = -1; i <= 1; i++) {
+        pm_cyl(pb, 0.45f, 0.3f, 3.2f, 8, rgb(0.82f, 0.84f, 0.86f), rgb(0.95f, 0.95f, 0.95f));
+        pm_move(pb, 0, 0, 2.2f);
+      }
+      pm_pop(pb);
+    }
+  pmc_finish(y, parent, "Switchyard", true, -1);
+
+  prop_set *ps = ps_new(parent, "Pylons");
+  t3_vec3 line1[6], line2[6];
+  for (int i = 0; i < 6; i++) {
+    float z = -180.0f + (float)i * 90.0f;
+    line1[i] = v3(-215.0f - (float)i * 18.0f, yf, z);
+    line2[i] = v3(-150.0f - (float)i * 38.0f, yf + 0.0f, 380.0f - (float)i * 5.0f);
+  }
+  (void)line2;
+  /* a line marching up the valley's far wall: the feet follow the ground */
+  t3_vec3 up[7];
+  for (int i = 0; i < 7; i++) {
+    float x = -190.0f - (float)i * 70.0f, z = -170.0f + (float)i * 20.0f;
+    up[i] = v3(x, dam_land(x, z, NULL), z);
+  }
+  pylon_line(ps, parent, up, 7, 1.15f, 300);
+  /* a short line from the yard along the valley floor to the north */
+  t3_vec3 flo[5];
+  for (int i = 0; i < 5; i++) flo[i] = v3(-180.0f, yf, -120.0f + (float)i * 110.0f);
+  pylon_line(ps, parent, flo, 5, 1.0f, 340);
+  ps_finish(ps);
+}
+
+
+/* ── rocks, scrub and far mesas ───────────────────────────────────────────────────────────────────── */
+
+typedef struct maskp {
+  float hmin, hmax, slope_max, river_clear;
+} maskp;
+/* 1 where a prop may stand: dry ground, not too steep, not in or at the river */
+static float mask_ground(float x, float z, void *ud) {
+  const maskp *m = ud;
+  float h = dam_land(x, z, NULL);
+  if (h < m->hmin || h > m->hmax) return 0;
+  float gx = dam_land(x + 4, z, NULL) - dam_land(x - 4, z, NULL), gz = dam_land(x, z + 4, NULL) - dam_land(x, z - 4, NULL);
+  if (sqrtf(gx * gx + gz * gz) / 8.0f > m->slope_max) return 0;
+  float wy, hw;
+  if (river_dist(x, z, &wy, &hw) < hw + m->river_clear) return 0;
+  return 1;
+}
+
+static void build_land_props(cw_node parent, const track *t) {
+  prop_set *ps = ps_new(parent, "Land");
+  int n = 0;
+  float cx = 215, cz = -80;
+  /* far: mesas, spires and cliff slabs round the whole bowl, to give the horizon a silhouette */
+  {
+    maskp mk = { A.yfloor + 30, 1e9f, 0.55f, 0 };
+    scatter_opts o = scatter_defaults();
+    o.kinds[0] = PK_MESA, o.weight[0] = 3, o.kinds[1] = PK_SPIRE, o.weight[1] = 2, o.kinds[2] = PK_CANYON_WALL, o.weight[2] = 2, o.nkinds = 3;
+    o.scale_min = 1.5f, o.scale_max = 3.2f;
+    o.cx = cx, o.cz = cz, o.ring_min = 380, o.ring_max = 1250, o.density = 0.016f;
+    o.ground = dam_ground_fn, o.mask = mask_ground, o.mask_ud = &mk;
+    o.lod_dist = 60, o.far_thin = 0, o.sink = 1.5f, o.margin = 10, o.seed = 71;
+    n += scatter_area(ps, t, &o);
+  }
+  /* near: rocks, boulders and a little scrub over the plateau, the valley floors and the canyon */
+  {
+    maskp mk = { LAKE_Y + 1.5f, 1e9f, 0.8f, 6 };
+    scatter_opts o = scatter_defaults();
+    o.kinds[0] = PK_ROCK, o.weight[0] = 3, o.kinds[1] = PK_BOULDERS, o.weight[1] = 1.2f, o.kinds[2] = PK_BUSH, o.weight[2] = 3, o.kinds[3] = PK_GRASS, o.weight[3] = 3,
+    o.kinds[4] = PK_CACTUS, o.weight[4] = 0.5f, o.kinds[5] = PK_DEAD_TREE, o.weight[5] = 0.35f, o.nkinds = 6;
+    o.scale_min = 0.8f, o.scale_max = 1.8f;
+    o.cx = cx, o.cz = cz, o.half_x = 760, o.half_z = 700, o.density = 0.9f;
+    o.ground = dam_ground_fn, o.mask = mask_ground, o.mask_ud = &mk;
+    o.lod_dist = 90, o.far_thin = 0.6f, o.margin = 4, o.seed = 72;
+    n += scatter_area(ps, t, &o);
+  }
+  /* along the road: bigger rocks and tufts a little out from the walls, where the eye passes them at speed */
+  {
+    maskp mk = { LAKE_Y + 1.5f, 1e9f, 0.7f, 4 };
+    scatter_opts o = scatter_defaults();
+    o.kinds[0] = PK_ROCK, o.weight[0] = 3, o.kinds[1] = PK_BOULDERS, o.weight[1] = 1, o.kinds[2] = PK_BUSH, o.weight[2] = 2, o.kinds[3] = PK_GRASS, o.weight[3] = 3, o.nkinds = 4;
+    o.scale_min = 0.9f, o.scale_max = 2.1f;
+    o.spacing = 13, o.lat_min = 3, o.lat_max = 44, o.lat_curve = 1.5f;
+    o.ground = dam_ground_fn, o.mask = mask_ground, o.mask_ud = &mk;
+    o.lod_dist = 80, o.far_thin = 0.3f, o.seed = 73;
+    n += scatter_along(ps, t, &o);
+  }
+  /* rocks standing in the white water make it break */
+  for (int i = 8; i < NRV - 1; i += 7) {
+    float hw = RV[i].hw;
+    for (int k = 0; k < 2; k++) {
+      uint32_t h = hash32((uint32_t)(i * 31 + k * 7 + 5));
+      t3_vec3 d = v3norm(v3sub(RV[i + 1].p, RV[i].p));
+      t3_vec3 side = v3norm(v3cross(v3(0, 1, 0), d));
+      float lat = (hashf(h) - 0.5f) * hw * 1.3f;
+      t3_vec3 p = v3add(RV[i].p, v3mul(side, lat));
+      p.y = RV[i].p.y - 0.8f;
+      ps_add(ps, hashf(h + 3) < 0.4f ? PK_BOULDERS : PK_ROCK, p, hashf(h + 9) * 6.28f, 1.1f + 1.4f * hashf(h + 11), h);
+      n++;
+    }
+  }
+  ps_finish(ps);
+  cw_info("dam: %d props", n);
+}
+
+/* ── clouds and eagles ───────────────────────────────────────────────────────────────────────────── */
+
+#define NCLOUD 16
+static struct {
+  cw_node n[NCLOUD];
+  t3_vec3 p0[NCLOUD];
+  float speed[NCLOUD], span;
+  cw_node eagle[6];
+  t3_vec3 ec[6];
+  float er[6], ew[6], ep[6];
+} SKY;
+
+static t3_geometry *make_cloud(uint32_t seed, float size) {
+  pm *b = pm_new(seed);
+  pm_vary(b, 0.06f);
+  pm_smooth(b, true);
+  pcol lo = rgb(0.74f, 0.80f, 0.92f), hi = rgb(1.0f, 1.0f, 1.0f);
+  int balls = 8 + (int)(hashf(seed) * 5);
+  for (int i = 0; i < balls; i++) {
+    float u = (float)i / (float)(balls - 1);
+    float x = (u - 0.5f) * size * 1.5f + pm_rands(b) * size * 0.08f;
+    float yy = size * 0.16f * (1.0f - fabsf(u - 0.5f) * 2.0f) * (0.4f + pm_rand(b)) + pm_rand(b) * size * 0.06f;
+    float r = size * (0.22f + 0.18f * (1.0f - fabsf(u - 0.5f) * 1.6f)) * (0.75f + 0.5f * pm_rand(b));
+    pm_push(b);
+    pm_move(b, x, yy, pm_rands(b) * size * 0.14f);
+    pm_ball(b, r, r * 0.72f, r * 0.9f, 3, 0.1f, lo, hi);
+    pm_pop(b);
+  }
+  prop_model m = pm_finish(b);
+  t3_geometry *g = m.g[PL_MAIN];
+  if (g) t3_retain(g);
+  prop_model_free(&m);
+  return g;
+}
+
+static t3_geometry *make_eagle(void) {
+  pm *b = pm_new(404);
+  pm_layer(b, PL_MAIN);
+  pcol brown = rgb(0.16f, 0.1f, 0.06f), light = rgb(0.34f, 0.24f, 0.14f), white = rgb(0.95f, 0.94f, 0.9f);
+  pm_push(b);
+  pm_ball(b, 0.22f, 0.2f, 0.7f, 1, 0.05f, light, brown);
+  pm_move(b, 0, 0.06f, 0.72f);
+  pm_ball(b, 0.16f, 0.15f, 0.2f, 1, 0.03f, white, white);
+  pm_pop(b);
+  pm_push(b);
+  pm_move(b, 0, 0, -0.65f);
+  pm_wedge(b, 0.5f, 0.05f, 0.7f, brown, brown);
+  pm_pop(b);
+  for (int s = -1; s <= 1; s += 2) {
+    float x = (float)s;
+    pm_quad(b, v3(0.15f * x, 0.08f, 0.45f), v3(0.15f * x, 0.08f, -0.35f), v3(2.2f * x, 0.12f, -0.55f), v3(2.0f * x, 0.1f, 0.1f), light);
+    pm_quad(b, v3(0.15f * x, 0.08f, -0.35f), v3(0.15f * x, 0.08f, 0.45f), v3(2.0f * x, 0.1f, 0.1f), v3(2.2f * x, 0.12f, -0.55f), brown);
+    pm_quad(b, v3(2.0f * x, 0.1f, 0.1f), v3(2.2f * x, 0.12f, -0.55f), v3(3.1f * x, 0.2f, -0.95f), v3(3.0f * x, 0.2f, -0.1f), brown);
+    pm_quad(b, v3(2.2f * x, 0.12f, -0.55f), v3(2.0f * x, 0.1f, 0.1f), v3(3.0f * x, 0.2f, -0.1f), v3(3.1f * x, 0.2f, -0.95f), brown);
+  }
+  prop_model m = pm_finish(b);
+  t3_geometry *g = m.g[PL_MAIN];
+  if (g) t3_retain(g);
+  prop_model_free(&m);
+  return g;
+}
+
+static void build_sky_life(cw_node parent) {
+  t3_material *cm = prop_material(PL_MAIN, -1, (pcol){ 1, 1, 1 }, 1.0f);
+  for (int i = 0; i < NCLOUD; i++) {
+    uint32_t h = hash32((uint32_t)(i * 977 + 13));
+    float size = 90.0f + 130.0f * hashf(h);
+    t3_geometry *g = make_cloud(h, size);
+    if (!g) continue;
+    t3_mesh *me = t3_mesh_new(g, cm);
+    me->base.cast_shadow = false;
+    me->base.receive_shadow = false;
+    char nm[24];
+    snprintf(nm, sizeof nm, "Cloud%d", i);
+    SKY.n[i] = hang(parent, nm, &me->base);
+    t3_release(me);
+    t3_release(g);
+    float ang = (float)i / NCLOUD * 6.2831853f + hashf(h + 1) * 0.5f, rad = 500.0f + 1300.0f * hashf(h + 2);
+    SKY.p0[i] = v3(215.0f + cosf(ang) * rad, 300.0f + 220.0f * hashf(h + 3), -80.0f + sinf(ang) * rad);
+    SKY.speed[i] = 3.0f + 4.0f * hashf(h + 4);
+    cw_node3d_set_position(SKY.n[i], SKY.p0[i]);
+    cw_node3d_set_scale(SKY.n[i], v3(1, 1, 1));
+    cw_node3d_set_rotation(SKY.n[i], v3(0, hashf(h + 5) * 3.14f, 0));
+  }
+  SKY.span = 3200.0f;
+  t3_geometry *eg = make_eagle();
+  t3_material *em = prop_material(PL_MAIN, -1, (pcol){ 1, 1, 1 }, 1.0f);
+  static const float EC[6][4] = { { 430, 52, 40, 90 }, { 60, 68, -300, 120 }, { -140, 44, 120, 100 }, { 110, 74, -460, 70 }, { 250, 40, 400, 85 }, { 480, 80, -250, 130 } };
+  for (int i = 0; i < 6 && eg; i++) {
+    t3_mesh *me = t3_mesh_new(eg, em);
+    me->base.cast_shadow = false;
+    char nm[24];
+    snprintf(nm, sizeof nm, "Eagle%d", i);
+    SKY.eagle[i] = hang(parent, nm, &me->base);
+    t3_release(me);
+    SKY.ec[i] = v3(EC[i][0], EC[i][1], EC[i][2]);
+    SKY.er[i] = EC[i][3];
+    SKY.ew[i] = (i & 1 ? -1.0f : 1.0f) * (0.16f + 0.03f * (float)i);
+    SKY.ep[i] = (float)i * 1.3f;
+    cw_node3d_set_scale(SKY.eagle[i], v3(2.2f, 2.2f, 2.2f));
+  }
+  if (eg) t3_release(eg);
+}
+
+static void sky_life_frame(double time) {
+  float tm = (float)time;
+  for (int i = 0; i < NCLOUD; i++) {
+    if (!cw_node_valid(SKY.n[i])) continue;
+    /* drift on the wind (toward +x, a little +z) and wrap round the far side of the bowl */
+    float d = fmodf(SKY.speed[i] * tm, SKY.span);
+    t3_vec3 p = SKY.p0[i];
+    p.x += d, p.z += d * 0.3f;
+    if (p.x > 215.0f + SKY.span * 0.5f) p.x -= SKY.span, p.z -= SKY.span * 0.3f;
+    cw_node3d_set_position(SKY.n[i], p);
+  }
+  for (int i = 0; i < 6; i++) {
+    if (!cw_node_valid(SKY.eagle[i])) continue;
+    float a = SKY.ep[i] + SKY.ew[i] * tm;
+    t3_vec3 p = v3(SKY.ec[i].x + cosf(a) * SKY.er[i], SKY.ec[i].y + 3.0f * sinf(tm * 0.5f + SKY.ep[i]), SKY.ec[i].z + sinf(a) * SKY.er[i]);
+    float dir = SKY.ew[i] > 0 ? 1.0f : -1.0f;
+    /* heading along the circle, banked into it */
+    float yaw = atan2f(-sinf(a) * dir, cosf(a) * dir);
+    cw_node3d_set_position(SKY.eagle[i], p);
+    cw_node3d_set_rotation(SKY.eagle[i], v3(0, yaw, dir * 0.28f));
+  }
+}
+
+
+/* ── a concrete arch bridge over the canyon, the lookout above the spillway, the intake towers ─────── */
+
+/* x where the land first rises to height y going out from x0 in direction dir along z = z0 */
+static float scan_wall(float z0, float x0, float dir, float y, float limit) {
+  for (float d = 0; d < limit; d += 2.0f) {
+    float x = x0 + dir * d;
+    if (dam_land(x, z0, NULL) >= y) return x;
+  }
+  return x0 + dir * limit;
+}
+
+static void build_bridge(cw_node parent, float z0) {
+  float deck_y = A.yfloor + 66.0f;
+  float xl = scan_wall(z0, A.xc, -1, deck_y - 2.0f, 260), xr = scan_wall(z0, A.xc, +1, deck_y - 2.0f, 300);
+  float yl = dam_land(xl, z0, NULL), yr = dam_land(xr, z0, NULL);
+  deck_y = fmaxf(yl, yr) + 1.0f;
+  /* the arch springs from the walls 24 m under the deck */
+  float spring = deck_y - 26.0f;
+  float xal = scan_wall(z0, A.xc, -1, spring, 260), xar = scan_wall(z0, A.xc, +1, spring, 300);
+  pmc *c = pmc_new(120, 81);
+  pcol conc = rgb(0.84f, 0.82f, 0.76f), conc_d = rgb(0.6f, 0.58f, 0.54f), steel = rgb(0.30f, 0.33f, 0.40f), glowc = rgb(1.0f, 0.9f, 0.6f);
+  pm *b = pmc_at(c, v3((xl + xr) * 0.5f, deck_y, z0));
+  pm_push(b);
+  pm_vary(b, 0.04f);
+  float W = 13.0f;
+  /* the deck: a long slab with kerbs */
+  pm_layer(b, PL_MAIN);
+  pm_push(b);
+  pm_move(b, (xl + xr) * 0.5f, deck_y - 2.2f, z0);
+  pm_box(b, xr - xl, 2.2f, W, conc_d, conc);
+  pm_pop(b);
+  /* the arch: a ring of tapering limbs on a shallow parabola, doubled for width */
+  int N = 24;
+  float rise = 22.0f;
+  for (int side = -1; side <= 1; side += 2) {
+    t3_vec3 prev = { 0 };
+    for (int i = 0; i <= N; i++) {
+      float u = (float)i / (float)N;
+      float x = lerpf(xal, xar, u);
+      float y = spring + rise * 4.0f * u * (1.0f - u) * 0.0f + (deck_y - 2.4f - spring) * (1.0f - powf(2.0f * u - 1.0f, 2.0f)) * 0.98f;
+      t3_vec3 q = v3(x, y, z0 + (float)side * (W * 0.5f - 1.2f));
+      if (i) pm_limb(b, prev, q, 1.9f, 1.9f, 8, conc_d, conc);
+      /* a column from the arch up to the deck every other segment */
+      if (i && i < N && (i & 1) == 0) pm_rod(b, v3(q.x, q.y, q.z), v3(q.x, deck_y - 2.2f, q.z), 0.7f, 8, conc);
+      prev = q;
+    }
+  }
+  /* cross braces between the two ribs */
+  for (int i = 1; i < N; i += 2) {
+    float u = (float)i / (float)N;
+    float x = lerpf(xal, xar, u);
+    float y = spring + (deck_y - 2.4f - spring) * (1.0f - powf(2.0f * u - 1.0f, 2.0f)) * 0.98f;
+    pm_beam(b, v3(x, y, z0 - W * 0.5f + 1.2f), v3(x, y, z0 + W * 0.5f - 1.2f), 0.9f, conc_d);
+  }
+  /* abutment blocks where the deck meets the rims */
+  for (int e = 0; e < 2; e++) {
+    float x = e ? xr : xl;
+    pm_push(b);
+    pm_move(b, x, deck_y - 14.0f, z0);
+    pm_box_c(b, 16.0f, 28.0f, W + 2.0f, conc_d);
+    pm_pop(b);
+  }
+  /* rails with lamps */
+  pm_layer(b, PL_METAL);
+  for (int side = -1; side <= 1; side += 2) {
+    float zz = z0 + (float)side * (W * 0.5f - 0.3f);
+    pm_beam(b, v3(xl, deck_y + 1.1f, zz), v3(xr, deck_y + 1.1f, zz), 0.14f, steel);
+    pm_beam(b, v3(xl, deck_y + 0.5f, zz), v3(xr, deck_y + 0.5f, zz), 0.1f, steel);
+    for (float x = xl; x <= xr; x += 6.0f) pm_beam(b, v3(x, deck_y, zz), v3(x, deck_y + 1.15f, zz), 0.1f, steel);
+  }
+  pm_layer(b, PL_GLOW);
+  for (float x = xl + 12; x < xr - 12; x += 24.0f)
+    for (int side = -1; side <= 1; side += 2) {
+      pm_push(b);
+      pm_move(b, x, deck_y + 5.2f, z0 + (float)side * (W * 0.5f - 0.3f));
+      pm_box_c(b, 1.0f, 0.5f, 1.0f, glow(glowc, 2.6f));
+      pm_pop(b);
+    }
+  pm_layer(b, PL_METAL);
+  for (float x = xl + 12; x < xr - 12; x += 24.0f)
+    for (int side = -1; side <= 1; side += 2) pm_beam(b, v3(x, deck_y, z0 + (float)side * (W * 0.5f - 0.3f)), v3(x, deck_y + 5.0f, z0 + (float)side * (W * 0.5f - 0.3f)), 0.12f, steel);
+  pm_pop(b);
+  pmc_finish(c, parent, "Bridge", true, TEX_WALL_CONCRETE);
+  cw_info("dam: bridge %.0f..%.0f at z %.0f, deck %.1f", xl, xr, z0, deck_y);
+}
+
+static void build_lookout(cw_node parent, const track *t) {
+  int i = A.gate - 75;
+  const tsample *s = &t->s[i];
+  t3_vec3 r = flat_right(s), f = flat_dir(s->f);
+  t3_vec3 p = v3add(s->p, v3mul(r, 34.0f));
+  p.y = dam_land(p.x, p.z, NULL);
+  pmc *c = pmc_new(60, 91);
+  pcol conc = rgb(0.84f, 0.82f, 0.76f), conc_d = rgb(0.6f, 0.58f, 0.54f), steel = rgb(0.30f, 0.33f, 0.40f);
+  pm *b = frame_world(c, p, f);
+  pm_vary(b, 0.04f);
+  pm_layer(b, PL_MAIN);
+  pm_push(b);
+  pm_move(b, 0, -2.0f, 0);
+  pm_box_c(b, 24.0f, 4.0f, 16.0f, conc);       /* the terrace */
+  pm_pop(b);
+  pm_push(b);
+  pm_move(b, 0, 0.08f, 0);
+  pm_box_c(b, 22.0f, 0.2f, 14.0f, conc_d);
+  pm_pop(b);
+  /* the kiosk */
+  pm_push(b);
+  pm_move(b, -8.0f, 0.1f, -3.0f);
+  pm_box(b, 5.0f, 3.2f, 4.0f, rgb(0.92f, 0.9f, 0.84f), rgb(0.98f, 0.97f, 0.92f));
+  pm_move(b, 0, 3.2f, 0);
+  pm_prism(b, 5.8f, 1.1f, 4.8f, rgb(0.7f, 0.22f, 0.14f), rgb(0.86f, 0.3f, 0.18f));
+  pm_pop(b);
+  pm_layer(b, PL_METAL);
+  /* a rail on the far sides and a row of flag poles */
+  for (int side = -1; side <= 1; side += 2) {
+    pm_beam(b, v3(-11.0f, 1.1f, (float)side * 7.0f), v3(11.0f, 1.1f, (float)side * 7.0f), 0.12f, steel);
+    for (float x = -11.0f; x <= 11.0f; x += 2.2f) pm_beam(b, v3(x, 0.1f, (float)side * 7.0f), v3(x, 1.15f, (float)side * 7.0f), 0.09f, steel);
+  }
+  pm_beam(b, v3(11.0f, 1.1f, -7.0f), v3(11.0f, 1.1f, 7.0f), 0.12f, steel);
+  pcol flags[5] = { rgb(0.92f, 0.22f, 0.16f), rgb(0.98f, 0.8f, 0.1f), rgb(0.12f, 0.6f, 0.7f), rgb(0.96f, 0.96f, 0.94f), rgb(0.9f, 0.4f, 0.1f) };
+  for (int k = 0; k < 5; k++) {
+    float x = -9.0f + (float)k * 4.5f;
+    pm_rod(b, v3(x, 0, 6.2f), v3(x, 11.0f, 6.2f), 0.1f, 6, steel);
+    pm_layer(b, PL_MAIN);
+    float wob = 0.5f * sinf((float)k * 1.3f);
+    pm_quad(b, v3(x, 10.9f, 6.2f), v3(x + 3.6f, 10.5f + wob, 6.2f + 0.5f), v3(x + 3.4f, 8.7f + wob, 6.2f + 0.4f), v3(x, 9.0f, 6.2f), flags[k]);
+    pm_quad(b, v3(x + 3.6f, 10.5f + wob, 6.2f + 0.5f), v3(x, 10.9f, 6.2f), v3(x, 9.0f, 6.2f), v3(x + 3.4f, 8.7f + wob, 6.2f + 0.4f), flags[k]);
+    pm_layer(b, PL_METAL);
+  }
+  pm_pop(b);
+  pmc_finish(c, parent, "Lookout", true, TEX_WALL_CONCRETE);
+  /* the tourists: stone statues in a row on the terrace, facing the valley */
+  prop_set *ps = ps_new(parent, "Tourists");
+  for (int k = 0; k < 6; k++) {
+    float x = -6.0f + (float)k * 2.6f, z = 3.2f + 0.6f * sinf((float)k * 2.1f);
+    t3_vec3 q = v3add(v3add(p, v3mul(r, x)), v3mul(f, z * 0.3f));
+    q.y = p.y + 0.15f;
+    ps_style(ps, PK_STATUE, TEX_WALL_STONE, rgb(0.95f, 0.9f, 0.82f), 1.0f);
+    ps_add(ps, PK_STATUE, q, atan2f(r.x, r.z) + 3.14159f + 0.3f * sinf((float)k), 0.22f + 0.04f * (float)(k % 3), 700 + (uint32_t)k);
+  }
+  ps_finish(ps);
+}
+
+static void build_intake_towers(cw_node parent, const track *t) {
+  (void)t;
+  pmc *c = pmc_new(80, 95);
+  pcol conc = rgb(0.86f, 0.84f, 0.78f), conc_d = rgb(0.58f, 0.56f, 0.52f), steel = rgb(0.30f, 0.33f, 0.40f);
+  float zs[2] = { 120.0f, -170.0f };
+  for (int k = 0; k < 2; k++) {
+    float z = zs[k], x = 52.0f;
+    t3_vec3 base = v3(x, LAKE_Y - 22.0f, z);
+    pm *b = pmc_at(c, base);
+    pm_push(b);
+    pm_move(b, x, LAKE_Y - 22.0f, z);
+    pm_layer(b, PL_MAIN);
+    pm_vary(b, 0.04f);
+    pm_cyl(b, 8.0f, 6.6f, 22.0f + 38.0f, 16, conc_d, conc);       /* the shaft, rising from the lake bed to above the crest */
+    pm_push(b);
+    pm_move(b, 0, 60.0f, 0);
+    pm_cyl(b, 9.2f, 9.2f, 3.0f, 16, conc_d, conc);                /* the gallery */
+    pm_move(b, 0, 3.0f, 0);
+    pm_cyl(b, 7.6f, 0.0f, 5.0f, 16, rgb(0.5f, 0.2f, 0.12f), rgb(0.75f, 0.32f, 0.18f)); /* the cap */
+    pm_pop(b);
+    /* a band of trash-rack slots near the water */
+    pm_layer(b, PL_METAL);
+    for (int i = 0; i < 8; i++) {
+      float a = (float)i / 8.0f * 6.2831853f;
+      pm_push(b);
+      pm_move(b, cosf(a) * 7.3f, 17.0f, sinf(a) * 7.3f);
+      pm_roty(b, -a);
+      pm_box_c(b, 0.4f, 6.0f, 3.0f, rgb(0.2f, 0.22f, 0.26f));
+      pm_pop(b);
+    }
+    pm_layer(b, PL_GLOW);
+    for (int i = 0; i < 6; i++) {
+      float a = (float)i / 6.0f * 6.2831853f + 0.3f;
+      pm_push(b);
+      pm_move(b, cosf(a) * 9.25f, 61.4f, sinf(a) * 9.25f);
+      pm_box_c(b, 0.2f, 1.2f, 1.6f, glow(rgb(1.0f, 0.85f, 0.45f), 2.0f));
+      pm_pop(b);
+    }
+    pm_pop(b);
+    /* the service catwalk from the crest's edge out to the gallery */
+    pm_layer(b, PL_METAL);
+    pm *cb = pmc_at(c, v3(30.0f, 0, z));
+    pm_beam(cb, v3(12.5f, 1.2f, z - 1.1f), v3(x - 9.0f, 1.2f, z - 1.1f), 0.18f, steel);
+    pm_beam(cb, v3(12.5f, 1.2f, z + 1.1f), v3(x - 9.0f, 1.2f, z + 1.1f), 0.18f, steel);
+    pm_beam(cb, v3(12.5f, 2.3f, z - 1.1f), v3(x - 9.0f, 2.3f, z - 1.1f), 0.1f, steel);
+    pm_beam(cb, v3(12.5f, 2.3f, z + 1.1f), v3(x - 9.0f, 2.3f, z + 1.1f), 0.1f, steel);
+    pm_layer(cb, PL_MAIN);
+    pm_push(cb);
+    pm_move(cb, 30.0f, 0.6f, z);
+    pm_box_c(cb, 38.0f, 0.4f, 2.4f, conc_d);
+    pm_pop(cb);
+  }
+  pmc_finish(c, parent, "IntakeTowers", true, TEX_WALL_CONCRETE);
+}
+
+
+/* ── the flooded tunnel: a green-lit lining, water running off the roof, a few lamps ────────────────── */
+
+static void build_tunnel_lining(cw_node parent, const track *t) {
+  t3_material *m = phys(lin(0.22f, 0.36f, 0.32f), 0.5f, 0);
+  tex_apply(m, TEX_TUNNEL, 1, 1, 1.0f, 1.0f);
+  m->emissive = lin(0.2f, 1.0f, 0.45f);
+  m->emissive_intensity = 3.4f;
+  m->side = T3_DOUBLE_SIDE;
+  const int ARC = 18;
+  const float hc = 1.6f, Rt0 = 8.0f - 1.6f, inset = 0.1f;
+  const int per = ARC + 3;
+  for (int a = A.tun0; a < A.tun1; a += 90) {
+    int b = a + 92 < A.tun1 ? a + 92 : A.tun1;
+    tmesh mm = { 0 };
+    int rows = 0;
+    for (int i = a; i <= b; i += 2) {
+      const tsample *s = &t->s[i];
+      float Rr = s->hw - inset, Rt = Rt0 - inset;
+      float len = 0, px = -Rr, py = hc;
+      for (int k = -1; k <= ARC + 1; k++) {
+        float x, y, nx, ny;
+        if (k < 0) x = -Rr, y = 0, nx = 1, ny = 0;
+        else if (k > ARC) x = Rr, y = 0, nx = -1, ny = 0;
+        else {
+          float an = 3.14159265f * (float)k / (float)ARC;
+          x = -Rr * cosf(an), y = hc + Rt * sinf(an);
+          nx = -x / (Rr * Rr), ny = -(y - hc) / (Rt * Rt);
+          float nl = sqrtf(nx * nx + ny * ny);
+          nx /= nl, ny /= nl;
+        }
+        len += sqrtf((x - px) * (x - px) + (y - py) * (y - py));
+        px = x, py = y;
+        t3_vec3 p = v3add(v3add(s->p, v3mul(s->r, x)), v3mul(s->u, y));
+        t3_vec3 n = v3add(v3mul(s->r, nx), v3mul(s->u, ny));
+        tv(&mm, p.x, p.y, p.z, n.x, n.y, n.z, len / 8.0f, s->s / 4.0f, (pcol){ 1, 1, 1 });
+      }
+      rows++;
+    }
+    for (int r = 0; r + 1 < rows; r++)
+      for (int k = 0; k + 1 < per; k++) {
+        int p = r * per + k, q = p + 1, u = p + per, v = u + 1;
+        tt(&mm, p, q, v), tt(&mm, p, v, u);
+      }
+    t3_geometry *g = tfinish(&mm);
+    t3_mesh *me = t3_mesh_new(g, m);
+    me->base.cast_shadow = false;
+    me->base.receive_shadow = true;
+    char nm[24];
+    snprintf(nm, sizeof nm, "TunnelLining%d", a);
+    hang(parent, nm, &me->base);
+    t3_release(me);
+    t3_release(g);
+  }
+  t3_release(m);
+}
+
+static const char *const R_DRIP[] = { "amount", "30", "lifetime", "0.8", "lifetime_random", "0.3", "emission_shape", "BOX", "emission_extents", "vec3(3.2, 0.05, 0.5)",
+  "direction", "vec3(0, -1, 0)", "spread", "4", "speed_min", "0.4", "speed_max", "1.4", "gravity", "vec3(0, -13, 0)", "draw_mode", "STRETCHED", "stretch", "0.07",
+  "size", "0.05", "size_random", "0.4", "color_ramp", "\"0 0.85 1 0.95 0.9, 1 0.7 0.95 0.9 0.5\"", "energy", "1.4", "blend", "ALPHA", "local_coords", "false", NULL };
+
+static void build_tunnel_extras(cw_node parent, const track *t) {
+  /* the water over the road in the ford */
+  {
+    water_opts w = water_defaults();
+    w.color = rgb(0.18f, 0.62f, 0.52f);
+    w.deep = rgb(0.02f, 0.2f, 0.2f);
+    w.reflect = 0.8f;
+    water_along_track(parent, t, 0.0f, 0.07f, &w);
+  }
+  /* lamps: a few real green lights down the tunnel, the rest of the glow is the lining's own */
+  int lamps[6] = { A.tun0 + 25, A.tun0 + 90, A.tun0 + 150, A.cork0 + 20, A.cork0 + 130, A.tun1 - 25 };
+  for (int k = 0; k < 6; k++) {
+    int i = lamps[k];
+    if (i < A.tun0 || i > A.tun1) continue;
+    const tsample *s = &t->s[i];
+    cw_node l = cw_node_new("OmniLight3D", "TunnelLamp");
+    cw_node_add_child(parent, l);
+    cw_node3d_set_position(l, v3add(s->p, v3mul(s->u, 5.5f)));
+    cw_node_set(l, "color", cw_val_color(0.25f, 1.0f, 0.5f, 1));
+    cw_node_set(l, "energy", cw_val_float(220.0f));
+    cw_node_set(l, "range", cw_val_float(34.0f));
+  }
+  /* water streaming off the roof in the straight stretches (the corkscrew rolls, so it keeps dry) */
+  int n = 0;
+  for (int i = A.tun0 + 8; i < A.cork0 - 8; i += 11) {
+    const tsample *s = &t->s[i];
+    t3_vec3 p = v3add(s->p, v3mul(s->u, 6.6f));
+    p = v3add(p, v3mul(s->r, ((n & 1) ? 2.2f : -2.2f)));
+    float ex = fabsf(s->r.x) * 3.0f + fabsf(s->f.x) * 0.5f, ez = fabsf(s->r.z) * 3.0f + fabsf(s->f.z) * 0.5f;
+    cw_node e = add_emitter(parent, "Drip", R_DRIP, p, 70, 800 + n);
+    cw_node_set(e, "emission_extents", cw_val_vec3(ex, 0.05f, ez));
+    n++;
+  }
+  for (int i = A.cork1 + 6; i < A.tun1 - 6; i += 11) {
+    const tsample *s = &t->s[i];
+    t3_vec3 p = v3add(s->p, v3mul(s->u, 6.6f));
+    float ex = fabsf(s->r.x) * 3.0f + fabsf(s->f.x) * 0.5f, ez = fabsf(s->r.z) * 3.0f + fabsf(s->f.z) * 0.5f;
+    cw_node e = add_emitter(parent, "Drip", R_DRIP, p, 70, 800 + n);
+    cw_node_set(e, "emission_extents", cw_val_vec3(ex, 0.05f, ez));
+    n++;
+  }
+}
+
+/* ── the dam's jet gates, the mist and the rainbow ────────────────────────────────────────────────── */
+
+static void build_jets(cw_node parent, const track *t, t3_vec3 sun_to) {
+  t3_texture *tex = SC.tex[0];
+  t3_material *mat = foam_material(tex, 1.0f);
+  /* the closing run: find the samples nearest these z on the x = 0 line */
+  static const float JZ[3] = { -430.0f, -392.0f, -354.0f };
+  pmc *c = pmc_new(80, 97);
+  for (int j = 0; j < 3; j++) {
+    int idx = t->n - 1;
+    float bestd = 1e9f;
+    for (int i = A.loop1 + 60; i < t->n; i++) {
+      float d = fabsf(t->s[i].p.z - JZ[j]);
+      if (d < bestd) bestd = d, idx = i;
+    }
+    const tsample *s = &t->s[idx];
+    t3_vec3 r = flat_right(s);
+    float reach = s->hw + 1.0f + 0.07f * s->hw + 0.6f, base = s->p.y - 0.4f;
+    float g0 = 9.0f;
+    t3_vec3 o = v3add(s->p, v3mul(r, reach + g0));
+    o.y = base - SLOPE_K * (g0 - 2.5f) + 1.5f;
+    /* the steel cone the jet leaves from */
+    pm *b = pmc_at(c, o);
+    pm_push(b);
+    pm_layer(b, PL_METAL);
+    pm_basis(b, o, v3(0, 1, 0), v3norm(v3add(v3mul(r, 0.4f), v3(0, 0.9f, 0))), r);
+    pm_cyl(b, 3.0f, 1.8f, 4.0f, 12, rgb(0.5f, 0.52f, 0.56f), rgb(0.78f, 0.8f, 0.84f));
+    pm_pop(b);
+    /* the arc of the jet */
+    t3_vec3 pts[24];
+    float hwj[24], vst[24];
+    int n = 0;
+    float vh = 17.0f, vv = 7.5f, g = 20.0f;
+    for (int k = 0; k < 24; k++) {
+      float tt_ = (float)k * 0.19f;
+      t3_vec3 p = v3add(o, v3mul(r, vh * tt_));
+      p.y = o.y + 3.0f + vv * tt_ - 0.5f * g * tt_ * tt_;
+      if (p.y < A.yfloor - 0.5f) break;
+      pts[n] = p;
+      hwj[n] = 2.2f + 0.26f * (float)k;
+      vst[n] = 10.0f;
+      n++;
+    }
+    if (n < 4) continue;
+    char nm[24];
+    snprintf(nm, sizeof nm, "Jet%d", j);
+    /* the ribbon lies flat to the ground plane's side direction, so it reads from the road and from the lake */
+    flow_ribbon(parent, nm, pts, hwj, vst, n, 6, 0.15f, 5.0f, mat, sun_to);
+    t3_vec3 land = pts[n - 1];
+    add_emitter(parent, "JetMist", R_MIST, v3(land.x, land.y + 6.0f, land.z), 330, 900 + j);
+    add_emitter(parent, "JetPlume", R_PLUME, v3(land.x, land.y + 2.0f, land.z), 260, 910 + j);
+    add_emitter(parent, "JetSpray", R_SPRAY, v3add(o, v3(0, 3.0f, 0)), 140, 920 + j);
+  }
+  pmc_finish(c, parent, "JetGates", true, -1);
+  t3_release(mat);
+}
+
+/* a rainbow: seven bands on an arc, added to the sky, standing in the plane that faces `from` */
+static void build_rainbow(cw_node parent, const char *name, t3_vec3 centre, t3_vec3 from, float R, float bw, float alpha) {
+  t3_vec3 n = v3sub(from, centre);
+  n.y = 0;
+  n = v3norm(n);
+  t3_vec3 e1 = v3norm(v3cross(v3(0, 1, 0), n)); /* along the arc's width */
+  static const float BAND[7][3] = { { 1.0f, 0.15f, 0.1f }, { 1.0f, 0.5f, 0.1f }, { 1.0f, 0.95f, 0.2f }, { 0.25f, 0.9f, 0.3f }, { 0.2f, 0.65f, 1.0f }, { 0.3f, 0.3f, 0.95f }, { 0.65f, 0.25f, 0.9f } };
+  tmesh m = { 0 };
+  const int N = 40;
+  for (int b = 0; b <= 7; b++) {
+    float r = R + (float)b * bw;
+    for (int i = 0; i <= N; i++) {
+      float a = 3.14159265f * (float)i / (float)N;
+      t3_vec3 p = v3add(centre, v3add(v3mul(e1, cosf(a) * r), v3(0, sinf(a) * r, 0)));
+      float fade = sm(0.0f, 0.18f, sinf(a)) * 1.0f;
+      float k = b < 7 ? 1.0f : 0.0f;
+      int bi = b < 7 ? b : 6;
+      pcol col = { BAND[bi][0] * alpha * fade * k, BAND[bi][1] * alpha * fade * k, BAND[bi][2] * alpha * fade * k };
+      (void)k;
+      tv(&m, p.x, p.y, p.z, n.x, n.y, n.z, (float)i / (float)N, (float)b / 7.0f, col);
+    }
+  }
+  /* each band is a strip between ring b and ring b + 1, coloured by the lower ring's colour (so the last ring has none) */
+  for (int b = 0; b < 7; b++)
+    for (int i = 0; i < N; i++) {
+      int p = b * (N + 1) + i, q = p + 1, u = p + N + 1, v = u + 1;
+      tt(&m, p, u, v), tt(&m, p, v, q);
+    }
+  t3_geometry *g = tfinish(&m);
+  t3_material *mat = t3_mesh_basic_material_new(0xffffff);
+  mat->vertex_colors = true;
+  mat->transparent = true;
+  mat->blending = T3_ADDITIVE_BLENDING;
+  mat->depth_write = false;
+  mat->side = T3_DOUBLE_SIDE;
+  mat->fog = false;
+  t3_mesh *me = t3_mesh_new(g, mat);
+  me->base.cast_shadow = false;
+  me->base.receive_shadow = false;
+  hang(parent, name, &me->base);
+  t3_release(me);
+  t3_release(g);
+  t3_release(mat);
 }
 
 /* ── the lake ───────────────────────────────────────────────────────────────────────────────────────── */
@@ -1145,6 +1955,7 @@ static void dress_road(cw_node root, const track *t) {
   float run0 = t->s[t->n - 1].s - 500.0f;
   deco_lights(root, t, 42.0f, LAMP_POLE, 0, crest_end - 60.0f, &st);
   deco_lights(root, t, 42.0f, LAMP_POLE, run0, t->length, &st);
+  deco_supports(root, t, SUP_TRESTLE, dam_ground_fn, NULL, A.yfloor - 3.0f, 3.0f, &st);
   deco_banners(root, t, 120.0f, crest_end - 120.0f, 130.0f, &st);
   deco_banners(root, t, run0 + 40.0f, t->length - 60.0f, 130.0f, &st);
 }
@@ -1164,6 +1975,7 @@ static void dam_scenery(cw_node scene, const track *t, uint32_t seed) {
   t3_vec3 sun_to = v3norm(v3(0.46f, -0.82f, 0.35f)); /* the way the sun's light travels (see the scene file) */
   build_white_water(root, sun_to);
   build_gates(root, t);
+  build_valley(root, t);
   build_dam_skin(root, t);
   {
     t3_material *conc = phys((t3_color){ 1, 1, 1 }, 0.9f, 0);
@@ -1173,7 +1985,23 @@ static void dam_scenery(cw_node scene, const track *t, uint32_t seed) {
     build_tunnel_hill(root, t, TMAT, conc);
     t3_release(conc);
   }
+  build_tunnel_lining(root, t);
+  build_tunnel_extras(root, t);
   build_emitters(root, t);
+  build_jets(root, t, sun_to);
+  build_land_props(root, t);
+  build_sky_life(root);
+  build_bridge(root, 300.0f);
+  build_lookout(root, t);
+  build_intake_towers(root, t);
+  {
+    /* rainbows: over the jets as seen from the closing run, and over the foot of the spillway as seen from the descent */
+    const tsample *c0 = &t->s[t->n - 380];
+    build_rainbow(root, "RainbowJets", v3(-58.0f, A.yfloor + 4.0f, c0->p.z + 40.0f), v3(0.0f, 4.0f, c0->p.z - 140.0f), 78.0f, 3.4f, 0.55f);
+    const tsample *g0 = &t->s[A.spill1];
+    t3_vec3 foot = v3add(g0->p, v3mul(flat_right(g0), -30.0f));
+    build_rainbow(root, "RainbowPool", v3(foot.x + 40.0f, A.yfloor + 2.0f, foot.z), v3add(g0->p, v3mul(flat_dir(g0->f), -220.0f)), 70.0f, 3.2f, 0.5f);
+  }
   dress_road(root, t);
 }
 
@@ -1201,6 +2029,8 @@ static void dam_frame(float alpha, double time) {
   (void)alpha;
   photo_cam();
   water_scroll(time);
+  water_frame(time);
+  sky_life_frame(time);
   emitters_frame();
   static bool said;
   if (!said && time > 1.0 && cw_node_valid(SUN_NODE)) {
