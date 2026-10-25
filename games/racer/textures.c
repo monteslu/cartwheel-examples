@@ -103,26 +103,26 @@ static void asphalt_core(float u, float v, texel *t, float wet) {
   float n1 = rfbm(u, v, 4, 4, 91), n2 = rfbm(u, v, 24, 3, 92);
   float grit = h01((int)(u * 1024), (int)(v * 512), 93);
   float tracks = clamp01(band(u, 0.3f, 0.07f, 0.06f) + band(u, 0.7f, 0.07f, 0.06f)) * (0.55f + 0.45f * rfbm(u, v, 2, 3, 94));
-  float c = 0.2f + 0.06f * n1 + 0.035f * (grit - 0.5f) + 0.03f * (n2 - 0.5f);
+  float c = 0.34f + 0.08f * n1 + 0.04f * (grit - 0.5f) + 0.04f * (n2 - 0.5f);
   float fleck = grit > 0.94f ? (grit - 0.94f) * 12.0f : 0;
-  c += fleck * 0.12f - tracks * 0.045f;
+  c += fleck * 0.14f - tracks * 0.08f;
   /* tar patches: big cells, a few of them darker with a sealed seam */
   float d1, d2;
   uint32_t id;
   cells2(u, v, 5, 3, 95, &d1, &d2, &id);
   float patch = (id & 255) < 40 ? 1.0f : 0.0f;
   float seam = patch * (1 - sstep(0.0f, 0.05f, d2 - d1));
-  c = c * (1 - 0.3f * patch) - seam * 0.05f;
+  c = c * (1 - 0.25f * patch) - seam * 0.06f;
   /* hairline cracks: narrow where two cells meet, only where a noise mask allows */
   float cd1, cd2;
   uint32_t cid;
   cells2(u, v, 8, 4, 96, &cd1, &cd2, &cid);
-  float crack = (1 - sstep(0.0f, 0.035f, cd2 - cd1)) * sstep(0.5f, 0.62f, rfbm(u, v, 3, 3, 97));
+  float crack = (1 - sstep(0.0f, 0.035f, cd2 - cd1)) * sstep(0.58f, 0.7f, rfbm(u, v, 3, 3, 97));
   c -= crack * 0.1f;
   float paint = lane_paint(u, v, 0.3f, 98);
-  float w = wet > 0 ? sstep(0.52f, 0.64f, rfbm(u, v, 3, 4, 99)) * wet : 0;
+  float w = wet > 0 ? sstep(0.62f, 0.72f, rfbm(u, v, 3, 4, 99)) * wet : 0;
   /* wet: dark sheen everywhere, mirror in the puddles */
-  c *= 1 - 0.4f * wet;
+  c *= 1 - 0.45f * wet;
   rgb(t, c, c, c * 1.06f);
   mixc(t, 0.82f - 0.25f * wet, 0.82f - 0.25f * wet, 0.76f - 0.25f * wet, paint);
   t->h = 0.3f + 0.35f * n2 + 0.25f * grit - crack * 0.5f + paint * 0.08f;
@@ -133,7 +133,7 @@ static void asphalt_core(float u, float v, texel *t, float wet) {
   t->h = mixf(t->h, 0.5f, w);
   c = c * (1 - 0.35f * w);
   t->ao = 0.86f + 0.14f * n1 - crack * 0.4f;
-  if (wet > 0 && w > 0) mixc(t, 0.02f, 0.025f, 0.035f, w * 0.7f);
+  if (wet > 0 && w > 0) mixc(t, 0.03f, 0.04f, 0.06f, w * 0.5f);
 }
 static void g_road_asphalt(float u, float v, texel *t) { asphalt_core(u, v, t, 0); }
 static void g_road_wet(float u, float v, texel *t) { asphalt_core(u, v, t, 1); }
@@ -152,8 +152,8 @@ static void g_road_concrete(float u, float v, texel *t) {
   float cd1, cd2;
   uint32_t cid;
   cells2(u, v, 4, 2, 114 + (uint32_t)lane, &cd1, &cd2, &cid);
-  float crack = (1 - sstep(0.0f, 0.03f, cd2 - cd1)) * sstep(0.48f, 0.6f, rfbm(u, v, 3, 3, 115));
-  float stain = sstep(0.55f, 0.75f, rfbm(u, v, 3, 4, 116)) * 0.18f;
+  float crack = (1 - sstep(0.0f, 0.03f, cd2 - cd1)) * sstep(0.58f, 0.7f, rfbm(u, v, 3, 3, 115));
+  float stain = sstep(0.6f, 0.8f, rfbm(u, v, 3, 4, 116)) * 0.1f;
   float tracks = clamp01(band(u, 0.3f, 0.06f, 0.06f) + band(u, 0.7f, 0.06f, 0.06f)) * 0.08f;
   c -= stain + tracks + crack * 0.2f;
   float paint = lane_paint(u, v, 0.45f, 117);
@@ -180,8 +180,8 @@ static void g_road_dirt(float u, float v, texel *t) {
   float d1, d2;
   uint32_t id;
   cells2(u, v, 64, 32, 125, &d1, &d2, &id);
-  float peb = (id & 255) < 24 ? clamp01(1 - d1 / (0.22f + 0.2f * h01((int)(id & 255), 3, 7))) : 0;
-  float pt = 0.45f + 0.3f * h01((int)(id >> 8 & 255), 4, 8);
+  float peb = (id & 255) < 24 ? clamp01(1 - d1 / (0.16f + 0.14f * h01((int)(id & 255), 3, 7))) : 0;
+  float pt = 0.26f + 0.18f * h01((int)(id >> 8 & 255), 4, 8);
   mixc(t, pt, pt * 0.95f, pt * 0.85f, peb);
   float cd1, cd2;
   uint32_t cid;
@@ -207,7 +207,7 @@ static void g_road_salt(float u, float v, texel *t) {
   float k = 0.9f + 0.06f * (n - 0.5f) + 0.05f * (tint - 0.5f) + 0.03f * (fine - 0.5f);
   rgb(t, 0.93f * k, 0.92f * k, 0.9f * k);
   mixc(t, 0.78f, 0.7f, 0.66f, rim * 0.4f);          /* pinkish dust gathers at the plate rims */
-  mixc(t, 0.46f, 0.4f, 0.37f, seam * 0.85f);        /* the cracks */
+  mixc(t, 0.5f, 0.44f, 0.4f, seam * 0.65f);        /* the cracks */
   /* curled plate edges catch light */
   float streak = fbm2(u, v, 24, 3, 3, 134);
   float tracks = clamp01(band(u, 0.3f, 0.05f, 0.08f) + band(u, 0.7f, 0.05f, 0.08f)) * sstep(0.35f, 0.65f, streak);
@@ -233,7 +233,7 @@ static void g_road_ice(float u, float v, texel *t) {
   float d1, d2;
   uint32_t id;
   cells2(u, v, 6, 3, 148, &d1, &d2, &id);
-  float crack = (1 - sstep(0.0f, 0.03f, d2 - d1)) * sstep(0.5f, 0.6f, rfbm(u, v, 3, 3, 149));
+  float crack = (1 - sstep(0.0f, 0.03f, d2 - d1)) * sstep(0.56f, 0.66f, rfbm(u, v, 3, 3, 149));
   float k = 0.88f + 0.12f * n;
   rgb(t, 0.7f * k, 0.86f * k, 0.98f * k);
   mixc(t, 0.4f, 0.62f, 0.9f, deep * 0.55f);
@@ -294,7 +294,8 @@ static void g_road_metal(float u, float v, texel *t) {
   float wear = sstep(0.35f, 0.6f, rfbm(u, v, 20, 3, 155));
   mixc(t, stripe ? 0.9f : 0.08f, stripe ? 0.72f : 0.08f, stripe ? 0.08f : 0.08f, hz * (1 - 0.6f * wear));
   mixc(t, 0.62f, 0.62f, 0.6f, rivet * 0.6f);
-  mixc(t, 0.07f, 0.07f, 0.07f, seam * 0.7f);
+  mixc(t, 0.07f, 0.07f, 0.07f, seam * 0.5f);
+  t->r += lug * 0.04f, t->g += lug * 0.04f, t->b += lug * 0.04f;
   t->h = (grate ? h : mixf(h, 0.5f, hz)) + rivet * 0.5f - seam * 0.5f;
   t->rough = rough + rust * 0.4f - (fine > 0.985f ? 0.2f : 0);
   t->ao = ao - seam * 0.5f;
@@ -349,13 +350,13 @@ static void g_road_stone(float u, float v, texel *t) {
   float wu = u + 0.012f * (fbm(u, v, 6, 2, 171) - 0.5f), wv = v + 0.024f * (fbm(u, v, 6, 2, 172) - 0.5f);
   cells2(wu, wv, 6, 3, 173, &d1, &d2, &id);
   float gap = d2 - d1;
-  float joint = 1 - sstep(0.0f, 0.12f, gap);
+  float joint = 1 - sstep(0.0f, 0.07f, gap);
   float dome = sstep(0.0f, 0.5f, gap);
   float n = rfbm(u, v, 8, 5, 174), fine = h01((int)(u * 1024), (int)(v * 512), 175);
   float tint = (float)(id & 255) / 255.0f;
   float k = 0.58f + 0.14f * tint + 0.12f * (n - 0.5f) + 0.04f * (fine - 0.5f);
   rgb(t, k * 1.0f, k * 0.96f, k * 0.86f);
-  float moss = clamp01(joint * 0.9f + sstep(0.58f, 0.72f, rfbm(u, v, 3, 4, 176)) * 0.7f + sstep(0.2f, 0.0f, u) * 0.5f + sstep(0.8f, 1.0f, u) * 0.5f);
+  float moss = clamp01(joint * 0.55f + sstep(0.58f, 0.72f, rfbm(u, v, 3, 4, 176)) * 0.7f + sstep(0.2f, 0.0f, u) * 0.5f + sstep(0.8f, 1.0f, u) * 0.5f);
   moss *= 0.5f + 0.5f * sstep(0.3f, 0.6f, rfbm(u, v, 20, 3, 177));
   mixc(t, 0.2f + 0.08f * n, 0.38f + 0.1f * n, 0.12f, moss * 0.75f);
   mixc(t, 0.14f, 0.12f, 0.09f, joint * (1 - moss) * 0.7f);
@@ -373,7 +374,7 @@ static void g_road_tech(float u, float v, texel *t) {
   float py = y / 4;
   float seam = 1 - sstep(0.012f, 0.04f, fminf(fractf(py), 1 - fractf(py)) * 4);
   float seam2 = 1 - sstep(0.012f, 0.04f, fabsf(x - 8));
-  float c = 0.07f + 0.025f * n + 0.012f * fine;
+  float c = 0.11f + 0.035f * n + 0.015f * fine;
   rgb(t, c * 0.9f, c, c * 1.25f);
   /* faint hex mesh in the panels */
   float hx = fabsf(fractf(x * 2.0f) - 0.5f), hy = fabsf(fractf(y * 1.1547f + 0.5f * floorf(x * 2.0f)) - 0.5f);
@@ -405,9 +406,9 @@ static void g_road_sand(float u, float v, texel *t) {
   float wob = rfbm(u, v, 3, 4, 191), tracks = clamp01(band(u, 0.3f, 0.06f, 0.07f) + band(u, 0.7f, 0.06f, 0.07f));
   float x = u * 16, y = v * 8;
   /* crests run roughly along v, 0.35 m apart, bending with the noise */
-  float crest = 0.5f + 0.5f * cw_sin((x / 0.35f + wob * 14.0f) * 6.2831853f / 1.0f + 6.2831853f * 0.0f);
+  float crest = 0.5f + 0.5f * cw_sin((x / 0.35f + wob * 2.2f + y * 0.15f) * 6.2831853f);
   crest = crest * (1 - 0.8f * tracks);
-  float cross = 0.5f + 0.5f * cw_sin((y * 2.0f + wob * 5.0f) * 3.14159f);
+  float cross = 0.5f + 0.5f * cw_sin((y * 1.0f + wob * 2.0f) * 6.2831853f);
   float n = rfbm(u, v, 12, 4, 192), grain = h01((int)(u * 1024), (int)(v * 512), 193);
   float k = 0.9f + 0.1f * n + 0.04f * (grain - 0.5f) - 0.12f * tracks;
   float shade = 0.9f + 0.1f * crest;
@@ -458,7 +459,7 @@ static void g_wall_concrete(float u, float v, texel *t) {
       float dx = fractf(al * 0.5f) * 2 - (0.5f + i), dy = up - (0.55f + j);
       ties = fmaxf(ties, clamp01(1 - sqrtf(dx * dx + dy * dy) / 0.045f));
     }
-  float streak = fbm2(u, v, 2, 40, 3, 213), rain = sstep(0.52f, 0.72f, streak);
+  float streak = fbm2(u, v, 2, 40, 3, 213), rain = sstep(0.58f, 0.78f, streak);
   float foot = 1 - sstep(0.0f, 0.7f, up);
   float scuffn = fbm2(u, v, 2, 12, 3, 214), scuff = sstep(0.58f, 0.78f, scuffn) * (1 - sstep(0.25f, 0.75f, up));
   float c = 0.66f + 0.1f * (n - 0.5f) + 0.025f * (fine - 0.5f) - 0.2f * rain * (0.5f + 0.5f * n) - 0.14f * foot * (0.6f + 0.4f * n);
@@ -476,8 +477,8 @@ static void g_wall_hazard(float u, float v, texel *t) {
   float diag = fractf((u + v) * 8 + 0.02f * (fbm(u, v, 4, 2, 223) - 0.5f));
   float yel = sstep(0.46f, 0.5f, diag) * (1 - sstep(0.96f, 1.0f, diag)) + (1 - sstep(0.0f, 0.04f, diag)) * 0;
   yel = diag < 0.5f ? sstep(0.0f, 0.02f, diag) * (1 - sstep(0.48f, 0.5f, diag)) : 0.0f;
-  float scuff = sstep(0.55f, 0.75f, fbm2(u, v, 3, 14, 4, 224)) * (1 - sstep(0.3f, 0.8f, u * 4));
-  float chip = sstep(0.6f, 0.72f, fbm(u, v, 24, 3, 225));
+  float scuff = sstep(0.66f, 0.8f, fbm2(u, v, 3, 14, 4, 224)) * (1 - sstep(0.3f, 0.8f, u * 4));
+  float chip = sstep(0.68f, 0.78f, fbm(u, v, 24, 3, 225));
   float dirt = (1 - sstep(0.0f, 0.5f, u * 4)) * 0.4f + 0.2f * sstep(0.5f, 0.75f, fbm2(u, v, 2, 30, 3, 226));
   float yr = 0.95f, yg = 0.74f, yb = 0.08f;
   rgb(t, mixf(0.07f, yr, yel), mixf(0.07f, yg, yel), mixf(0.075f, yb, yel));
@@ -505,7 +506,7 @@ static void g_wall_rust(float u, float v, texel *t) {
   rib = 0.5f + 0.5f * cw_sin(v * 16.0f * 6.2831853f);
   float n = fbm(u, v, 6, 5, 231), fine = h01((int)(u * 512), (int)(v * 512), 232);
   float streak = fbm2(u, v, 3, 36, 3, 233);
-  float rustm = clamp01(sstep(0.5f, 0.68f, n) * 0.9f + sstep(0.5f, 0.7f, streak) * 0.6f + (1 - sstep(0.0f, 1.0f, up)) * 0.4f);
+  float rustm = clamp01(sstep(0.6f, 0.76f, n) * 0.85f + sstep(0.64f, 0.8f, streak) * 0.5f + (1 - sstep(0.0f, 0.8f, up)) * 0.3f);
   rustm = clamp01(rustm + (rib > 0.8f ? 0.3f * sstep(0.4f, 0.6f, n) : 0)); /* crests wear first */
   float sheet = fminf(fractf(up), 1 - fractf(up)) * 1;                       /* 1 m sheets stacked, overlap seam at each metre */
   float lap = 1 - sstep(0.005f, 0.03f, sheet);
@@ -536,7 +537,7 @@ static void g_wall_brick(float u, float v, texel *t) {
   float body = sstep(0.006f, 0.018f, d);
   float n = fbm(u, v, 8, 4, 242), fine = h01((int)(u * 512), (int)(v * 512), 243);
   float tint = (float)(id & 255) / 255.0f;
-  float burnt = (id >> 8 & 15) < 2 ? 0.55f : 1.0f;
+  float burnt = (id >> 8 & 15) < 1 ? 0.75f : 1.0f;
   float chip = sstep(0.5f, 0.7f, fbm(u, v, 30, 3, 244)) * (1 - sstep(0.0f, 0.03f, d));
   float k = (0.78f + 0.4f * tint + 0.12f * (n - 0.5f) + 0.06f * (fine - 0.5f)) * burnt;
   float soot = 1 - sstep(0.0f, 0.5f, u * 4);
@@ -685,7 +686,7 @@ static void g_wall_wood(float u, float v, texel *t) {
   float grain = 0.5f + 0.5f * cw_sin((inrow * 6 + warp + fbm2(u, v, 4, 60, 3, 285) * 0.4f) * 6.2831853f);
   float chipn = fbm(u, v, 14, 4, 286);
   float edgechip = (1 - sstep(0.0f, 0.04f, gd)) * 0.5f;
-  float chip = clamp01(sstep(0.58f, 0.7f, chipn) + edgechip * sstep(0.4f, 0.6f, chipn));
+  float chip = clamp01(sstep(0.64f, 0.74f, chipn) + edgechip * sstep(0.4f, 0.6f, chipn));
   float drip = sstep(0.55f, 0.75f, fbm2(u, v, 3, 40, 3, 287)) * 0.25f;
   float k = 0.92f + 0.08f * (tint - 0.5f) * 2.0f;
   rgb(t, 0.9f * k, 0.88f * k, 0.8f * k);
@@ -732,7 +733,7 @@ static void g_tunnel(float u, float v, texel *t) {
 
 static void g_ground_sand(float u, float v, texel *t) {
   float wob = fbm(u, v, 3, 3, 301);
-  float ripple = 0.5f + 0.5f * cw_sin((u * 12 + wob * 9 + 0.3f * fbm(u, v, 8, 2, 302)) * 6.2831853f);
+  float ripple = 0.5f + 0.5f * cw_sin((u * 12 + v * 2 + wob * 1.6f + 0.15f * fbm(u, v, 8, 2, 302)) * 6.2831853f);
   float n = fbm(u, v, 12, 4, 303), grain = h01((int)(u * 256), (int)(v * 256), 304);
   float dune = fbm(u, v, 2, 3, 305);
   float k = 0.84f + 0.14f * n + 0.04f * grain + 0.1f * (dune - 0.5f);
@@ -781,7 +782,7 @@ static void g_ground_grass(float u, float v, texel *t) {
 
 static void g_ground_snow(float u, float v, texel *t) {
   float n = fbm(u, v, 4, 5, 331), sp = h01((int)(u * 256), (int)(v * 256), 332);
-  float drift = 0.5f + 0.5f * cw_sin((v * 5 + fbm(u, v, 3, 3, 333) * 4) * 6.2831853f);
+  float drift = 0.5f + 0.5f * cw_sin((v * 5 + u * 1 + fbm(u, v, 3, 3, 333) * 0.9f) * 6.2831853f);
   float k = 0.9f + 0.1f * n - 0.04f * (1 - drift);
   rgb(t, 0.92f * k, 0.95f * k, 1.0f * k);
   if (sp > 0.992f) mixc(t, 1, 1, 1, 1);
@@ -792,7 +793,7 @@ static void g_ground_snow(float u, float v, texel *t) {
 
 static void g_ground_mud(float u, float v, texel *t) {
   float n = fbm(u, v, 5, 5, 341), grit = h01((int)(u * 256), (int)(v * 256), 342);
-  float pud = sstep(0.56f, 0.64f, fbm(u, v, 3, 4, 343));
+  float pud = sstep(0.64f, 0.72f, fbm(u, v, 3, 4, 343));
   float d1, d2;
   uint32_t id;
   cells2(u, v, 8, 8, 344, &d1, &d2, &id);
@@ -869,7 +870,7 @@ static void g_stripes(float u, float v, texel *t) {
   float grime = 0.78f + 0.22f * n;
   rgb(t, a * grime, b * grime, c * grime);
   /* tyre scuffs: black smears on the raised top and at the stripe seams, chips showing concrete */
-  float scuff = sstep(0.55f, 0.75f, fbm2(u, v, 3, 10, 3, 383));
+  float scuff = sstep(0.64f, 0.8f, fbm2(u, v, 3, 10, 3, 383));
   float chip = sstep(0.62f, 0.74f, fbm(u, v, 20, 3, 384));
   mixc(t, 0.1f, 0.1f, 0.1f, scuff * 0.45f);
   mixc(t, 0.6f, 0.58f, 0.54f, chip * 0.75f);

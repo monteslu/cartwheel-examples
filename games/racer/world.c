@@ -92,7 +92,7 @@ static t3_material *road_material(const map_look *L, int surf, int road_tex) {
   default: break;
   }
   /* the surfaces with a look of their own keep their own colours; only the map's road surface is tinted */
-  t3_material *m = phys(surf == SURF_ROAD ? tint(L->road, 0.7f) : lin(1, 1, 1), 1.0f, kind == TEX_ROAD_METAL ? 0.8f : 0.0f);
+  t3_material *m = phys(surf == SURF_ROAD ? tint(L->road, 0.85f) : lin(1, 1, 1), 1.0f, kind == TEX_ROAD_METAL ? 0.8f : 0.0f);
   tex_apply(m, kind, 1, 1, 1.0f, 1.0f);
   /* road_rough scales the texture's roughness map (1 = as made; a map that wants it glossier lowers it) */
   if (surf == SURF_ROAD) rough_k = L->road_rough > 0 ? L->road_rough / 0.75f : 1.0f;
