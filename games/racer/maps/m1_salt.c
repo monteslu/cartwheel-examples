@@ -164,8 +164,11 @@ static float height_fn(float x, float z, void *ud) {
   float gap = road_gap_idx(TR, x, z, &ry, &idx);
   if (gap < 90.0f && !(TR->s[idx].flags & (TF_GAP | TF_TUNNEL))) {
     /* grade the crust up or down to the road, a wide gentle embankment (a ramp is a salt-block earthwork) */
-    float w = 1.0f - sstep(5.0f, 26.0f, gap);
-    h = lerpf(h, ry - 0.35f, w);
+    /* the crust lies below the road, with room for a banked road's low edge, then eases up to the open flats */
+    const tsample *sm = &TR->s[idx];
+    float floor_y = ry - 0.4f - sm->hw * fabsf(sinf(sm->bank));
+    float w = 1.0f - sstep(14.0f, 48.0f, gap);
+    h = lerpf(h, floor_y, w);
   }
   return h;
 }
@@ -1065,7 +1068,7 @@ static int nflock;
 
 #define MAX_DEVIL 5
 static struct {
-  cw_node n;
+  cw_node n, column, layer[3];
   float cx, cz, rx, rz, ph, rate;
 } DEVIL[MAX_DEVIL];
 static int ndevil;
@@ -1406,8 +1409,8 @@ static void salt_ramps(cw_node root, const track *t, prop_set *ps) {
       float s = lip - 26.0f;
       t3_vec3 p = beside(s, k * (hw + 12.5f), -0.1f);
       t3_quat q = t3_quat_from_axis_angle(V(0, 1, 0), along_road(s) + (k > 0 ? 0.3f : -0.3f));
-      q = t3_quat_multiply(q, t3_quat_from_axis_angle(V(1, 0, 0), -0.32f));
-      ps_add_ex(ps, PK_WRECK_TRUCK, 0, 0, vadd(p, V(0, 1.4f, 0)), q, V(1.1f, 1.1f, 1.1f), (pcol){ 1, 1, 1 }, 5100u + (uint32_t)(j * 2 + (k > 0)));
+      q = t3_quat_multiply(q, t3_quat_from_axis_angle(V(1, 0, 0), -0.2f));
+      ps_add_ex(ps, PK_WRECK_TRUCK, 0, 0, vadd(p, V(0, 0.5f, 0)), q, V(1.1f, 1.1f, 1.1f), (pcol){ 1, 1, 1 }, 5100u + (uint32_t)(j * 2 + (k > 0)));
       ps_add(ps, PK_WRECK_CAR, beside(lip - 8.0f, k * (hw + 9.0f), 0.2f), along_road(lip) + 0.5f * (float)k, 1.5f, 5200u + (uint32_t)(j * 2 + (k > 0)));
     }
     for (int i = 0; i < 5; i++) {
@@ -1656,6 +1659,39 @@ static void salt_pan(cw_node root, const track *t, prop_set *ps) {
     if (np > 1) deco_cables(root, pts, np, 2.6f, 0.06f, C_DARK);
   }
 
+  /* the salvage yard thickens along the hills and the pan: wrecks, drums, crates, pipes, hay and boulders in loose groups */
+  {
+    scatter_opts o = scatter_defaults();
+    o.kinds[0] = PK_WRECK_CAR, o.weight[0] = 3, o.kinds[1] = PK_BARREL, o.weight[1] = 3, o.kinds[2] = PK_CRATE, o.weight[2] = 2, o.kinds[3] = PK_PIPE, o.weight[3] = 1;
+    o.kinds[4] = PK_HAY, o.weight[4] = 2, o.kinds[5] = PK_BOULDERS, o.weight[5] = 1, o.kinds[6] = PK_CONTAINER, o.weight[6] = 1, o.kinds[7] = PK_DEBRIS, o.weight[7] = 2;
+    o.nkinds = 8, o.spacing = 26.0f, o.lat_min = 9.0f, o.lat_max = 70.0f, o.lat_curve = 1.6f, o.margin = 2.0f, o.scale_min = 0.9f, o.scale_max = 1.4f;
+    o.ground = ground_cb, o.far_thin = 0.6f, o.lod_dist = 90.0f;
+    o.from_s = 600.0f, o.to_s = 1200.0f, o.seed = 101;
+    scatter_along(ps, t, &o);
+    o.from_s = 1740.0f, o.to_s = 2900.0f, o.spacing = 34.0f, o.lat_max = 110.0f, o.seed = 102;
+    scatter_along(ps, t, &o);
+  }
+  /* telegraph poles beside the pan road: a steady rhythm of verticals, with a wire */
+  {
+    t3_vec3 pts[40];
+    int np = 0;
+    pmc *pc = pmc_new(90, 71);
+    for (float s = 1760.0f; s < 2860.0f && np < 40; s += 42.0f) {
+      t3_vec3 p = beside(s, -(hw + 9.0f), -0.2f);
+      pm *b = pmc_at(pc, p);
+      pm_push(b);
+      pm_move(b, p.x, p.y, p.z);
+      pm_layer(b, PL_MAIN);
+      pm_cyl(b, 0.18f, 0.12f, 9.5f, 6, hex(0x5c4636), hex(0x7a6048));
+      pm_beam(b, V(-1.4f, 8.8f, 0), V(1.4f, 8.8f, 0), 0.14f, hex(0x5c4636));
+      pm_beam(b, V(-1.0f, 7.6f, 0), V(1.0f, 7.6f, 0), 0.12f, hex(0x5c4636));
+      pm_pop(b);
+      pts[np++] = vadd(p, V(0, 8.8f, 0));
+    }
+    pmc_finish(pc, root, "TelegraphPoles", true, -1);
+    if (np > 1) deco_cables(root, pts, np, 0.5f, 0.03f, C_DARK);
+  }
+
   /* tyre-stack chicanes, drums and cones along the walls of the bends and the pan */
   {
     scatter_opts o = scatter_defaults();
@@ -1668,6 +1704,46 @@ static void salt_pan(cw_node root, const track *t, prop_set *ps) {
   }
 }
 
+/* a dust devil's body: three nested translucent funnels (narrow at the ground, wide and thin at the top) that turn at
+ * different rates, so the column seems to twist. Unlit, tan, very faint where thin. */
+static cw_node dust_column(cw_node parent, cw_node layer_out[3]) {
+  cw_node col = cw_node_new("Node3D", "DustDevil");
+  cw_node_add_child(parent, col);
+  for (int L = 0; L < 3; L++) {
+    soup s = { 0 };
+    int rings = 12, seg = 14;
+    float H = 48.0f + 10.0f * (float)L, k = 1.0f + 0.35f * (float)L;
+    for (int r = 0; r <= rings; r++) {
+      float u = (float)r / (float)rings, y = H * u;
+      float rad = (1.1f + 6.5f * powf(u, 1.35f)) * k;
+      for (int i = 0; i < seg; i++) {
+        float a = 6.2832f * (float)i / (float)seg + u * 2.2f * (float)(L + 1);
+        float wob = 1.0f + 0.18f * sinf(a * 3.0f + u * 5.0f);
+        sv(&s, V(cosf(a) * rad * wob, y, sinf(a) * rad * wob), V(cosf(a), 0, sinf(a)), (pcol){ 1, 1, 1 });
+        if (r > 0) {
+          int b = r * seg + i, b1 = r * seg + (i + 1) % seg, t0 = (r - 1) * seg + i, t1 = (r - 1) * seg + (i + 1) % seg;
+          st(&s, t0, b, b1), st(&s, t0, b1, t1);
+        }
+      }
+    }
+    t3_geometry *g = soup_geo(&s);
+    t3_material *mat = t3_mesh_basic_material_new(0xffffff);
+    mat->color = (t3_color){ 1.15f, 0.88f, 0.7f };
+    mat->transparent = true;
+    mat->opacity = 0.11f;
+    mat->depth_write = false;
+    mat->side = T3_DOUBLE_SIDE;
+    t3_mesh *me = t3_mesh_new(g, mat);
+    me->base.cast_shadow = false;
+    me->base.receive_shadow = false;
+    layer_out[L] = hang(col, "Funnel", &me->base);
+    t3_release(me);
+    t3_release(g);
+    t3_release(mat);
+  }
+  return col;
+}
+
 /* ── life: dust devils, flocks, ambient drifting dust, flare embers ─────────────────────────────────── */
 
 static void salt_life(cw_node scene, cw_node root, const track *t) {
@@ -1678,7 +1754,10 @@ static void salt_life(cw_node scene, cw_node root, const track *t) {
   for (int i = 0; i < 4 && ndevil < MAX_DEVIL; i++) {
     t3_vec3 p = beside(dv[i].s, dv[i].lat, 0);
     cw_node n = fx_ambient_at(scene, FXA_DUST, p, V(2.5f, 16.0f, 2.5f), 2.2f, 520.0f);
-    DEVIL[ndevil++] = (typeof(DEVIL[0])){ n, p.x, p.z, dv[i].rx, dv[i].rz, hashf_(9400u + (uint32_t)i) * 6.28f, 0.05f + 0.03f * (float)i };
+    cw_node lay[3];
+    cw_node column = dust_column(root, lay);
+    DEVIL[ndevil] = (typeof(DEVIL[0])){ n, column, { lay[0], lay[1], lay[2] }, p.x, p.z, dv[i].rx, dv[i].rz, hashf_(9400u + (uint32_t)i) * 6.28f, 0.05f + 0.03f * (float)i };
+    ndevil++;
   }
   /* flare embers above the two flare stacks */
   fx_ambient_at(scene, FXA_EMBERS, beside(1420.0f, hw + 88.0f, 40.0f), V(1.5f, 1.0f, 1.5f), 0.8f, 380.0f);
@@ -1767,7 +1846,10 @@ static void salt_frame(float alpha, double time) {
   for (int i = 0; i < ndevil; i++) {
     float a = DEVIL[i].ph + T * DEVIL[i].rate;
     float x = DEVIL[i].cx + cosf(a) * DEVIL[i].rx, z = DEVIL[i].cz + sinf(a * 1.3f) * DEVIL[i].rz;
-    cw_node3d_set_position(DEVIL[i].n, V(x, ground_y(x, z) + 8.0f, z));
+    float gy = ground_y(x, z);
+    cw_node3d_set_position(DEVIL[i].n, V(x, gy + 8.0f, z));
+    cw_node3d_set_position(DEVIL[i].column, V(x, gy - 0.5f, z));
+    for (int L = 0; L < 3; L++) cw_node3d_set_rotation(DEVIL[i].layer[L], V(0, T * (1.6f + 0.9f * (float)L) * (L & 1 ? -1.0f : 1.0f), 0));
   }
   if (cw_node_valid(CLOUDS)) cw_node3d_set_rotation(CLOUDS, V(0, T * 0.0006f, 0));
   for (int i = 0; i < NMIRAGE; i++)
