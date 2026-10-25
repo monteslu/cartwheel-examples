@@ -1016,6 +1016,11 @@ static void draw_title(float W, float H, float s) {
     cw_rect r = cw_rect_make(W * 0.5f - bw * 0.5f, py - 30 * s, bw, 60 * s);
     slab(r, 16 * s, alpha(PANEL, t), s);
     tx_o(U.f_title, p, W * 0.5f, py, 36 * s, alpha(MUSTARD, t * blink), (txopt){ .align = CW_ALIGN_CENTER });
+    if (SAVE.races > 0) {
+      char rb[64];
+      snprintf(rb, sizeof rb, "Races %u    Wins %u", SAVE.races, SAVE.wins);
+      tx(U.f_hud, rb, W * 0.5f, H - 40 * s, 18 * s, alpha(CREAM, 0.8f * t), CW_ALIGN_CENTER);
+    }
     return;
   }
   int n = title_count();

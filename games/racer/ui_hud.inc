@@ -669,14 +669,14 @@ static void hud_finish(const hv *g) {
   char b[48];
   snprintf(b, sizeof b, "FINISHED %d%s", k->place, place_suffix(k->place));
   float in = ease_back((float)h->finish_t / 24.0f);
-  float cx = g->x + g->w * 0.5f, cy = g->y + g->h * 0.3f;
-  float w = fminf(g->w * 0.92f, 560 * s);
+  float cx = g->x + g->w * 0.5f, cy = g->y + g->h * 0.34f;
+  float w = fminf(g->w * 0.8f, 440 * s);
   cw_rect r = cw_rect_make(cx - w * 0.5f, cy - 44 * s * in, w, 88 * s * in);
   if (in < 0.05f) return;
   cw_color col = k->place >= 1 && k->place <= 3 ? PLACE_COL[k->place - 1] : CREAM;
   slab(r, 18 * s, rgba(0.1f, 0.07f, 0.09f, 0.92f), s);
   para(cw_rect_make(r.x, r.y + r.h - 8 * s, r.w, 8 * s), 0, col);
-  tx_fit(U.f_title, b, cx, cy - 4 * s, 46 * s * in, w - 60 * s, col, CW_ALIGN_CENTER);
+  tx_fit(U.f_title, b, cx, cy - 4 * s, 40 * s * in, w - 60 * s, col, CW_ALIGN_CENTER);
   if (!g->compact && g->S->phase == PH_RACE) tx(U.f_hud, "Waiting for the others", cx, cy + 62 * s, hpx(20, s, 12), alpha(CREAM, 0.85f), CW_ALIGN_CENTER);
 }
 
