@@ -76,3 +76,4 @@ physical+vcol+instbig+shadow+senv+l1001+xcluster
 physical+vcol+instbig+shadow+senv+ds+l1001+xcluster
 physical+map+vcol+rep+instbig+nmap+ao+rmap+shadow+senv+l1001+xcluster
 basic+vcol+instbig
+basic+trans+ds

@@ -22,6 +22,21 @@ static const t3_gen_attribute a_basic_trans[] = {
   { "position", "vec3", 0, false },
 };
 
+/* ── basic+trans+ds ── */
+static const t3_bk_group_layout g_basic_trans_ds_render = { "render", 0, 128, 0, NULL, 0, NULL, 0 };
+static const t3_bk_group_layout g_basic_trans_ds_object = { "object", 1, 80, 0, NULL, 0, NULL, 0 };
+static const t3_bk_group_layout *const groups_basic_trans_ds[] = { &g_basic_trans_ds_render, &g_basic_trans_ds_object };
+static const t3_gen_property p_basic_trans_ds[] = {
+  { "material.color", 1, 0, 12, false },
+  { "material.opacity", 1, 12, 4, false },
+  { "camera.matrixWorldInverse", 0, 64, 64, false },
+  { "object.matrixWorld", 1, 16, 64, false },
+  { "camera.projectionMatrix", 0, 0, 64, false },
+};
+static const t3_gen_attribute a_basic_trans_ds[] = {
+  { "position", "vec3", 0, false },
+};
+
 /* ── basic+trans+instbig+ds ── */
 static const t3_bk_group_layout g_basic_trans_instbig_ds_render = { "render", 0, 128, 0, NULL, 0, NULL, 0 };
 static const t3_bk_group_layout g_basic_trans_instbig_ds_object = { "object", 1, 80, 0, NULL, 0, NULL, 0 };
@@ -12846,6 +12861,7 @@ static const t3_gen_text text = { text_z, 260505, 1574544, &text_cache };
 
 static const t3_gen_program programs[] = {
   { "basic+trans", T3_GEN_BASIC, 16ull, { 0, 0, 0, 0 }, NULL, T3_GEN_WGPU, groups_basic_trans, 2, p_basic_trans, 5, a_basic_trans, 1, NULL, 0, { 0, 0, 0 }, { 0, 0, 0 }, NULL, NULL, &text, 0, 1 },
+  { "basic+trans+ds", T3_GEN_BASIC, 4398046511120ull, { 0, 0, 0, 0 }, NULL, T3_GEN_WGPU, groups_basic_trans_ds, 2, p_basic_trans_ds, 5, a_basic_trans_ds, 1, NULL, 0, { 0, 0, 0 }, { 0, 0, 0 }, NULL, NULL, &text, 0, 1 },
   { "basic+trans+instbig+ds", T3_GEN_BASIC, 4398046511376ull, { 0, 0, 0, 0 }, NULL, T3_GEN_WGPU, groups_basic_trans_instbig_ds, 2, p_basic_trans_instbig_ds, 5, a_basic_trans_instbig_ds, 6, NULL, 0, { 0, 0, 0 }, { 0, 0, 0 }, NULL, NULL, &text, 2, 3 },
   { "basic+vcol+instbig", T3_GEN_BASIC, 258ull, { 0, 0, 0, 0 }, NULL, T3_GEN_WGPU, groups_basic_vcol_instbig, 2, p_basic_vcol_instbig, 5, a_basic_vcol_instbig, 7, NULL, 0, { 0, 0, 0 }, { 0, 0, 0 }, NULL, NULL, &text, 4, 5 },
   { "depth+instbig+xcluster", T3_GEN_DEPTH, 256ull, { 1, 0, 0, 0 }, "cluster", T3_GEN_WGPU, groups_depth_instbig_xcluster, 2, p_depth_instbig_xcluster, 3, a_depth_instbig_xcluster, 6, k_depth_instbig_xcluster, 1, { 0, 0, 0 }, { 0, 0, 0 }, NULL, NULL, &text, 6, 7 },
@@ -12923,4 +12939,4 @@ static const t3_gen_program programs[] = {
   { "standard+shadow+senv+l1001+xcluster", T3_GEN_STANDARD, 2228224ull, { 1, 0, 0, 1 }, "cluster", T3_GEN_WGPU, groups_standard_shadow_senv_l1001_xcluster, 3, p_standard_shadow_senv_l1001_xcluster, 31, a_standard_shadow_senv_l1001_xcluster, 2, NULL, 0, { 0, 0, 0 }, { 1, 0, 0 }, NULL, NULL, &text, 139, 140 },
   { "standard+shadow+senv+l1301+s100", T3_GEN_STANDARD, 2228224ull, { 1, 3, 0, 1 }, NULL, T3_GEN_WGPU, groups_standard_shadow_senv_l1301_s100, 2, p_standard_shadow_senv_l1301_s100, 41, a_standard_shadow_senv_l1301_s100, 2, NULL, 0, { 0, 0, 0 }, { 1, 0, 0 }, NULL, NULL, &text, 141, 142 },
 };
-const t3_gen_table racer_wgpu = { programs, 77 };
+const t3_gen_table racer_wgpu = { programs, 78 };
