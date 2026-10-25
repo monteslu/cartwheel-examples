@@ -194,6 +194,8 @@ void world_tick(const sim *s) { kartgfx_tick(s); }
 void world_frame(double alpha) {
   if (W.map && W.map->scenery_frame) W.map->scenery_frame((float)alpha, (double)W.frame_time);
   W.frame_time += 1.0f / 60.0f;
+  kartgfx_frame(NULL, (float)alpha); /* models agent: the karts and the items posed between ticks */
+  items_frame(NULL, (float)alpha);
   if (W.boost) {
     /* the chevrons run forward (toward +v) about 14 m/s, 6 m per repeat, and the pad breathes */
     tex_scroll(TEX_ARROWS, 0, -fractf_(W.frame_time * 14.0f / 6.0f));
