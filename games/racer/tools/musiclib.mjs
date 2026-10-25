@@ -60,7 +60,7 @@ export const DRUM = {
   },
   /* industrial: a struck sheet of steel */
   clank: (v = 1, f = 480) => { const n = nbuf(1.2); const h = shaped(1.2, (t, i) => n[i] * Math.exp(-t * 200)); return mixArrays(resonate(h, f, 40, 4), resonate(h, f * 2.43, 60, 3), resonate(h, f * 4.1, 90, 2), resonate(h, f * 1.37, 50, 3)).map((x) => x * v * 1.3); },
-  noise_up: (len = 2, v = 1) => { const n = nbuf(len); svfRun(n, (i) => 300 + 9000 * (i / SR / len) ** 2, 1.5, 'bp'); return shaped(len, (t, i) => n[i] * (t / len) ** 1.5 * v * 2); },
+  noise_up: (len = 2, v = 1) => { const n = nbuf(len); svfRun(n, (i) => 300 + 9000 * (i / SR / len) ** 2, 1.5, 'bp'); return shaped(len, (t, i) => n[i] * (t / len) ** 1.5 * v * 0.3); },
 };
 
 /* ── pitched instruments: (freq, durSec, vel) -> mono buffer ───────────── */
@@ -278,6 +278,6 @@ export function finish(chans, { rms = 0.14, peak = 0.9 } = {}) {
   let s = 0, n = 0;
   for (const c of chans) for (const v of c) { s += v * v; n++; }
   const k = rms / Math.sqrt(s / n);
-  for (const c of chans) for (let i = 0; i < c.length; i++) c[i] = Math.tanh(c[i] * k / peak * 0.9) * peak / Math.tanh(0.9);
+  for (const c of chans) for (let i = 0; i < c.length; i++) c[i] = Math.tanh(c[i] * k / peak) * peak;
   return chans;
 }

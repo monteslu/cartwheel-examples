@@ -74,7 +74,12 @@ void audio_tick(const sim *s, const t3_vec3 *eye, int neyes); /* fixed tick: eng
 void audio_ui(int sfx);              /* a menu sound: AUI_* */
 void audio_music(int track);         /* -1 stops; 0 menu, 1.. a map's music is NMAP+1 */
 void audio_shutdown(void);
-enum { AUI_MOVE, AUI_SELECT, AUI_BACK, AUI_COUNT, AUI_GO, AUI_COUNT_KINDS };
+enum { AUI_MOVE, AUI_SELECT, AUI_BACK, AUI_COUNT, AUI_GO, AUI_WRONG_WAY, AUI_FINAL_LAP, AUI_COUNT_KINDS };
+void audio_frame(void);              /* every rendered frame: keeps the music streaming (cw_audio_update); cheap, safe to call when paused */
+void audio_pause(bool paused);       /* the race is paused: engines, tyres and wind go quiet (the music and menu sounds go on) */
+/* the player's volumes from the options screen (ui.c): v is 0..1; the audio module applies it to every sound on that bus */
+enum { ABUS_MUSIC, ABUS_SFX };
+void audio_set_volume(int bus, float v);
 
 /* items_gfx.c: what the hazards and boxes look like */
 void items_build(cw_node scene, const sim *s);

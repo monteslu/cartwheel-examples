@@ -243,8 +243,9 @@ export function centroid(a, rate = SR) {
 }
 /* how big the jump across a loop seam is, against the typical sample step */
 export function seam(a) {
-  let d = 0;
-  for (let i = 1; i < a.length; i++) d += Math.abs(a[i] - a[i - 1]);
-  d /= a.length - 1;
-  return Math.abs(a[0] - a[a.length - 1]) / (d || 1e-9);
+  /* the jump across the wrap against the 99th percentile of ordinary steps: 1 or less is as smooth as the music itself */
+  const n = a.length, st = new Float32Array(n - 1);
+  for (let i = 1; i < n; i++) st[i - 1] = Math.abs(a[i] - a[i - 1]);
+  const ref = st.slice().sort()[Math.floor((n - 1) * 0.99)] || 1e-9;
+  return Math.abs(a[0] - a[n - 1]) / ref;
 }
