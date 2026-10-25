@@ -105,6 +105,7 @@ static float hashf_(uint32_t x) { return (float)(hash_u(x) & 0xffffff) / 1677721
 
 /* ── state ──────────────────────────────────────────────────────────────────────────────────────────── */
 
+static bool SPLIT; /* two or more views: a thinner map (cells, rings, scatter, animated parts) */
 static ground_opts GO;                       /* the pan: heights are asked of it by the props */
 static const track *TR;
 static float CX, CZ;                         /* the middle of the course */
@@ -933,16 +934,18 @@ static cw_node CLOUDS;
 static void build_clouds(cw_node parent) {
   CLOUDS = cw_node_new("Node3D", "Clouds");
   cw_node_add_child(parent, CLOUDS);
-  for (int c = 0; c < 16; c++) {
-    float a = 6.2832f * ((float)c + hashf_(1200u + (uint32_t)c)) / 16.0f;
+  int ncl = SPLIT ? 6 : 16;
+  for (int c = 0; c < ncl; c++) {
+    float a = 6.2832f * ((float)c + hashf_(1200u + (uint32_t)c)) / (float)ncl;
     float r = 500.0f + 1500.0f * hashf_(1210u + (uint32_t)c);
     float y = 380.0f + 520.0f * hashf_(1220u + (uint32_t)c);
     float cx = CX + cosf(a) * r, cz = CZ + sinf(a) * r;
     float len = 260.0f + 520.0f * hashf_(1230u + (uint32_t)c), wid = 28.0f + 60.0f * hashf_(1240u + (uint32_t)c);
     float rot = 0.6f + 0.5f * (hashf_(1250u + (uint32_t)c) - 0.5f);
     soup s = { 0 };
-    for (int layer = 0; layer < 12; layer++) {
-      float k = 1.0f - 0.08f * (float)layer;
+    int nl = SPLIT ? 5 : 12;
+    for (int layer = 0; layer < nl; layer++) {
+      float k = 1.0f - 0.19f * (float)layer * (SPLIT ? 1.0f : 0.42f);
       int c0 = sv(&s, V(cx, y, cz), V(0, -1, 0), (pcol){ 1, 1, 1 });
       for (int i = 0; i <= 20; i++) {
         float t = 6.2832f * (float)i / 20.0f;
@@ -958,7 +961,7 @@ static void build_clouds(cw_node parent) {
     float sunk = 0.5f + 0.5f * cosf(a - 0.75f);
     m->color = (t3_color){ lerpf(0.6f, 2.0f, sunk), lerpf(0.65f, 0.95f, sunk), lerpf(0.85f, 0.85f, sunk) };
     m->transparent = true;
-    m->opacity = 0.045f;
+    m->opacity = SPLIT ? 0.09f : 0.045f;
     m->depth_write = false;
     m->side = T3_DOUBLE_SIDE;
     t3_mesh *me = t3_mesh_new(g, m);
@@ -1128,7 +1131,7 @@ static bool off(char c) {
  * sits a little below the detailed ground where they overlap, so the two never fight over a pixel. */
 static void far_ground(cw_node root) {
   const float r0 = 980.0f, r1 = 2350.0f;
-  const int K = 40, A = 160;
+  const int K = SPLIT ? 14 : 40, A = SPLIT ? 72 : 160;
   soup s = { 0 };
   for (int k = 0; k <= K; k++) {
     float r = r0 * powf(r1 / r0, (float)k / (float)K);
@@ -1180,8 +1183,8 @@ static void build_ground(cw_node root, const track *t) {
   GO.tint2 = pc_mul(hex(0xf0c2bc), 2.3f);
   GO.patch_scale = 70.0f;
   GO.rough = 0.82f;
-  GO.near_cell = 64.0f;
-  GO.detail_range = 70.0f;
+  GO.near_cell = SPLIT ? 96.0f : 64.0f;
+  GO.detail_range = SPLIT ? 36.0f : 70.0f;
   GO.follow_road = false;
   GO.darken_edge = 0.22f;
   GO.lumpy = 0.18f;
@@ -1207,6 +1210,7 @@ static void salt_scenery(cw_node scene, const track *t, uint32_t seed) {
     z0 = fminf(z0, t->s[i].p.z), z1 = fmaxf(z1, t->s[i].p.z);
   }
   CX = 0.5f * (x0 + x1), CZ = 0.5f * (z0 + z1);
+  SPLIT = game_planned_views() > 1;
   ROOT_SCENE = scene;
   ROOT = cw_node_new("Node3D", "Salt");
   cw_node_add_child(scene, ROOT);
@@ -1227,7 +1231,7 @@ static void salt_scenery(cw_node scene, const track *t, uint32_t seed) {
   /* the horizon */
   if (!off('h')) ridge_ring(root, "RidgesFar", 2150.0f, 300.0f, 70.0f, 600.0f, hex(0xb98fb8), hex(0x6e4f94), 3, 0.6f);
   if (!off('h')) ridge_ring(root, "RidgesMid", 1650.0f, 120.0f, 34.0f, 330.0f, hex(0xd9a2a0), hex(0x9a4c48), 9, 1.0f);
-  if (!off('x')) build_mirage(root);
+  if (!off('x') && !SPLIT) build_mirage(root);
   if (!off('c')) build_clouds(root);
 
   /* a bare salt lakebed would be a flat page; the pieces below break it up and tell the story. */
@@ -1238,8 +1242,9 @@ static void salt_scenery(cw_node scene, const track *t, uint32_t seed) {
   ps_style(ps, PK_DUNE, TEX_GROUND_SAND, hex(0xfbefe8), 1.0f);
 
   /* mesas and spires on the horizon, far from the road */
-  for (int i = 0; i < 46; i++) {
-    float a = 6.2832f * ((float)i + hashf_(100u + (uint32_t)i)) / 46.0f;
+  int nfar = SPLIT ? 20 : 46;
+  for (int i = 0; i < nfar; i++) {
+    float a = 6.2832f * ((float)i + hashf_(100u + (uint32_t)i)) / (float)nfar;
     float r = 950.0f + 600.0f * hashf_(200u + (uint32_t)i);
     float x = CX + cosf(a) * r, z = CZ + sinf(a) * r;
     float sc = 2.0f + 3.2f * hashf_(300u + (uint32_t)i);
@@ -1269,7 +1274,7 @@ static void salt_scenery(cw_node scene, const track *t, uint32_t seed) {
   /* loose boulders and low salt dunes across the flats, thin near the road, denser in the middle distance */
   scatter_opts so = scatter_defaults();
   so.kinds[0] = PK_BOULDERS, so.weight[0] = 2, so.kinds[1] = PK_DUNE, so.weight[1] = 2, so.kinds[2] = PK_ROCK, so.weight[2] = 3;
-  so.nkinds = 3, so.spacing = 46.0f, so.lat_min = 18.0f, so.lat_max = 260.0f, so.lat_curve = 1.3f;
+  so.nkinds = 3, so.spacing = SPLIT ? 90.0f : 46.0f, so.lat_min = 18.0f, so.lat_max = 260.0f, so.lat_curve = 1.3f;
   so.ground = ground_cb, so.far_thin = 0.5f, so.seed = 41;
   scatter_along(ps, t, &so);
 
@@ -1297,7 +1302,7 @@ static void crowd_add(crowd *c, t3_vec3 base, float yaw, float W, int tiers, uin
     int n = (int)(W / 1.15f);
     for (int i = 0; i < n; i++) {
       uint32_t h = hash_u(seed * 977u + (uint32_t)(r * 131 + i));
-      if ((h & 15) < 2) continue;                           /* gaps in the rows */
+      if ((h & 15) < (SPLIT ? 8 : 2)) continue;                           /* gaps in the rows */
       float lx = -W * 0.5f + W * ((float)i + 0.5f) / (float)n + ((float)((h >> 4) & 255) / 255.0f - 0.5f) * 0.5f;
       float lz = -rowd * ((float)r + 0.55f) + ((float)((h >> 12) & 255) / 255.0f - 0.5f) * 0.4f;
       float ly = rowh * (float)(r + 1);
@@ -1322,14 +1327,15 @@ static void salt_start(cw_node root, const track *t, prop_set *ps) {
     { 46.0f, -(hw + 17.0f), 38.0f, 6, 3 }, { -12.0f, hw + 17.0f, 42.0f, 6, 4 }, { 120.0f, hw + 17.0f, 26.0f, 5, 5 }
   };
   inst stand_i[3];
-  for (int i = 0; i < 3; i++) {
+  int nst = SPLIT ? 2 : 3;
+  for (int i = 0; i < nst; i++) {
     stand_i[i] = inst_new(m_stand(stands[i].seed, stands[i].W, stands[i].tiers), -1, (pcol){ 1, 1, 1 });
     t3_vec3 p = beside(stands[i].s, stands[i].lat, -0.05f);
     float yaw = face_road(stands[i].s, stands[i].lat);
     inst_add(&stand_i[i], p, yaw, 1.0f);
     crowd_add(&cr, p, yaw, stands[i].W - 2.0f, stands[i].tiers, stands[i].seed);
   }
-  for (int i = 0; i < 3; i++) inst_finish(&stand_i[i], root, "Stand", true);
+  for (int i = 0; i < nst; i++) inst_finish(&stand_i[i], root, "Stand", true);
   for (int g = 0; g < 2; g++) {
     cr.bobnode[g] = cw_node_new("Node3D", g ? "CrowdB" : "CrowdA");
     cw_node_add_child(root, cr.bobnode[g]);
@@ -1339,7 +1345,7 @@ static void salt_start(cw_node root, const track *t, prop_set *ps) {
 
   /* flags on tall poles lining the straight, and bunting strings across it */
   pcol flagc[5] = { C_ORNG, C_TEAL, C_MUST, C_RED, C_BONE };
-  for (int i = 0; i < 10; i++) {
+  for (int i = 0; i < (SPLIT ? 4 : 10); i++) {
     float s = -96.0f + 28.0f * (float)i;
     float lat = (i & 1) ? hw + 3.2f : -(hw + 3.2f);
     t3_vec3 p = beside(s, lat, -0.1f);
@@ -1349,7 +1355,7 @@ static void salt_start(cw_node root, const track *t, prop_set *ps) {
   }
   /* four taller masts carry the bunting across the road */
   float ms[4] = { 12.0f, 34.0f, 72.0f, 100.0f };
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < (SPLIT ? 2 : 4); i++) {
     t3_vec3 pl = beside(ms[i], -(hw + 2.2f), 0), pr = beside(ms[i], hw + 2.2f, 0);
     float H = 13.0f;
     for (int k = 0; k < 2; k++) {
@@ -1418,6 +1424,9 @@ static void salt_ramps(cw_node root, const track *t, prop_set *ps) {
       int k = (i & 1) ? 1 : -1;
       ps_add(ps, i % 2 ? PK_WRECK_CAR : PK_CONTAINER, beside(s, k * (hw + 7.0f + 2.5f * (float)(i % 3)), -0.1f), hashf_(5300u + (uint32_t)(i + j * 9)) * 6.28f, 1.3f, 5400u + (uint32_t)(i + j * 9));
     }
+    /* glowing bollards down both sides of the last 60 m before the lip, a bloom the eye finds against the pale crust */
+    for (float s = lip - 62.0f; s < lip - 2.0f; s += 6.0f)
+      for (int k = -1; k <= 1; k += 2) ps_add(ps, PK_BOLLARD, beside(s, k * (hw + 2.4f), 0), 0, 1.3f, 5800u + (uint32_t)s);
     /* a billboard before the lip, its colour field warning of what comes */
     ps_add(ps, PK_BILLBOARD, beside(lip - 108.0f, (j ? 1 : -1) * (hw + 14.0f), -0.2f), face_road(lip - 108.0f, (j ? 1 : -1) * (hw + 14.0f)), 0.9f, 5500u + (uint32_t)j);
   }
@@ -1466,7 +1475,7 @@ static void salt_ramps(cw_node root, const track *t, prop_set *ps) {
 
   /* the hills' wind pumps (the wheels turn) and a scatter of wrecks and tyres by the walls */
   inst tower = inst_new(m_wp_tower(7, 13.0f), -1, (pcol){ 1, 1, 1 });
-  for (int i = 0; i < 7; i++) {
+  for (int i = 0; i < (SPLIT ? 3 : 7); i++) {
     float s = 840.0f + 50.0f * (float)i;
     float side = (i & 1) ? 1.0f : -1.0f;
     float lat = side * (hw + 26.0f + 40.0f * hashf_(6400u + (uint32_t)i));
@@ -1489,7 +1498,7 @@ static void salt_derricks(cw_node root, const track *t, prop_set *ps) {
   inst der[3];
   for (int i = 0; i < 3; i++) der[i] = inst_new(m_derrick(300u + (uint32_t)i * 17u, 32.0f), -1, (pcol){ 1, 1, 1 });
   int placed = 0;
-  for (int i = 0; i < 220 && placed < 84; i++) {
+  for (int i = 0; i < 220 && placed < (SPLIT ? 30 : 84); i++) {
     float s = 1180.0f + 400.0f * hashf_(7000u + (uint32_t)i);
     float side = (hash_u(7100u + (uint32_t)i) & 1) ? 1.0f : -1.0f;
     float lat = side * (hw + 16.0f + powf(hashf_(7200u + (uint32_t)i), 1.5f) * 190.0f);
@@ -1613,7 +1622,7 @@ static void salt_pan(cw_node root, const track *t, prop_set *ps) {
     inst_finish(&wreck, root, "WreckedAirliners", true);
   }
   prop_kind yard[6] = { PK_SILO, PK_TANK, PK_WATER_TOWER, PK_CONTAINER, PK_WRECK_TRUCK, PK_PIPE_RACK };
-  for (int i = 0; i < 16; i++) {
+  for (int i = 0; i < (SPLIT ? 8 : 16); i++) {
     float s = 1760.0f + 70.0f * (float)i;
     float side = (i & 1) ? 1.0f : -1.0f;
     float lat = side * (hw + 55.0f + 80.0f * hashf_(8500u + (uint32_t)i));
@@ -1625,7 +1634,7 @@ static void salt_pan(cw_node root, const track *t, prop_set *ps) {
   /* wind pumps with turning wheels on the pan */
   {
     inst tower = inst_new(m_wp_tower(17, 14.0f), -1, (pcol){ 1, 1, 1 });
-    for (int i = 0; i < 9; i++) {
+    for (int i = 0; i < (SPLIT ? 4 : 9); i++) {
       float s = 1720.0f + 118.0f * (float)i;
       float side = (i & 1) ? 1.0f : -1.0f;
       float lat = side * (hw + 38.0f + 70.0f * hashf_(8900u + (uint32_t)i));
@@ -1664,11 +1673,11 @@ static void salt_pan(cw_node root, const track *t, prop_set *ps) {
     scatter_opts o = scatter_defaults();
     o.kinds[0] = PK_WRECK_CAR, o.weight[0] = 3, o.kinds[1] = PK_BARREL, o.weight[1] = 3, o.kinds[2] = PK_CRATE, o.weight[2] = 2, o.kinds[3] = PK_PIPE, o.weight[3] = 1;
     o.kinds[4] = PK_HAY, o.weight[4] = 2, o.kinds[5] = PK_BOULDERS, o.weight[5] = 1, o.kinds[6] = PK_CONTAINER, o.weight[6] = 1, o.kinds[7] = PK_DEBRIS, o.weight[7] = 2;
-    o.nkinds = 8, o.spacing = 26.0f, o.lat_min = 9.0f, o.lat_max = 70.0f, o.lat_curve = 1.6f, o.margin = 2.0f, o.scale_min = 0.9f, o.scale_max = 1.4f;
+    o.nkinds = 8, o.spacing = SPLIT ? 52.0f : 26.0f, o.lat_min = 9.0f, o.lat_max = 70.0f, o.lat_curve = 1.6f, o.margin = 2.0f, o.scale_min = 0.9f, o.scale_max = 1.4f;
     o.ground = ground_cb, o.far_thin = 0.6f, o.lod_dist = 90.0f;
     o.from_s = 600.0f, o.to_s = 1200.0f, o.seed = 101;
     scatter_along(ps, t, &o);
-    o.from_s = 1740.0f, o.to_s = 2900.0f, o.spacing = 34.0f, o.lat_max = 110.0f, o.seed = 102;
+    o.from_s = 1740.0f, o.to_s = 2900.0f, o.spacing = SPLIT ? 68.0f : 34.0f, o.lat_max = 110.0f, o.seed = 102;
     scatter_along(ps, t, &o);
   }
   /* telegraph poles beside the pan road: a steady rhythm of verticals, with a wire */
@@ -1696,7 +1705,7 @@ static void salt_pan(cw_node root, const track *t, prop_set *ps) {
   {
     scatter_opts o = scatter_defaults();
     o.kinds[0] = PK_TYRE_STACK, o.weight[0] = 3, o.kinds[1] = PK_BARREL, o.weight[1] = 2, o.kinds[2] = PK_CONE, o.weight[2] = 2, o.kinds[3] = PK_TYRE, o.weight[3] = 1;
-    o.nkinds = 4, o.spacing = 24.0f, o.lat_min = 1.2f, o.lat_max = 6.5f, o.margin = 0.5f, o.scale_min = 0.9f, o.scale_max = 1.35f;
+    o.nkinds = 4, o.spacing = SPLIT ? 40.0f : 24.0f, o.lat_min = 1.2f, o.lat_max = 6.5f, o.margin = 0.5f, o.scale_min = 0.9f, o.scale_max = 1.35f;
     o.ground = ground_cb, o.from_s = 560.0f, o.to_s = 1180.0f, o.seed = 91;
     scatter_along(ps, t, &o);
     o.from_s = 1700.0f, o.to_s = 2800.0f, o.spacing = 30.0f, o.seed = 92;
@@ -1751,7 +1760,7 @@ static void salt_life(cw_node scene, cw_node root, const track *t) {
   fx_ambient_follow(scene, FXA_DUST, 0.45f);
   /* dust devils wandering over the pan: tall thin columns of dust that cross the view */
   struct { float s, lat, rx, rz; } dv[4] = { { 1850.0f, hw + 140.0f, 60.0f, 30.0f }, { 2450.0f, -(hw + 110.0f), 80.0f, 40.0f }, { 640.0f, hw + 160.0f, 70.0f, 50.0f }, { 150.0f, -(hw + 200.0f), 60.0f, 60.0f } };
-  for (int i = 0; i < 4 && ndevil < MAX_DEVIL; i++) {
+  for (int i = 0; i < (SPLIT ? 2 : 4) && ndevil < MAX_DEVIL; i++) {
     t3_vec3 p = beside(dv[i].s, dv[i].lat, 0);
     cw_node n = fx_ambient_at(scene, FXA_DUST, p, V(2.5f, 16.0f, 2.5f), 2.2f, 520.0f);
     cw_node lay[3];
@@ -1767,7 +1776,7 @@ static void salt_life(cw_node scene, cw_node root, const track *t) {
 
   /* flocks of birds wheeling over the pan */
   float fc[4][3] = { { 0.55f, 0, 80 }, { 0.2f, 1, 110 }, { 0.8f, 0, 70 }, { 0.38f, 1, 95 } };
-  for (int i = 0; i < 4 && nflock < MAX_FLOCK; i++) {
+  for (int i = 0; i < (SPLIT ? 1 : 4) && nflock < MAX_FLOCK; i++) {
     cw_node n = model_node(root, "Flock", m_flock(9500u + (uint32_t)i, 9 + i * 2), -1, false);
     FLOCK[nflock++] = (typeof(FLOCK[0])){ n, CX + (fc[i][0] - 0.5f) * 300.0f, CZ + (hashf_(9600u + (uint32_t)i) - 0.5f) * 400.0f, 120.0f + 90.0f * (float)i, fc[i][2], hashf_(9700u + (uint32_t)i) * 6.28f, (i & 1 ? -1.0f : 1.0f) * (0.06f + 0.02f * (float)i), 5.0f + (float)i };
   }
