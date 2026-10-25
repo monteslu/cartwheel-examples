@@ -1,0 +1,56 @@
+/* a proving ground: every piece kind once. Not shipped as a map. */
+#include "../game.h"
+
+static const piece SPEC[] = {
+  WALLS(2, 2),
+  ITEMS(),
+  STRAIGHT(140),
+  CHECK(),
+  BOOST(24),
+  BANKED(180, 200, 24),
+  STRAIGHT(50),
+  ITEMS(),
+  SLOPE(40, 14),
+  SLOPE(30, 14),
+  JUMP(34, 38),
+  SLOPE(50, 0),
+  STRAIGHT(40),
+  CHECK(),
+  BANKED(-90, 120, -20),
+  STRAIGHT(60),
+  LOOP(16, 1),
+  STRAIGHT(70),
+  BANKED(90, 120, 20),
+  WALLS(3, 3),
+  CORKSCREW(110, 1),
+  WALLS(2, 2),
+  STRAIGHT(40),
+  CHECK(),
+  TUNNEL(1),
+  STRAIGHT(90),
+  TUNNEL(0),
+  ITEMS(),
+  BANKED(120, 160, 22),
+  ASTRAIGHT(90),
+  ATURN(60, 100),
+  ASLOPE(80, -4),
+  ASTRAIGHT(100),
+  ATURN(40, 100),
+  SLOPE(60, 0),
+  STRAIGHT(100),
+  END(),
+};
+
+#define MAP_SPEC (&(track_spec){ .name = "test", .pieces = SPEC, .npieces = sizeof SPEC / sizeof SPEC[0], .hw0 = 9, .circuit = true })
+
+const map_def map_test = {
+  .name = "Proving Ground",
+  .blurb = "Every piece once.",
+  .scene = "scenes/test.cwscene",
+  .spec = &(track_spec){ .name = "test", .pieces = SPEC, .npieces = sizeof SPEC / sizeof SPEC[0], .hw0 = 9, .circuit = true },
+  .mesh = { .wall_h = { 0, 0.9f, 1.6f, 3.2f }, .curb_w = 0.9f, .tile_v = 8.0f, .tunnel_clear = 8.0f },
+  .look = { .road = { 0.35f, 0.36f, 0.38f }, .kerb_a = { 0.9f, 0.2f, 0.15f }, .kerb_b = { 0.95f, 0.95f, 0.95f }, .wall = { 0.75f, 0.7f, 0.6f },
+            .wall_top = { 0.9f, 0.85f, 0.75f }, .road_rough = 0.75f },
+  .laps = 3,
+  .par_lap = 60,
+};

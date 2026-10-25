@@ -1,0 +1,13 @@
+; racer's release builds: node <host sdk>/tools/cwexport.mjs --project games/racer --preset <preset>
+; the game's name is still to be decided (GAME_TITLE in game.h)
+game_app = racer
+
+name = "Racer"
+app = "racer"
+export.linux.platform = "linux-x64"
+export.windows.platform = "windows-x64"
+export.macos.platform = "macos"
+export.web.platform = "web"
+export.cart.platform = "wasc"
+export.android.platform = "android-arm64"
+export.android.app_id = "org.cartwheel.racer"
