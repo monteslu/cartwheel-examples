@@ -24,6 +24,10 @@ typedef struct kart_model {
 extern const float KART_RGB[8][3];
 void kart_build(kart_model *m, int veh, int colour);
 
+/* How many views the race being built will have (1..4; set before a map's scenery() runs). A map thins its detail
+ * when this is above 1: every view draws the whole scene. */
+int game_planned_views(void);
+
 /* kartgfx.c: the karts as drawn: nodes, wheels, body motion, effects that belong to a kart (shield, flames) */
 void kartgfx_build(cw_node parent, const sim *s);
 void kartgfx_reset(void);

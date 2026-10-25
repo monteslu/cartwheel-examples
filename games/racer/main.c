@@ -71,6 +71,7 @@ static cw_node find_type(cw_node n, const char *type) {
 bool game_loaded(void) { return G.have_track; }
 const sim *game_sim(void) { return &G.S; }
 int game_views(void) { return G.nviews; }
+int game_planned_views(void) { return G.setup.humans < 1 ? 1 : G.setup.humans > MAXV ? MAXV : G.setup.humans; }
 int game_view_player(int v) { return G.pl[v]; }
 void game_set_camera(int mode) {
   if (mode == 2 && G.nviews > 1) {
