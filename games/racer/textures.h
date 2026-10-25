@@ -28,7 +28,7 @@ enum {
   TEX_ROAD_SAND,      /* wind-rippled sand with wheel tracks */
   TEX_ROAD_WET,       /* asphalt, dark and glossy (low roughness), puddle patches */
   TEX_ROAD_GLASS,     /* a clear plate: faint grid, reflections do the rest */
-  /* walls, barriers, structures */
+  /* walls, barriers, structures: u runs UP the wall and v ALONG it, 4 m per repeat each, bottom at u = 0 */
   TEX_WALL_CONCRETE,  /* jersey-barrier concrete, stained */
   TEX_WALL_HAZARD,    /* diagonal yellow and black, scuffed */
   TEX_WALL_RUST,      /* corrugated, rusted sheet metal */
@@ -49,15 +49,22 @@ enum {
   TEX_PAINT_STRIPES,  /* kerb: red and white (the colours come from map_look) */
   TEX_ARROWS,         /* boost chevrons, alpha-ish: bright arrows on dark */
   TEX_NOISE,          /* soft grey noise: a generic detail map */
+  TEX_TUNNEL,         /* tunnel lining: ribbed concrete rings, a lamp strip along the crown (u runs round the arch, 8 m per repeat) */
   TEX_KINDS
 };
 
-typedef struct tex_set { t3_texture *map, *normal, *rough, *ao; } tex_set;
+/* emit is NULL unless the kind glows (tech lanes, tunnel lamps, boost arrows): colour it with the material's emissive */
+typedef struct tex_set { t3_texture *map, *normal, *rough, *ao, *emit; } tex_set;
 const tex_set *tex_get(int kind);
 /* Builds a band of kind's rows; true once the set is complete (loading screens call this a frame at a time). */
 bool tex_warm(int kind);
 /* Dresses a physical material in a set. repeat_u / repeat_v multiply the mesh's uv. */
 void tex_apply(t3_material *m, int kind, float repeat_u, float repeat_v, float normal_scale, float ao_intensity);
+/* The kerb set for a pair of stripe colours (linear-free sRGB 0..1), built once per pair; the material colour stays white. */
+const tex_set *tex_kerb(const float a[3], const float b[3]);
+void tex_apply_kerb(t3_material *m, const float a[3], const float b[3], float repeat_u, float repeat_v, float normal_scale, float ao_intensity);
+/* Slides a kind's maps (the boost arrows run forward by lowering dv). Moves the shared set: only for a kind one material owns. */
+void tex_scroll(int kind, float du, float dv);
 void tex_free_all(void);
 extern uint32_t tex_hash; /* a checksum of everything made, a debug field */
 

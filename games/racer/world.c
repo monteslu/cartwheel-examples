@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "cartwheel/math.h"
+#include "textures.h"
 #include "world.h"
 
 t3_color lin(float r, float g, float b) {
@@ -44,12 +45,15 @@ void add_mesh(cw_node parent, const char *name, t3_geometry *g, t3_material *m, 
   t3_release(m);
 }
 
+static float fractf_(float x) { return x - floorf(x); }
+
 static struct {
   cw_node root;
   track_geo geo;
   bool built;
   const map_def *map;
   float frame_time;
+  t3_material *boost;   /* one material for every boost strip: its arrows run forward and pulse */
 } W;
 
 const track_geo *world_geo(void) { return &W.geo; }
@@ -57,22 +61,48 @@ const track_geo *world_geo(void) { return &W.geo; }
 void world_reset(void) {
   kartgfx_reset();
   if (W.built) track_geo_free(&W.geo);
+  if (W.boost) t3_release(W.boost);
   memset(&W, 0, sizeof W);
 }
 
-static t3_material *road_material(const map_look *L, int surf) {
-  t3_color c = lin(L->road[0], L->road[1], L->road[2]);
-  float rough = L->road_rough;
-  float metal = 0;
+/* A look's colour is a multiplier on the texture ((1, 1, 1) keeps the texture's own colours). A dark flat-colour
+ * value (every component well under 0.7) is lifted so its hue shows and the texture does not go black. */
+static t3_color tint(const float c[3], float min_peak) {
+  float peak = fmaxf(c[0], fmaxf(c[1], c[2])), k = peak > 0.0001f && peak < min_peak ? min_peak / peak : 1.0f;
+  return lin(fminf(c[0] * k, 1.0f), fminf(c[1] * k, 1.0f), fminf(c[2] * k, 1.0f));
+}
+
+/* RACER_LOOK=<n> (a development switch): the road shows the n-th road texture (n % 12 of the TEX_ROAD_* kinds)
+ * and the walls the n-th wall texture (n % 8 of the TEX_WALL_* kinds), whatever the map asked for, so every
+ * texture can be looked at on the same course. Unset or negative: the map's own look. */
+static int look_override(void) {
+  const char *e = getenv("RACER_LOOK");
+  return e && *e ? atoi(e) : -1;
+}
+
+static t3_material *road_material(const map_look *L, int surf, int road_tex) {
+  int kind = road_tex;
+  float rough_k = 1.0f;
   switch (surf) {
-  case SURF_DIRT: c = lin(0.55f, 0.38f, 0.22f), rough = 0.95f; break;
-  case SURF_ICE: c = lin(0.72f, 0.86f, 0.98f), rough = 0.08f; break;
-  case SURF_METAL: c = lin(0.45f, 0.47f, 0.5f), rough = 0.4f, metal = 0.9f; break;
-  case SURF_GLASS: c = lin(0.6f, 0.8f, 0.9f), rough = 0.05f; break;
-  case SURF_WOOD: c = lin(0.5f, 0.34f, 0.18f), rough = 0.8f; break;
+  case SURF_DIRT: kind = TEX_ROAD_DIRT; break;
+  case SURF_ICE: kind = TEX_ROAD_ICE; break;
+  case SURF_METAL: kind = TEX_ROAD_METAL; break;
+  case SURF_GLASS: kind = TEX_ROAD_GLASS; break;
+  case SURF_WOOD: kind = TEX_ROAD_WOOD; break;
   default: break;
   }
-  return phys(c, rough, metal);
+  /* the surfaces with a look of their own keep their own colours; only the map's road surface is tinted */
+  t3_material *m = phys(surf == SURF_ROAD ? tint(L->road, 0.7f) : lin(1, 1, 1), 1.0f, kind == TEX_ROAD_METAL ? 0.8f : 0.0f);
+  tex_apply(m, kind, 1, 1, 1.0f, 1.0f);
+  /* road_rough scales the texture's roughness map (1 = as made; a map that wants it glossier lowers it) */
+  if (surf == SURF_ROAD) rough_k = L->road_rough > 0 ? L->road_rough / 0.75f : 1.0f;
+  m->roughness = fminf(rough_k, 1.0f);
+  if (kind == TEX_ROAD_GLASS) {
+    m->transparent = true;
+    m->opacity = 0.55f;
+    m->depth_write = false;
+  }
+  return m;
 }
 
 void world_build(cw_node scene, const sim *s, const map_def *map) {
@@ -83,28 +113,66 @@ void world_build(cw_node scene, const sim *s, const map_def *map) {
   track_geo_build(&W.geo, s->track, &map->mesh);
   W.built = true;
   const map_look *L = &map->look;
+  int road_tex = L->road_tex, wall_tex = L->wall_tex, lk = look_override();
+  if (lk >= 0) road_tex = TEX_ROAD_ASPHALT + lk % 12, wall_tex = TEX_WALL_CONCRETE + lk % 8;
+  bool wall_glow = L->wall_emissive;
   for (int i = 0; i < W.geo.n; i++) {
     track_chunk *c = &W.geo.c[i];
     t3_material *m = NULL;
     bool cast = false;
     switch (c->kind) {
-    case TM_ROAD: m = road_material(L, c->surf), cast = true; break;
-    case TM_KERB: m = phys(lin(L->kerb_a[0], L->kerb_a[1], L->kerb_a[2]), 0.6f, 0); break;
-    case TM_WALL: m = phys(lin(L->wall[0], L->wall[1], L->wall[2]), 0.7f, 0), cast = true; break;
-    case TM_WALLTOP: m = phys(lin(L->wall_top[0], L->wall_top[1], L->wall_top[2]), 0.6f, 0), cast = true; break;
-    case TM_TUNNEL: m = phys(lin(L->wall[0] * 0.8f, L->wall[1] * 0.8f, L->wall[2] * 0.8f), 0.8f, 0), cast = true; break;
+    case TM_ROAD: m = road_material(L, c->surf, road_tex), cast = true; break;
+    case TM_KERB:
+      m = phys(lin(1, 1, 1), 0.9f, 0);
+      tex_apply_kerb(m, L->kerb_a, L->kerb_b, 1, 1, 1.0f, 1.0f);
+      break;
+    case TM_WALL:
+      m = phys(tint(L->wall, 0.85f), 1.0f, wall_tex == TEX_WALL_RUST || wall_tex == TEX_WALL_TECH ? 0.5f : 0.0f);
+      tex_apply(m, wall_tex, 1, 1, 1.0f, 1.0f);
+      if (m->emissive_map) {
+        /* lit strips: the map's glow colour, or off */
+        if (wall_glow) m->emissive = lin(L->glow[0], L->glow[1], L->glow[2]), m->emissive_intensity = 2.2f;
+        else m->emissive_intensity = 0;
+      }
+      cast = true;
+      break;
+    case TM_WALLTOP:
+      m = phys(tint(L->wall_top, 0.85f), 1.0f, 0);
+      tex_apply(m, wall_tex == TEX_WALL_TECH || wall_tex == TEX_WALL_RUST ? TEX_METAL : wall_tex, 1, 1, 1.0f, 1.0f);
+      m->emissive_intensity = 0;
+      cast = true;
+      break;
+    case TM_TUNNEL:
+      m = phys(lin(0.85f + 0.15f * L->wall[0], 0.85f + 0.15f * L->wall[1], 0.85f + 0.15f * L->wall[2]), 1.0f, 0);
+      tex_apply(m, TEX_TUNNEL, 1, 1, 1.0f, 1.0f);
+      m->emissive = lin(1.0f, 0.93f, 0.75f);
+      m->emissive_intensity = 2.4f;
+      cast = true;
+      break;
     case TM_PLATE:
-      m = phys(lin(0.7f, 0.9f, 1), 0.04f, 0);
+      /* glass: clear, glossy, the frames and dots catch a little more light */
+      m = phys(lin(0.8f, 0.95f, 1), 1.0f, 0);
+      tex_apply(m, TEX_ROAD_GLASS, 0.5f, 0.5f, 0.6f, 1.0f);
       m->transparent = true;
-      m->opacity = 0.18f;
+      m->opacity = 0.28f;
       m->depth_write = false;
+      m->specular_intensity = 1.0f;
       break;
     case TM_BOOST:
-      m = phys(lin(0.1f, 0.3f, 0.5f), 0.4f, 0);
-      m->emissive = lin(0.2f, 0.8f, 1.0f);
-      m->emissive_intensity = 2.5f;
+      if (!W.boost) {
+        W.boost = phys(lin(1, 1, 1), 1.0f, 0);
+        tex_apply(W.boost, TEX_ARROWS, 1, 1, 1.0f, 1.0f);
+        W.boost->emissive_intensity = 2.6f;
+      }
+      m = W.boost;
+      t3_retain(m);
       break;
-    case TM_UNDER: m = phys(lin(L->wall[0] * 0.6f, L->wall[1] * 0.6f, L->wall[2] * 0.6f), 0.9f, 0), cast = true; break;
+    case TM_UNDER:
+      /* the belly of the ramp: dark riveted plate, tinted toward the wall colour */
+      m = phys(lin(0.35f + 0.3f * L->wall[0], 0.35f + 0.3f * L->wall[1], 0.35f + 0.3f * L->wall[2]), 1.0f, 0.4f);
+      tex_apply(m, TEX_METAL, 4, 2, 1.0f, 1.0f);
+      cast = true;
+      break;
     }
     if (!m) continue;
     if (c->kind == TM_TUNNEL || c->kind == TM_PLATE || c->kind == TM_UNDER) m->side = T3_DOUBLE_SIDE;
@@ -126,4 +194,9 @@ void world_tick(const sim *s) { kartgfx_tick(s); }
 void world_frame(double alpha) {
   if (W.map && W.map->scenery_frame) W.map->scenery_frame((float)alpha, (double)W.frame_time);
   W.frame_time += 1.0f / 60.0f;
+  if (W.boost) {
+    /* the chevrons run forward (toward +v) about 14 m/s, 6 m per repeat, and the pad breathes */
+    tex_scroll(TEX_ARROWS, 0, -fractf_(W.frame_time * 14.0f / 6.0f));
+    W.boost->emissive_intensity = 2.5f + 0.7f * sinf(W.frame_time * 9.0f);
+  }
 }
