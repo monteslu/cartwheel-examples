@@ -8,6 +8,7 @@
 
 #include "cartwheel/math.h"
 #include "textures.h"
+#include "props.h"
 #include "world.h"
 
 t3_color lin(float r, float g, float b) {
@@ -59,6 +60,7 @@ static struct {
 const track_geo *world_geo(void) { return &W.geo; }
 
 void world_reset(void) {
+  props_reset();
   kartgfx_reset();
   if (W.built) track_geo_free(&W.geo);
   if (W.boost) t3_release(W.boost);

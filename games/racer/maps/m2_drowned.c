@@ -740,6 +740,7 @@ static void pools_finish(cw_node parent) {
       hang(parent, name, &me->base);
       t3_release(me);
       free(b->p), free(b->c), free(b->ix);
+      *b = (gbuf){ 0 }; /* the next race builds into empty buffers */
     }
   }
 }
@@ -2408,6 +2409,9 @@ static void scenery_frame(float alpha, double time) {
 /* ── the scenery ─────────────────────────────────────────────────────────────────────────────────── */
 
 static void scenery(cw_node scene, const track *t, uint32_t seed) {
+  /* a race loaded before left handles into a freed scene in these: start every load from nothing */
+  memset(&N, 0, sizeof N), memset(&AD, 0, sizeof AD), memset(&LK, 0, sizeof LK), memset(&RU, 0, sizeof RU);
+  memset(&HO, 0, sizeof HO), memset(&DR, 0, sizeof DR), memset(&SL, 0, sizeof SL), memset(&RF, 0, sizeof RF), memset(&PO, 0, sizeof PO);
   scan_course(t);
   init_colours();
   cw_node root = cw_node_new("Node3D", "Drowned");

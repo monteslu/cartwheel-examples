@@ -403,6 +403,7 @@ void water_frame(double time);                     /* scrolls the film's ripples
 /* A row of every prop along the start straight (RACER_PROPS=1 in the proving ground). */
 void props_gallery(cw_node parent, const track *t);
 /* Free the cached models and materials (a map change). */
+void water_reset(void);                             /* forget the flooded-road films (props_reset does it) */
 void props_reset(void);
 
 #endif

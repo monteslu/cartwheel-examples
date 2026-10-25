@@ -890,8 +890,11 @@ void ps_finish(prop_set *s) {
   s->e = NULL, s->n = 0;
 }
 
+static void road_index_reset(void);
 void props_reset(void) {
-  /* materials stay cached: they are shared by every set and cost nothing to keep */
+  /* materials stay cached: they are shared by every set and cost nothing to keep; what pointed into the scene goes */
+  water_reset();
+  road_index_reset();
 }
 
 /* ── the road index: where the road is, horizontally, for clearance ─────────────────────────────── */
@@ -905,6 +908,10 @@ typedef struct road_index {
   int *start, *items;
 } road_index;
 static road_index RI;
+static void road_index_reset(void) {
+  free(RI.start), free(RI.items);
+  memset(&RI, 0, sizeof RI);
+}
 
 static void road_index_build(const track *t) {
   if (RI.t == t && RI.n == t->n && RI.start) return;

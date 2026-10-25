@@ -493,9 +493,18 @@ static void fixed(void *u, double dt) {
     G.hash = G.S.hash;
   }
   static bool dev_started;
+  {
+    /* dev aid: RACER_RELOAD=n starts the same race over again every n ticks (a leak or a stale pointer shows up) */
+    static int reload_at = -1;
+    if (reload_at < 0) reload_at = getenv("RACER_RELOAD") ? atoi(getenv("RACER_RELOAD")) : 0;
+    if (reload_at > 0 && G.ticks > 2 && (G.ticks - 2) % reload_at == 0 && G.have_track) {
+      race_setup again = G.setup;
+      ui_enter_race(&again);
+    }
+  }
 #ifdef RACER_AUTOPILOT
   /* the _auto build: no menus, eight CPU karts on map 0 for one lap, for hosts that send no input */
-  if (!dev_started && G.ticks == 2) {
+  if (!dev_started && G.ticks == 1) { /* before the front end starts its own demo race on its second tick */
     dev_started = true;
     race_setup rs = { .map = 0, .laps = 1, .humans = 0, .cpu_skill = 3, .items = true };
     ui_enter_race(&rs);

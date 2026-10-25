@@ -9,3 +9,11 @@ cw_add_app(racer SOURCES ${SRC} PACK ${PACK})
 cw_add_app(racer_auto SOURCES ${SRC} PACK ${PACK})
 target_compile_definitions(racer_auto PRIVATE RACER_AUTOPILOT=1)
 add_dependencies(racer_auto_pack racer_pack)
+
+# The maps' scenery, textures and meshes need more than the cart default's 128 MB of starting memory; growing a
+# shared memory under a running cart trips some hosts' views of it (a texture upload past the old end), so start big.
+if(CW_CART)
+  foreach(app racer racer_auto)
+    target_link_options(${app} PRIVATE -Wl,--initial-memory=268435456)
+  endforeach()
+endif()

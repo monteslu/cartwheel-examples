@@ -540,6 +540,9 @@ cw_node water_ribbon(cw_node parent, const t3_vec3 *pts, int n, float width, con
   return node;
 }
 
+/* a map is unloaded: the film's materials went with its scene */
+void water_reset(void) { WF.nmat = 0; }
+
 void water_frame(double time) {
   for (int i = 0; i < WF.nmat; i++) {
     t3_material *m = WF.mat[i];
