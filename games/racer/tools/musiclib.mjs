@@ -275,6 +275,8 @@ export class Song {
 /* the master: a high-pass, a gentle soft limiter and a loudness target */
 export function finish(chans, { rms = 0.14, peak = 0.9 } = {}) {
   for (const c of chans) { hp(c, 28, 0.7); removeDC(c); }
+  /* a little air on top: the highs of the band come out dull after the reverb and the low-bitrate encode */
+  for (const c of chans) { const hi = c.slice(); hp(hi, 5000, 0.7); for (let i = 0; i < c.length; i++) c[i] += hi[i] * 0.7; }
   let s = 0, n = 0;
   for (const c of chans) for (const v of c) { s += v * v; n++; }
   const k = rms / Math.sqrt(s / n);

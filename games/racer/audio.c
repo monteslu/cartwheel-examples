@@ -114,6 +114,7 @@ static struct {
   cw_sound snd[S_N];
   cw_res res[S_N];
   float user[2];     /* options volumes: music, sfx */
+  bool user_set;     /* the options screen spoke before the mixer was up */
   float duck;        /* 0..1: a big event is happening, engines and music make room */
   int tick;
   int cool[S_N];
@@ -132,7 +133,7 @@ static struct {
   /* debug */
   int d_eng_voices, d_eng_mask, d_sfx_total, d_sfx_last, d_sfx_hist[S_N], d_music_track, d_music_pitch, d_music_gain, d_duck, d_tunnel, d_missiles;
   int d_own_rpm[MAXV], d_own_pitch[MAXV], d_own_vol[MAXV], d_own_skid[MAXV], d_own_wind[MAXV], d_own_road[MAXV];
-  int d_paused, d_skid_voices, d_amb_voices;
+  int d_paused, d_skid_voices, d_amb_voices, d_tunnel_max, d_skid_max, d_water_max, d_air_max;
   /* RACER_AUDIO_WAV=path: no device, the whole mix rendered offline to a wav (a dev aid, for measuring the mix) */
   const char *wav_path;
   float *wav;
@@ -151,7 +152,7 @@ static void apply_volumes(void) {
   if (!A.on) return;
   float quiet = A.paused ? 0.0f : 1.0f;
   float mduck = 1.0f - 0.35f * A.duck;
-  cw_bus_set_volume(A.bus[B_MUSIC], BUS_BASE[B_MUSIC] * A.user[0] * mduck * (A.paused ? 0.6f : 1.0f));
+  cw_bus_set_volume(A.bus[B_MUSIC], BUS_BASE[B_MUSIC] * A.user[0] * mduck * (A.paused && A.mus.track > 0 && A.mus.track < 9 ? 0.6f : 1.0f));
   cw_bus_set_volume(A.bus[B_SFX], BUS_BASE[B_SFX] * A.user[1]);
   cw_bus_set_volume(A.bus[B_ENG], BUS_BASE[B_ENG] * A.user[1] * (1.0f - 0.5f * A.duck) * quiet);
   cw_bus_set_volume(A.bus[B_AMB], BUS_BASE[B_AMB] * A.user[1] * (1.0f - 0.4f * A.duck) * quiet);
@@ -159,6 +160,8 @@ static void apply_volumes(void) {
 }
 
 void audio_set_volume(int bus, float v) {
+  if (!A.user_set) A.user[0] = A.user[1] = 1.0f;
+  A.user_set = true;
   A.user[bus == ABUS_MUSIC ? 0 : 1] = clampf(v, 0, 1);
   apply_volumes();
 }
@@ -166,7 +169,7 @@ void audio_set_volume(int bus, float v) {
 /* ── init ───────────────────────────────────────────────────────────── */
 
 void audio_init(void) {
-  A.user[0] = A.user[1] = 1.0f;
+  if (!A.user_set) A.user[0] = A.user[1] = 1.0f;
   A.mus.track = -1;
   A.mus.pitch = A.mus.pitch_t = 1.0f;
   A.mus.gain = A.mus.gain_t = 1.0f;
@@ -201,6 +204,10 @@ void audio_init(void) {
   cw_debug_i32("snd.tunnel_x1000", &A.d_tunnel);
   cw_debug_i32("snd.missile_voices", &A.d_missiles);
   cw_debug_i32("snd.paused", &A.d_paused);
+  cw_debug_i32("snd.tunnel_max_x1000", &A.d_tunnel_max);
+  cw_debug_i32("snd.skid_max_x1000", &A.d_skid_max);
+  cw_debug_i32("snd.water_max_x1000", &A.d_water_max);
+  cw_debug_i32("snd.air_wind_max_x1000", &A.d_air_max);
   cw_debug_i32("snd.skid_voices", &A.d_skid_voices);
   cw_debug_i32("snd.amb_voices", &A.d_amb_voices);
   cw_debug_field("snd.own_rpm_x1000", A.d_own_rpm, CW_DBG_I32, MAXV);
@@ -410,6 +417,7 @@ void audio_race_start(const sim *s, const map_def *map) {
   A.humans = false;
   for (int i = 0; i < MAXK; i++)
     if (s->k[i].on && s->k[i].human) A.humans = true;
+  if (getenv("RACER_AUDIO_AS_HUMAN")) A.humans = true; /* dev aid: an all-CPU run sounds like a real race (music, fanfares) */
   A.attract = !A.humans;
   A.nviews = 0;
   /* a demo race behind the menus leaves the menu music alone; a real race brings the map's own */
@@ -601,22 +609,25 @@ void audio_tick(const sim *s, const t3_vec3 *eye, int neyes) {
     lslot_run(&e->skid, S_SKID, !loose && sl > 0.05f ? powf(sl, 1.2f) * 0.75f * g : 0, 0.85f + 0.3f * sl + 0.15f * speedf, &da, 0.3f);
     lslot_run(&A.slide[v], S_SLIDE, loose && sl > 0.05f ? sl * 0.7f * g : 0, 0.8f + 0.4f * speedf, &da, 0.25f);
     A.d_own_skid[v] = (int)(sl * 1000);
+    if (A.d_own_skid[v] > A.d_skid_max) A.d_skid_max = A.d_own_skid[v];
+    if (in_water && (int)(A.water[v].vol * 1000) > A.d_water_max) A.d_water_max = (int)(A.water[v].vol * 1000);
 
     /* wind: more with speed, a lot more in the air and under a boost */
     float air = (!k->grounded && k->air_ticks > 3) ? 1.0f : 0.0f;
     float wv = 0.04f + 0.4f * speedf * speedf + 0.28f * air * clampf(speedf + 0.2f, 0, 1) + (k->boost_ticks > 0 ? 0.12f : 0);
     lslot_run(&A.wind[v], S_WIND, wv * g, 0.6f + 0.7f * speedf + 0.2f * air, &da, 0.1f);
     A.d_own_wind[v] = (int)(wv * 1000);
+    if (air > 0 && (int)(wv * 1000) > A.d_air_max) A.d_air_max = (int)(wv * 1000);
 
     /* the world dropping away: once per flight, when it has been in the air long enough to matter */
-    if (!k->grounded && k->air_ticks == 22 && k->air_peak > 2.0f && !e->dropped) {
+    if (!k->grounded && k->air_ticks == 22 && !e->dropped) {
       e->dropped = true;
       play2d(S_DROP, 0.7f * view_gain(), 1.0f, pan);
     }
     if (k->grounded) e->dropped = false;
 
     /* the item roulette ticks, rising as it settles */
-    if (k->item_wait > 0 && k->item_wait % 5 == 0) play2d(S_TICK, 0.55f * view_gain(), 0.85f + 0.5f * (1.0f - clampf((float)k->item_wait / 90.0f, 0, 1)), pan);
+    if (k->item_wait > 0 && k->item_wait % 5 == 0 && !A.attract) play2d(S_TICK, 0.55f * view_gain(), 0.85f + 0.5f * (1.0f - clampf((float)k->item_wait / 90.0f, 0, 1)), pan);
   }
   for (int v = neyes; v < MAXV; v++) {
     for (int su = 0; su < SURF_KINDS; su++) lslot_kill(&A.road[v][su], 0.1f);
@@ -723,6 +734,7 @@ void audio_tick(const sim *s, const t3_vec3 *eye, int neyes) {
   A.d_music_gain = (int)(A.mus.gain * 1000);
   A.d_duck = (int)(A.duck * 1000);
   A.d_tunnel = (int)(A.tunnel * 1000);
+  if (A.d_tunnel > A.d_tunnel_max) A.d_tunnel_max = A.d_tunnel;
 }
 
 /* ── events ─────────────────────────────────────────────────────────── */
@@ -734,12 +746,16 @@ void audio_events(const sim *s) {
     const kart *ka = (e->a >= 0 && e->a < MAXK) ? &s->k[e->a] : NULL;
     int ov = e->a >= 0 && e->a < MAXK ? own_view(e->a) : -1;
     switch (e->kind) {
-    case EV_COUNT: global_sfx(S_COUNT, 0.8f, e->a == 1 ? 1.0f : 1.0f); duck_to(0.3f); break;
+    case EV_COUNT:
+      if (A.attract) break;
+      global_sfx(S_COUNT, 0.8f, 1.0f);
+      duck_to(0.3f);
+      break;
     case EV_GO:
-      global_sfx(S_GO, 0.9f, 1.0f);
+      if (!A.attract) global_sfx(S_GO, 0.9f, 1.0f);
       break;
     case EV_LAP:
-      if (ov >= 0) {
+      if (ov >= 0 && !A.attract) {
         if (e->b >= s->laps) {
           global_sfx(S_FINAL, 1.0f, 1.0f);
           A.mus.final = true;
@@ -748,7 +764,7 @@ void audio_events(const sim *s) {
       }
       break;
     case EV_FINISH:
-      if (ov >= 0) {
+      if (ov >= 0 && !A.attract) {
         global_sfx(S_FINISH, e->b == 1 ? 1.0f : 0.8f, e->b == 1 ? 1.0f : 0.92f);
         duck_to(0.4f);
       }
@@ -766,7 +782,7 @@ void audio_events(const sim *s) {
       break;
     }
     case EV_DRIFT_LEVEL:
-      if (ov >= 0) play2d(S_CHIME, 0.55f * view_gain(), e->b == 1 ? 1.0f : e->b == 2 ? 1.26f : 1.5f, view_pan(ov));
+      if (ov >= 0 && !A.attract) play2d(S_CHIME, 0.55f * view_gain(), e->b == 1 ? 1.0f : e->b == 2 ? 1.26f : 1.5f, view_pan(ov));
       break;
     case EV_LAND: {
       float hard = clampf(e->k, 0, 1);
@@ -785,7 +801,7 @@ void audio_events(const sim *s) {
     case EV_WALL: kart_sfx(S_SCRAPE, e->a, e->at, 0.35f + 0.65f * e->k, 0.85f + 0.3f * e->k); break;
     case EV_BOX: kart_sfx(S_ITEM_GET, e->a, e->at, 0.8f, 1.0f); break;
     case EV_ITEM_GET:
-      if (ov >= 0) play2d(S_CHIME, 0.7f * view_gain(), 1.5f, view_pan(ov));
+      if (ov >= 0 && !A.attract) play2d(S_CHIME, 0.7f * view_gain(), 1.5f, view_pan(ov));
       break;
     case EV_ITEM_USE:
       switch (e->b) {
@@ -813,7 +829,7 @@ void audio_events(const sim *s) {
     case EV_RESPAWN: kart_sfx(S_RESPAWN, e->a, e->at, 0.7f, 1.0f); break;
     case EV_SHIELD: kart_sfx(S_SHIELD_POP, e->a, e->at, 0.9f, 1.0f); duck_event(e->at, e->a, 0.25f); break;
     case EV_OVERTAKE:
-      if (ov >= 0) play2d(S_OVERTAKE, 0.6f * view_gain(), 1.0f, view_pan(ov));
+      if (ov >= 0 && !A.attract) play2d(S_OVERTAKE, 0.6f * view_gain(), 1.0f, view_pan(ov));
       break;
     case EV_WATER:
       kart_sfx(S_SPLASH, e->a, e->at, 0.3f + 0.6f * clampf(e->k, 0, 1), 0.9f + 0.3f * (1.0f - clampf(e->k, 0, 1)));
