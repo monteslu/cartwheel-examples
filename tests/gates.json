@@ -5266,5 +5266,40 @@
       "note": "The dual cart on romdev against native WebGPU."
     },
     "note": "racer map 7 (orbit): eight CPU karts for 3000 frames (50 s of game time, lights out at 225): the karts' places, laps, progress, falls and the simulation hash must match on every host (the race runs on Box3D, deterministic across hosts and worker counts). The map's scenery is render-only."
+  },
+  {
+    "name": "racer-auto",
+    "app": "racer_auto",
+    "frames": 3000,
+    "maxGt16": 0.08,
+    "fields": [
+      "race.loaded",
+      "race.phase",
+      "ticks",
+      "sim.hash",
+      "karts.place",
+      "karts.lap",
+      "karts.prog",
+      "karts.falls",
+      "karts.speed",
+      "karts.hits",
+      "karts.tricks",
+      "karts.finished"
+    ],
+    "expect": {
+      "race.loaded": 1,
+      "race.phase": 2
+    },
+    "webgpu": {
+      "vsGl": 0.3,
+      "maxGt16": 0.08,
+      "hosts": [
+        "native",
+        "romdev",
+        "chromium"
+      ],
+      "note": "The dual cart on every host against native WebGPU."
+    },
+    "note": "racer_auto: no menus, eight CPU karts on Salt Flats Run for one lap (3000 frames: 50 s, the lights go out at 225). The karts' places, progress and falls and the simulation hash must match on every host; runs on input-free hosts too."
   }
 ]

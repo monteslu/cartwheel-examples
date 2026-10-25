@@ -1,0 +1,21 @@
+Racer: credits
+
+Everything in this game was made for it: code, the karts, the props and eight
+worlds, the procedural textures, the colour grades and the synthesized sound
+and music (tools/make-audio.mjs, tools/make-music.mjs). The exceptions are the
+fonts below.
+
+Fonts (from github.com/google/fonts; each licence ships beside its font in
+assets/fonts/):
+
+  Bungee (Regular): titles, the position and the clock.
+    Copyright 2023 The Bungee Project Authors (https://github.com/djrrb/Bungee).
+    SIL Open Font License 1.1 (assets/fonts/Bungee-OFL.txt).
+
+  Fredoka (Bold): menus and HUD text.
+    Copyright 2016 The Fredoka Project Authors.
+    SIL Open Font License 1.1 (assets/fonts/Fredoka-OFL.txt).
+
+  Oswald (variable): small print.
+    Copyright 2016 The Oswald Project Authors (https://github.com/googlefonts/OswaldFont).
+    SIL Open Font License 1.1 (assets/fonts/Oswald-OFL.txt).

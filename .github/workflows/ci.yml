@@ -18,7 +18,7 @@ env:
   CW_TEST_GPU: software # Mesa llvmpipe (GL) and lavapipe (WebGPU)
   CW_RENDER_SCALE: 1 # the games' own 960x540 instead of 1080p: software rendering is slow
   CW_RUN_TIMEOUT_MS: 3600000 # one native run
-  GAMES: bikemesa bomberdude chromite derby pugball spout
+  GAMES: bikemesa bomberdude chromite derby pugball racer spout
   # pushes replay each game's first SLICE frames on every platform and API and
   # hold them to Linux x64 GL's state, bit for bit; the full replays run nightly
   SLICE: 200
@@ -89,9 +89,9 @@ jobs:
       # Each game's _auto gate: a scripted full session, checked on GL and on WebGPU.
       # The full gate set runs locally with tests/gate.mjs.
       - name: Gates on GL (native, software rendering)
-        run: node tests/gate.mjs bikemesa-auto bomberdude-auto chromite-auto derby-auto pugball-auto spout-auto --hosts native
+        run: node tests/gate.mjs bikemesa-auto bomberdude-auto chromite-auto derby-auto pugball-auto racer-auto spout-auto --hosts native
       - name: Gates on WebGPU (native, software rendering)
-        run: node tests/gate.mjs bikemesa-auto bomberdude-auto chromite-auto derby-auto pugball-auto spout-auto --hosts native --gpu webgpu
+        run: node tests/gate.mjs bikemesa-auto bomberdude-auto chromite-auto derby-auto pugball-auto racer-auto spout-auto --hosts native --gpu webgpu
 
   # The games as native programs for each platform: built with the target's
   # SDK and toolchain, packaged with cwexport, and (where the runner can) the

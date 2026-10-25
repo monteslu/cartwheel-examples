@@ -492,6 +492,14 @@ static void fixed(void *u, double dt) {
     G.hash = G.S.hash;
   }
   static bool dev_started;
+#ifdef RACER_AUTOPILOT
+  /* the _auto build: no menus, eight CPU karts on map 0 for one lap, for hosts that send no input */
+  if (!dev_started && G.ticks == 2) {
+    dev_started = true;
+    race_setup rs = { .map = 0, .laps = 1, .humans = 0, .cpu_skill = 3, .items = true };
+    ui_enter_race(&rs);
+  }
+#endif
   if (!dev_started && G.ticks == 2 && getenv("RACER_MAP")) {
     dev_started = true;
     int dm = atoi(getenv("RACER_MAP"));

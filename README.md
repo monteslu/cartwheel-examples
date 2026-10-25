@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/monteslu/cartwheel-examples/actions/workflows/ci.yml/badge.svg)](https://github.com/monteslu/cartwheel-examples/actions/workflows/ci.yml)
 
-Six complete games built with
+Seven complete games built with
 [cartwheel-engine](https://github.com/monteslu/cartwheel-engine), a 2D and 3D
 game engine in C. Each game builds as a native executable and as a
 [wasmcart](https://github.com/wasmcart/wasmcart) cart (`.wasc`) that runs in
@@ -95,6 +95,20 @@ billows when the cat hits them, and the stands ring with each stadium's
 reverb (headphones get 3D sound, from the pause screen). The match runs on
 Box3D. `games/pugball/`
 
+### racer
+
+
+A kart racer on rollercoaster tracks, in a post-apocalyptic racing league that
+runs through eight very different places: a salt flat at dawn, a flooded
+neon city in a storm, an abandoned amusement park whose coaster is the
+course, a burning refinery, a spillway dam, a frozen mountain pass under an
+aurora, a jungle temple and a wrecked orbital station. The roads loop the
+loop, corkscrew, jump gaps, dive through tunnels and glass tubes and ford
+flooded streets. Six junkyard karts, drifts that charge a mini-turbo, tricks
+in the air, item boxes with missiles, mines, oil, shields and a shockwave.
+One player against seven CPU drivers, or two to four on a split screen, one
+pad each. `games/racer/`
+
 ### spout
 
 
@@ -109,7 +123,7 @@ or be washed back to the last bracket. Five spouts, each opening the next.
 
 Tagged versions are on the
 [Releases](https://github.com/monteslu/cartwheel-examples/releases) page: the
-six carts and each game's native builds.
+seven carts and each game's native builds.
 
 | File | Platform | Notes |
 |---|---|---|
