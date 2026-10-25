@@ -474,8 +474,14 @@ static void fixed(void *u, double dt) {
       static int at_done;
       if (!at_done && getenv("RACER_TEST_AT") && G.S.phase == PH_RACE && G.S.race_ticks == 1) {
         float sd = 0, sp = 30;
-        sscanf(getenv("RACER_TEST_AT"), "%f:%f", &sd, &sp);
-        sim_put(&G.S, 0, sd, 0, sp);
+        const char *at = getenv("RACER_TEST_AT");
+        int tk = getenv("RACER_TEST_KART") ? atoi(getenv("RACER_TEST_KART")) & 7 : 0;
+        if (*at == 'L') { /* L<n>:speed: 30 m before the n-th loop or corkscrew */
+          int n = atoi(at + 1);
+          sd = G.S.track->s[G.S.track->loop_from[n]].s - 30;
+          sscanf(strchr(at, ':') + 1, "%f", &sp);
+        } else sscanf(at, "%f:%f", &sd, &sp);
+        sim_put(&G.S, tk, sd, 0, sp);
         at_done = 1;
       }
     }
