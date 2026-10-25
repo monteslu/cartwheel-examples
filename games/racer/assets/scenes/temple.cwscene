@@ -4,72 +4,74 @@
 
 [node name="Sky" parent="." type="ProceduralSky"]
 sun = "../Sun"
-time_of_day = 18.98
-latitude = 38
-declination = 16
-north = 230
-sun_energy = 3.2
-sky_energy = 0.95
-mie = 2.2
-sun_disk_intensity = 1.4
-ground_color = color(0.16, 0.13, 0.1, 1)
+time_of_day = 7.4
+latitude = 12
+declination = 14
+north = 40
+sun_energy = 5.0
+sky_energy = 1.0
+mie = 1.7
+sun_disk_intensity = 1.6
+ground_color = color(0.05, 0.1, 0.07, 1)
 env_update_angle = 2
 
 [node name="Sun" parent="." type="DirectionalLight3D"]
 shadow = true
 shadow_size = 2048
-shadow_extent = 26
-shadow_far = 140
+shadow_extent = 30
+shadow_far = 160
 shadow_bias = -0.0003
 shadow_normal_bias = 0.03
+fog_energy = 2.2
 
 [node name="Lighting" parent="." type="LightingSettings"]
 mode = "CLUSTERED"
 
 [node name="Env" parent="." type="WorldEnvironment"]
-background = color(0.05, 0.07, 0.12, 1)
-ambient_color = color(0.55, 0.64, 0.85, 1)
+background = color(0.2, 0.3, 0.28, 1)
+ambient_color = color(0.4, 0.62, 0.5, 1)
 ambient_energy = 0.05
-sky_color = color(0.55, 0.64, 0.85, 1)
-ground_color = color(0.16, 0.13, 0.1, 1)
-hemi_energy = 0.7
+sky_color = color(0.52, 0.7, 0.62, 1)
+ground_color = color(0.07, 0.15, 0.08, 1)
+hemi_energy = 1.35
 
 [node name="Fog" parent="." type="HeightFog"]
-density = 0.0075
-height_falloff = 0.22
+volumetric = true
+density = 0.0042
+height_falloff = 0.045
 base_height = 0
-use_sky_color = true
-sun_scatter = 0.55
-sun_g = 0.82
-max_opacity = 0.7
-start_distance = 12
-sky_distance = 300
-volumetric_distance = 70
-volumetric_ambient = 0.2
-volumetric_albedo = color(0.92, 0.84, 0.74, 1)
+use_sky_color = false
+color = color(0.6, 0.8, 0.66, 1)
+sun_scatter = 0.8
+sun_g = 0.84
+max_opacity = 0.78
+start_distance = 15
+sky_distance = 420
+volumetric_distance = 80
+volumetric_ambient = 0.4
+volumetric_albedo = color(1, 0.9, 0.66, 1)
 
 [node name="Post" parent="." type="PostProcess"]
 depth_prepass = true
 tonemap = AGX
-exposure = 1.25
+exposure = 1.3
 bloom = true
-bloom_intensity = 0.05
-bloom_threshold = 1
+bloom_intensity = 0.1
+bloom_threshold = 0.95
 bloom_knee = 0.6
 ssao = true
-ssao_radius = 0.7
+ssao_radius = 0.8
 ssao_intensity = 1
 aa = SMAA
 vignette = true
-vignette_intensity = 0.26
+vignette_intensity = 0.3
 vignette_smoothness = 0.55
 grade = false
 grain = true
-grain_intensity = 0.035
+grain_intensity = 0.03
 
 [node name="Camera" parent="." type="Camera3D"]
 position = vec3(0, 12, -40)
 fov = 64
 near = 0.2
 far = 2600
-
