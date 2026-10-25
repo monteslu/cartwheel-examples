@@ -591,7 +591,7 @@ t3_material *prop_material(int layer, int tex, pcol tint, float rough_k) {
     if (tex >= 0 && layer == PL_MAIN) {
       tex_apply(m, tex, 1, 1, 0.8f, 0.8f);
       /* a texture multiplies the vertex colours; its albedo averages mid-dark, so lift the tint to keep the painted look */
-      if (m->map) m->color = (t3_color){ m->color.r * 1.7f, m->color.g * 1.7f, m->color.b * 1.7f };
+      if (m->map) m->color = (t3_color){ m->color.r * 2.2f, m->color.g * 2.2f, m->color.b * 2.2f };
     }
   }
   if (nmats < (int)(sizeof MATS / sizeof MATS[0]))
@@ -614,7 +614,7 @@ prop_batch *pb_begin(t3_geometry *g, t3_material *m) {
   prop_batch *b = calloc(1, sizeof *b);
   b->g = t3_retain(g);
   b->m = t3_retain(m);
-  b->chunk = 70;
+  b->chunk = 110;
   b->tinted = true; /* always carry instance colours: one program family for every instanced prop */
   return b;
 }
@@ -810,6 +810,7 @@ struct prop_set {
   int nstyle;
   bool shadows, done;
   int count;
+  float chunk;
 };
 
 prop_set *ps_new(cw_node parent, const char *name) {
@@ -820,6 +821,7 @@ prop_set *ps_new(cw_node parent, const char *name) {
   return s;
 }
 void ps_shadows(prop_set *s, bool on) { s->shadows = on; }
+void ps_chunk(prop_set *s, float metres) { s->chunk = metres; }
 int ps_count(const prop_set *s) { return s->count; }
 void ps_style(prop_set *s, prop_kind k, int tex, pcol tint, float rough_scale) {
   s->style = realloc(s->style, sizeof *s->style * (size_t)(s->nstyle + 1));
@@ -874,7 +876,11 @@ void ps_finish(prop_set *s) {
       if (!e->batch[l]) continue;
       char nm[64];
       snprintf(nm, sizeof nm, "%s%d.%d.%d", KINDS[e->kind].name, e->variant, e->lod, l);
-      bool cast = s->shadows && KINDS[e->kind].shadow && l != PL_GLOW && e->model.height > 1.5f;
+      /* far copies (lod 1) never cast: a shadow map pass is dear and nobody sees what they would shade */
+      bool cast = s->shadows && KINDS[e->kind].shadow && l != PL_GLOW && e->model.height > 1.5f && e->lod == 0;
+      /* far copies are coarse too: bigger cells, far fewer draws */
+      float ch = s->chunk > 0 ? s->chunk : 110.0f;
+      pb_chunk(e->batch[l], e->lod ? ch * 2.4f : ch);
       pb_finish(e->batch[l], group, nm, cast);
       e->batch[l] = NULL;
     }
@@ -1053,6 +1059,7 @@ scatter_opts scatter_defaults(void) {
   o.margin = 3;
   o.lod_dist = 120;
   o.sink = 0.1f;
+  o.max_variants = 3;
   o.seed = 1;
   return o;
 }
@@ -1075,7 +1082,8 @@ static bool try_place(prop_set *s, const track *t, const scatter_opts *o, float 
   if (o->mask && o->mask(x, z, o->mask_ud) < hashf(h + 91u)) return false;
   prop_kind k = pick_kind(o, h + 3u);
   int nv = KINDS[k].variants;
-  int variant = (int)(hash32(h + 5u) % (uint32_t)nv);
+  int mv = o->max_variants > 0 && o->max_variants < nv ? o->max_variants : nv;
+  int variant = (int)(hash32(h + 5u) % (uint32_t)mv);
   float sc = o->scale_min + (o->scale_max - o->scale_min) * hashf(h + 7u);
   float ry;
   float gap = road_gap(t, x, z, &ry);
@@ -1181,7 +1189,15 @@ static float show_ground(float x, float z, void *ud) {
   (void)ud;
   float h = ground_hills(SHOW_T, x, z, 9, 160, 14, 70, 7);
   t3_vec3 l = show_lake();
-  return h + ground_basin(x, z, l.x, l.z, 36, 26, 5, 8);
+  float r = h + ground_basin(x, z, l.x, l.z, 36, 26, 5, 8);
+  if (getenv("RACER_RAVINE")) { /* a gorge under the first straight, so the supports have something to stand on */
+    float ry;
+    int idx;
+    float gap = road_gap_idx(SHOW_T, x, z, &ry, &idx);
+    float sd = SHOW_T->s[idx].s;
+    if (sd > 20 && sd < 135) r -= 9.0f * (1.0f - cw_smoothstep(8.0f, 26.0f, gap)) * cw_smoothstep(20, 34, sd) * (1.0f - cw_smoothstep(122, 135, sd));
+  }
+  return r;
 }
 
 /* RACER_DRESS=1: the dressing and the ground and water, on the proving ground (see props_gallery) */
@@ -1192,7 +1208,19 @@ static void dress_showcase(cw_node parent, const track *t) {
   g.tex = TEX_GROUND_GRASS;
   g.tint = rgb(0.36f, 0.52f, 0.24f), g.tint2 = rgb(0.58f, 0.5f, 0.3f);
   g.half = 1500;
-  ground_plane(parent, t, &g);
+  if (!getenv("RACER_NOGROUND")) ground_plane(parent, t, &g);
+  if (getenv("RACER_GROUND_DEBUG")) {
+    for (float sd = 200; sd < 500; sd += 40) {
+      tsample a = track_at(t, sd);
+      for (float lat = 0; lat <= 14; lat += 3.5f) {
+        t3_vec3 q = track_point(t, sd, a.hw + lat, 0);
+        float ry2;
+        int ix2;
+        float gp = road_gap_idx(t, q.x, q.z, &ry2, &ix2);
+        cw_info("ground dbg s=%.0f lat=+%.1f road y=%.2f ground=%.2f gap=%.1f ry=%.2f idx=%d (s=%.0f)", sd, lat, q.y, ground_height_at(NULL, q.x, q.z), gp, ry2, ix2, t->s[ix2].s);
+      }
+    }
+  }
   water_opts w = water_defaults();
   t3_vec3 lk = show_lake();
   if (!getenv("RACER_NOLAKE")) water_lake(parent, lk.x, lk.z, 36, 26, -0.6f, &w);
@@ -1203,23 +1231,24 @@ static void dress_showcase(cw_node parent, const track *t) {
   for (int i = 0; i < tc.n; i++) {
     float sd = tc.s[i].s;
     if (sd > 90 && sd < 135) tc.s[i].flags |= TF_WATER;
-    if (sd > 20 && sd < 80) tc.s[i].flags |= TF_OPEN, tc.s[i].flags &= ~(uint32_t)TF_WALL_L;
+    if (sd > 20 && sd < 80) tc.s[i].flags |= TF_OPEN, tc.s[i].flags &= ~(uint32_t)TF_WALL_L, tc.s[i].hw += 2.5f; /* clear of the real wall */
   }
   water_along_track(parent, &tc, 0.6f, 0.06f, NULL);
   dress_style st = dress_defaults();
   deco_rails(parent, &tc, getenv("RACER_RAIL") ? atoi(getenv("RACER_RAIL")) : RAIL_GUARD, &st);
   dress_start_line(parent, t, &st);
   dress_checkpoints(parent, t, &st);
-  deco_supports(parent, t, getenv("RACER_SUP") ? atoi(getenv("RACER_SUP")) : SUP_CONCRETE, show_ground, NULL, 0, 2, &st);
+  deco_supports(parent, t, getenv("RACER_SUP") ? atoi(getenv("RACER_SUP")) : SUP_CONCRETE, ground_height_cb, NULL, 0, 2, &st);
   deco_lights(parent, t, 40, LAMP_STREET, 0, 0, &st);
   deco_jump_marks(parent, t, &st);
   deco_corner_arrows(parent, t, 0.01f, &st);
   deco_corner_signs(parent, t, 0.01f, &st);
   deco_banners(parent, t, 0, 0, 90, &st);
+  if (getenv("RACER_NOSCATTER")) return;
   prop_set *ps = ps_new(parent, "Scenery");
   scatter_opts o = scatter_defaults();
   o.kinds[0] = PK_BROADLEAF, o.weight[0] = 3, o.kinds[1] = PK_PINE, o.weight[1] = 2, o.kinds[2] = PK_ROCK, o.weight[2] = 2, o.kinds[3] = PK_BUSH, o.weight[3] = 3;
-  o.nkinds = 4, o.spacing = 12, o.lat_min = 3, o.lat_max = 70, o.ground = show_ground, o.far_thin = 0.3f;
+  o.nkinds = 4, o.spacing = 12, o.lat_min = 3, o.lat_max = 70, o.ground = ground_height_cb, o.far_thin = 0.3f;
   int n = scatter_along(ps, t, &o);
   o.kinds[0] = PK_PINE, o.kinds[1] = PK_BROADLEAF, o.kinds[2] = PK_ROCK, o.nkinds = 3, o.density = 1.2f, o.ring_min = 90, o.ring_max = 600;
   o.cx = t->s[0].p.x, o.cz = t->s[0].p.z, o.seed = 9;
@@ -1249,7 +1278,7 @@ void props_gallery(cw_node parent, const track *t) {
     if (k >= PK_KINDS) k = PK_KINDS - 1;
     int nv = prop_variants(k);
     float r = ps_entry_get(ps, k, 0, 0)->model.radius;
-    float lat = hw + 2.0f + r;
+    float lat = 0;
     float step = r * 2.2f + 1.5f;
     float s = base - step * (float)(nv - 1) * 0.5f;
     for (int v = 0; v < nv; v++) {
@@ -1260,8 +1289,13 @@ void props_gallery(cw_node parent, const track *t) {
       ps_add_ex(ps, k, v, cheap, V(p.x, 0, p.z), t3_quat_from_axis_angle(V(0, 1, 0), yaw), V(1, 1, 1), (pcol){ 1, 1, 1 }, 1);
       s += step;
     }
-    float sz = prop_default_size(k), hgt = sz * 0.5f < 2.5f ? 2.5f : sz * 0.5f > 40 ? 40 : sz * 0.5f;
-    float dist = fmaxf(fmaxf(sz * 1.5f, (float)nv * step * 0.75f), 9.0f);
+    /* the camera orbits kart 0 (3.4 m left of the middle): T metres from the row. Close ones stay inside the road, far ones
+     * go beyond its wall and look over it from higher up */
+    float sz = prop_default_size(k);
+    float T = fmaxf(sz * 2.0f, (float)nv * step * 0.55f);
+    if (T < 4.5f) T = 4.5f;
+    float hgt = T < hw + 2.0f ? fmaxf(1.8f, sz * 0.4f) : fminf(fmaxf(5.0f, sz * 0.5f), 40.0f);
+    float dist = T - 3.4f;
     cw_info("props: %s, %d variants, default size %.1f, radius %.1f\nprops-cam: 90,%.0f,%.1f\n", prop_name(k), nv, sz, r, dist, hgt);
     ps_finish(ps);
     return;

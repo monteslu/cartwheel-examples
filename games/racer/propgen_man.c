@@ -165,7 +165,7 @@ GEN(gen_tyre) {
   float R = size * 0.34f, r = size * 0.19f;
   pm_move(b, 0, r, 0);
   pm_rotx(b, CW_PI * 0.5f);
-  pm_ring(b, R, r, lod ? 8 : 14, lod ? 5 : 7, rgb(0.07f, 0.07f, 0.075f));
+  pm_ring(b, R, r, lod ? 8 : 14, lod ? 5 : 7, rgb(0.14f, 0.14f, 0.15f));
   pm_pop(b);
 }
 
@@ -184,7 +184,7 @@ GEN(gen_tyre_stack) {
         pm_move(b, (i - (row[j] - 1) * 0.5f) * tR * 2.0f, tr + j * tr * 1.9f, 0);
         pm_rotx(b, CW_PI * 0.5f * 0 + CW_PI * 0.5f);
         pm_roty(b, 0);
-        pm_ring(b, tR, tr, lod ? 8 : 12, lod ? 4 : 6, rgb(0.06f, 0.06f, 0.065f));
+        pm_ring(b, tR, tr, lod ? 8 : 12, lod ? 4 : 6, rgb(0.13f, 0.13f, 0.14f));
         pm_pop(b);
       }
     (void)n;
@@ -197,7 +197,7 @@ GEN(gen_tyre_stack) {
       pm_push(b);
       pm_move(b, (c - (cols - 1) * 0.5f) * tR * 2.1f + pm_rands(b) * tr * 0.2f, tr + i * tr * 1.85f, pm_rands(b) * tr * 0.2f);
       pm_rotx(b, CW_PI * 0.5f);
-      pm_ring(b, tR, tr, lod ? 8 : 12, lod ? 4 : 6, i & 1 ? rgb(0.07f, 0.07f, 0.075f) : rgb(0.09f, 0.085f, 0.085f));
+      pm_ring(b, tR, tr, lod ? 8 : 12, lod ? 4 : 6, i & 1 ? rgb(0.14f, 0.14f, 0.15f) : rgb(0.18f, 0.175f, 0.17f));
       pm_pop(b);
     }
   }
@@ -211,7 +211,7 @@ static void wheel(pm *b, float x, float y, float z, float R, float r, bool lod) 
   pm_move(b, x, y, z);
   pm_roty(b, CW_PI * 0.5f);
   pm_layer(b, PL_MAIN);
-  pm_ring(b, R, r, lod ? 8 : 12, lod ? 4 : 6, rgb(0.06f, 0.06f, 0.065f));
+  pm_ring(b, R, r, lod ? 8 : 12, lod ? 4 : 6, rgb(0.13f, 0.13f, 0.14f));
   pm_layer(b, PL_METAL);
   pm_cyl(b, R * 0.62f, R * 0.62f, r * 0.8f, lod ? 6 : 8, rgb(0.4f, 0.36f, 0.32f), rgb(0.55f, 0.5f, 0.46f));
   pm_pop(b);
@@ -248,29 +248,33 @@ GEN(gen_wreck_car) {
   } else {
     pm_move(b, 0, s * 0.18f, 0);
     pm_box(b, W, body_h, L, dk(c, 0.5f), pc_mix(c, rust, 0.15f)); /* lower body */
+    /* the greenhouse: a four sided frustum, squared up and stretched to the cabin's footprint */
     pm_push(b);
     pm_move(b, 0, body_h, -L * 0.04f);
-    pm_box(b, W * 0.84f, s * 0.38f, L * 0.5f, dk(c, 0.7f), c); /* cabin */
+    pm_scale(b, W * 0.84f / 1.4142f, 1, L * 0.5f / 1.4142f);
+    pm_roty(b, CW_PI * 0.25f);
+    pm_cyl_ex(b, 1.0f, 0.78f, s * 0.38f, 4, dk(c, 0.7f), c, false, true);
+    pm_pop(b);
     pm_layer(b, PL_MAIN);
     pcol gl = rgb(0.03f, 0.05f, 0.06f);
-    float cw = W * 0.84f * 0.5f + 0.012f, ch0 = s * 0.08f, ch1 = s * 0.31f, cl = L * 0.23f;
-    for (int sd = -1; sd <= 1; sd += 2) {
-      pm_quad(b, P(sd * cw, ch0, sd * cl * 0.9f), P(sd * cw, ch0, -sd * cl * 0.9f), P(sd * cw, ch1, -sd * cl * 0.7f), P(sd * cw, ch1, sd * cl * 0.7f), gl);
-      (void)sd;
+    float cw = W * 0.84f * 0.5f * 0.9f, cl = L * 0.2f;
+    for (int sd = -1; sd <= 1; sd += 2) { /* side windows, some smashed out */
+      if (pm_rand(b) < 0.25f) continue;
+      pm_quad(b, P(sd * cw, body_h + s * 0.06f, sd * cl), P(sd * cw, body_h + s * 0.06f, -sd * cl), P(sd * cw * 0.9f, body_h + s * 0.28f, -sd * cl * 0.8f), P(sd * cw * 0.9f, body_h + s * 0.28f, sd * cl * 0.8f), gl);
     }
-    pm_quad(b, P(-W * 0.35f, ch0, L * 0.25f + 0.01f), P(W * 0.35f, ch0, L * 0.25f + 0.01f), P(W * 0.33f, ch1, L * 0.25f - 0.12f), P(-W * 0.33f, ch1, L * 0.25f - 0.12f), gl);
+    pm_quad(b, P(-W * 0.33f, body_h + s * 0.06f, L * 0.2f), P(W * 0.33f, body_h + s * 0.06f, L * 0.2f), P(W * 0.28f, body_h + s * 0.3f, L * 0.1f), P(-W * 0.28f, body_h + s * 0.3f, L * 0.1f), gl);
     pm_layer(b, PL_METAL);
-    pm_pop(b);
-    /* hood and boot, one dented up */
+    /* hood and boot: wedges, one dented up */
     pm_push(b);
-    pm_move(b, 0, body_h, L * 0.32f);
-    pm_rotx(b, -0.12f);
-    pm_box(b, W * 0.96f, s * 0.05f, L * 0.3f, dk(rust, 0.8f), rust);
+    pm_move(b, 0, body_h, L * 0.19f);
+    pm_scale(b, 1, 1, -1);
+    pm_rotx(b, variant == 1 ? 0.0f : 0.06f);
+    pm_wedge(b, W * 0.96f, s * 0.1f, L * 0.3f, dk(rust, 0.8f), rust);
     pm_pop(b);
     pm_push(b);
-    pm_move(b, 0, body_h, -L * 0.36f);
-    pm_rotx(b, variant == 1 ? 0.5f : 0.05f);
-    pm_box(b, W * 0.96f, s * 0.05f, L * 0.22f, dk(rust, 0.8f), rust);
+    pm_move(b, 0, body_h, -L * 0.2f);
+    pm_rotx(b, variant == 1 ? 0.45f : 0.0f);
+    pm_wedge(b, W * 0.96f, s * 0.08f, L * 0.22f, dk(rust, 0.8f), rust);
     pm_pop(b);
     /* bumpers */
     pm_box_c(b, W * 1.04f, s * 0.07f, s * 0.08f, rgb(0.5f, 0.5f, 0.52f));
@@ -750,7 +754,7 @@ GEN(gen_light_pole) {
   for (int r = 0; r < rows; r++)
     for (int c = 0; c < cols; c++) {
       float x = (c - (cols - 1) * 0.5f) * h * 0.075f, y = (r - (rows - 1) * 0.5f) * h * 0.075f;
-      pm_quad(b, P(x - h * 0.03f, y - h * 0.03f, h * 0.0165f), P(x + h * 0.03f, y - h * 0.03f, h * 0.0165f), P(x + h * 0.03f, y + h * 0.03f, h * 0.0165f), P(x - h * 0.03f, y + h * 0.03f, h * 0.0165f), glow(rgb(1.0f, 0.95f, 0.8f), 5.0f));
+      pm_quad(b, P(x - h * 0.03f, y - h * 0.03f, h * 0.0165f), P(x + h * 0.03f, y - h * 0.03f, h * 0.0165f), P(x + h * 0.03f, y + h * 0.03f, h * 0.0165f), P(x - h * 0.03f, y + h * 0.03f, h * 0.0165f), glow(rgb(1.0f, 0.95f, 0.8f), 8.0f));
     }
   pm_pop(b);
 }
@@ -793,7 +797,7 @@ GEN(gen_street_lamp) {
     pm_move(b, 0, prev.y - h * 0.005f, prev.z);
     pm_box(b, h * 0.07f, h * 0.025f, h * 0.15f, dk(st, 0.7f), st);
     pm_layer(b, PL_GLOW);
-    pm_quad(b, P(-h * 0.03f, -h * 0.001f, h * 0.06f), P(-h * 0.03f, -h * 0.001f, -h * 0.06f), P(h * 0.03f, -h * 0.001f, -h * 0.06f), P(h * 0.03f, -h * 0.001f, h * 0.06f), glow(lamp, 6.0f));
+    pm_quad(b, P(-h * 0.04f, -h * 0.001f, h * 0.07f), P(-h * 0.04f, -h * 0.001f, -h * 0.07f), P(h * 0.04f, -h * 0.001f, -h * 0.07f), P(h * 0.04f, -h * 0.001f, h * 0.07f), glow(lamp, 9.0f));
     pm_layer(b, PL_METAL);
     pm_pop(b);
   }
@@ -1908,9 +1912,14 @@ GEN(gen_antenna) {
     pm_move(b, 0, h * 0.62f, 0);
     pm_rotx(b, -0.3f);
     pm_box_c(b, h * 0.5f, h * 0.5f, h * 0.04f, dk(st, 0.7f));
-    for (int i = 0; i < (lod ? 4 : 8); i++)
-      for (int j = 0; j < (lod ? 4 : 8); j++)
-        pm_box_c(b, h * 0.045f, h * 0.045f, h * 0.012f, rgb(0.2f + 0.04f * (float)((i + j) & 1), 0.24f, 0.3f)), pm_move(b, 0, 0, 0);
+    int cells = lod ? 4 : 8;
+    for (int i = 0; i < cells; i++)
+      for (int j = 0; j < cells; j++) {
+        pm_push(b);
+        pm_move(b, (((float)i + 0.5f) / (float)cells - 0.5f) * h * 0.46f, (((float)j + 0.5f) / (float)cells - 0.5f) * h * 0.46f, h * 0.02f);
+        pm_box_c(b, h * 0.05f, h * 0.05f, h * 0.014f, rgb(0.34f + 0.08f * (float)((i + j) & 1), 0.4f, 0.5f));
+        pm_pop(b);
+      }
     pm_pop(b);
     return;
   }

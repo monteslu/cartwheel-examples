@@ -30,6 +30,14 @@
  * Each kind dresses its PL_MAIN material with a textures.h kind when one fits (prop_tex). Models carry uvs
  * projected by their faces' directions at about one repeat per metre, and tex_apply multiplies the vertex colour,
  * so a prop looks right with or without the texture sets.
+ *
+ * ── looking at it (dev aids, proving ground only: RACER_MAP=-1) ───────────────────────────────────────
+ *   RACER_PROPS=1      every kind (two variants each) in rows beside the start straight, in daylight
+ *   RACER_PROPS=2+k    kind k alone (all variants) on the start straight; the log line "props-cam:" gives the
+ *                      RACER_STUDIO_CAM to use with RACER_STUDIO=0 (the studio camera orbits kart 0, no HUD)
+ *   RACER_PROPS_LOD=1  the cheap (lod 1) models; RACER_PROPS_TOD=18.5 another hour of day
+ *   RACER_DRESS=1      the ground, a lake, the start line, arches, supports, lights, markings, signs and scatter
+ *   (RACER_SUP=n, RACER_RAIL=n pick the support and rail style)
  */
 #ifndef RACER_PROPS_H
 #define RACER_PROPS_H
@@ -198,7 +206,7 @@ prop_batch *pb_begin(t3_geometry *g, t3_material *m);
 void pb_add(prop_batch *b, t3_vec3 pos, float yaw, t3_vec3 scale);
 void pb_add_q(prop_batch *b, t3_vec3 pos, t3_quat q, t3_vec3 scale);
 void pb_add_c(prop_batch *b, t3_vec3 pos, t3_quat q, t3_vec3 scale, pcol tint); /* tint multiplies the vertex colours */
-void pb_chunk(prop_batch *b, float metres);        /* cell size for culling (default 70) */
+void pb_chunk(prop_batch *b, float metres);        /* cell size for culling (default 110) */
 int pb_count(const prop_batch *b);
 /* builds the nodes under parent; consumes the batch (and the references it held). Returns the group node. */
 cw_node pb_finish(prop_batch *b, cw_node parent, const char *name, bool cast_shadow);
@@ -215,6 +223,8 @@ void ps_add_ex(prop_set *s, prop_kind k, int variant, int lod, t3_vec3 pos, t3_q
 void ps_style(prop_set *s, prop_kind k, int tex, pcol tint, float rough_scale);
 /* Where models cast a shadow: default true for tall things (the set decides by the model's height). */
 void ps_shadows(prop_set *s, bool on);
+/* Cell size in metres the set's instances are grouped into for culling (110). Smaller culls closer but costs draws. */
+void ps_chunk(prop_set *s, float metres);
 int ps_count(const prop_set *s);
 void ps_finish(prop_set *s);                       /* creates the meshes (once) */
 
@@ -255,6 +265,7 @@ typedef struct scatter_opts {
   float lod_dist;                  /* beyond this distance from the road use the cheap model (0: 120) */
   float far_thin;                  /* beyond lod_dist drop this share of props (0..1) so far fields stay light */
   float sink;                      /* metres to sink into the ground (0.1) */
+  int max_variants;                /* use only the first n variants of each kind (3): every variant is its own draw in every cell */
   bool align_slope;                /* lean to the ground's normal (false) */
   uint32_t seed;
 } scatter_opts;
@@ -327,6 +338,7 @@ typedef struct ground_opts {
   float detail_range;              /* how far from the road the finest cells reach, about 3 x this + 45 m (24) */
   bool follow_road;                /* grade the ground to the road where it runs on it (true) */
   float shoulder;                  /* metres past the road edge the grade spreads over (6) */
+  float follow_max;                /* the ground is only graded to a road within this many metres of it, up or down (4.5): a viaduct stands clear */
   float road_drop;                 /* ground kept this far under the road surface (0.25) */
   float darken_edge;               /* shade ground near the road, 0..1 (0.25) */
   float lumpy;                     /* uv-free colour noise strength, 0..1 (0.25) */
@@ -337,9 +349,15 @@ ground_opts ground_defaults(void);
  * skirts at the seams; returns the node (a Node3D holding the chunks). Heights it uses are what ground_height_at
  * returns, so scatter and dressing can agree with it. */
 cw_node ground_plane(cw_node parent, const track *t, const ground_opts *o);
-float ground_height_at(const ground_opts *o, float x, float z);
+float ground_height_at(const ground_opts *o, float x, float z);   /* o NULL: the last ground_plane's */
+/* A ground_fn answering with the final height of the last ground_plane (your hills and basins and the grade to the
+ * road): hand it to scatter_opts.ground, deco_supports and anything else that must stand on the ground drawn. */
+float ground_height_cb(float x, float z, void *ud);
 /* A ready basin for lakes: depth below the rim inside an ellipse, smooth edges. Add it to your height function. */
 float ground_basin(float x, float z, float cx, float cz, float rx, float rz, float depth, float edge);
+/* The same for any outline: pts are (x, z) corners of a polygon; the bed lies `depth` metres below the rim and slopes up
+ * over `edge` metres of shore. Pair it with water_polygon at the rim's height minus a little. */
+float ground_basin_poly(float x, float z, const t3_vec2 *pts, int n, float depth, float edge);
 /* Rolling hills that stay off the road: 0..amp metres of noise (features about `scale` metres across), flattened to
  * nothing within flat_near metres of the road edge and full strength beyond flat_far. Use it inside your ground fn. */
 float ground_hills(const track *t, float x, float z, float amp, float scale, float flat_near, float flat_far, uint32_t seed);
@@ -359,6 +377,7 @@ typedef struct water_opts {
   float flow_x, flow_z;            /* ripple drift, metres per second (0.05, 0.02) */
   bool refract;                    /* planar refraction on (costs a render): default true */
   int grid;                        /* subdivisions (200) */
+  float horizon;                   /* >0: the outer half extent in metres, so one sheet is a sea out to the horizon (0) */
 } water_opts;
 water_opts water_defaults(void);
 /* A sheet of the engine's water: reflects the scene, refracts, waves moved on the GPU. size_x by size_z metres about
@@ -367,6 +386,8 @@ water_opts water_defaults(void);
 cw_node water_surface(cw_node parent, float cx, float cz, float size_x, float size_z, float level, const water_opts *o);
 /* A lake: water_surface sized to an ellipse's bounding box. */
 cw_node water_lake(cw_node parent, float cx, float cz, float rx, float rz, float level, const water_opts *o);
+/* A lake of any outline: water_surface over the polygon's bounds (the carved basin hides the dry parts). */
+cw_node water_polygon(cw_node parent, const t3_vec2 *pts, int n, float level, const water_opts *o);
 /* A flooded road: a gleaming film of water lying on every TF_WATER stretch (ripples drift, splashes come from the
  * fx module), `extra` metres wider than the road each side, `depth` above the road surface. Call water_frame
  * every frame (map scenery_frame) to move the ripples. */

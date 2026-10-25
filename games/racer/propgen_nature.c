@@ -118,9 +118,9 @@ GEN(gen_mesa) {
 
 GEN(gen_spire) {
   pm_vary(b, 0.1f);
-  pm_jitter(b, 0.07f);
-  int segs = lod ? 3 : 5;
-  float lean = 0.10f + 0.12f * pm_rand(b), dir = pm_rand(b) * CW_TAU;
+  pm_jitter(b, 0.09f);
+  int segs = lod ? 3 : 4;
+  float lean = 0.03f + 0.05f * pm_rand(b), dir = pm_rand(b) * CW_TAU;
   float R = size * 0.13f, y = 0, x = 0, z = 0;
   pcol c0 = strata(variant, 1, b), c1 = strata(variant, 4, b);
   pm_cyl_ex(b, R * 2.4f, R * 1.15f, size * 0.12f, lod ? 6 : 9, pc_mul(c0, 0.5f), pc_mul(c0, 0.85f), false, false);
@@ -154,19 +154,19 @@ GEN(gen_spire) {
 GEN(gen_canyon_wall) {
   pm_vary(b, 0.08f);
   float H = size, L = size * 3.0f;
-  int cols = lod ? 6 : 12;
+  int cols = lod ? 5 : 8;
   float cw = L / (float)cols;
   for (int i = 0; i < cols; i++) {
     float x = -L * 0.5f + (i + 0.5f) * cw;
     float top = H * (0.7f + 0.3f * pm_rand(b)) * (1.0f - 0.25f * fabsf(sinf((float)i * 0.9f + (float)variant)));
-    int steps = lod ? 3 : 5;
-    float y = 0, depth = size * 0.55f;
+    int steps = lod ? 3 : 4;
+    float y = 0, depth = size * 0.6f;
     for (int s = 0; s < steps; s++) {
       float sh = top / (float)steps, dd = depth * (1 - 0.14f * (float)s) * (0.9f + 0.2f * pm_rand(b));
       pcol c = strata(variant, s + (i & 1), b);
       pm_push(b);
       pm_move(b, x + pm_rands(b) * cw * 0.05f, y, -dd * 0.5f + size * 0.28f * (float)s / (float)steps);
-      pm_box(b, cw * (1.0f + 0.12f * pm_rand(b)), sh * 1.02f, dd, pc_mul(c, 0.72f), c);
+      pm_box(b, cw * (1.06f + 0.1f * pm_rand(b)), sh * 1.02f, dd, pc_mul(c, 0.72f), c);
       pm_pop(b);
       y += sh;
     }
@@ -256,7 +256,7 @@ GEN(gen_cactus) {
   pm_smooth(b, true);
   int seg = lod ? 6 : 10;
   if (variant == 2) { /* barrel cactus with a crown of flowers */
-    float r = size * 0.4f;
+    float r = size * 0.28f;
     float prof[] = { 0.001f, 0, r * 0.78f, r * 0.12f, r, r * 0.55f, r * 0.82f, r * 1.05f, r * 0.35f, r * 1.22f, 0.001f, r * 1.28f };
     pm_lathe(b, prof, 6, seg, g0, g1);
     if (!lod) {
@@ -323,7 +323,7 @@ static void conifer(pm *b, float size, int variant, int lod, bool snow) {
   pcol g0 = hex(greens[variant & 3][0]), g1 = hex(greens[variant & 3][1]);
   pcol bark0 = rgb(0.16f, 0.1f, 0.07f), bark1 = rgb(0.34f, 0.24f, 0.15f);
   float trunk = size * 0.28f;
-  pm_layer(b, PL_MAIN);
+  pm_layer(b, PL_LEAF);
   pm_cyl_ex(b, size * 0.034f, size * 0.022f, trunk * 1.5f, lod ? 4 : 6, bark0, bark1, false, false);
   pm_layer(b, PL_LEAF);
   int tiers = lod ? 3 : (variant == 1 ? 7 : variant == 2 ? 4 : 6);
@@ -342,7 +342,7 @@ static void conifer(pm *b, float size, int variant, int lod, bool snow) {
     pm_jitter(b, 0.12f);
     pm_cyl_ex(b, r, 0.001f, th, seg, pc_mix(g0, g1, 0.1f + 0.2f * t), pc_mix(g0, g1, 0.55f + 0.4f * t), false, false);
     if (snow) {
-      pm_layer(b, PL_MAIN);
+      pm_layer(b, PL_LEAF);
       float sy = th * 0.42f, sr = r * (1 - 0.42f) * 1.06f;
       pm_move(b, 0, sy, 0);
       pm_cyl_ex(b, sr, 0.001f, th - sy + 0.04f * size, seg, rgb(0.78f, 0.84f, 0.92f), rgb(0.98f, 0.99f, 1.0f), false, false);
@@ -358,6 +358,7 @@ GEN(gen_snow_pine) { conifer(b, size, variant, lod, true); }
 /* ── palms and broadleaf ─────────────────────────────────────────────────────────────────────────── */
 
 GEN(gen_palm) {
+  pm_layer(b, PL_LEAF); /* trunk and fronds in one layer: one draw per cell, not two */
   pm_vary(b, 0.05f);
   pcol t0 = rgb(0.30f, 0.20f, 0.12f), t1 = rgb(0.58f, 0.44f, 0.30f);
   int ns = lod ? 4 : 8;
@@ -369,7 +370,7 @@ GEN(gen_palm) {
     float t = (float)i / (float)ns;
     float nx = x + sinf(ang) * segh, ny = y + cosf(ang) * segh;
     pcol band = (i & 1) ? t0 : pc_mul(t0, 1.18f);
-    pm_layer(b, PL_MAIN);
+    pm_layer(b, PL_LEAF);
     pm_limb(b, P(x, y, 0), P(nx, ny, 0), size * 0.032f * (1 - 0.3f * t), size * 0.032f * (1 - 0.3f * (t + 1.0f / (float)ns)), lod ? 5 : 7, band, pc_mix(band, t1, 0.6f));
     x = nx, y = ny, ang += bend / (float)ns;
   }
@@ -397,7 +398,7 @@ GEN(gen_palm) {
     }
   }
   if (!lod) {
-    pm_layer(b, PL_MAIN);
+    pm_layer(b, PL_LEAF);
     for (int i = 0; i < 3; i++) {
       pm_push(b);
       pm_move(b, top.x + cosf((float)i * 2.1f) * size * 0.03f, top.y - size * 0.03f, top.z + sinf((float)i * 2.1f) * size * 0.03f);
@@ -412,11 +413,11 @@ GEN(gen_broadleaf) {
   static const unsigned tints[4][3] = { { 0x1d4a22, 0x4c8c34, 0x77b04a }, { 0x7a2a12, 0xc2551c, 0xe8a02e }, { 0x123a2a, 0x2d6a46, 0x55935a }, { 0x44401a, 0x7b8030, 0xa9ae44 } };
   pcol l0 = hex(tints[variant & 3][0]), l1 = hex(tints[variant & 3][1]), l2 = hex(tints[variant & 3][2]);
   pcol b0 = rgb(0.17f, 0.11f, 0.07f), b1 = rgb(0.38f, 0.28f, 0.2f);
-  pm_layer(b, PL_MAIN);
+  pm_layer(b, PL_LEAF);
   float th = size * 0.45f;
   pm_limb(b, P(0, 0, 0), P(0, th, 0), size * 0.05f, size * 0.03f, lod ? 5 : 7, b0, b1);
   int n = lod ? 3 : 6;
-  pm_layer(b, PL_MAIN);
+  pm_layer(b, PL_LEAF);
   if (!lod)
     for (int i = 0; i < 3; i++) {
       float a = (float)i / 3.0f * CW_TAU + 0.4f;
@@ -439,7 +440,7 @@ GEN(gen_jungle_tree) {
   if (variant == 1) l0 = rgb(0.04f, 0.2f, 0.18f), l1 = rgb(0.1f, 0.42f, 0.34f), l2 = rgb(0.3f, 0.65f, 0.5f);
   if (variant == 2) l1 = rgb(0.34f, 0.5f, 0.12f), l2 = rgb(0.62f, 0.74f, 0.22f);
   float th = size * 0.62f, r = size * 0.04f;
-  pm_layer(b, PL_MAIN);
+  pm_layer(b, PL_LEAF);
   pm_smooth(b, false);
   pm_cyl_ex(b, r * 1.5f, r * 0.8f, th, lod ? 6 : 9, b0, b1, false, false);
   /* buttress flanges */
@@ -471,7 +472,7 @@ GEN(gen_jungle_tree) {
     float a = pm_rand(b) * CW_TAU, d = size * (0.18f + 0.22f * pm_rand(b));
     float x = cosf(a) * d, z = sinf(a) * d, y = th + size * 0.04f - d * 0.1f;
     float len = size * (0.18f + 0.3f * pm_rand(b));
-    pm_layer(b, PL_MAIN);
+    pm_layer(b, PL_LEAF);
     t3_vec3 prev = P(x, y, z);
     for (int k = 1; k <= 4; k++) {
       t3_vec3 cur = P(x + 0.4f * sinf((float)k + (float)i), y - len * (float)k / 4.0f, z + 0.3f * cosf((float)k * 1.3f + (float)i));
@@ -525,7 +526,7 @@ GEN(gen_mushroom) {
     float s = m == 0 ? 1.0f : 0.35f + 0.3f * pm_rand(b);
     if (m > 0) pm_move(b, pm_rands(b) * size * 0.45f, 0, pm_rands(b) * size * 0.45f);
     float H = size * s * (variant == 1 ? 1.2f : 0.85f), r = size * s * (variant == 1 ? 0.3f : 0.46f);
-    pm_layer(b, PL_MAIN);
+    pm_layer(b, PL_LEAF);
     pm_smooth(b, true);
     float sp[] = { H * 0.1f, 0, H * 0.07f, H * 0.5f, H * 0.06f, H * 0.82f };
     pm_lathe(b, sp, 3, lod ? 6 : 9, stem0, stem1);
@@ -542,7 +543,7 @@ GEN(gen_mushroom) {
     pm_lathe(b, flip, 6, lod ? 7 : 11, cap0, cap1);
     pm_smooth(b, false);
     if (variant == 0 && !lod) {
-      pm_layer(b, PL_MAIN);
+      pm_layer(b, PL_LEAF);
       for (int i = 0; i < 7; i++) {
         float a = pm_rand(b) * CW_TAU, rr = r * (0.2f + 0.55f * pm_rand(b));
         float yy = H * 0.5f * (1 - (rr / r) * (rr / r) * 0.9f) * 0.98f;

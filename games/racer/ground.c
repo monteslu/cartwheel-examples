@@ -57,6 +57,22 @@ float ground_hills(const track *t, float x, float z, float amp, float scale, flo
   return n * cw_smoothstep(flat_near, flat_far, gap);
 }
 
+float ground_basin_poly(float x, float z, const t3_vec2 *pts, int n, float depth, float edge) {
+  bool in = false;
+  float best = 1e9f;
+  for (int i = 0, j = n - 1; i < n; j = i++) {
+    if (((pts[i].y > z) != (pts[j].y > z)) && (x < (pts[j].x - pts[i].x) * (z - pts[i].y) / (pts[j].y - pts[i].y) + pts[i].x)) in = !in;
+    float ex = pts[j].x - pts[i].x, ez = pts[j].y - pts[i].y, l2 = ex * ex + ez * ez;
+    float t = l2 > 1e-9f ? cw_clampf(((x - pts[i].x) * ex + (z - pts[i].y) * ez) / l2, 0, 1) : 0;
+    float dx = x - (pts[i].x + ex * t), dz = z - (pts[i].y + ez * t);
+    best = fminf(best, sqrtf(dx * dx + dz * dz));
+  }
+  /* a bank that slopes in over `edge` metres from the shore (a little beyond it too), then a flat bed */
+  float d = in ? best : -best;
+  float t = cw_smoothstep(-edge * 0.4f, edge, d);
+  return -depth * t;
+}
+
 ground_opts ground_defaults(void) {
   ground_opts o = { 0 };
   o.cx = o.cz = 1e9f;
@@ -71,6 +87,7 @@ ground_opts ground_defaults(void) {
   o.detail_range = 24;
   o.follow_road = true;
   o.shoulder = 6;
+  o.follow_max = 4.5f;
   o.road_drop = 0.25f;
   o.darken_edge = 0.25f;
   o.lumpy = 0.25f;
@@ -97,12 +114,27 @@ float ground_height_at(const ground_opts *o, float x, float z) {
     float ry;
     int idx;
     float gap = road_gap_idx(G.t, x, z, &ry, &idx);
-    if (gap < o->shoulder && !(G.t->s[idx].flags & TF_TUNNEL) && fabsf(ry - g) < 6.0f) {
-      float t = 1.0f - cw_smoothstep(0.0f, o->shoulder, gap);
-      g = g + (ry - o->road_drop - g) * t;
+    const tsample *a = &G.t->s[idx];
+    if (gap < o->shoulder && !(a->flags & (TF_TUNNEL | TF_LOOP))) {
+      /* the road's own surface at the nearest lateral place (its edge, once past it): a banked road's outer edge is
+       * higher than its middle, and the earth has to meet that */
+      float lat = (x - a->p.x) * a->r.x + (z - a->p.z) * a->r.z;
+      float rl = sqrtf(a->r.x * a->r.x + a->r.z * a->r.z);
+      lat = rl > 1e-4f ? lat / rl : 0;
+      lat = cw_clampf(lat, -a->hw, a->hw);
+      float surf = a->p.y + a->r.y * lat / (rl > 1e-4f ? rl : 1.0f);
+      if (surf - g < o->follow_max && g - surf < o->follow_max) {
+        float t = 1.0f - cw_smoothstep(0.0f, o->shoulder, gap);
+        g = g + (surf - o->road_drop - g) * t;
+      }
     }
   }
   return g;
+}
+
+float ground_height_cb(float x, float z, void *ud) {
+  (void)ud;
+  return ground_height_at(NULL, x, z);
 }
 
 /* ── the mesh ────────────────────────────────────────────────────────────────────────────────────── */
@@ -327,7 +359,14 @@ cw_node water_surface(cw_node parent, float cx, float cz, float size_x, float si
   cw_node_set(n, "flow_speed", cw_val_float(fl));
   cw_node_set(n, "reflection", cw_val_bool(true));
   cw_node_set(n, "refraction", cw_val_bool(w.refract));
+  if (w.horizon > 0 && !cw_node_set(n, "horizon_distance", cw_val_float(w.horizon))) cw_warn("water: this engine has no horizon_distance");
   return n;
+}
+
+cw_node water_polygon(cw_node parent, const t3_vec2 *pts, int n, float level, const water_opts *o) {
+  float x0 = 1e9f, x1 = -1e9f, z0 = 1e9f, z1 = -1e9f;
+  for (int i = 0; i < n; i++) x0 = fminf(x0, pts[i].x), x1 = fmaxf(x1, pts[i].x), z0 = fminf(z0, pts[i].y), z1 = fmaxf(z1, pts[i].y);
+  return water_surface(parent, (x0 + x1) * 0.5f, (z0 + z1) * 0.5f, (x1 - x0) * 1.05f, (z1 - z0) * 1.05f, level, o);
 }
 
 cw_node water_lake(cw_node parent, float cx, float cz, float rx, float rz, float level, const water_opts *o) {
@@ -408,7 +447,7 @@ static t3_geometry *ribbon_geometry(const rframe *f, int n, float lift) {
   for (int i = 0; i + 1 < n; i++)
     for (int k = 0; k < 2; k++) {
       int a = i * 3 + k, b = a + 1, c = a + 3, d = c + 1;
-      gt(&m, a, c, b), gt(&m, b, c, d);
+      gt(&m, a, b, c), gt(&m, b, d, c); /* up: right x forward */
     }
   return gfinish(&m, true);
 }
@@ -446,6 +485,7 @@ cw_node water_along_range(cw_node parent, const track *t, float s0, float s1, fl
     }
   }
   free(buf);
+  cw_info("water film: %.0f..%.0f m, %d chunks", s0, s1, group->child_count);
   cw_node n2 = hang(node, "Film", group);
   t3_release(group);
   t3_release(mat);

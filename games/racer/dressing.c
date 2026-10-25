@@ -120,7 +120,7 @@ void dress_start_line(cw_node parent, const track *t, const dress_style *in) {
   int lamps = (int)(2 * px / 2.4f);
   for (int i = 0; i < lamps; i++) {
     float x = -px + 1.2f + (2 * px - 2.4f) * (float)i / (float)(lamps - 1 > 0 ? lamps - 1 : 1);
-    pm_quad(b, V(x - 0.35f, yb - 0.13f, 0.5f), V(x + 0.35f, yb - 0.13f, 0.5f), V(x + 0.35f, yb - 0.13f, -0.5f), V(x - 0.35f, yb - 0.13f, -0.5f), glow(st.lamp, 4.0f));
+    pm_quad(b, V(x - 0.35f, yb - 0.13f, 0.5f), V(x + 0.35f, yb - 0.13f, 0.5f), V(x + 0.35f, yb - 0.13f, -0.5f), V(x - 0.35f, yb - 0.13f, -0.5f), glow(st.lamp, 6.0f));
   }
   pm_quad(b, V(-px, yt + 1.62f, 0.3f), V(px, yt + 1.62f, 0.3f), V(px, yt + 1.62f, -0.3f), V(-px, yt + 1.62f, -0.3f), glow(accent, 3.0f));
   pm_layer(b, PL_MAIN);
@@ -182,8 +182,8 @@ static void arch_at(pmc *c, const tsample *a, float height, const dress_style *s
   for (int i = 1; i <= n; i++) {
     float an = CW_PI * (1.0f - (float)i / (float)n);
     t3_vec3 cur = V(cosf(an) * (rx - 0.36f), 0.2f + sinf(an) * (height - 0.36f), 0.28f);
-    pm_rod(b, prev, cur, 0.1f, 4, glow(st->accent, 3.6f));
-    pm_rod(b, V(prev.x, prev.y, -prev.z), V(cur.x, cur.y, -cur.z), 0.1f, 4, glow(st->accent, 3.6f));
+    pm_rod(b, prev, cur, 0.1f, 4, glow(st->accent, 5.0f));
+    pm_rod(b, V(prev.x, prev.y, -prev.z), V(cur.x, cur.y, -cur.z), 0.1f, 4, glow(st->accent, 5.0f));
     prev = cur;
   }
   if (pennants) {
@@ -362,7 +362,7 @@ void deco_supports(cw_node parent, const track *t, support_style style, ground_f
   dress_style st = styled(in);
   if (min_clear <= 0) min_clear = 2;
   pmc *c = pmc_new(70, st.seed + 2);
-  static const float spacing[SUP_STYLES] = { 18, 24, 9, 20, 22, 14 };
+  static const float spacing[SUP_STYLES] = { 24, 18, 9, 20, 22, 14 }; /* truss, concrete, trestle, ice, arches, struts */
   float sp = spacing[style];
   int step = (int)(sp / STEP_M);
   int count = 0;
