@@ -136,6 +136,8 @@ typedef struct kart {
   int respawn_ticks;    /* flickering back in */
   int stuck_ticks;
   int stall_ticks;      /* ticks it has barely moved (a respawn when it is long) */
+  int launch;           /* the start: 0 nothing yet, 1 a good launch (throttle in the last half second), -1 flooded (too early) */
+  int start_stall;      /* ticks the engine coughs after a flooded start */
   int reset_hold;
   /* items */
   int item;

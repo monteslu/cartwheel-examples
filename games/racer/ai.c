@@ -73,6 +73,11 @@ kin ai_think(const sim *s, int me, ai_mem *m) {
   float skill_k = m->skill == 0 ? 0.80f : m->skill == 1 ? 0.92f : 1.0f;
   vmax *= skill_k;
   in.thr = 127;
+  if (s->phase == PH_COUNT) {
+    /* the lights: the better drivers get the launch right, a rookie floods it now and then */
+    int when = m->skill == 2 ? 163 : m->skill == 1 ? 168 : 150 + (int)(m->rng % 40u);
+    in.thr = s->phase_ticks >= when ? 127 : 0;
+  }
   if (spd > vmax + 2) in.thr = (int8_t)(spd > vmax * 1.2f ? -127 : 0);
   /* a gap ahead: all the speed it can have */
   for (int c = 0; c < 6; c++) {

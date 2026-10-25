@@ -596,12 +596,22 @@ static void drive(sim *s, int i, float thr, float st, bool grounded_front) {
   cw_vehicle3d *c = &PH.car[i];
   float spd = k->speed;
   float top = vd->top * (k->boost_ticks > 0 ? 1.0f + 0.42f * k->boost_k : 1.0f);
+  /* the CPU karts hold the pack together: a kart far behind the leading human gets up to 7% more, one far ahead 4% less */
+  float rb = 0, accel_k = 1;
+  if (!k->human) {
+    float lead = -1e9f;
+    for (int j = 0; j < MAXK; j++)
+      if (s->k[j].on && s->k[j].human && s->k[j].prog > lead) lead = s->k[j].prog;
+    if (lead > -1e8f) rb = clampf((lead - k->prog) / 900.0f, -0.04f, 0.07f);
+  }
+  top *= 1.0f + rb;
+  accel_k = 1.0f + 2.0f * rb;
   float acc = 0, brake = 0;
   if (thr > 0.05f) {
     if (spd < -0.5f) brake = 40;
     else {
       float f = 1.0f - clampf(spd / top, 0, 1);
-      acc = thr * vd->accel * (0.12f + 0.88f * f * (2.0f - f));
+      acc = thr * vd->accel * accel_k * (0.12f + 0.88f * f * (2.0f - f));
       if (spd > top) acc = -(spd - top) * 2.0f;
     }
   } else if (thr < -0.05f) {
@@ -630,6 +640,7 @@ static void kart_control(sim *s, int i, kin in) {
   bool pressed_trick = (in.btn & KB_TRICK) && !(k->last_btn & KB_TRICK);
   float thr = in.thr / 127.0f, steer = in.steer / 127.0f, pitch = in.pitch / 127.0f;
   if (s->phase != PH_RACE) thr = steer = pitch = 0;
+  if (k->start_stall > 0) k->start_stall--, thr = 0;
   if (k->spin_ticks > 0) thr = steer = pitch = 0;
 
   t3_vec3 f = kart_fwd(k), up = kart_up(k);
@@ -977,16 +988,25 @@ void sim_step(sim *s, const kin in_raw[MAXK]) {
     }
     break;
   case PH_COUNT:
+    for (int i = 0; i < MAXK; i++) {
+      kart *k = &s->k[i];
+      if (!k->on) continue;
+      bool gas = in[i].thr > 90;
+      if (gas && s->phase_ticks < 140) k->launch = -1;
+      else if (gas && s->phase_ticks >= 160 && k->launch == 0) k->launch = 1;
+      if (!gas && s->phase_ticks < 160 && k->launch == -1) k->launch = 0; /* let go in time: forgiven */
+    }
     if (s->phase_ticks % 60 == 1) event(s, EV_COUNT, 3 - s->phase_ticks / 60, 0, (t3_vec3){ 0, 0, 0 }, 0);
     if (s->phase_ticks >= 180) {
       s->phase = PH_RACE;
       s->phase_ticks = 0;
       s->race_ticks = 0;
       for (int i = 0; i < MAXK; i++) {
-        s->k[i].lap_start_tick = 0;
-        /* a perfect launch: the throttle pressed just before the lights */
-        if (s->k[i].on && in[i].thr > 100 && s->k[i].last_btn != 255) {
-        }
+        kart *k = &s->k[i];
+        k->lap_start_tick = 0;
+        /* the start: throttle held through the last half second gives a rocket start; held too early floods the engine */
+        if (k->on && k->launch == 1) start_boost(s, i, 60, 1.3f * VEH[k->veh].boost, 3);
+        else if (k->on && k->launch == -1) k->start_stall = 40;
       }
       event(s, EV_GO, 0, 0, (t3_vec3){ 0, 0, 0 }, 0);
     }
