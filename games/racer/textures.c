@@ -122,7 +122,7 @@ static void asphalt_core(float u, float v, texel *t, float wet) {
   float paint = lane_paint(u, v, 0.3f, 98);
   float w = wet > 0 ? sstep(0.62f, 0.72f, rfbm(u, v, 3, 4, 99)) * wet : 0;
   /* wet: dark sheen everywhere, mirror in the puddles */
-  c *= 1 - 0.45f * wet;
+  c *= 1 - 0.3f * wet;
   rgb(t, c, c, c * 1.06f);
   mixc(t, 0.82f - 0.25f * wet, 0.82f - 0.25f * wet, 0.76f - 0.25f * wet, paint);
   t->h = 0.3f + 0.35f * n2 + 0.25f * grit - crack * 0.5f + paint * 0.08f;
@@ -173,7 +173,7 @@ static void g_road_dirt(float u, float v, texel *t) {
   float crown = band(u, 0.5f, 0.07f, 0.06f);
   float side = sstep(0.14f, 0.04f, u) + sstep(0.86f, 0.96f, u);
   float k = 0.82f + 0.3f * n + 0.12f * (clod - 0.5f) + 0.05f * (grit - 0.5f);
-  rgb(t, 0.5f * k, 0.355f * k, 0.22f * k);
+  rgb(t, 0.66f * k, 0.48f * k, 0.3f * k);
   mixc(t, 0.34f, 0.24f, 0.15f, rut * 0.65f);           /* compacted, damp */
   mixc(t, 0.46f, 0.43f, 0.2f, side * 0.5f * sstep(0.4f, 0.6f, clod)); /* dry grass at the verges */
   /* pebbles */
@@ -198,7 +198,7 @@ static void g_road_dirt(float u, float v, texel *t) {
 static void g_road_salt(float u, float v, texel *t) {
   float d1, d2;
   uint32_t id;
-  cells2(u, v, 14, 7, 131, &d1, &d2, &id);
+  cells2(u, v, 10, 5, 131, &d1, &d2, &id);
   float gap = d2 - d1;
   float seam = 1 - sstep(0.0f, 0.1f, gap);
   float rim = 1 - sstep(0.1f, 0.35f, gap);
@@ -207,7 +207,7 @@ static void g_road_salt(float u, float v, texel *t) {
   float k = 0.9f + 0.06f * (n - 0.5f) + 0.05f * (tint - 0.5f) + 0.03f * (fine - 0.5f);
   rgb(t, 0.93f * k, 0.92f * k, 0.9f * k);
   mixc(t, 0.78f, 0.7f, 0.66f, rim * 0.4f);          /* pinkish dust gathers at the plate rims */
-  mixc(t, 0.5f, 0.44f, 0.4f, seam * 0.65f);        /* the cracks */
+  mixc(t, 0.62f, 0.56f, 0.52f, seam * 0.5f);        /* the cracks */
   /* curled plate edges catch light */
   float streak = fbm2(u, v, 24, 3, 3, 134);
   float tracks = clamp01(band(u, 0.3f, 0.05f, 0.08f) + band(u, 0.7f, 0.05f, 0.08f)) * sstep(0.35f, 0.65f, streak);
@@ -216,9 +216,9 @@ static void g_road_salt(float u, float v, texel *t) {
   float chalk = (band(u, 0.5f, 0.007f, 0.004f) * dash + band(u, 0.075f, 0.008f, 0.004f) + band(u, 0.925f, 0.008f, 0.004f));
   chalk = clamp01(chalk) * clamp01((rfbm(u, v, 24, 3, 135) - 0.3f) * 4);
   mixc(t, 0.95f, 0.5f, 0.2f, chalk * 0.9f);
-  t->h = 0.7f - seam * 0.6f + 0.15f * (1 - rim) + 0.1f * n + 0.06f * fine;
+  t->h = 0.7f - seam * 0.35f + 0.1f * (1 - rim) + 0.1f * n + 0.06f * fine;
   t->rough = (fine > 0.97f ? 0.25f : 0.6f + 0.2f * n) - tracks * 0.1f;
-  t->ao = 0.9f + 0.1f * n - seam * 0.6f;
+  t->ao = 0.92f + 0.08f * n - seam * 0.3f;
 }
 
 /* blue-white ice: deep blue pockets, long scratches, a polished racing line, frost at the edges */
@@ -322,7 +322,7 @@ static void g_road_wood(float u, float v, texel *t) {
   float warp = fbm(u, v, 3, 3, 163) * 3.0f + tint * 6;
   float grain = 0.5f + 0.5f * cw_sin((within * 5.5f + warp + 0.3f * fbm2(u, v, 32, 8, 3, 164)) * 6.2831853f);
   float fine = h01((int)(u * 1024), (int)(v * 512), 165);
-  float k = 0.62f + 0.32f * tint;
+  float k = 0.85f + 0.4f * tint;
   float wr = 0.7f * k * (0.82f + 0.2f * grain), wg = 0.52f * k * (0.82f + 0.2f * grain), wb = 0.34f * k * (0.84f + 0.18f * grain);
   float gray = sstep(0.4f, 0.7f, fbm(u, v, 5, 4, 166));
   rgb(t, mixf(wr, wg * 1.2f, gray * 0.6f), mixf(wg, wg * 1.1f, gray * 0.6f), mixf(wb, wg * 1.0f, gray * 0.6f));
@@ -374,7 +374,7 @@ static void g_road_tech(float u, float v, texel *t) {
   float py = y / 4;
   float seam = 1 - sstep(0.012f, 0.04f, fminf(fractf(py), 1 - fractf(py)) * 4);
   float seam2 = 1 - sstep(0.012f, 0.04f, fabsf(x - 8));
-  float c = 0.11f + 0.035f * n + 0.015f * fine;
+  float c = 0.16f + 0.04f * n + 0.015f * fine;
   rgb(t, c * 0.9f, c, c * 1.25f);
   /* faint hex mesh in the panels */
   float hx = fabsf(fractf(x * 2.0f) - 0.5f), hy = fabsf(fractf(y * 1.1547f + 0.5f * floorf(x * 2.0f)) - 0.5f);
