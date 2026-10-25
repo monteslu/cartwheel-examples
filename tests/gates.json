@@ -5301,5 +5301,40 @@
       "note": "The dual cart on every host against native WebGPU."
     },
     "note": "racer_auto: no menus, eight CPU karts on Salt Flats Run for one lap (3000 frames: 50 s, the lights go out at 225). The karts' places, progress and falls and the simulation hash must match on every host; runs on input-free hosts too."
+  },
+  {
+    "name": "racer-reload",
+    "app": "racer",
+    "frames": 300,
+    "startCmds": [
+      "race 0 0 1",
+      "race 1 0 1",
+      "race 2 0 1",
+      "race 3 0 1",
+      "race 4 0 1",
+      "race 5 0 1",
+      "race 6 0 1",
+      "race 7 0 1",
+      "race 6 0 1",
+      "race 6 0 1",
+      "race 1 0 1",
+      "race 1 0 1",
+      "race 3 0 1",
+      "race 5 0 1"
+    ],
+    "maxGt16": 0.08,
+    "fields": [
+      "race.loaded",
+      "race.phase",
+      "ticks",
+      "sim.hash",
+      "karts.place",
+      "karts.prog"
+    ],
+    "expect": {
+      "race.loaded": 1,
+      "race.phase": 2
+    },
+    "note": "racer: fourteen races loaded one after another in one process (every map, twice for the water and tunnel maps): the last must run. Catches state a map leaves behind in its own statics, the scenery's handles into a freed scene and heap that never comes back (carts have a fixed memory)."
   }
 ]

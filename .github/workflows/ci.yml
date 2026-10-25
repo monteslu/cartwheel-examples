@@ -89,9 +89,9 @@ jobs:
       # Each game's _auto gate: a scripted full session, checked on GL and on WebGPU.
       # The full gate set runs locally with tests/gate.mjs.
       - name: Gates on GL (native, software rendering)
-        run: node tests/gate.mjs bikemesa-auto bomberdude-auto chromite-auto derby-auto pugball-auto racer-auto spout-auto --hosts native
+        run: node tests/gate.mjs bikemesa-auto bomberdude-auto chromite-auto derby-auto pugball-auto racer-auto racer-reload spout-auto --hosts native
       - name: Gates on WebGPU (native, software rendering)
-        run: node tests/gate.mjs bikemesa-auto bomberdude-auto chromite-auto derby-auto pugball-auto racer-auto spout-auto --hosts native --gpu webgpu
+        run: node tests/gate.mjs bikemesa-auto bomberdude-auto chromite-auto derby-auto pugball-auto racer-auto racer-reload spout-auto --hosts native --gpu webgpu
 
   # The games as native programs for each platform: built with the target's
   # SDK and toolchain, packaged with cwexport, and (where the runner can) the
