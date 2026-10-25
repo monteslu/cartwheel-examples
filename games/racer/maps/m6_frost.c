@@ -109,6 +109,10 @@ static struct {
   float rf_x0, rf_z0;
   ground_opts g;
   float lake_cx, lake_cz, lake_rx, lake_rz, lake_y;
+  bool no_gorge;             /* ask the land as it is without the crevasse cut (where the gorge's lips stand) */
+  int npads;
+  struct { float x, z, r0, r1, y; } pad[6]; /* flat shelves for the station and the camps */
+  float gorge_floor;         /* height of the crevasse's bottom */
 } F;
 
 static void find_landmarks(const track *t) {
@@ -190,7 +194,7 @@ static float rf_at(float x, float z) {
 
 /* the land far from the road: the blurred course, a massif behind the climb, a wall of mountains all round and a
  * frozen lake in the middle of the circuit */
-static float far_field(float x, float z) {
+static float far_field(float x, float z, float gap) {
   float h = rf_at(x, z);
   const landmarks *L = &F.lm;
   /* the massif the climb goes up */
@@ -204,8 +208,13 @@ static float far_field(float x, float z) {
   h += 14.0f * cw_smoothstep(0.9f, 1.3f, e) * ground_noise(x, z, 90.0f, 1.0f, 3, 5);
   /* the lake */
   h += ground_basin(x, z, F.lake_cx, F.lake_cz, F.lake_rx, F.lake_rz, 22.0f, 55.0f);
-  /* rolling snow: gentle drifts */
-  h += ground_noise(x, z, 55.0f, 1.8f, 3, 11);
+  /* wind-sculpted drifts and, away from the roads, crags and ridges */
+  float far_k = cw_smoothstep(25.0f, 90.0f, gap);
+  h += ground_noise(x, z, 45.0f, 3.5f, 3, 11) * far_k;
+  float gul = 1.0f - fabsf(ground_noise(x, z, 38.0f, 1.0f, 2, 23)) * 2.2f;
+  h += 5.0f * powf(cw_clampf(gul, 0, 1), 2.0f) * cw_smoothstep(14.0f, 60.0f, gap);
+  float rg = 1.0f - fabsf(ground_noise(x, z, 170.0f, 1.0f, 3, 17)) * 2.4f;
+  h += 22.0f * powf(cw_clampf(rg, 0, 1), 2.0f) * cw_smoothstep(60.0f, 260.0f, gap) * (0.4f + 0.6f * cw_smoothstep(0.0f, 1.0f, ex * ex + ez * ez));
   return h;
 }
 
@@ -216,7 +225,7 @@ static float terrain(float x, float z, void *ud) {
   float ry = 0;
   int idx = 0;
   float gap = road_gap_idx(t, x, z, &ry, &idx);
-  float H = far_field(x, z);
+  float H = far_field(x, z, gap > 1e8f ? 400.0f : gap);
   float g;
   if (gap > 1e8f) {
     g = H;
@@ -225,7 +234,13 @@ static float terrain(float x, float z, void *ud) {
     float lim = 8.0f + gap * 0.9f;
     float rb = ry;
     /* the take-off ramp and the landing hang over the plateau: the snow keeps its own level beneath them */
-    if (idx > L->ramp0 - 6 && idx < L->gap1 + 90) rb = L->base_y;
+    bool ramp = idx > L->ramp0 - 6 && idx < L->gap1 + 90;
+    if (ramp) rb = L->base_y;
+    else if (s->u.y > 0.4f) {
+      /* a banked road's edges are not at its centre's height: the land follows the road's own plane near it */
+      float plane = s->p.y - ((x - s->p.x) * s->u.x + (z - s->p.z) * s->u.z) / s->u.y;
+      rb = ry + (plane - ry) * (1.0f - cw_smoothstep(0.0f, 18.0f, gap));
+    }
     float hc = cw_clampf(H, rb - lim, rb + lim);
     float w = cw_smoothstep(1.5f, 44.0f, gap);
     g = (rb - 0.3f) * (1 - w) + hc * w;
@@ -235,22 +250,29 @@ static float terrain(float x, float z, void *ud) {
     /* the mountain over the ice cave: solid rock, lower at the two mouths */
     if (L->tun0 >= 0 && idx >= L->tun0 - 14 && idx <= L->tun1 + 14) {
       float inside = fminf((float)(idx - L->tun0), (float)(L->tun1 - idx));
-      float cover = (1.0f - cw_smoothstep(s->hw + 4.0f, s->hw + 46.0f, gap)) * cw_smoothstep(4.0f, 20.0f, inside);
+      float cover = (1.0f - cw_smoothstep(s->hw + 4.0f, s->hw + 46.0f, gap)) * cw_smoothstep(0.5f, 7.0f, inside);
       float top = ry + 13.0f + 3.5f * ground_noise(x, z, 24.0f, 1.0f, 2, 33);
       if (top > g) g = g + (top - g) * cover;
     }
   }
-  /* the crevasse: a gorge cut across the pass under the jump */
-  {
+  /* the shelves the station and the camps stand on */
+  for (int i = 0; i < F.npads; i++) {
+    float dx = x - F.pad[i].x, dz = z - F.pad[i].z, d = sqrtf(dx * dx + dz * dz);
+    if (d < F.pad[i].r1) {
+      float w = 1.0f - cw_smoothstep(F.pad[i].r0, F.pad[i].r1, d);
+      g += (F.pad[i].y - g) * w;
+    }
+  }
+  /* the crevasse: a gorge cut across the pass under the jump, flat at the bottom, sheer at the lips */
+  if (!F.no_gorge) {
     float ax = x - L->gmid.x, az = z - L->gmid.z;
     float a = ax * L->gfwd.x + az * L->gfwd.z, b = -ax * L->gfwd.z + az * L->gfwd.x;
     float half = L->glen * 0.5f + 1.0f;
-    float wob = 2.2f * ground_noise(x, z, 14.0f, 1.0f, 2, 9);
-    float prof = 1.0f - cw_smoothstep(half - 1.0f + wob, half + 3.5f + wob, fabsf(a));
-    float ends = 1.0f - cw_smoothstep(70.0f, 135.0f, fabsf(b));
-    float d = 40.0f * prof * ends;
-    /* the ground there is the plateau, not the mountain behind it */
-    g -= d;
+    float wob = 1.6f * ground_noise(x, z, 14.0f, 1.0f, 2, 9);
+    float prof = 1.0f - cw_smoothstep(half - 0.5f + wob, half + 1.8f + wob, fabsf(a));
+    float ends = 1.0f - cw_smoothstep(75.0f, 135.0f, fabsf(b));
+    float m = prof * ends;
+    if (m > 0) g += (F.gorge_floor + 0.6f * ground_noise(x, z, 9.0f, 1.0f, 2, 4) - g) * m;
   }
   return g;
 }
@@ -374,11 +396,11 @@ static void aurora_update(curtain *c, float t) {
       float ox = lean * v * cosf(a + 1.57f), oz = lean * v * sinf(a + 1.57f);
       P[k] = x + ox, P[k + 1] = hgt, P[k + 2] = z + oz;
       /* brightness: a sharp lower edge and a long fade up */
-      float edge = cw_smoothstep(0.0f, 0.12f, v) * expf(-v * 2.3f) * (1.0f + 1.8f * expf(-v * 22.0f));
+      float edge = cw_smoothstep(0.0f, 0.12f, v) * expf(-v * 2.0f) * (1.0f + 1.8f * expf(-v * 22.0f)) * (1.0f - cw_smoothstep(0.55f, 1.0f, v));
       float I = edge * ray * flick * (0.25f + 0.85f * body) * surge;
-      float m = cw_clampf(v * 1.5f + (hue_shift - 0.5f) * 0.5f + c->hue * 0.15f, 0, 1);
-      /* green (0.15, 1, 0.45) up through teal to violet (0.62, 0.25, 1) and a touch of pink */
-      float r0 = 0.15f + 0.9f * m * m, g0 = 1.0f - 0.85f * m, b0 = 0.45f + 0.6f * m;
+      float m = cw_clampf(cw_smoothstep(0.1f, 0.95f, v) + (hue_shift - 0.5f) * 0.45f + (c->hue - 0.5f) * 0.2f, 0, 1);
+      /* green (0.12, 1, 0.4) up through teal (0.1, 0.85, 0.8) to violet (0.55, 0.3, 1) */
+      float r0 = 0.12f + 0.45f * m * m, g0 = 1.0f - 0.2f * m - 0.55f * m * m, b0 = 0.4f + 0.6f * m;
       C[k] = r0 * I * 1.5f, C[k + 1] = g0 * I * 1.5f, C[k + 2] = b0 * I * 1.5f;
     }
   }
@@ -492,7 +514,7 @@ static void make_snow_road(t3_texture **map, t3_texture **nrm, t3_texture **rgh)
       float k = 0.9f + 0.14f * (drift - 0.5f) + 0.05f * (ripple - 0.5f);
       float R = 0.88f * k, G = 0.93f * k, B = 1.0f * k;
       /* ruts: compressed, shadowed, bluer */
-      R = R + (0.56f - R) * rut * 0.75f, G = G + (0.67f - G) * rut * 0.75f, B = B + (0.86f - B) * rut * 0.75f;
+      R = R + (0.4f - R) * rut * 0.85f, G = G + (0.52f - G) * rut * 0.85f, B = B + (0.78f - B) * rut * 0.85f;
       /* the middle is polished by passing karts, the verges are fluffy drifts */
       R += 0.04f * centre, G += 0.04f * centre, B += 0.03f * centre;
       R += 0.06f * edge, G += 0.06f * edge, B += 0.05f * edge;
@@ -1050,9 +1072,9 @@ static void build_cave(cw_node root, const track *t) {
   m->vertex_colors = true;
   m->side = T3_DOUBLE_SIDE;
   tex_apply(m, TEX_WALL_ICE, 1, 1, 1.0f, 1.0f);
-  m->color = (t3_color){ 0.95f, 1.15f, 1.35f };
+  m->color = (t3_color){ 0.8f, 1.0f, 1.3f };
   m->emissive = (t3_color){ 0.04f, 0.32f, 0.7f };
-  m->emissive_intensity = 0.55f;
+  m->emissive_intensity = 0.3f;
   m->clearcoat = 0.7f;
   m->clearcoat_roughness = 0.1f;
   uint32_t r = 4242;
@@ -1277,6 +1299,80 @@ static void build_forest(cw_node root, const track *t) {
   ps_finish(pi);
 }
 
+static float crag_mask(float x, float z, void *ud) {
+  (void)ud;
+  if (in_lake(x, z, 1.05f) || in_gorge(x, z, 10.0f)) return 0;
+  float sl = slope_at(x, z);
+  return cw_smoothstep(0.38f, 0.7f, sl);
+}
+static float peak_mask(float x, float z, void *ud) {
+  (void)ud;
+  if (in_gorge(x, z, 10.0f)) return 0;
+  return cw_smoothstep(70.0f, 105.0f, terrain(x, z, NULL)) * (0.4f + 0.6f * cw_smoothstep(0.1f, 0.5f, slope_at(x, z)));
+}
+static float drift_mask(float x, float z, void *ud) {
+  (void)ud;
+  if (in_lake(x, z, 1.1f) || in_gorge(x, z, 30.0f)) return 0;
+  return slope_at(x, z) < 0.16f ? 1.0f : 0.0f;
+}
+
+/* rocks breaking through the snow on the steep slopes, needles on the ridges, wind-shaped drifts on the flats */
+static void build_outcrops(cw_node root, const track *t) {
+  prop_set *ps = ps_new(root, "Crags");
+  ps_style(ps, PK_BOULDERS, TEX_GROUND_ROCK, rgb(0.85f, 1.0f, 1.5f), 1.0f);
+  ps_style(ps, PK_ROCK, TEX_GROUND_ROCK, rgb(0.85f, 1.0f, 1.5f), 1.0f);
+  ps_style(ps, PK_SPIRE, TEX_GROUND_ROCK, rgb(0.95f, 1.05f, 1.5f), 1.0f);
+  ps_style(ps, PK_CANYON_WALL, TEX_GROUND_ROCK, rgb(0.85f, 1.0f, 1.5f), 1.0f);
+  scatter_opts o = scatter_defaults();
+  o.ground = ground_cb;
+  o.mask = crag_mask;
+  o.kinds[0] = PK_BOULDERS, o.weight[0] = 3;
+  o.kinds[1] = PK_ROCK, o.weight[1] = 3;
+  o.nkinds = 2;
+  o.scale_min = 2.6f, o.scale_max = 6.5f;
+  o.cx = 330, o.cz = -100, o.half_x = 900, o.half_z = 1000;
+  o.density = 0.7f;
+  o.margin = 9.0f;
+  o.sink = 0.8f;
+  o.lod_dist = 150.0f, o.far_thin = 0.2f;
+  o.seed = 51;
+  int n = scatter_area(ps, t, &o);
+  /* needles and cliff faces on the ridges, in the cool variant of their palettes: placed by hand so every one is that variant */
+  {
+    uint32_t hr = 91;
+    for (float zz = -1000.0f; zz < 800.0f; zz += 38.0f)
+      for (float xx = -450.0f; xx < 1100.0f; xx += 38.0f) {
+        float x = xx + 30.0f * rnds(&hr), z = zz + 30.0f * rnds(&hr);
+        if (peak_mask(x, z, NULL) < 0.55f + 0.3f * rnd1(&hr)) continue;
+        if (road_gap(t, x, z, NULL) < 40.0f) continue;
+        float sc = 0.8f + 1.4f * rnd1(&hr);
+        bool wall = rnd1(&hr) < 0.4f;
+        t3_vec3 p = V3(x, terrain(x, z, NULL) - 1.5f * sc, z);
+        ps_add_ex(ps, wall ? PK_CANYON_WALL : PK_SPIRE, 2, 0, p, t3_quat_from_axis_angle(V3(0, 1, 0), rnd1(&hr) * TAU_F), V3(sc, sc, sc), (pcol){ 1, 1, 1 }, (uint32_t)(x * 3 + z));
+        n++;
+      }
+  }
+  cw_info("frost: %d crags", n);
+  ps_finish(ps);
+
+  prop_set *pd = ps_new(root, "Drifts");
+  ps_style(pd, PK_DUNE, TEX_GROUND_SNOW, rgb(0.55f, 0.66f, 0.95f), 1.0f);
+  o = scatter_defaults();
+  o.ground = ground_cb;
+  o.mask = drift_mask;
+  o.kinds[0] = PK_DUNE, o.nkinds = 1;
+  o.scale_min = 2.4f, o.scale_max = 5.5f;
+  o.cx = 330, o.cz = -100, o.half_x = 800, o.half_z = 900;
+  o.density = 0.06f;
+  o.margin = 30.0f;
+  o.sink = 0.3f;
+  o.lod_dist = 200.0f;
+  o.seed = 57;
+  scatter_area(pd, t, &o);
+  ps_shadows(pd, false);
+  ps_finish(pd);
+}
+
 /* the road's own dressing: arches at the checkpoints, marks on the jump, signs for the hairpins, posts of light */
 static void build_dressing(cw_node root, const track *t) {
   dress_style st = dress_defaults();
@@ -1297,14 +1393,731 @@ static void build_dressing(cw_node root, const track *t) {
   deco_supports(root, t, SUP_ICE, ground_cb, NULL, 0, 2.5f, &st);
 }
 
+/* ── the crevasse: a glowing gorge, a rope bridge each side, prayer flags ─────────────────────── */
+
+/* a point in the gorge's own frame: a along the road's way across, b across it, y the height */
+static t3_vec3 gorge_pt(float a, float b, float y) {
+  const landmarks *L = &F.lm;
+  return V3(L->gmid.x + L->gfwd.x * a - L->gfwd.z * b, y, L->gmid.z + L->gfwd.z * a + L->gfwd.x * b);
+}
+/* the land at a gorge point as it is without the cut */
+static float rim_height(float a, float b) {
+  t3_vec3 p = gorge_pt(a, b, 0);
+  bool was = F.no_gorge;
+  F.no_gorge = true;
+  float h = terrain(p.x, p.z, NULL);
+  F.no_gorge = was;
+  return h;
+}
+
+#define NFLAGSTR 4
+static struct {
+  t3_geometry *g;
+  float *base;       /* the flags at rest */
+  float *dir;        /* per flag: the way it blows (unit, across its string) */
+  float *amp;
+  int n;
+} FL;
+static t3_vec3 flag_pole_top[4];
+
+static void flag_string(gm *flags, t3_vec3 p0, t3_vec3 p1, float sag, uint32_t seed) {
+  /* a string of small cloth flags along a sagging line; they are 4 vertices each, so the frame can ripple them */
+  static const unsigned PC[5] = { 0x3d9bff, 0xf4f8ff, 0xff4a4a, 0x2fd67a, 0xffd23d };
+  float len = sqrtf((p1.x - p0.x) * (p1.x - p0.x) + (p1.y - p0.y) * (p1.y - p0.y) + (p1.z - p0.z) * (p1.z - p0.z));
+  int n = (int)(len / 1.15f);
+  uint32_t r = seed;
+  for (int i = 0; i < n; i++) {
+    float u0 = ((float)i + 0.12f) / (float)n, u1 = ((float)i + 0.88f) / (float)n;
+    t3_vec3 a = V3(p0.x + (p1.x - p0.x) * u0, p0.y + (p1.y - p0.y) * u0 - sag * 4 * u0 * (1 - u0), p0.z + (p1.z - p0.z) * u0);
+    t3_vec3 b = V3(p0.x + (p1.x - p0.x) * u1, p0.y + (p1.y - p0.y) * u1 - sag * 4 * u1 * (1 - u1), p0.z + (p1.z - p0.z) * u1);
+    float h = 0.75f + 0.15f * rnd1(&r);
+    pcol col = hex(PC[(i + (int)(seed % 5u)) % 5]);
+    col = pc_mul(col, 0.8f);
+    t3_vec3 n3 = V3(0, 1, 0);
+    int v0 = gm_vtx(flags, a, n3, 0, 0, col), v1 = gm_vtx(flags, b, n3, 1, 0, col);
+    int v2 = gm_vtx(flags, V3(b.x, b.y - h, b.z), n3, 1, 1, pc_mul(col, 0.85f)), v3 = gm_vtx(flags, V3(a.x, a.y - h, a.z), n3, 0, 1, pc_mul(col, 0.85f));
+    gm_tri(flags, v0, v1, v2), gm_tri(flags, v0, v2, v3);
+  }
+}
+
+static void build_crevasse(cw_node root, const track *t) {
+  const landmarks *L = &F.lm;
+  float half = L->glen * 0.5f + 0.4f, fy = F.gorge_floor;
+  uint32_t r = 909;
+  (void)t;
+  /* the sheer walls: faceted ice with a glow that climbs up from the depths */
+  t3_material *wall = phys((t3_color){ 1, 1, 1 }, 0.35f, 0.0f);
+  wall->vertex_colors = true;
+  wall->side = T3_DOUBLE_SIDE;
+  tex_apply(wall, TEX_WALL_ICE, 1, 1, 1.0f, 1.0f);
+  wall->color = (t3_color){ 0.9f, 1.1f, 1.3f };
+  wall->emissive = (t3_color){ 0.02f, 0.28f, 0.6f };
+  wall->emissive_intensity = 0.6f;
+  gm gw = { 0 };
+  for (int side = -1; side <= 1; side += 2) {
+    float a0 = side * half;
+    for (float b = -100.0f; b < 100.0f; b += 3.0f) {
+      float h0 = rim_height(a0, b), h1 = rim_height(a0, b + 3.0f);
+      const int rows = 5;
+      for (int k = 0; k < rows; k++) {
+        float f0 = (float)k / (float)rows, f1 = (float)(k + 1) / (float)rows;
+        /* each row steps in and out a little, so the wall is a stack of ledges */
+        float o0 = (k == 0 ? 0 : 1.1f * (hashf2((int)(b * 0.33f), k, 17) - 0.5f) * 2), o1 = (k + 1 == rows ? 0 : 1.1f * (hashf2((int)(b * 0.33f), k + 1, 17) - 0.5f) * 2);
+        float o0b = (k == 0 ? 0 : 1.1f * (hashf2((int)(b * 0.33f) + 1, k, 17) - 0.5f) * 2), o1b = (k + 1 == rows ? 0 : 1.1f * (hashf2((int)(b * 0.33f) + 1, k + 1, 17) - 0.5f) * 2);
+        float y00 = fy + (h0 - fy) * f0, y01 = fy + (h0 - fy) * f1, y10 = fy + (h1 - fy) * f0, y11 = fy + (h1 - fy) * f1;
+        t3_vec3 q0 = gorge_pt(a0 - side * o0, b, y00), q1 = gorge_pt(a0 - side * o0b, b + 3.0f, y10);
+        t3_vec3 q2 = gorge_pt(a0 - side * o1b, b + 3.0f, y11), q3 = gorge_pt(a0 - side * o1, b, y01);
+        float fade = cw_smoothstep(75.0f, 130.0f, fabsf(b));
+        if (fade > 0.97f) continue;
+        float v = 0.5f + 0.5f * hashf2((int)(b * 0.33f), k, 19);
+        pcol c = pc_mix(pc_mix(hex(0x1e78c8), hex(0xcfeeff), f1 * 0.7f + 0.3f * v), hex(0x3de8ff), (1 - f1) * 0.5f);
+        gm_quad(&gw, q0, q1, q2, q3, vsub3(gorge_pt(0, b, fy + 6), q0), c, 5.0f);
+      }
+    }
+  }
+  gm_finish(&gw, root, "GorgeWalls", wall, false, true);
+  t3_release(wall);
+  /* the glow: an emissive floor, and sheets of cold light standing up from it, additive */
+  t3_material *glowm = t3_mesh_basic_material_new(0xffffff);
+  glowm->vertex_colors = true;
+  glowm->transparent = true;
+  glowm->blending = T3_ADDITIVE_BLENDING;
+  glowm->depth_write = false;
+  glowm->side = T3_DOUBLE_SIDE;
+  AN.crev = glowm;
+  gm gg = { 0 };
+  t3_vec3 up = V3(0, 1, 0);
+  for (float b = -80.0f; b < 80.0f; b += 8.0f)
+    for (float a = -half; a < half; a += 8.0f) {
+      float cb = 0.55f + 0.45f * sinf(b * 0.21f + a * 0.35f), cc = 0.5f + 0.5f * sinf(b * 0.11f - a * 0.5f + 1.0f);
+      pcol c0 = pc_mix(hex(0x0a5a9a), hex(0x3de8ff), cb * 0.8f);
+      pcol c1 = pc_mix(hex(0x0a5a9a), hex(0x8affff), cc * 0.8f);
+      int v0 = gm_vtx(&gg, gorge_pt(a, b, fy + 0.7f), up, 0, 0, pc_mul(c0, 1.6f)), v1 = gm_vtx(&gg, gorge_pt(a + 8, b, fy + 0.7f), up, 1, 0, pc_mul(c1, 1.6f));
+      int v2 = gm_vtx(&gg, gorge_pt(a + 8, b + 8, fy + 0.7f), up, 1, 1, pc_mul(c0, 1.6f)), v3 = gm_vtx(&gg, gorge_pt(a, b + 8, fy + 0.7f), up, 0, 1, pc_mul(c1, 1.6f));
+      gm_tri(&gg, v0, v1, v2), gm_tri(&gg, v0, v2, v3);
+    }
+  /* the sheets: they hang along both walls and rise out of the depths */
+  for (int side = -1; side <= 1; side += 2)
+    for (float b = -64.0f; b <= 64.0f; b += 16.0f) {
+      float a = side * (half - 0.8f);
+      float hh = 20.0f + 14.0f * hashf2((int)b, side + 3, 23);
+      pcol lo = pc_mul(hex(0x35e0ff), 1.2f), hi = (pcol){ 0, 0, 0 };
+      int v0 = gm_vtx(&gg, gorge_pt(a, b, fy), up, 0, 0, lo), v1 = gm_vtx(&gg, gorge_pt(a, b + 16, fy), up, 1, 0, lo);
+      int v2 = gm_vtx(&gg, gorge_pt(a, b + 16, fy + hh), up, 1, 1, hi), v3 = gm_vtx(&gg, gorge_pt(a, b, fy + hh), up, 0, 1, hi);
+      gm_tri(&gg, v0, v1, v2), gm_tri(&gg, v0, v2, v3);
+    }
+  gm_finish(&gg, root, "GorgeGlow", glowm, false, false);
+  point_light(root, "CrevasseLight", gorge_pt(0, 0, fy + 12.0f), 0.25f, 0.85f, 1.0f, 14.0f, 70.0f);
+
+  /* ice spikes standing along both lips, leaving the road and the bridges clear */
+  prop_set *ps = ps_new(root, "GorgeLips");
+  for (int side = -1; side <= 1; side += 2)
+    for (float b = -100.0f; b <= 100.0f; b += 5.5f) {
+      if (fabsf(b) < 14.0f || fabsf(fabsf(b) - 26.0f) < 4.5f) continue;
+      float a = side * (half + 1.5f + 1.5f * hashf2((int)b, side, 29));
+      t3_vec3 p = gorge_pt(a, b + 2.0f * rnds(&r), 0);
+      p.y = rim_height(a, b) - 0.25f;
+      ps_add(ps, hashf2((int)b, side, 31) > 0.35f ? PK_ICE_SPIKES : PK_ICE_BOULDER, p, rnd1(&r) * TAU_F, 0.8f + 1.3f * rnd1(&r), (uint32_t)(b * 7 + side));
+    }
+  ps_finish(ps);
+
+  /* the rope bridges, one each side of the road */
+  pmc *br = pmc_new(80, 33);
+  for (int side = -1; side <= 1; side += 2) {
+    float b0 = side * 26.0f;
+    float y0 = rim_height(-half - 3.0f, b0) - 0.1f, y1 = rim_height(half + 3.0f, b0) - 0.1f;
+    float span = 2 * (half + 3.0f);
+    int planks = (int)(span / 0.95f);
+    t3_vec3 e0 = gorge_pt(-half - 3.0f, b0, y0), e1 = gorge_pt(half + 3.0f, b0, y1);
+    t3_vec3 dirv = vnorm3(vsub3(e1, e0));
+    t3_vec3 side_v = vnorm3(V3(-dirv.z, 0, dirv.x));
+    pm *b = pmc_at(br, e0);
+    pm_push(b);
+    pm_layer(b, PL_MAIN);
+    pcol wood0 = hex(0x4a3524), wood1 = hex(0x9a7a52), rope = hex(0xc8b080);
+    for (int i = 0; i <= planks; i++) {
+      float u = (float)i / (float)planks;
+      float sag = 2.6f * 4.0f * u * (1 - u);
+      t3_vec3 c = V3(e0.x + (e1.x - e0.x) * u, e0.y + (e1.y - e0.y) * u - sag, e0.z + (e1.z - e0.z) * u);
+      pm_push(b);
+      pm_basis(b, c, side_v, V3(0, 1, 0), dirv);
+      pm_roty(b, 0.04f * rnds(&r));
+      pm_box_c(b, 3.1f, 0.11f, 0.78f, pc_mix(wood0, wood1, 0.3f + 0.6f * rnd1(&r)));
+      pm_pop(b);
+      /* handrails and their hangers */
+      if (i < planks) {
+        float u2 = (float)(i + 1) / (float)planks;
+        float sag2 = 2.6f * 4.0f * u2 * (1 - u2);
+        t3_vec3 c2 = V3(e0.x + (e1.x - e0.x) * u2, e0.y + (e1.y - e0.y) * u2 - sag2, e0.z + (e1.z - e0.z) * u2);
+        for (int k = -1; k <= 1; k += 2) {
+          t3_vec3 o = vmul3(side_v, k * 1.65f);
+          pm_rod(b, vadd3(vadd3(c, o), V3(0, 1.25f, 0)), vadd3(vadd3(c2, o), V3(0, 1.25f, 0)), 0.045f, 4, rope);
+          if (i % 3 == 0) pm_rod(b, vadd3(c, o), vadd3(vadd3(c, o), V3(0, 1.25f, 0)), 0.03f, 4, rope);
+        }
+      }
+    }
+    for (int e = 0; e < 2; e++) {
+      t3_vec3 c = e ? e1 : e0;
+      for (int k = -1; k <= 1; k += 2) {
+        t3_vec3 pp = vadd3(c, vmul3(side_v, k * 1.65f));
+        pm_rod(b, vadd3(pp, V3(0, -0.6f, 0)), vadd3(pp, V3(0, 3.0f, 0)), 0.12f, 6, wood0);
+        pm_push(b);
+        pm_move(b, pp.x, pp.y + 3.1f, pp.z);
+        pm_ball(b, 0.2f, 0.18f, 0.2f, 0, 0.1f, wood0, wood1);
+        pm_pop(b);
+      }
+    }
+    pm_pop(b);
+  }
+  pmc_finish(br, root, "RopeBridges", true, TEX_WALL_WOOD);
+
+  /* the masts and the prayer flags: poles at the take-off and the landing, strings between over the gorge */
+  pmc *masts = pmc_new(80, 34);
+  gm flags = { 0 };
+  float mast_h = 17.0f;
+  for (int side = -1; side <= 1; side += 2) {
+    for (int row = 0; row < 2; row++) {
+      float bb = side * (row ? 26.0f : 14.5f);
+      t3_vec3 top[2];
+      for (int e = 0; e < 2; e++) {
+        float a = (e ? 1 : -1) * (half + 6.0f);
+        float y = rim_height(a, bb);
+        t3_vec3 base = gorge_pt(a, bb, y - 0.5f);
+        pm *b = pmc_at(masts, base);
+        pm_push(b);
+        pm_layer(b, PL_MAIN);
+        pm_move(b, base.x, base.y, base.z);
+        pm_roty(b, rnd1(&r) * 3);
+        pm_vary(b, 0.05f);
+        pm_cyl_ex(b, 0.34f, 0.2f, mast_h, 7, hex(0x4a3524), hex(0x9a7a52), false, true);
+        pm_push(b);
+        pm_ball(b, 1.9f, 0.8f, 1.9f, 1, 0.12f, SNOW_C, SNOW_C);
+        pm_pop(b);
+        for (int k = 0; k < 3; k++) {
+          pm_push(b);
+          pm_move(b, 0, 1.0f + 0.4f * (float)k, 0);
+          ice_block(b, 1.1f, 1.0f, 1.1f, 0.3f * (float)(k + 1), ICE_DEEP, ICE_HI);
+          pm_pop(b);
+        }
+        pm_pop(b);
+        top[e] = V3(base.x, base.y + mast_h - 0.4f - 1.1f * (float)row, base.z);
+      }
+      flag_string(&flags, top[0], top[1], 3.6f - 0.6f * (float)row, (uint32_t)(11 + row + (side > 0 ? 3 : 0)));
+      if (row == 0) {
+        /* a second string, higher up, to the opposite mast across the gorge */
+        flag_string(&flags, V3(top[0].x, top[0].y + 1.3f, top[0].z), V3(top[1].x, top[1].y + 1.3f, top[1].z), 3.0f, (uint32_t)(5 + (side > 0 ? 4 : 0)));
+      }
+      flag_pole_top[0] = top[0];
+    }
+  }
+  pmc_finish(masts, root, "FlagMasts", true, TEX_WALL_WOOD);
+  /* the flags go in a dynamic mesh: the frame ripples them */
+  if (flags.ni > 0) {
+    t3_material *fm = t3_mesh_basic_material_new(0xffffff);
+    fm->vertex_colors = true;
+    fm->side = T3_DOUBLE_SIDE;
+    FL.n = flags.nv;
+    FL.base = malloc(sizeof(float) * 3 * (size_t)flags.nv);
+    memcpy(FL.base, flags.p, sizeof(float) * 3 * (size_t)flags.nv);
+    t3_geometry *g = t3_geometry_new();
+    t3_attribute *a;
+    a = t3_attribute_new(T3_FLOAT32, flags.p, flags.nv, 3), a->usage = T3_DYNAMIC_DRAW, t3_geometry_set_attribute(g, T3_ATTR_POSITION, a), t3_release(a);
+    a = t3_attribute_new(T3_FLOAT32, flags.n, flags.nv, 3), t3_geometry_set_attribute(g, T3_ATTR_NORMAL, a), t3_release(a);
+    a = t3_attribute_new(T3_FLOAT32, flags.c, flags.nv, 3), t3_geometry_set_attribute(g, T3_ATTR_COLOR, a), t3_release(a);
+    a = t3_attribute_new(T3_UINT32, flags.ix, flags.ni, 1), t3_geometry_set_index(g, a), t3_release(a);
+    t3_geometry_compute_bounding_sphere(g);
+    free(flags.p), free(flags.n), free(flags.uv), free(flags.c), free(flags.ix);
+    FL.g = g;
+    t3_mesh *me = t3_mesh_new(g, fm);
+    me->base.frustum_culled = false;
+    me->base.cast_shadow = false;
+    hang(root, "PrayerFlags", &me->base);
+    t3_release(me);
+    t3_release(fm);
+  }
+}
+
+static void flags_frame(float t) {
+  if (!FL.g) return;
+  float *P = t3_attribute_f32(FL.g->attributes[T3_ATTR_POSITION]);
+  for (int i = 0; i + 3 < FL.n; i += 4) {
+    /* each flag: its two lower corners swing in and out of the string's line with the wind, out of step */
+    float ph = (float)i * 0.37f;
+    float w = 0.5f * sinf(t * 3.1f + ph) + 0.25f * sinf(t * 5.3f + ph * 1.7f);
+    float *a = &FL.base[i * 3];
+    for (int k = 0; k < 4; k++) {
+      float x = a[k * 3], y = a[k * 3 + 1], z = a[k * 3 + 2];
+      float low = (k >= 2) ? 1.0f : 0.0f;
+      float sway = w * low * 0.45f;
+      /* blow across the gorge's width */
+      P[(i + k) * 3] = x + F.lm.gfwd.z * sway;
+      P[(i + k) * 3 + 1] = y + 0.12f * low * sinf(t * 4.0f + ph + (float)k);
+      P[(i + k) * 3 + 2] = z - F.lm.gfwd.x * sway;
+    }
+  }
+  FL.g->attributes[T3_ATTR_POSITION]->version++;
+}
+
+/* ── the frozen waterfalls at the cave's two mouths ─────────────────────────────────────────────── */
+
+/* dir +1: the mouth the road enters by (the mountain lies ahead); -1: the mouth it leaves by (the mountain lies behind) */
+static void build_portal(cw_node root, const track *t, int idx, int dir, uint32_t seed) {
+  const tsample *a0 = &t->s[idx];
+  tsample a = *a0;
+  if (dir < 0) a.r = vmul3(a.r, -1.0f), a.f = vmul3(a.f, -1.0f);
+  float Rr = a.hw, hc = 1.6f, Rt = 6.4f;
+  uint32_t r = seed;
+  pmc *ice = pmc_new(60, seed + 1);
+  pm *b = frame_at(ice, &a, 0, 0);
+  pm_layer(b, PL_MAIN);
+  pm_vary(b, 0.07f);
+  /* the ring of ice blocks round the mouth */
+  const int nb = 13;
+  for (int k = 0; k <= nb; k++) {
+    float ang = CW_PI * (float)k / (float)nb;
+    float x = -cosf(ang) * (Rr + 1.5f), y = hc + sinf(ang) * (Rt + 1.4f);
+    pm_push(b);
+    pm_move(b, x, y, 0.4f * rnds(&r));
+    pm_rotz(b, ang - CW_PI * 0.5f);
+    pm_box_c(b, 2.5f + 0.5f * rnd1(&r), 2.8f + 0.5f * rnd1(&r), 3.0f, pc_mix(ICE_DEEP, ICE_LO, 0.3f + 0.4f * rnd1(&r)));
+    pm_pop(b);
+  }
+  for (int side = -1; side <= 1; side += 2)
+    for (int k = 0; k < 2; k++) {
+      pm_push(b);
+      pm_move(b, side * (Rr + 1.5f + 0.2f * rnds(&r)), -0.6f + 1.7f * (float)k, 0.3f * rnds(&r));
+      ice_block(b, 2.8f, 2.1f, 3.0f, 0.15f * rnds(&r), ICE_DEEP, ICE_HI);
+      pm_pop(b);
+    }
+  /* the waterfall: fluted columns poured down the face above and beside the mouth, thick at the foot */
+  for (int i = 0; i < 26; i++) {
+    float f = (float)i / 25.0f;
+    float x = (f - 0.5f) * 2.0f * (Rr + 9.0f) + 0.6f * rnds(&r);
+    float roof = 6.4f + 1.6f + 1.4f;
+    float ax = fabsf(x) / (Rr + 1.5f);
+    float base_y = ax < 1.0f ? hc + sqrtf(1 - ax * ax) * roof : -0.4f;
+    float top_y = 13.5f + 1.5f * rnds(&r);
+    float rad = 0.7f + 0.9f * rnd1(&r);
+    float zz = 1.6f + 3.4f * rnd1(&r);
+    pm_push(b);
+    pm_move(b, x, base_y - 0.3f, zz);
+    pm_rotx(b, 0.04f * rnds(&r));
+    pm_rotz(b, 0.05f * rnds(&r));
+    pm_jitter(b, 0.18f);
+    pm_cyl_ex(b, rad, rad * 0.62f, top_y - base_y, 7, pc_mix(ICE_DEEP, ICE_LO, rnd1(&r)), pc_mix(ICE_LO, ICE_HI, 0.55f + 0.4f * rnd1(&r)), false, false);
+    pm_jitter(b, 0);
+    /* a bulb of ice where it landed */
+    pm_ball(b, rad * 1.5f, rad * 1.1f, rad * 1.5f, 1, 0.2f, pc_mix(ICE_LO, ICE_HI, 0.3f), ICE_HI);
+    pm_pop(b);
+  }
+  /* icicles fringing the lintel */
+  for (int k = 0; k < 30; k++) {
+    float ang = CW_PI * rnd1(&r);
+    float x = -cosf(ang) * (Rr + 0.6f), y = hc + sinf(ang) * (Rt + 0.5f);
+    pm_push(b);
+    pm_move(b, x, y, 0.5f * rnds(&r));
+    icicle(b, 0.1f + 0.1f * rnd1(&r), 0.7f + 2.2f * rnd1(&r), ICE_HI);
+    pm_pop(b);
+  }
+  pm_pop(b);
+  pmc_finish(ice, root, dir > 0 ? "WaterfallIn" : "WaterfallOut", true, TEX_WALL_ICE);
+  /* glowing veins inside the frozen falls */
+  pmc *gl = pmc_new(60, seed + 2);
+  b = frame_at(gl, &a, 0, 0);
+  pm_layer(b, PL_GLOW);
+  for (int i = 0; i < 14; i++) {
+    float x = (rnd1(&r) - 0.5f) * 2.0f * (Rr + 8.0f);
+    float ax = fabsf(x) / (Rr + 1.5f);
+    float y0 = (ax < 1.0f ? hc + sqrtf(1 - ax * ax) * 8.4f : 0.0f) + 0.5f;
+    pm_push(b);
+    pm_move(b, x, y0, 0.8f);
+    pm_cyl_ex(b, 0.07f, 0.04f, 12.0f - y0 * 0.2f, 4, glow(hex(0x0a8ad0), 1.2f), glow(hex(0x7aeaff), 2.4f), false, false);
+    pm_pop(b);
+  }
+  pm_pop(b);
+  pmc_finish(gl, root, "WaterfallGlow", false, -1);
+}
+
+/* ── the summit: an abandoned research station and a radio mast with a red light ────────────────── */
+
+static t3_object *BEACON;
+
+static void radio_mast(pm *b, float H, pcol steel, pcol paint) {
+  /* four legs tapering to the top, cross braced every 3 m, red and white sections */
+  float w0 = 1.9f, w1 = 0.35f;
+  int segs = (int)(H / 3.0f);
+  for (int k = 0; k < segs; k++) {
+    float f0 = (float)k / (float)segs, f1 = (float)(k + 1) / (float)segs;
+    float y0 = H * f0, y1 = H * f1, a0 = w0 + (w1 - w0) * f0, a1 = w0 + (w1 - w0) * f1;
+    pcol c = ((k / 2) & 1) ? paint : steel;
+    for (int i = 0; i < 4; i++) {
+      float sx0 = (i & 1) ? a0 : -a0, sz0 = (i & 2) ? a0 : -a0, sx1 = (i & 1) ? a1 : -a1, sz1 = (i & 2) ? a1 : -a1;
+      pm_beam(b, V3(sx0, y0, sz0), V3(sx1, y1, sz1), 0.12f, c);
+      int j = (i & 1) ? (i + 1) & 3 : (i + 3) & 3; /* the neighbour to brace to */
+      (void)j;
+    }
+    /* the braces: an X on each of the four faces */
+    for (int face = 0; face < 4; face++) {
+      float sx = face == 0 ? -1 : face == 1 ? 1 : 0, sz = face == 2 ? -1 : face == 3 ? 1 : 0;
+      t3_vec3 ax = face < 2 ? V3(0, 0, 1) : V3(1, 0, 0);
+      t3_vec3 c0 = V3(sx * a0 + ax.x * -a0, y0, sz * a0 + ax.z * -a0), c1 = V3(sx * a0 + ax.x * a0, y0, sz * a0 + ax.z * a0);
+      t3_vec3 d0 = V3(sx * a1 + ax.x * -a1, y1, sz * a1 + ax.z * -a1), d1 = V3(sx * a1 + ax.x * a1, y1, sz * a1 + ax.z * a1);
+      pm_beam(b, c0, d1, 0.07f, steel);
+      pm_beam(b, c1, d0, 0.07f, steel);
+      pm_beam(b, c0, c1, 0.07f, steel);
+    }
+  }
+}
+
+static void build_summit(cw_node root, const track *t) {
+  if (F.npads < 1) return;
+  float px = F.pad[0].x, pz = F.pad[0].z, py = F.pad[0].y;
+  /* turn the station to face back down the road toward the first switchbacks */
+  float yaw = atan2f(F.lm.centre.x - px, F.lm.centre.z - pz);
+  uint32_t r = 7001;
+  (void)t;
+  pmc *c = pmc_new(70, 77);
+  pm *b = stand_at(c, V3(px, py - 0.2f, pz), yaw);
+  pcol hut0 = hex(0x7a2f1c), hut1 = hex(0xd9663a), teal0 = hex(0x1f4a52), teal1 = hex(0x4f9aa5), snow = SNOW_C;
+  pm_layer(b, PL_MAIN);
+  pm_vary(b, 0.05f);
+  /* the main hut: boxy, rust red, a pitched roof under a heap of snow, a lean-to on its flank */
+  pm_push(b);
+  pm_move(b, 0, 0, 0);
+  pm_box(b, 11.0f, 4.2f, 6.6f, hut0, hut1);
+  pm_move(b, 0, 4.2f, 0);
+  pm_prism(b, 7.4f, 2.4f, 11.4f, pc_mix(hut0, hut1, 0.3f), hut1);
+  pm_push(b);
+  pm_roty(b, CW_PI * 0.5f);
+  pm_move(b, 0, 0.04f, 0);
+  pm_prism(b, 7.9f, 2.55f, 11.9f, snow, snow);
+  pm_pop(b);
+  pm_pop(b);
+  pm_push(b);
+  pm_move(b, 9.5f, 0, 1.2f);
+  pm_box(b, 8.0f, 3.1f, 3.4f, teal0, teal1);
+  pm_move(b, 0, 3.1f, 0);
+  pm_box(b, 8.2f, 0.45f, 3.6f, snow, snow);
+  pm_pop(b);
+  pm_push(b);
+  pm_move(b, -8.8f, 0, -1.0f);
+  pm_box(b, 6.0f, 2.8f, 3.0f, hex(0x3a3d46), hex(0x5a5f6c));
+  pm_move(b, 0, 2.8f, 0);
+  pm_box(b, 6.2f, 0.5f, 3.2f, snow, snow);
+  pm_pop(b);
+  /* drifts piled against the windward side and half over the doorway */
+  for (int i = 0; i < 9; i++) {
+    pm_push(b);
+    pm_move(b, -7.0f + 1.8f * (float)i + 0.5f * rnds(&r), 0, 3.6f + 0.8f * rnd1(&r));
+    pm_ball(b, 2.3f + rnd1(&r), 0.9f + 0.5f * rnd1(&r), 1.6f + 0.6f * rnd1(&r), 1, 0.15f, pc_mix(snow, ICE_LO, 0.25f), snow);
+    pm_pop(b);
+  }
+  /* a stair, a door */
+  pm_push(b);
+  pm_move(b, 0.5f, 0, 3.4f);
+  pm_box(b, 1.6f, 2.6f, 0.2f, hex(0x2a1c18), hex(0x4a342c));
+  pm_pop(b);
+  /* the radio mast's footing and its guy wires */
+  pm_push(b);
+  pm_move(b, 0, 0, -14.0f);
+  pm_box(b, 5.2f, 0.8f, 5.2f, hex(0x7a7f88), hex(0xa0a6b0));
+  pm_move(b, 0, 0.8f, 0);
+  radio_mast(b, 36.0f, hex(0xe8ecf4), hex(0xd23a2a));
+  pm_pop(b);
+  pm_layer(b, PL_METAL);
+  for (int k = 0; k < 3; k++) {
+    float an = TAU_F * (float)k / 3.0f + 0.5f;
+    t3_vec3 top = V3(0, 22.0f, -14.0f), foot = V3(cosf(an) * 17.0f, 0.0f, -14.0f + sinf(an) * 17.0f);
+    pm_rod(b, top, foot, 0.04f, 4, hex(0x30343c));
+    pm_push(b);
+    pm_move(b, foot.x, 0, foot.z);
+    pm_box_c(b, 1.2f, 0.8f, 1.2f, hex(0x6a6f7a));
+    pm_pop(b);
+  }
+  /* a lit window or two: the generator still runs */
+  pm_layer(b, PL_GLOW);
+  for (int i = 0; i < 3; i++) {
+    pm_push(b);
+    pm_move(b, -3.6f + 3.4f * (float)i, 1.9f, 3.31f);
+    pm_box_c(b, 1.5f, 1.1f, 0.08f, glow(i == 1 ? hex(0xffb050) : hex(0x203040), i == 1 ? 1.8f : 0.4f));
+    pm_pop(b);
+  }
+  pm_layer(b, PL_MAIN);
+  pm_pop(b);
+  pmc_finish(c, root, "Station", true, -1);
+  /* the beacon at the mast's top */
+  t3_vec3 top = V3(px, py + 37.3f, pz);
+  {
+    float cy = cosf(yaw), sy = sinf(yaw);
+    /* local (0, y, -14) turned by yaw about the vertical */
+    top.x = px + (0 * cy + (-14.0f) * sy);
+    top.z = pz + (-0 * sy + (-14.0f) * cy);
+  }
+  t3_material *bm = t3_mesh_basic_material_new(0xffffff);
+  bm->fog = false;
+  bm->color = (t3_color){ 4.0f, 0.05f, 0.03f };
+  AN.beacon = bm;
+  t3_mesh *me = t3_mesh_new(t3_sphere_geometry_new(0.7f, 12, 8), bm);
+  me->base.cast_shadow = false;
+  cw_node n = hang(root, "Beacon", &me->base);
+  cw_node3d_set_position(n, top);
+  BEACON = &me->base;
+  t3_release(me);
+  /* a dish on a pad and a few drums */
+  prop_set *ps = ps_new(root, "StationProps");
+  float cyw = cosf(yaw), syw = sinf(yaw);
+  #define LOCAL(x, z) V3(px + (x) * cyw + (z) * syw, py - 0.15f, pz - (x) * syw + (z) * cyw)
+  ps_add(ps, PK_DISH, LOCAL(-6.0f, 8.0f), yaw + 0.6f, 1.1f, 1);
+  ps_add(ps, PK_SOLAR_PANEL, LOCAL(6.0f, 9.0f), yaw, 1.0f, 2);
+  ps_add(ps, PK_SOLAR_PANEL, LOCAL(9.4f, 9.4f), yaw, 1.0f, 3);
+  for (int i = 0; i < 4; i++) ps_add(ps, PK_BARREL, LOCAL(-12.0f + 1.1f * (float)i, 3.0f - 0.7f * (float)i), 0.7f * (float)i, 1.0f, 10u + (uint32_t)i);
+  ps_add(ps, PK_CRATE, LOCAL(-12.5f, 6.5f), 0.4f, 1.2f, 20);
+  ps_add(ps, PK_CRATE, LOCAL(-11.0f, 7.4f), 1.0f, 1.0f, 21);
+  #undef LOCAL
+  ps_finish(ps);
+}
+
+/* ── the camps and the wrecks ───────────────────────────────────────────────────────────────────── */
+
+static void build_camp(cw_node root, int pad, uint32_t seed) {
+  if (pad >= F.npads) return;
+  float px = F.pad[pad].x, pz = F.pad[pad].z, py = F.pad[pad].y;
+  uint32_t r = seed;
+  prop_set *ps = ps_new(root, "CampProps");
+  for (int i = 0; i < 5; i++) {
+    float a = rnd1(&r) * TAU_F, d = 5.5f + 7.0f * rnd1(&r);
+    ps_add(ps, i & 1 ? PK_CRATE : PK_BARREL, V3(px + cosf(a) * d, py - 0.05f, pz + sinf(a) * d), rnd1(&r) * 6, 1.0f + 0.3f * rnd1(&r), seed + 40u + (uint32_t)i);
+  }
+  ps_finish(ps);
+  /* the fire in the middle, a ring of stones, logs, sleds, and the tents round them */
+  pmc *c = pmc_new(60, seed);
+  pm *b = stand_at(c, V3(px, py, pz), 0);
+  pm_layer(b, PL_MAIN);
+  {
+    static const unsigned TENT[4] = { 0xf0762a, 0x2fa6b5, 0xffc12e, 0xd8402e };
+    for (int i = 0; i < 4; i++) {
+      float a = TAU_F * (float)i / 4.0f + 0.5f, d = 9.0f + 2.0f * rnd1(&r);
+      pm_push(b);
+      pm_move(b, cosf(a) * d, -0.05f, sinf(a) * d);
+      pm_roty(b, -a + 1.57f + 0.3f * rnds(&r));
+      pcol tc = hex(TENT[i]);
+      /* an A-frame tent: two sloping flaps, a dark doorway, snow banked on its skirts */
+      pm_prism(b, 3.6f, 2.5f, 4.6f, pc_mul(tc, 0.55f), tc);
+      pm_push(b);
+      pm_move(b, 0, 0, 2.31f);
+      pm_quad(b, V3(-0.55f, 0.0f, 0), V3(0.55f, 0.0f, 0), V3(0.0f, 1.7f, 0), V3(0.0f, 1.7f, 0), hex(0x14161c));
+      pm_pop(b);
+      for (int k = -1; k <= 1; k += 2) {
+        pm_push(b);
+        pm_move(b, k * 1.8f, 0, 0);
+        pm_ball(b, 0.7f, 0.45f, 2.5f, 1, 0.12f, pc_mix(SNOW_C, ICE_LO, 0.25f), SNOW_C);
+        pm_pop(b);
+      }
+      pm_beam(b, V3(0, 2.5f, -2.3f), V3(0, 2.95f, -2.3f), 0.05f, hex(0x30343c));
+      pm_pop(b);
+    }
+  }
+  for (int i = 0; i < 9; i++) {
+    float a = TAU_F * (float)i / 9.0f;
+    pm_push(b);
+    pm_move(b, cosf(a) * 1.6f, 0, sinf(a) * 1.6f);
+    pm_rock(b, 0.45f, 0.7f, 0.25f, hex(0x2a2e3a), hex(0x6a7080));
+    pm_pop(b);
+  }
+  for (int i = 0; i < 4; i++) {
+    pm_push(b);
+    pm_roty(b, 0.8f * (float)i);
+    pm_move(b, 0, 0.35f, 0);
+    pm_rotz(b, 0.3f);
+    pm_cyl_ex(b, 0.16f, 0.14f, 2.2f, 6, hex(0x2a1a10), hex(0x6a4a30), true, true);
+    pm_pop(b);
+  }
+  /* two sleds, runners up */
+  for (int k = 0; k < 2; k++) {
+    pm_push(b);
+    pm_move(b, -6.0f + 2.4f * (float)k, 0.1f, -4.5f - 1.5f * (float)k);
+    pm_roty(b, 0.5f + (float)k);
+    pm_box(b, 1.1f, 0.18f, 3.2f, hex(0x5a3a22), hex(0x9a7a52));
+    pm_beam(b, V3(-0.5f, 0, -1.6f), V3(-0.5f, 0.2f, 1.9f), 0.08f, hex(0x30343c));
+    pm_beam(b, V3(0.5f, 0, -1.6f), V3(0.5f, 0.2f, 1.9f), 0.08f, hex(0x30343c));
+    pm_pop(b);
+  }
+  pm_pop(b);
+  pmc_finish(c, root, "CampBits", true, -1);
+  /* the flame, animated, and the lantern posts, lit */
+  pm *fb = pm_new(seed + 5);
+  pm_layer(fb, PL_GLOW);
+  for (int i = 0; i < 5; i++) {
+    float a = TAU_F * (float)i / 5.0f;
+    pm_push(fb);
+    pm_move(fb, cosf(a) * 0.35f, 0.35f, sinf(a) * 0.35f);
+    pm_rotz(fb, cosf(a) * 0.35f);
+    pm_rotx(fb, sinf(a) * 0.35f);
+    pm_cyl_ex(fb, 0.3f - 0.03f * (float)(i & 1), 0.001f, 1.5f + 0.35f * (float)(i % 3), 6, glow(hex(0xff5a10), 2.8f), glow(hex(0xffd070), 4.2f), false, false);
+    pm_pop(fb);
+  }
+  prop_model fm = pm_finish(fb);
+  if (fm.g[PL_GLOW]) {
+    t3_material *m = glow_material();
+    AN.flame[1] = m;
+    t3_mesh *me = t3_mesh_new(fm.g[PL_GLOW], m);
+    me->base.cast_shadow = false;
+    cw_node n = hang(root, "Bonfire", &me->base);
+    cw_node3d_set_position(n, V3(px, py, pz));
+    t3_release(me);
+  }
+  point_light(root, "CampFire", V3(px, py + 2.2f, pz), 1.0f, 0.55f, 0.22f, 9.0f, 30.0f);
+  fx_ambient_at(root, FXA_EMBERS, V3(px, py + 1.2f, pz), V3(0.5f, 0.2f, 0.5f), 0.6f, 120.0f);
+  /* lantern posts round the camp */
+  pm *lb = pm_new(seed + 9);
+  for (int i = 0; i < 4; i++) {
+    float a = TAU_F * ((float)i + 0.5f) / 4.0f;
+    pm_push(lb);
+    pm_move(lb, cosf(a) * 14.0f, 0, sinf(a) * 14.0f);
+    pm_layer(lb, PL_MAIN);
+    pm_cyl_ex(lb, 0.1f, 0.07f, 3.2f, 5, hex(0x3a2818), hex(0x7a5a3a), false, true);
+    pm_push(lb);
+    pm_move(lb, 0.5f, 3.0f, 0);
+    pm_rod(lb, V3(-0.5f, 0.2f, 0), V3(0, 0, 0), 0.04f, 4, hex(0x3a2818));
+    pm_move(lb, 0, -1.0f, 0);
+    lantern(lb, 1.0f, LANT_C, 3.4f);
+    pm_pop(lb);
+    pm_pop(lb);
+  }
+  prop_model lm = pm_finish(lb);
+  t3_object *grp = t3_group_new();
+  if (lm.g[PL_MAIN]) {
+    t3_mesh *me = t3_mesh_new(lm.g[PL_MAIN], prop_material(PL_MAIN, -1, (pcol){ 1, 1, 1 }, 1.0f));
+    t3_object_add(grp, &me->base), t3_release(me);
+  }
+  if (lm.g[PL_METAL]) {
+    t3_mesh *me = t3_mesh_new(lm.g[PL_METAL], prop_material(PL_METAL, -1, (pcol){ 1, 1, 1 }, 1.0f));
+    t3_object_add(grp, &me->base), t3_release(me);
+  }
+  if (lm.g[PL_GLOW]) {
+    t3_material *m = glow_material();
+    AN.flame[2] = AN.flame[2] ? AN.flame[2] : m;
+    t3_mesh *me = t3_mesh_new(lm.g[PL_GLOW], AN.flame[2]);
+    t3_object_add(grp, &me->base), t3_release(me);
+    if (AN.flame[2] != m) t3_release(m);
+  }
+  cw_node n = cw_node_new("Node3D", "CampLanterns");
+  cw_node_add_child(root, n);
+  cw_node3d_set_object(n, grp);
+  t3_release(grp);
+  cw_node3d_set_position(n, V3(px, py, pz));
+}
+
+/* snow vehicles that did not make it: half under the drifts */
+static void build_wrecks(cw_node root, const track *t) {
+  prop_set *ps = ps_new(root, "Wrecks");
+  ps_style(ps, PK_WRECK_CAR, TEX_RUST, rgb(0.62f, 0.72f, 1.0f), 1.0f);
+  ps_style(ps, PK_WRECK_TRUCK, TEX_RUST, rgb(0.62f, 0.72f, 1.0f), 1.0f);
+  pmc *drift = pmc_new(80, 99);
+  struct { float s, lat; int kind, variant; float scale, tilt; } W[] = {
+    { 120, 26, 1, 0, 1.6f, 0.0f }, { 450, -30, 0, 3, 1.5f, 0.0f }, { 905, 24, 0, 2, 1.5f, 0.0f },
+    { 1470, -28, 1, 1, 1.6f, 0.0f }, { 1695, 30, 0, 1, 1.5f, 0.0f }, { 2300, -34, 1, 0, 1.7f, 0.0f }, { 2860, 28, 0, 3, 1.5f, 0.0f },
+  };
+  uint32_t r = 4001;
+  for (unsigned i = 0; i < sizeof W / sizeof W[0]; i++) {
+    tsample a = track_at(t, W[i].s);
+    /* the first flat enough spot out from the road on that side */
+    t3_vec3 p = { 0 };
+    bool found = false;
+    for (float lat = fabsf(W[i].lat); lat < fabsf(W[i].lat) + 60.0f && !found; lat += 3.0f) {
+      p = track_point(t, W[i].s, (W[i].lat > 0 ? 1.0f : -1.0f) * lat, 0);
+      p.y = terrain(p.x, p.z, NULL);
+      if (road_gap(t, p.x, p.z, NULL) > 9.0f && slope_at(p.x, p.z) < 0.17f && !in_lake(p.x, p.z, 1.05f) && !in_gorge(p.x, p.z, 20.0f)) found = true;
+    }
+    if (!found) continue;
+    float yaw = atan2f(a.f.x, a.f.z) + 0.5f * rnds(&r) + (W[i].lat > 0 ? 0.8f : -0.8f);
+    float sc = W[i].scale;
+    t3_quat q = t3_quat_from_axis_angle(V3(0, 1, 0), yaw);
+    p.y -= 0.45f * sc;
+    ps_add_ex(ps, W[i].kind ? PK_WRECK_TRUCK : PK_WRECK_CAR, W[i].variant, 0, p, q, V3(sc, sc, sc), (pcol){ 1, 1, 1 }, (uint32_t)i + 1);
+    /* the drift they sank into */
+    pm *b = stand_at(drift, V3(p.x, p.y + 0.3f * sc, p.z), yaw);
+    pm_ball(b, 3.2f * sc, 1.1f * sc, 2.4f * sc, 1, 0.16f, pc_mix(SNOW_C, ICE_LO, 0.3f), SNOW_C);
+    pm_pop(b);
+  }
+  ps_finish(ps);
+  pmc_finish(drift, root, "WreckDrifts", true, -1);
+}
+
+/* ── weather: falling snow, blown spindrift, breath-like mist, steam ──────────────────────────── */
+
+static void set_ramp(cw_node n, const char *ramp) {
+  cw_value v;
+  char buf[200];
+  snprintf(buf, sizeof buf, "\"%s\"", ramp);
+  if (cw_node_valid(n) && cw_value_parse(buf, CW_T_STRING, &v)) cw_node_set(n, "color_ramp", v);
+}
+
+static void build_weather(cw_node scene, cw_node root, const track *t) {
+  (void)root;
+  int before = cw_node_child_count(scene);
+  fx_ambient_follow(scene, FXA_SNOW, 1.0f);
+  fx_ambient_follow(scene, FXA_DUST, 0.8f);
+  /* the dust emitters are the ones just made: they carry the camera's box; recolour them cold and make them blow across the road */
+  for (int i = before; i < cw_node_child_count(scene); i++) {
+    cw_node n = cw_node_child(scene, i);
+    const char *nm = cw_node_name(n);
+    if (nm && strncmp(nm, "Dust", 4) == 0) {
+      set_ramp(n, "0 0.75 0.86 1 0, 0.2 0.8 0.9 1 0.22, 1 0.8 0.9 1 0");
+      cw_node_set(n, "direction", cw_val_vec3(1, 0.08f, 0.35f));
+      cw_node_set(n, "speed_min", cw_val_float(3.0f));
+      cw_node_set(n, "speed_max", cw_val_float(7.0f));
+      cw_node_set(n, "size", cw_val_float(1.1f));
+    }
+  }
+  /* a mist lying on the lake, and one boiling up out of the crevasse */
+  cw_node m1 = fx_ambient_at(scene, FXA_MIST, V3(F.lake_cx, F.lake_y + 1.0f, F.lake_cz), V3(F.lake_rx * 0.7f, 1.0f, F.lake_rz * 0.7f), 1.3f, 420.0f);
+  set_ramp(m1, "0 0.55 0.72 1 0, 0.25 0.6 0.78 1 0.13, 1 0.6 0.78 1 0");
+  cw_node m2 = fx_ambient_at(scene, FXA_MIST, V3(F.lm.gmid.x, F.gorge_floor + 8.0f, F.lm.gmid.z), V3(14.0f, 6.0f, 60.0f), 1.0f, 200.0f);
+  set_ramp(m2, "0 0.2 0.85 1 0, 0.3 0.25 0.85 1 0.3, 1 0.3 0.9 1 0");
+  cw_node_set(m2, "direction", cw_val_vec3(0, 1, 0));
+  cw_node_set(m2, "speed_min", cw_val_float(1.5f));
+  cw_node_set(m2, "speed_max", cw_val_float(3.0f));
+  /* breath of the mountain: steam from vents by the road, pale in the cold */
+  static const float VS[] = { 560, 905, 1700, 2250 };
+  for (unsigned i = 0; i < sizeof VS / sizeof VS[0]; i++) {
+    tsample a = track_at(t, VS[i]);
+    t3_vec3 p = track_point(t, VS[i], (i & 1 ? -1.0f : 1.0f) * (a.hw + 7.0f), 0);
+    p.y = terrain(p.x, p.z, NULL) + 0.2f;
+    cw_node n = fx_ambient_at(scene, FXA_STEAM, p, V3(0.8f, 0.1f, 0.8f), 0.8f, 160.0f);
+    set_ramp(n, "0 0.8 0.92 1 0, 0.1 0.85 0.95 1 0.4, 1 0.9 0.97 1 0");
+  }
+}
+
+/* a development aid for timing: FROST_SKIP=forest,crags,cave,... leaves those parts out */
+static bool skip(const char *what) {
+  const char *e = getenv("FROST_SKIP");
+  return e && strstr(e, what);
+}
+
 static void frost_scenery(cw_node scene, const track *t, uint32_t seed) {
   (void)seed;
   memset(&F, 0, sizeof F);
   memset(&SKY, 0, sizeof SKY);
   F.t = t;
   find_landmarks(t);
+  F.gorge_floor = F.lm.base_y - 38.0f;
   F.lake_cx = 345.0f, F.lake_cz = -235.0f, F.lake_rx = 215.0f, F.lake_rz = 300.0f, F.lake_y = 0.9f;
   build_rf(t);
+  /* the shelves: the station on the roof of the cave, a camp by the start, one on the plateau */
+  {
+    const landmarks *L = &F.lm;
+    int mid = L->tun0 >= 0 ? (L->tun0 + L->tun1) / 2 : 0;
+    float xs[3] = { t->s[mid].p.x, 0, 0 }, zs[3] = { t->s[mid].p.z, 0, 0 };
+    t3_vec3 c1 = track_point(t, 70.0f, 50.0f, 0), c2 = track_point(t, 2420.0f, 46.0f, 0);
+    xs[1] = c1.x, zs[1] = c1.z, xs[2] = c2.x, zs[2] = c2.z;
+    float r0[3] = { 24, 16, 16 }, r1[3] = { 50, 34, 34 };
+    for (int i = 0; i < 3; i++) {
+      F.pad[i].x = xs[i], F.pad[i].z = zs[i], F.pad[i].r0 = r0[i], F.pad[i].r1 = r1[i];
+      F.pad[i].y = terrain(xs[i], zs[i], NULL);
+      F.npads = i + 1;
+    }
+  }
   if (getenv("FROST_DEBUG")) {
     const landmarks *L = &F.lm;
     cw_info("frost: tunnel samples %d..%d cork %d..%d gap %d..%d ramp0 %d base_y %.1f", L->tun0, L->tun1, L->cork0, L->cork1, L->gap0, L->gap1, L->ramp0, L->base_y);
@@ -1322,7 +2135,7 @@ static void frost_scenery(cw_node scene, const track *t, uint32_t seed) {
     }
     for (int k = L->tun0 - 20; k <= L->tun1 + 20; k += 30) {
       const tsample *a = &t->s[k];
-      cw_info("frost: s=%d road y=%.1f terrain=%.1f far=%.1f gap=%.1f", k, a->p.y, terrain(a->p.x, a->p.z, NULL), far_field(a->p.x, a->p.z), road_gap(t, a->p.x, a->p.z, NULL));
+      cw_info("frost: s=%d road y=%.1f terrain=%.1f far=%.1f gap=%.1f", k, a->p.y, terrain(a->p.x, a->p.z, NULL), far_field(a->p.x, a->p.z, 0), road_gap(t, a->p.x, a->p.z, NULL));
     }
   }
   SKY.cx = F.lm.centre.x, SKY.cz = F.lm.centre.z;
@@ -1335,14 +2148,14 @@ static void frost_scenery(cw_node scene, const track *t, uint32_t seed) {
   F.g.height = terrain;
   F.g.tex = TEX_GROUND_SNOW;
   F.g.tex_repeat = 10;
-  F.g.tint = rgb(0.7f, 0.8f, 1.0f);
-  F.g.tint2 = rgb(0.58f, 0.68f, 0.95f);
-  F.g.patch_scale = 90;
+  F.g.tint = rgb(0.3f, 0.42f, 0.78f);
+  F.g.tint2 = rgb(0.16f, 0.22f, 0.42f);
+  F.g.patch_scale = 46;
   F.g.near_cell = 48;
   F.g.detail_range = 130;
   F.g.follow_road = false;
   F.g.darken_edge = 0.12f;
-  F.g.lumpy = 0.12f;
+  F.g.lumpy = 0.22f;
   F.g.rough = 0.8f;
   ground_plane(root, t, &F.g);
 
@@ -1366,13 +2179,44 @@ static void frost_scenery(cw_node scene, const track *t, uint32_t seed) {
       t3_release(o);
     }
   }
+  if (!skip("peaks")) {
   build_peaks(root);
+  }
   restyle_world(scene);
   init_colours();
   build_start(root, t);
+  if (!skip("dress")) {
   build_dressing(root, t);
+  }
+  if (!skip("forest")) {
   build_forest(root, t);
+  }
+  if (!skip("crags")) {
+  build_outcrops(root, t);
+  }
+  if (!skip("lake")) {
   build_lake(root);
+  }
+  if (!skip("crev")) {
+  build_crevasse(root, t);
+  }
+  if (F.lm.tun0 >= 0) {
+    build_portal(root, t, F.lm.tun0, 1, 301);
+    build_portal(root, t, F.lm.tun1, -1, 311);
+  }
+  if (!skip("summit")) {
+  build_summit(root, t);
+  }
+  if (!skip("camps")) {
+  build_camp(root, 1, 501);
+    build_camp(root, 2, 601);
+  }
+  if (!skip("wrecks")) {
+  build_wrecks(root, t);
+  }
+  if (!skip("weather")) {
+  build_weather(scene, root, t);
+  }
   if (!getenv("FROST_NOCAVE")) build_cave(root, t);
   SKY.env = cw_node_get(scene, "Env");
 }
@@ -1387,7 +2231,7 @@ static void frost_frame(float alpha, double time) {
   if (dcam_state > 0 && cw_node_valid(SKY.env)) {
     cw_node cam = cw_node_get(SKY.env, "../Camera");
     if (cw_node_valid(cam)) {
-      cw_node3d_set_position(cam, V3(dcam[0], dcam[1], dcam[2]));
+      cw_node3d_set_position(cam, V3(dcam[0], fmaxf(dcam[1], terrain(dcam[0], dcam[2], NULL) + 3.0f), dcam[2]));
       cw_node3d_look_at(cam, V3(dcam[3], dcam[4], dcam[5]), V3(0, 1, 0));
       cw_node3d_snapshot(cam);
     }
@@ -1404,6 +2248,28 @@ static void frost_frame(float alpha, double time) {
   }
   for (int k = 0; k < NCURT; k++)
     if (SKY.c[k].g) aurora_update(&SKY.c[k], t);
+  flags_frame(t);
+  /* the lanterns and the fire flicker out of step, the mast's red light blinks */
+  for (int k = 0; k < 3; k++)
+    if (AN.flame[k]) {
+      float f = 0.88f + 0.12f * sinf(t * (7.0f + 2.3f * (float)k) + (float)k) + 0.08f * sinf(t * (17.0f + 3.1f * (float)k));
+      if (k == 1) f = 0.8f + 0.25f * sinf(t * 9.0f) + 0.15f * sinf(t * 23.0f + 1.0f);
+      AN.flame[k]->color = (t3_color){ f, f, f };
+    }
+  if (AN.beacon) {
+    float ph = fmodf(t, 1.6f);
+    float on = ph < 0.18f ? 1.0f : ph < 0.3f ? 0.0f : ph < 0.42f ? 1.0f : 0.0f;
+    float k = 0.04f + on;
+    AN.beacon->color = (t3_color){ 5.0f * k, 0.06f * k, 0.04f * k };
+  }
+  for (int k = 0; k < AN.nlights; k++) {
+    float e = AN.light_e[k] * (0.9f + 0.1f * sinf(t * (5.0f + (float)k * 1.3f) + (float)k * 2.0f));
+    if (cw_node_valid(AN.lights[k])) cw_node_set(AN.lights[k], "energy", cw_val_float(e));
+  }
+  if (AN.crev) {
+    float p = 0.8f + 0.25f * sinf(t * 1.3f) + 0.1f * sinf(t * 3.1f);
+    AN.crev->color = (t3_color){ p, p, p };
+  }
   for (int k = 0; k < 3; k++)
     if (SKY.star_mat[k]) SKY.star_mat[k]->opacity = 0.62f + 0.38f * sinf(t * (0.9f + 0.55f * (float)k) + (float)k * 2.1f);
 }

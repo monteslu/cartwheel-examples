@@ -93,3 +93,5 @@ grades/fair.cube
 grades/temple.cube
 # (tools/refinery_grade.mjs)
 grades/refinery.cube
+# (tools/frost_grade.mjs)
+grades/frost.cube
