@@ -331,7 +331,7 @@ static void hud_lap(const hv *g) {
   cw_rect r2 = cw_rect_make(x, y + 68 * s, w, g->medium ? 36 * s : 62 * s);
   slab(r2, 12 * s, PANEL, s);
   float secs = k->finished ? (float)k->finish_tick / TICK_HZ : (float)g->S->race_ticks / TICK_HZ;
-  fmt_time(b, sizeof b, secs);
+  fmt_time(b, sizeof b, fmaxf(secs, 0.001f));
   tx(U.f_title, b, x + w * 0.5f + 4 * s, r2.y + 19 * s, 24 * s, CREAM, CW_ALIGN_CENTER);
   if (g->medium) return;
   const hudv *h = g->hs;
@@ -417,7 +417,7 @@ static void hud_speed(const hv *g) {
   }
   char b[16];
   snprintf(b, sizeof b, "%d", (int)(h->speed_s * 3.6f + 0.5f));
-  tx_o(U.f_title, b, cx, cy - 4 * s, 44 * s, glow > 0.3f ? rgba(1, 0.9f, 0.6f, 1) : CREAM, (txopt){ .align = CW_ALIGN_CENTER });
+  tx_o(U.f_title, b, cx, cy - 4 * s, 38 * s, glow > 0.3f ? rgba(1, 0.9f, 0.6f, 1) : CREAM, (txopt){ .align = CW_ALIGN_CENTER });
   tx(U.f_small, "KM/H", cx, cy + 28 * s, hpx(16, s, 11), DIM, CW_ALIGN_CENTER);
   (void)k;
 }
@@ -678,7 +678,7 @@ static void hud_mapname(const hv *g) {
   float s = g->s;
   float t = S->phase == PH_GRID ? (float)S->phase_ticks / 45.0f * 0.2f : 0.2f + (float)S->phase_ticks / 180.0f * 0.8f;
   float in = ease_out(t / 0.2f), out = t > 0.85f ? ease_io((t - 0.85f) / 0.15f) : 0;
-  float cx = g->x + g->w * 0.5f, y = g->y + g->h * 0.7f + (1 - in) * 60 * s + out * 60 * s;
+  float cx = g->x + g->w * 0.5f, y = g->y + g->h - 82 * s + (1 - in) * 90 * s + out * 90 * s;
   char b[64];
   snprintf(b, sizeof b, "%d LAPS", S->laps);
   float w = fminf(g->w * 0.9f, 460 * s);

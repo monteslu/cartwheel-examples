@@ -14,6 +14,7 @@
  *                                                                          or, for pause and results, a race)
  *   RACER_RES=WxH        window size (a portrait window for example: 540x960)
  *   RACER_PLAYERS=n      humans for join / vehicle / race (1..4)
+ *   RACER_UI_MAP=n      the map of a pause / results dev screen
  *   RACER_UI_FAKE=1      with RACER_UI=results: fill the sim with a finished race so the table can be looked at */
 #include <math.h>
 #include <stddef.h>
@@ -397,7 +398,7 @@ static void save_reset(void) {
   SAVE.size = (uint16_t)sizeof SAVE;
   SAVE.music = 8, SAVE.sfx = 10;
   SAVE.laps = 3, SAVE.skill = 3, SAVE.items = 1;
-  for (int i = 0; i < MAXV; i++) SAVE.veh[i] = (uint8_t)((i * 2) % NVEH), SAVE.col[i] = (uint8_t)i;
+  for (int i = 0; i < MAXV; i++) SAVE.veh[i] = (uint8_t)((i * 2 + i / 3) % NVEH), SAVE.col[i] = (uint8_t)i;
   SAVE.checksum = sum_of();
 }
 static void save_check(void) {
@@ -766,7 +767,7 @@ static void dev_screen(void) {
   else if (!strcmp(d, "options")) U.from = M_TITLE, goto_mode(M_OPTIONS);
   else if (!strcmp(d, "controls")) U.from = M_TITLE, goto_mode(M_CONTROLS);
   else if (!strcmp(d, "pause") || !strcmp(d, "results")) {
-    race_setup rs = { .map = getenv("RACER_MAP") ? atoi(getenv("RACER_MAP")) % NMAPS : 0, .laps = getenv("RACER_LAPS") ? atoi(getenv("RACER_LAPS")) : 1,
+    race_setup rs = { .map = getenv("RACER_UI_MAP") ? atoi(getenv("RACER_UI_MAP")) % NMAPS : 0, .laps = getenv("RACER_LAPS") ? atoi(getenv("RACER_LAPS")) : 1,
                       .humans = n, .cpu_skill = 3, .items = true };
     for (int i = 0; i < MAXV; i++) rs.vehicle[i] = U.veh[i], rs.colour[i] = U.col[i];
     ui_enter_race(&rs);
@@ -809,7 +810,7 @@ void ui_fixed(void) {
 
 void ui_render(float W, float H) {
   U.time = (float)U.ticks / 60.0f;
-  scr_draw(W, H);
   hud_draw(W, H);
+  scr_draw(W, H);
   if (U.fade > 0) cw_r2d_rect(cw_rect_make(0, 0, W, H), rgba(0.01f, 0.01f, 0.02f, ease_io(U.fade)));
 }

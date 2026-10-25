@@ -45,7 +45,6 @@ static void draw_kart_side(float cx, float gy, float u, int veh, int colour, flo
   }
   switch (veh % NVEH) {
   case 0: { /* Scrapper: an open buggy with a roll cage */
-    wheel_m(cx, gy, u, wr, rr, spin);
     float body[] = { -L, r * 0.9f, L * 1.02f, r * 0.9f, L * 1.0f, r * 1.7f, L * 0.45f, r * 2.0f, -L * 0.25f, r * 2.0f, -L * 0.95f, r * 1.8f };
     poly_m(cx, gy, u, body, 6, c, INK, 2.5f);
     float strip[] = { -L, r * 0.9f, L * 1.02f, r * 0.9f, L * 1.0f, r * 1.15f, -L * 0.98f, r * 1.15f };
@@ -58,11 +57,11 @@ static void draw_kart_side(float cx, float gy, float u, int veh, int colour, flo
     cw_r2d_polyline(cage, 4, 0.1f * u, false, lite);
     float hood[] = { L * 0.45f, r * 2.0f, L * 1.0f, r * 1.7f, L * 0.98f, r * 1.4f, L * 0.4f, r * 1.5f };
     poly_m(cx, gy, u, hood, 4, lite, INK, 0);
+    wheel_m(cx, gy, u, wr, rr, spin);
     wheel_m(cx, gy, u, wf, rr, spin);
     break;
   }
   case 1: { /* Rhino: tall, heavy, a plough on the front */
-    wheel_m(cx, gy, u, wr, rr, spin);
     float body[] = { -L, r * 0.9f, L, r * 0.9f, L, r * 2.3f, L * 0.55f, r * 2.55f, L * 0.1f, r * 3.2f, -L * 0.7f, r * 3.2f, -L, r * 2.6f };
     poly_m(cx, gy, u, body, 7, c, INK, 2.5f);
     float win[] = { L * 0.35f, r * 2.55f, L * 0.05f, r * 3.05f, -L * 0.4f, r * 3.05f, -L * 0.4f, r * 2.55f };
@@ -71,11 +70,11 @@ static void draw_kart_side(float cx, float gy, float u, int veh, int colour, flo
     poly_m(cx, gy, u, plough, 4, rgba(0.62f, 0.6f, 0.62f, 1), INK, 2.5f);
     float strip[] = { -L, r * 0.9f, L, r * 0.9f, L, r * 1.25f, -L, r * 1.25f };
     poly_m(cx, gy, u, strip, 4, dark, INK, 0);
+    wheel_m(cx, gy, u, wr, rr, spin);
     wheel_m(cx, gy, u, wf, rr, spin);
     break;
   }
   case 2: { /* Gnat: tiny, a tall wing behind */
-    wheel_m(cx, gy, u, wr, rr, spin);
     float post[] = { -L * 0.78f, r * 1.7f, -L * 0.66f, r * 1.7f, -L * 0.66f, r * 3.2f, -L * 0.78f, r * 3.2f };
     poly_m(cx, gy, u, post, 4, dark, INK, 2);
     float wing[] = { -L * 1.12f, r * 3.2f, -L * 0.3f, r * 3.2f, -L * 0.3f, r * 3.55f, -L * 1.12f, r * 3.55f };
@@ -86,11 +85,11 @@ static void draw_kart_side(float cx, float gy, float u, int veh, int colour, flo
     cw_r2d_circle(cw_v2(cx - L * 0.05f * u, gy - r * 2.7f * u), r * 0.46f * u, 14, CREAM);
     float nose[] = { L * 0.95f, r * 0.85f, L * 1.3f, r * 0.85f, L * 1.25f, r * 1.1f, L * 0.95f, r * 1.2f };
     poly_m(cx, gy, u, nose, 4, lite, INK, 2);
+    wheel_m(cx, gy, u, wr, rr, spin);
     wheel_m(cx, gy, u, wf, rr, spin);
     break;
   }
   case 3: { /* Sidewinder: a low wedge with side pipes */
-    wheel_m(cx, gy, u, wr, rr, spin);
     float body[] = { -L, r * 0.85f, L * 1.08f, r * 0.8f, L * 0.95f, r * 1.4f, L * 0.1f, r * 2.0f, -L * 0.55f, r * 1.95f, -L, r * 1.55f };
     poly_m(cx, gy, u, body, 6, c, INK, 2.5f);
     float stripe[] = { -L * 0.95f, r * 1.2f, L * 0.9f, r * 1.1f, L * 0.88f, r * 1.3f, -L * 0.95f, r * 1.4f };
@@ -101,11 +100,11 @@ static void draw_kart_side(float cx, float gy, float u, int veh, int colour, flo
     poly_m(cx, gy, u, pipe, 4, rgba(0.7f, 0.7f, 0.74f, 1), INK, 1.5f);
     float win[] = { L * 0.3f, r * 1.55f, L * 0.05f, r * 1.95f, -L * 0.3f, r * 1.95f, -L * 0.3f, r * 1.6f };
     poly_m(cx, gy, u, win, 4, rgba(0.55f, 0.85f, 0.95f, 1), INK, 2);
+    wheel_m(cx, gy, u, wr, rr, spin);
     wheel_m(cx, gy, u, wf, rr, spin);
     break;
   }
   case 4: { /* Longhaul: a long hood, a tall cab at the back, two stacks */
-    wheel_m(cx, gy, u, wr, rr, spin);
     float body[] = { -L, r * 0.9f, L * 1.05f, r * 0.9f, L * 1.05f, r * 1.9f, L * 0.4f, r * 2.1f, L * 0.2f, r * 2.1f, -L, r * 2.1f };
     poly_m(cx, gy, u, body, 6, c, INK, 2.5f);
     float cab[] = { -L, r * 2.1f, -L * 0.92f, r * 3.3f, -L * 0.1f, r * 3.3f, L * 0.2f, r * 2.1f };
@@ -119,11 +118,11 @@ static void draw_kart_side(float cx, float gy, float u, int veh, int colour, flo
     }
     float grille[] = { L * 1.05f, r * 1.0f, L * 1.1f, r * 1.0f, L * 1.1f, r * 1.8f, L * 1.05f, r * 1.8f };
     poly_m(cx, gy, u, grille, 4, rgba(0.62f, 0.6f, 0.62f, 1), INK, 1.5f);
+    wheel_m(cx, gy, u, wr, rr, spin);
     wheel_m(cx, gy, u, wf, rr, spin);
     break;
   }
   default: { /* Pogo: a round body on a spring */
-    wheel_m(cx, gy, u, wr, rr, spin);
     float bob = 0.1f * cw_sin(t * 6);
     cw_vec2 sp[7];
     for (int i = 0; i < 7; i++) sp[i] = cw_v2(cx + (((i & 1) ? 0.22f : -0.22f)) * u, gy - (r * 1.1f + (r * 1.3f + bob) * (float)i / 6.0f) * u);
@@ -140,6 +139,7 @@ static void draw_kart_side(float cx, float gy, float u, int veh, int colour, flo
     poly_m(cx, gy, u, win, 4, rgba(0.55f, 0.85f, 0.95f, 1), INK, 2);
     cw_r2d_line(cw_v2(cx - L * 0.7f * u, gy - (r * 3.8f + bob) * u), cw_v2(cx - L * 0.95f * u, gy - (r * 4.7f + bob) * u), 0.05f * u + 1.5f, INK);
     cw_r2d_circle(cw_v2(cx - L * 0.95f * u, gy - (r * 4.7f + bob) * u), 0.1f * u, 10, RED);
+    wheel_m(cx, gy, u, wr, rr, spin);
     wheel_m(cx, gy, u, wf, rr, spin);
     break;
   }
@@ -220,7 +220,7 @@ static void draw_button(cw_rect r, const char *label, bool sel, bool enabled, fl
   slab(q, 14 * s, fill, s);
   if (sel) para(cw_rect_make(q.x + 6 * s, q.y + q.h - 8 * s, q.w - 12 * s, 5 * s), 0, alpha(RUST, a));
   cw_color tc = !enabled ? alpha(DIM, a * 0.6f) : sel ? alpha(INK, a) : alpha(CREAM, a);
-  tx_o(U.f_title, label, q.x + q.w * 0.5f + 6 * s, q.y + q.h * 0.46f, q.h * 0.42f, tc, (txopt){ .align = CW_ALIGN_CENTER, .outline = sel ? 0.01f : 0, .no_shadow = sel });
+  tx_o(U.f_title, label, q.x + q.w * 0.5f + 6 * s, q.y + q.h * 0.5f, q.h * 0.42f, tc, (txopt){ .align = CW_ALIGN_CENTER, .outline = sel ? 0.01f : 0, .no_shadow = sel });
   if (sel) {
     float bob = 3 * s * cw_sin(U.time * 8);
     tri(cw_v2(q.x - 22 * s + bob, q.y + q.h * 0.5f), 11 * s, 0, INK);
@@ -245,7 +245,7 @@ static void draw_logo(float cx, float cy, float size, float s, float appear) {
 /* ── layouts ────────────────────────────────────────────────────────── */
 
 static cw_rect list_rect(int i, float W, float H, float top_frac) {
-  float s = lscale(W, H), bw = 340 * s, bh = 56 * s, gap = 14 * s;
+  float s = lscale(W, H), bw = 340 * s, bh = 50 * s, gap = 11 * s;
   return cw_rect_make((W - bw) * 0.5f, H * top_frac + (float)i * (bh + gap), bw, bh);
 }
 static int title_count(void) {
@@ -281,17 +281,17 @@ static void vlayout(cw_rect P, vlay *l) {
     l->name = DR(60, 0, 300, 28);
     l->arrow_l = DR(52, 0, 30, 28);
     l->arrow_r = DR(338, 0, 30, 28);
-    l->stage = DR(6, 36, 246, 112);
+    l->stage = DR(6, 36, 246, 118);
     l->stats = DR(262, 38, 154, 108);
     l->blurb = DR(8, 156, 404, 34);
     for (int i = 0; i < N_COLOURS; i++) l->sw[i] = DR(10 + 25.0f * (float)i, 200, 20, 20);
     l->ready = DR(232, 196, 180, 36);
     l->dot_r = 3.4f * l->sp;
-    for (int i = 0; i < NVEH; i++) l->dot[i] = cw_v2(l->ox + (129 + ((float)i - 2.5f) * 16) * l->sp, l->oy + 141 * l->sp);
+    for (int i = 0; i < NVEH; i++) l->dot[i] = cw_v2(l->ox + (129 + ((float)i - 2.5f) * 16) * l->sp, l->oy + 147 * l->sp);
   } else {
     l->tag = DR(0, 0, 46, 26);
-    l->name = DR(30, 0, 240, 28);
-    l->arrow_l = DR(0, 0, 30, 28);
+    l->name = DR(78, 0, 196, 28);
+    l->arrow_l = DR(48, 0, 30, 28);
     l->arrow_r = DR(270, 0, 30, 28);
     l->stage = DR(4, 36, 292, 128);
     l->stats = DR(14, 190, 272, 122);
@@ -339,16 +339,16 @@ static void map_layout(float W, float H, maplay *m) {
   float gx = W * 0.03f, gw = W * 0.94f, gap = 10 * s;
   if (!m->portrait) {
     m->cols = 4;
-    float cw = (gw - 3 * gap) / 4, ch = 112 * s, y0 = 92 * s;
+    float cw = (gw - 3 * gap) / 4, ch = 98 * s, y0 = 90 * s;
     for (int i = 0; i < NMAPS; i++) m->card[i] = cw_rect_make(gx + (float)(i % 4) * (cw + gap), y0 + (float)(i / 4) * (ch + gap), cw, ch);
-    float by = y0 + 2 * ch + gap + 14 * s, bh = H - by - 66 * s;
+    float by = y0 + 2 * ch + gap + 10 * s, bh = H - by - 64 * s;
     m->detail = cw_rect_make(gx, by, gw * 0.56f, bh);
     float bs = fminf(bh - 12 * s, gw * 0.56f * 0.42f);
     m->big = cw_rect_make(gx + 8 * s, by + 6 * s, bs, bs);
     float ox = gx + gw * 0.56f + gap, ow = gw * 0.44f - gap;
-    float rh = fminf(46 * s, (bh - 56 * s) / 3 - 6 * s);
-    for (int i = 0; i < 3; i++) m->optrow[i] = cw_rect_make(ox, by + (float)i * (rh + 6 * s), ow, rh);
-    m->start = cw_rect_make(ox, by + 3 * (rh + 6 * s) + 2 * s, ow, fminf(54 * s, by + bh - (by + 3 * (rh + 6 * s) + 2 * s)));
+    float rh = fmaxf(fminf(40 * s, (bh - 50 * s) / 3 - 5 * s), 22 * s);
+    for (int i = 0; i < 3; i++) m->optrow[i] = cw_rect_make(ox, by + (float)i * (rh + 5 * s), ow, rh);
+    m->start = cw_rect_make(ox, by + 3 * (rh + 5 * s) + 2 * s, ow, fmaxf(fminf(50 * s, by + bh - (by + 3 * (rh + 5 * s) + 2 * s)), 30 * s));
   } else {
     m->cols = 2;
     float cw = (gw - gap) / 2, ch = 92 * s, y0 = 96 * s;
@@ -524,7 +524,7 @@ static void tick_title(float W, float H) {
   }
   int n = title_count();
   cw_rect rects[4];
-  for (int i = 0; i < n; i++) rects[i] = list_rect(i, W, H, is_portrait(W, H) ? 0.42f : 0.4f);
+  for (int i = 0; i < n; i++) rects[i] = list_rect(i, W, H, is_portrait(W, H) ? 0.4f : 0.36f);
   if (N.back) {
     U.title_menu = 0;
     U.mt = 0;
@@ -870,7 +870,7 @@ static void tick_race(float W, float H) {
 static void tick_pause(float W, float H) {
   if (U.pending != PD_NONE) return;
   cw_rect rects[5];
-  for (int i = 0; i < 5; i++) rects[i] = list_rect(i, W, H, is_portrait(W, H) ? 0.34f : 0.33f);
+  for (int i = 0; i < 5; i++) rects[i] = list_rect(i, W, H, is_portrait(W, H) ? 0.3f : 0.3f);
   bool resume = (N.start || N.back) && U.mt > 8;
   if (N.dy) U.sel = (U.sel + N.dy + 5) % 5, sfx_move();
   if (pointer_mode() && N.moved)
@@ -1016,7 +1016,7 @@ static void draw_title(float W, float H, float s) {
   int n = title_count();
   for (int i = 0; i < n; i++) {
     float ap = clamp01(((float)U.mt - (float)i * 4) / 18.0f);
-    draw_button(list_rect(i, W, H, por ? 0.42f : 0.4f), TITLE_ITEMS[i], U.sel == i, true, s, ap);
+    draw_button(list_rect(i, W, H, por ? 0.4f : 0.36f), TITLE_ITEMS[i], U.sel == i, true, s, ap);
   }
   hint_line(W, H, s, dev_hint("D-pad move   (A) choose   (B) back", "Arrows move   Enter choose   Esc back", "Click to choose", "Tap to choose"));
 }
@@ -1058,7 +1058,7 @@ static void draw_join(float W, float H, float s) {
   cr.x += shake;
   draw_button(cr, can ? "CONTINUE" : "WAITING FOR PLAYER 2", can, can, s, clamp01((float)U.mt / 20.0f));
   char b[128];
-  snprintf(b, sizeof b, "%d players. Player 1 uses the keyboard or the first pad; the rest need a pad each.", n);
+  snprintf(b, sizeof b, "%d player%s. Player 1 uses the keyboard or the first pad; the rest need a pad each.", n, n == 1 ? "" : "s");
   tx_fit(U.f_small, b, W * 0.5f, H - 78 * s, 18 * s, W * 0.92f, alpha(CREAM, 0.85f), CW_ALIGN_CENTER);
   cw_rect br = back_button_rect(W, H);
   draw_button(br, "BACK", false, true, s * 0.8f, 1);
@@ -1119,7 +1119,7 @@ static void draw_vpanel(int i, int n, float W, float H, float s) {
   cw_r2d_circle(cw_v2(st.x + st.w * 0.5f, st.y + st.h * 0.62f), st.h * 0.38f, 24, rgba(0.35f, 0.24f, 0.12f, 0.3f));
   cw_r2d_set_blend(CW_BLEND_ALPHA);
   float slide = (1 - ease_out((float)U.veh_anim[i] / 16.0f)) * (float)U.veh_dir[i] * st.w * 0.5f;
-  float u = fminf(st.w / 4.7f, st.h / 2.35f);
+  float u = fminf(st.w / 3.9f, st.h / 2.15f);
   float bob = ready ? 0 : 1.2f * sp * cw_sin(U.time * 3.2f + (float)i);
   draw_kart_side(st.x + st.w * 0.5f + slide, st.y + st.h * 0.8f + bob, u, U.veh[i], U.col[i], ready ? 1.0f : 0.25f, U.time + (float)i);
   cw_r2d_pop_clip();
@@ -1152,6 +1152,7 @@ static void draw_vpanel(int i, int n, float W, float H, float s) {
     bool taken = colour_taken(i, c, n);
     cw_r2d_circle(ctr, q.w * 0.5f + 1.5f * sp, 14, INK);
     cw_r2d_circle(ctr, q.w * 0.5f - 0.5f * sp, 14, alpha(kart_col(c), taken ? 0.25f : 1));
+    if (taken) cw_r2d_line(cw_v2(ctr.x - q.w * 0.28f, ctr.y - q.w * 0.28f), cw_v2(ctr.x + q.w * 0.28f, ctr.y + q.w * 0.28f), 1.6f * sp, alpha(CREAM, 0.5f));
     if (c == U.col[i]) {
       cw_r2d_circle_lines(ctr, q.w * 0.5f + 3.2f * sp, 2.4f * sp, 16, CREAM);
       cw_r2d_circle_lines(ctr, q.w * 0.5f + 5.2f * sp, 1.2f * sp, 16, INK);
@@ -1244,8 +1245,17 @@ static void draw_map(float W, float H, float s) {
     iy += 26 * s;
   }
   if (mm->ok && iy < d.y + d.h - 18 * s) {
-    snprintf(b, sizeof b, "%d jumps  %d loops  %d tunnels", mm->njumps, mm->nloops, mm->ntunnels);
-    tx_fit(U.f_small, b, tx0, iy, 18 * s, tw, CREAM, CW_ALIGN_LEFT);
+    float lx = tx0;
+    for (int k = 0; k < 3; k++) {
+      int cnt = k == 0 ? mm->njumps : k == 1 ? mm->nloops : mm->ntunnels;
+      snprintf(b, sizeof b, "%d %s", cnt, k == 0 ? (cnt == 1 ? "jump" : "jumps") : k == 1 ? (cnt == 1 ? "loop" : "loops") : (cnt == 1 ? "tunnel" : "tunnels"));
+      cw_vec2 dc = cw_v2(lx + 7 * s, iy);
+      if (k == 0) cw_r2d_circle(dc, 6 * s, 10, rgba(1.0f, 0.22f, 0.22f, 1));
+      else if (k == 1) cw_r2d_circle_lines(dc, 6 * s, 2.5f * s, 12, MUSTARD);
+      else cw_r2d_circle(dc, 6 * s, 10, rgba(0.7f, 0.7f, 0.75f, 1));
+      tx(U.f_small, b, lx + 18 * s, iy, 17 * s, CREAM, CW_ALIGN_LEFT);
+      lx += 18 * s + tx_width(U.f_small, b, 17 * s) + 14 * s;
+    }
     iy += 26 * s;
   }
   if (iy < d.y + d.h - 10 * s) {
@@ -1340,7 +1350,7 @@ static void draw_controls(float W, float H, float s) {
   };
   int np = (int)(sizeof PADROWS / sizeof PADROWS[0]), nk = (int)(sizeof KEYROWS / sizeof KEYROWS[0]);
   float gx = W * 0.03f, gw = W * 0.94f, gap = 14 * s;
-  float y0 = 100 * s, hh = H - y0 - 80 * s;
+  float y0 = 96 * s, hh = H - y0 - 104 * s;
   cw_rect pr, kr;
   if (por) {
     pr = cw_rect_make(gx, y0, gw, hh * 0.5f - gap * 0.5f);
@@ -1391,16 +1401,16 @@ static void draw_controls(float W, float H, float s) {
 static void draw_pause(float W, float H, float s) {
   cw_r2d_rect(cw_rect_make(0, 0, W, H), rgba(0.02f, 0.01f, 0.03f, 0.62f * ease_out((float)U.mt / 10.0f)));
   float t = ease_back((float)U.mt / 16.0f);
-  cw_rect b = cw_rect_make(W * 0.5f - 230 * s, H * 0.17f - (1 - t) * 120 * s, 460 * s, 78 * s);
+  cw_rect b = cw_rect_make(W * 0.5f - 200 * s, H * 0.1f - (1 - t) * 120 * s, 400 * s, 70 * s);
   slab(b, 18 * s, rgba(0.1f, 0.07f, 0.09f, 0.95f), s);
   para(cw_rect_make(b.x + 6 * s, b.y + b.h - 9 * s, b.w - 12 * s, 6 * s), 0, MUSTARD);
-  tx_o(U.f_title, "PAUSED", b.x + b.w * 0.5f + 8 * s, b.y + 36 * s, 48 * s, MUSTARD, (txopt){ .align = CW_ALIGN_CENTER });
+  tx_o(U.f_title, "PAUSED", b.x + b.w * 0.5f + 8 * s, b.y + 32 * s, 44 * s, MUSTARD, (txopt){ .align = CW_ALIGN_CENTER });
   if (game_views() > 1) {
     char p[32];
     snprintf(p, sizeof p, "Player %d paused", U.pauser + 1);
     tx(U.f_hud, p, W * 0.5f, b.y + b.h + 24 * s, 20 * s, CREAM, CW_ALIGN_CENTER);
   }
-  for (int i = 0; i < 5; i++) draw_button(list_rect(i, W, H, is_portrait(W, H) ? 0.34f : 0.33f), PAUSE_ITEMS[i], U.sel == i, true, s, clamp01(((float)U.mt - (float)i * 3) / 14.0f));
+  for (int i = 0; i < 5; i++) draw_button(list_rect(i, W, H, is_portrait(W, H) ? 0.3f : 0.3f), PAUSE_ITEMS[i], U.sel == i, true, s, clamp01(((float)U.mt - (float)i * 3) / 14.0f));
   hint_line(W, H, s, dev_hint("D-pad move   (A) choose   START resume", "Arrows move   Enter choose   Esc resume", "Click to choose", "Tap to choose"));
 }
 
@@ -1468,8 +1478,8 @@ static void draw_results(float W, float H, float s) {
     bool wide_cols = tab.w > 520 * s;
     float rowh = por ? 30 * s : fminf(36 * s, (tab.h - 100 * s) / 8.0f);
     float cx_rank = tab.x + 22 * s, cx_name = tab.x + 48 * s;
-    float cx_time = tab.x + tab.w * (wide_cols ? 0.52f : 0.56f), cx_best = tab.x + tab.w * (wide_cols ? 0.69f : 0.76f);
-    float cx_hits = tab.x + tab.w * 0.82f, cx_tr = tab.x + tab.w * 0.9f, cx_pts = tab.x + tab.w - 14 * s;
+    float cx_time = tab.x + tab.w * (wide_cols ? 0.47f : 0.56f), cx_best = tab.x + tab.w * (wide_cols ? 0.645f : 0.76f);
+    float cx_hits = tab.x + tab.w * 0.775f, cx_tr = tab.x + tab.w * 0.865f, cx_pts = tab.x + tab.w - 18 * s;
     float hy = tab.y + 22 * s;
     float hsz = 15 * s;
     tx(U.f_small, "DRIVER", cx_name, hy, hsz, DIM, CW_ALIGN_LEFT);
@@ -1532,9 +1542,9 @@ static void draw_results(float W, float H, float s) {
     }
     bool rec = false;
     for (int i = 0; i < U.res_n; i++) rec = rec || U.res[i].record;
-    if (rec && tab.h > 8 * rowh + 70 * s) {
+    if (rec) {
       float pulse = 0.7f + 0.3f * cw_sin(U.time * 6);
-      tx(U.f_title, "NEW LAP RECORD", tab.x + tab.w * 0.5f, tab.y + tab.h - 22 * s, 18 * s, alpha(LIME, pulse * pa), CW_ALIGN_CENTER);
+      tx(U.f_title, "NEW LAP RECORD", tab.x + 128 * s, hy, 12 * s, alpha(LIME, pulse * pa), CW_ALIGN_LEFT);
     }
     /* the podium */
     if (!por) {
