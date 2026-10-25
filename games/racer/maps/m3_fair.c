@@ -493,6 +493,7 @@ typedef struct ferris {
   float R;
 } ferris;
 static ferris WHEEL;
+static cw_node LIGHT_CAROUSEL, LIGHT_HAUNTED;
 
 static t3_object *obj_from_model(const prop_model *m, t3_material *glowm, int tex, bool cast) {
   t3_object *grp = t3_group_new();
@@ -1210,15 +1211,15 @@ static void build_chevrons(pmc *wood, gcells *chase[3], const frame *f, float di
   pm_box(b, 0.5f, 0.5f, 0.5f, WOODC, WOODC);
   pm_push(b);
   pm_move(b, 0, 8.0f, -0.2f);
-  pm_box(b, 14.6f, 9.6f, 0.2f, hex(0xeadfc4), hex(0xeadfc4));
-  pm_move(b, 0, 0.6f, 0.12f);
-  pm_box(b, 13.4f, 8.4f, 0.2f, pc_mix(PURPLE, BLACK, 0.45f), pc_mix(PURPLE, BLACK, 0.15f));
+  pm_box(b, 11.8f, 7.8f, 0.2f, hex(0xeadfc4), hex(0xeadfc4));
+  pm_move(b, 0, 0.5f, 0.12f);
+  pm_box(b, 10.8f, 6.8f, 0.2f, pc_mix(PURPLE, BLACK, 0.45f), pc_mix(PURPLE, BLACK, 0.15f));
   pm_pop(b);
   pm_pop(b);
   for (int c = 0; c < 3; c++)
     for (int arm = -4; arm <= 4; arm++) {
-      float x = dir * (-4.5f + 3.0f * (float)c + (float)(4 - abs(arm)) * 0.9f);
-      float y = 12.5f + (float)arm * 0.85f;
+      float x = dir * (-3.4f + 2.4f * (float)c + (float)(4 - abs(arm)) * 0.7f);
+      float y = 11.9f + (float)arm * 0.7f;
       bulb(chase[c], fw(f, x, y, 0.2f), 0.32f, hex(0xffd070), 4.4f);
     }
 }
@@ -1430,9 +1431,9 @@ static void build_park(cw_node root, pmc *st, pmc *wood, gcells *chase[3], gcell
     for (float s = 30; s < t->length - 30 && n < 8; s += 5.0f) {
       float k = track_curvature(t, s + 30.0f, 40.0f);
       tsample a = track_at(t, s);
-      if (fabsf(k) > 0.0045f && s - last > 200.0f && !(a.flags & (TF_LOOP | TF_GAP))) {
+      if (fabsf(k) > 0.0075f && s - last > 200.0f && !(a.flags & (TF_LOOP | TF_GAP))) {
         last = s;
-        float lat = k > 0 ? a.hw + 7.0f : -(a.hw + 7.0f); /* outside of the turn: + curvature turns left, so the outside is the right */
+        float lat = k > 0 ? a.hw + 10.0f : -(a.hw + 10.0f); /* outside of the turn: + curvature turns left, so the outside is the right */
         t3_vec3 p = track_point(t, s + 12.0f, lat, 0);
         tsample at = track_at(t, s + 12.0f);
         /* stand on the ground under the road's edge (the road may be high) */
@@ -1505,19 +1506,6 @@ static void build_life(cw_node root, const track *t) {
     cw_node3d_set_position(n, V3(95, 2, -60 + 40.0f * (float)i));
     cw_node_set(n, "emitting", cw_val_bool(true));
   }
-  /* a few slow clouds lit from below by the sunset: big soft blobs drifting across the whole sky */
-  for (int i = 0; i < 2; i++) {
-    const char *tint = i ? "1.0 0.66 0.5" : "0.95 0.55 0.7";
-    char ramp[160], nm[24];
-    snprintf(ramp, sizeof ramp, "\"0 %s 0, 0.15 %s 0.16, 0.85 %s 0.16, 1 %s 0\"", tint, tint, tint, tint);
-    snprintf(nm, sizeof nm, "Clouds%d", i);
-    const char *kv[] = { "amount", "14", "lifetime", "100", "emission_shape", "BOX", "emission_extents", "vec3(1100, 25, 1100)", "direction", "vec3(1, 0, 0.3)", "spread", "10",
-      "speed_min", "3", "speed_max", "6", "gravity", "vec3(0, 0, 0)", "size", "520", "size_random", "0.5", "color_ramp", ramp, "energy", "1.8", "blend", "ALPHA",
-      "local_coords", "false", "preprocess", "100", NULL };
-    cw_node n = pnode(root, nm, kv, 600 + i);
-    cw_node3d_set_position(n, V3(90, 330.0f + 70.0f * (float)i, 100));
-    cw_node_set(n, "emitting", cw_val_bool(true));
-  }
   /* fireworks: a burst now and then, each in its own colour */
   static const float fp[7][3] = { { 60, 130, -150 }, { 160, 150, -40 }, { 100, 120, 110 }, { 208, 85, -120 }, { -30, 140, 300 }, { 110, 160, 420 }, { 60, 110, -380 } };
   static const char *const fc[7] = { "1 0.35 0.2", "1 0.85 0.3", "0.4 0.9 1", "1 0.3 0.7", "0.5 1 0.4", "1 0.6 0.2", "0.7 0.5 1" };
@@ -1555,14 +1543,21 @@ static void build_life(cw_node root, const track *t) {
       ncr++;
     }
   prop_model_free(&bird);
-  /* three real lights: the clown's throat, the carousel and the wheel's foot */
-  static const float lp[3][4] = { { 0, 6.0f, 44, 40 }, { 0, 0, 0, 0 }, { 0, 0, 0, 0 } };
-  cw_node l = cw_node_new("OmniLight3D", "ThroatLight");
-  cw_node_add_child(root, l);
-  cw_node_set(l, "color", cw_val_color(1.0f, 0.62f, 0.3f, 1));
-  cw_node_set(l, "energy", cw_val_float(900));
-  cw_node_set(l, "range", cw_val_float(lp[0][3]));
-  cw_node3d_set_position(l, V3(lp[0][0], lp[0][1], lp[0][2]));
+  /* three real lights, all the rest of the glow is emissive: the clown's throat, the carousel, the haunted porch (it flickers) */
+  struct { const char *name; t3_vec3 at; float r, g, b, energy, range; cw_node *keep; } lights[3] = {
+    { "ThroatLight", V3(0, 6.0f, 44), 1.0f, 0.62f, 0.3f, 900, 40, NULL },
+    { "CarouselLight", V3(P.helix_c.x, P.helix_c.y + 36.0f, P.helix_c.z), 1.0f, 0.7f, 0.4f, 2600, 80, &LIGHT_CAROUSEL },
+    { "HauntedLight", V3(41 - 22.0f, 6.0f, 735 - 30.0f), 0.45f, 1.0f, 0.5f, 700, 36, &LIGHT_HAUNTED },
+  };
+  for (int i = 0; i < 3; i++) {
+    cw_node l = cw_node_new("OmniLight3D", lights[i].name);
+    cw_node_add_child(root, l);
+    cw_node_set(l, "color", cw_val_color(lights[i].r, lights[i].g, lights[i].b, 1));
+    cw_node_set(l, "energy", cw_val_float(lights[i].energy));
+    cw_node_set(l, "range", cw_val_float(lights[i].range));
+    cw_node3d_set_position(l, lights[i].at);
+    if (lights[i].keep) *lights[i].keep = l;
+  }
 }
 
 static void life_frame(float t) {
@@ -1802,6 +1797,8 @@ static void fair_scenery(cw_node scene, const track *t, uint32_t seed) {
   cw_node root = cw_node_new("Node3D", "Fair");
   cw_node_add_child(scene, root);
   nspin = 0, nfw = 0, ncr = 0;
+  memset(&WHEEL, 0, sizeof WHEEL);
+  LIGHT_CAROUSEL = LIGHT_HAUNTED = (cw_node){ 0 };
   RS = 77;
   for (int i = 0; i < 8; i++) GM[i] = glow_mat_new();
 
@@ -1916,6 +1913,10 @@ static void fair_frame(float alpha, double time) {
     GM[GM_FLICK + k]->color = (t3_color){ v, v, v };
   }
   life_frame(t);
+  if (cw_node_valid(LIGHT_HAUNTED)) {
+    float fl = 0.5f + 0.5f * (sinf(t * 23.0f) * sinf(t * 9.1f) > 0.55f ? 0.1f : 1.0f);
+    cw_node_set(LIGHT_HAUNTED, "energy", cw_val_float(700.0f * fl));
+  }
   for (int i = 0; i < nspin; i++) cw_node3d_set_quaternion(SPIN[i].n, t3_quat_from_axis_angle(SPIN[i].axis, SPIN[i].rate * t + SPIN[i].phase));
   if (cw_node_valid(WHEEL.wheel)) {
     float ang = 0.075f * t;
