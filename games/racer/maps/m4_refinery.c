@@ -1681,7 +1681,7 @@ static void smoke_columns(void) {
   t3_material *sm = t3_mesh_basic_material_new(0xffffff);
   sm->vertex_colors = true;
   sm->transparent = true;
-  sm->opacity = 0.9f;
+  sm->opacity = 0.72f;
   sm->depth_write = false;
   sm->side = T3_DOUBLE_SIDE;
   for (int i = 0; i < 8; i++) {
