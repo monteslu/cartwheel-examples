@@ -133,3 +133,4 @@ basic+map+trans+rep+ds
 standard+map+trans+l1001+xcluster
 physical+vcol+cc+irid+l1001+xcluster
 physical+vcol+senv+cc+irid+l3001+xcluster
+physical+map+vcol+rep+nmap+ao+emap+rmap+shadow+senv+ds+l1001+xcluster

@@ -71,6 +71,9 @@ static const piece SPEC[] = {
 
 #define TAU_F 6.2831853f
 
+/* split screen draws the scene once per view: scatter counts are scaled by this (1 for one view) */
+static float THIN = 1.0f;
+
 static float hashf2(int x, int z, uint32_t seed) {
   uint32_t h = (uint32_t)x * 73856093u ^ (uint32_t)z * 19349663u ^ seed * 83492791u;
   h ^= h >> 16, h *= 0x7feb352du, h ^= h >> 15, h *= 0x846ca68bu, h ^= h >> 16;
@@ -338,7 +341,7 @@ static void build_aurora(cw_node parent) {
   static const float R[NCURT] = { 1250, 1500, 1200, 1450, 1350 }, H0[NCURT] = { 330, 420, 290, 380, 350 }, HH[NCURT] = { 520, 600, 480, 560, 540 };
   for (int k = 0; k < NCURT; k++) {
     curtain *c = &SKY.c[k];
-    c->nu = 120, c->nv = 9;
+    c->nu = 72, c->nv = 6;
     c->a0 = A0[k], c->a1 = A0[k] + SPAN[k], c->R = R[k], c->h0 = H0[k], c->H = HH[k];
     c->phase = (float)k * 1.7f, c->speed = 0.7f + 0.18f * (float)k, c->hue = (float)k / (float)NCURT;
     int nv = (c->nu + 1) * (c->nv + 1);
@@ -401,7 +404,7 @@ static void aurora_update(curtain *c, float t) {
       float m = cw_clampf(cw_smoothstep(0.1f, 0.95f, v) + (hue_shift - 0.5f) * 0.45f + (c->hue - 0.5f) * 0.2f, 0, 1);
       /* green (0.12, 1, 0.4) up through teal (0.1, 0.85, 0.8) to violet (0.55, 0.3, 1) */
       float r0 = 0.12f + 0.45f * m * m, g0 = 1.0f - 0.2f * m - 0.55f * m * m, b0 = 0.4f + 0.6f * m;
-      C[k] = r0 * I * 1.5f, C[k + 1] = g0 * I * 1.5f, C[k + 2] = b0 * I * 1.5f;
+      C[k] = r0 * I * 3.2f, C[k + 1] = g0 * I * 3.2f, C[k + 2] = b0 * I * 3.2f;
     }
   }
   c->g->attributes[T3_ATTR_POSITION]->version++;
@@ -1241,7 +1244,7 @@ static void build_forest(cw_node root, const track *t) {
   o.nkinds = 3;
   o.scale_min = 0.75f, o.scale_max = 1.5f;
   o.from_s = 0, o.to_s = t->length;
-  o.spacing = 7.5f, o.jitter = 1.0f;
+  o.spacing = 7.5f / THIN, o.jitter = 1.0f;
   o.lat_min = 3.0f, o.lat_max = 150.0f, o.lat_curve = 1.7f;
   o.margin = 3.0f;
   o.lod_dist = 90.0f, o.far_thin = 0.3f;
@@ -1250,7 +1253,7 @@ static void build_forest(cw_node root, const track *t) {
   /* the big old ones, scattered wide: they stand over the road and make the pass feel tall */
   o.kinds[0] = PK_SNOW_PINE, o.weight[0] = 1, o.nkinds = 1;
   o.scale_min = 2.0f, o.scale_max = 3.1f;
-  o.spacing = 34.0f, o.lat_min = 7.0f, o.lat_max = 70.0f, o.lat_curve = 1.0f;
+  o.spacing = 34.0f / THIN, o.lat_min = 7.0f, o.lat_max = 70.0f, o.lat_curve = 1.0f;
   o.lod_dist = 160.0f, o.far_thin = 0;
   o.seed = 9;
   n += scatter_along(ps, t, &o);
@@ -1263,7 +1266,7 @@ static void build_forest(cw_node root, const track *t) {
   o.nkinds = 2;
   o.scale_min = 0.8f, o.scale_max = 1.7f;
   o.cx = 330, o.cz = -100, o.half_x = 900, o.half_z = 1000;
-  o.density = 0.9f;
+  o.density = 0.9f * THIN;
   o.margin = 14.0f;
   o.lod_dist = 80.0f, o.far_thin = 0.4f;
   o.seed = 13;
@@ -1277,7 +1280,7 @@ static void build_forest(cw_node root, const track *t) {
   o.nkinds = 2;
   o.scale_min = 0.9f, o.scale_max = 2.6f;
   o.from_s = 0, o.to_s = t->length;
-  o.spacing = 22.0f, o.jitter = 1.0f;
+  o.spacing = 22.0f / THIN, o.jitter = 1.0f;
   o.lat_min = 3.0f, o.lat_max = 60.0f, o.lat_curve = 1.5f;
   o.sink = 0.55f;
   o.seed = 21;
@@ -1296,7 +1299,7 @@ static void build_forest(cw_node root, const track *t) {
   o.nkinds = 3;
   o.scale_min = 0.9f, o.scale_max = 1.9f;
   o.from_s = (float)F.lm.ice0, o.to_s = (float)F.lm.ice1 + 40.0f;
-  o.spacing = 11.0f, o.jitter = 1.0f;
+  o.spacing = 11.0f / THIN, o.jitter = 1.0f;
   o.lat_min = 2.5f, o.lat_max = 38.0f, o.lat_curve = 1.8f;
   o.sink = 0.2f;
   o.seed = 31;
@@ -1311,7 +1314,7 @@ static void build_forest(cw_node root, const track *t) {
   o.nkinds = 3;
   o.scale_min = 1.0f, o.scale_max = 2.4f;
   o.cx = F.lake_cx, o.cz = F.lake_cz, o.half_x = F.lake_rx * 1.3f, o.half_z = F.lake_rz * 1.3f;
-  o.density = 1.1f;
+  o.density = 1.1f * THIN;
   o.margin = 6.0f;
   o.seed = 37;
   scatter_area(pi, t, &o);
@@ -1340,7 +1343,7 @@ static void build_outcrops(cw_node root, const track *t) {
   prop_set *ps = ps_new(root, "Crags");
   ps_style(ps, PK_BOULDERS, TEX_GROUND_ROCK, rgb(0.85f, 1.0f, 1.5f), 1.0f);
   ps_style(ps, PK_ROCK, TEX_GROUND_ROCK, rgb(0.85f, 1.0f, 1.5f), 1.0f);
-  ps_style(ps, PK_SPIRE, TEX_GROUND_ROCK, rgb(0.95f, 1.05f, 1.5f), 1.0f);
+  ps_style(ps, PK_SPIRE, -1, rgb(0.55f, 0.75f, 1.6f), 1.0f);
   ps_style(ps, PK_CANYON_WALL, TEX_GROUND_ROCK, rgb(0.85f, 1.0f, 1.5f), 1.0f);
   scatter_opts o = scatter_defaults();
   o.ground = ground_cb;
@@ -1350,7 +1353,7 @@ static void build_outcrops(cw_node root, const track *t) {
   o.nkinds = 2;
   o.scale_min = 2.6f, o.scale_max = 6.5f;
   o.cx = 330, o.cz = -100, o.half_x = 900, o.half_z = 1000;
-  o.density = 0.5f;
+  o.density = 0.5f * THIN;
   o.margin = 9.0f;
   o.sink = 0.8f;
   o.lod_dist = 90.0f, o.far_thin = 0.45f;
@@ -1382,7 +1385,7 @@ static void build_outcrops(cw_node root, const track *t) {
   o.kinds[0] = PK_DUNE, o.nkinds = 1;
   o.scale_min = 2.4f, o.scale_max = 5.5f;
   o.cx = 330, o.cz = -100, o.half_x = 800, o.half_z = 900;
-  o.density = 0.06f;
+  o.density = 0.06f * THIN;
   o.margin = 30.0f;
   o.sink = 0.3f;
   o.lod_dist = 200.0f;
@@ -1409,6 +1412,26 @@ static void build_dressing(cw_node root, const track *t) {
   deco_lights(root, t, 24.0f, LAMP_GLOW_POST, 150.0f, (float)F.lm.tun0 - 10.0f, &lamps);
   lamps.lamp = rgb(0.4f, 0.9f, 1.0f);
   deco_lights(root, t, 30.0f, LAMP_GLOW_POST, (float)F.lm.ice0, (float)F.lm.gap0 - 70.0f, &lamps);
+  /* hoops of light over the run-up to the crevasse, closer together as the lip comes: the jump is seen coming */
+  dress_style warn = st;
+  warn.main = rgb(1.0f, 0.6f, 0.15f);
+  warn.accent = rgb(1.0f, 0.85f, 0.3f);
+  warn.lamp = rgb(1.0f, 0.65f, 0.2f);
+  deco_banners(root, t, (float)F.lm.ramp0 - 230.0f, (float)F.lm.ramp0 - 10.0f, 55.0f, &warn);
+  /* big crystals standing along the ice slide, tall enough to see from far up the road */
+  {
+    prop_set *pc = ps_new(root, "SlideCrystals");
+    for (float s2 = (float)F.lm.slide0 + 20.0f; s2 < (float)F.lm.gap0 - 100.0f; s2 += 55.0f) {
+      int side = ((int)(s2 / 55.0f)) & 1 ? 1 : -1;
+      tsample a = track_at(t, s2);
+      t3_vec3 p = track_point(t, s2, side * (a.hw + 16.0f + 10.0f * hashf2((int)s2, 5, 3)), 0);
+      p.y = terrain(p.x, p.z, NULL) - 0.3f;
+      float sc = 3.4f + 1.6f * hashf2((int)s2, 6, 3);
+      ps_add_ex(pc, PK_CRYSTAL, (int)(s2 / 55.0f) & 3, 0, p, t3_quat_from_axis_angle(V3(0, 1, 0), s2), V3(sc, sc, sc), (pcol){ 1, 1, 1 }, (uint32_t)s2);
+    }
+    ps_shadows(pc, false);
+    ps_finish(pc);
+  }
   deco_supports(root, t, SUP_ICE, ground_cb, NULL, 0, 2.5f, &st);
 }
 
@@ -2399,7 +2422,7 @@ static void build_falls(cw_node root, const track *t) {
     if (y0 - terrain(x, z, NULL) < 18.0f) continue;
     bool near_fall = false;
     (void)near_fall;
-    for (int k = 0; k < 3; k++) ice_fall(&g, gl, t, p.x + (float)(k - 1) * 4.5f, p.z, 5.5f + 2.5f * rnd1(&r), (uint32_t)(tries * 7 + k));
+    for (int k = 0; k < 3; k++) ice_fall(&g, gl, t, p.x + (float)(k - 1) * 4.5f, p.z, 8.0f + 3.5f * rnd1(&r), (uint32_t)(tries * 7 + k));
     if (getenv("FROST_DEBUG")) cw_info("frost: fall at s=%.0f (%.0f, %.0f, %.0f)", s, p.x, h, p.z);
     made++;
   }
@@ -2408,7 +2431,7 @@ static void build_falls(cw_node root, const track *t) {
   tex_apply(m, TEX_WALL_ICE, 1, 1, 1.0f, 1.0f);
   m->color = (t3_color){ 0.9f, 1.1f, 1.3f };
   m->emissive = (t3_color){ 0.04f, 0.3f, 0.7f };
-  m->emissive_intensity = 0.4f;
+  m->emissive_intensity = 1.1f;
   m->clearcoat = 0.8f;
   m->clearcoat_roughness = 0.08f;
   gm_finish(&g, root, "IceFalls", m, false, true);
@@ -2430,7 +2453,7 @@ static void build_weather(cw_node scene, cw_node root, const track *t) {
   (void)root;
   int before = cw_node_child_count(scene);
   fx_ambient_follow(scene, FXA_SNOW, 1.0f);
-  fx_ambient_follow(scene, FXA_DUST, 0.8f);
+  if (THIN >= 1.0f) fx_ambient_follow(scene, FXA_DUST, 0.8f);
   /* the dust emitters are the ones just made: they carry the camera's box; recolour them cold and make them blow across the road */
   for (int i = before; i < cw_node_child_count(scene); i++) {
     cw_node n = cw_node_child(scene, i);
@@ -2488,6 +2511,7 @@ static bool skip(const char *what) {
 }
 
 static void frost_scenery(cw_node scene, const track *t, uint32_t seed) {
+  THIN = game_planned_views() > 1 ? 0.5f : 1.0f;
   (void)seed;
   memset(&F, 0, sizeof F);
   memset(&SKY, 0, sizeof SKY);
@@ -2559,6 +2583,7 @@ static void frost_scenery(cw_node scene, const track *t, uint32_t seed) {
   build_aurora(root);
   {
     static const int N[3] = { 1200, 1000, 900 };
+    if (THIN < 1.0f) {} 
     for (int k = 0; k < 3; k++) {
       t3_material *m = t3_points_material_new(0xffffff);
       m->vertex_colors = true;
