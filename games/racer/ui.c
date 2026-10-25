@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cartwheel/debug.h"
 #include "cartwheel/input.h"
 #include "cartwheel/math.h"
 #include "cartwheel/platform.h"
@@ -429,10 +430,7 @@ bool ui_dev_resolution(int *w, int *h) {
 
 /* ── volume ─────────────────────────────────────────────────────────── */
 
-/* weak until the audio module implements it (then this line and the check go) */
-void audio_set_volume(int bus, float v) __attribute__((weak));
 static void apply_volumes(void) {
-  if (!audio_set_volume) return;
   audio_set_volume(ABUS_MUSIC, (float)SAVE.music / 10.0f);
   audio_set_volume(ABUS_SFX, (float)SAVE.sfx / 10.0f);
 }
@@ -639,6 +637,9 @@ void ui_init(void) {
     U.stat_lo[k] = lo[k] - pad, U.stat_hi[k] = hi[k] + pad * 0.4f;
   }
   scr_init();
+  cw_debug_i32("ui.mode", &U.mode);
+  cw_debug_i32("ui.device", &U.device); /* 0 mouse, 1 pad, 2 keys, 3 touch */
+  cw_debug_i32("ui.pending", &U.pending);
   U.mode = M_TITLE;
   U.attract_map = 0;
   U.t_stick = U.t_gas = U.t_brake = U.t_drift = U.t_item = U.t_trick = -1;
@@ -681,8 +682,8 @@ void ui_enter_race(const race_setup *rs) {
 bool ui_race_runs(void) {
   switch (U.mode) {
   case M_PAUSE: return false;
-  case M_RACE:
-  case M_RESULTS: return true;
+  case M_RACE: return true;
+  case M_RESULTS: return U.res_ticks < 15 * 60; /* the winner's lap of honour, then the scene holds still */
   default: return game_loaded() && U.attract_on;
   }
 }

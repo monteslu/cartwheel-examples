@@ -193,12 +193,15 @@ static void hint_line(float W, float H, float s, const char *str) {
 
 static void header(float W, float H, float s, const char *title, const char *sub) {
   float t = ease_back((float)U.mt / 16.0f);
-  float w = fminf(W * 0.9f, tx_width(U.f_title, title, 38 * s) + 80 * s);
+  float maxw = W - W * 0.06f - 170 * s;
+  float fs = 38 * s, tw0 = tx_width(U.f_title, title, fs);
+  if (tw0 + 80 * s > maxw) fs *= (maxw - 80 * s) / tw0;
+  float w = tx_width(U.f_title, title, fs) + 80 * s;
   cw_rect r = cw_rect_make(W * 0.03f - (1 - t) * 300 * s, 22 * s, w, 60 * s);
   slab(r, 16 * s, rgba(0.1f, 0.07f, 0.09f, 0.92f), s);
   para(cw_rect_make(r.x + 4 * s, r.y + r.h - 7 * s, r.w - 8 * s, 5 * s), 0, RUST);
-  tx(U.f_title, title, r.x + 40 * s, r.y + 29 * s, 38 * s, MUSTARD, CW_ALIGN_LEFT);
-  if (sub) tx(U.f_hud, sub, r.x + r.w + 24 * s, r.y + 30 * s, 20 * s, alpha(CREAM, 0.85f * t), CW_ALIGN_LEFT);
+  tx(U.f_title, title, r.x + 40 * s, r.y + 29 * s, fs, MUSTARD, CW_ALIGN_LEFT);
+  if (sub && r.x + r.w + 24 * s + tx_width(U.f_hud, sub, 20 * s) < W - 170 * s) tx(U.f_hud, sub, r.x + r.w + 24 * s, r.y + 30 * s, 20 * s, alpha(CREAM, 0.85f * t), CW_ALIGN_LEFT);
 }
 
 static void backdrop(float W, float H, float s, float strength) {
@@ -1045,7 +1048,7 @@ static void draw_join(float W, float H, float s) {
     draw_pad_icon(cw_v2(ic.x, ic.y + bob), (por ? 110 : 120) * s, on ? kart_col(i) : rgba(0.35f, 0.33f, 0.36f, 1), s);
     const char *dev = i == 0 ? "Keyboard or pad" : present ? "Gamepad" : "No gamepad";
     float tx_x = por ? r.x + r.w * 0.58f : r.x + r.w * 0.5f;
-    float ty = por ? r.y + r.h * 0.45f : r.y + r.h * 0.72f;
+    float ty = por ? r.y + r.h * 0.45f : r.y + r.h * 0.66f;
     tx(U.f_small, dev, tx_x, ty, 20 * s, DIM, CW_ALIGN_CENTER);
     const char *st = on ? (i == 0 ? "READY" : "JOINED") : present ? dev_hint("Press (A) to join", "Press (A) to join", "Press (A) to join", "Press (A) to join") : "Plug one in";
     float blink = on ? 1 : present ? 0.55f + 0.45f * cw_sin(U.time * 6) : 0.5f;

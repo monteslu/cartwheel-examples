@@ -10,6 +10,7 @@ for kv in "$@"; do export "$kv"; done
 cd "$R"
 BIN="build/native/games/racer/racer"
 ARGS=()
+[ -n "${TOUCH:-}" ] && export CW_TOUCH_PRIMARY=1
 [ "$IN" != "-" ] && ARGS+=(--input "$IN")
 timeout "${RUN_TIMEOUT:-300}" node deps/cartwheel-engine/tools/run-cart.mjs --host native --app racer --exe "$BIN" --frames "$F" \
   --shot "out/racer-$N.png" --state "out/racer-$N.json" --log "out/racer-$N.log" "${ARGS[@]}" ${GPU:+--gpu $GPU} 2>&1 | tail -3

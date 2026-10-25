@@ -127,16 +127,20 @@ static void hud_tick(void) {
   if (!game_loaded() || (U.mode != M_RACE && U.mode != M_RESULTS)) return;
   const sim *S = game_sim();
   int nv = game_views();
+  /* dev aid: RACER_UI_HUD=1 raises every flash and popup at once (a look at them without driving a lap) */
+  static int dev_hud = -1;
+  if (dev_hud < 0) dev_hud = getenv("RACER_UI_HUD") != NULL;
+  if (dev_hud && S->phase == PH_RACE && S->race_ticks == 60)
+    for (int v = 0; v < nv; v++) {
+      hudv *h = &HV[v];
+      h->lap_t = 14, h->lap_n = S->laps, h->lap_final = true, h->last_lap = 61.37f, h->last_lap_t = 1, h->last_lap_best = true;
+      pop_add(h, PU_TRICK), pop_add(h, PU_DRIFT), h->hit_t = 6, h->wrong_t = 90, h->item_t = 1, h->drift_show = 20;
+    }
   /* read each sim tick's events once */
   if (S->tick != hud_seen_tick) {
     hud_seen_tick = S->tick;
     for (int v = 0; v < nv; v++)
       for (int i = 0; i < S->ev_n; i++) hud_event(v, &S->ev[i], S);
-    /* the countdown sounds are the UI's: a beep for each number, a note for go */
-    for (int i = 0; i < S->ev_n; i++) {
-      if (S->ev[i].kind == EV_COUNT) audio_ui(AUI_COUNT);
-      else if (S->ev[i].kind == EV_GO) audio_ui(AUI_GO);
-    }
   }
   for (int v = 0; v < nv; v++) {
     hudv *h = &HV[v];
@@ -172,8 +176,10 @@ static void hud_tick(void) {
       tsample m = track_at(S->track, k->loc.s);
       wrong = v3dot(kart_fwd(k), m.f) < -0.15f;
     }
-    if (wrong) h->wrong_t++;
-    else h->wrong_t = h->wrong_t > 0 ? h->wrong_t - 2 : 0;
+    if (wrong) {
+      if (h->wrong_t < 400) h->wrong_t++;
+      if (h->wrong_t == 50) audio_ui(AUI_WRONG_WAY);
+    } else h->wrong_t = h->wrong_t > 0 ? h->wrong_t - 2 : 0;
     if (h->wrong_t < 0) h->wrong_t = 0;
     h->speed_s += (fabsf(k->speed) - h->speed_s) * 0.2f;
     h->boost_glow += ((k->boost_ticks > 0 ? 1.0f : 0.0f) - h->boost_glow) * 0.15f;
@@ -386,8 +392,9 @@ static void hud_item(const hv *g) {
 
 static void hud_speed(const hv *g) {
   float s = g->s * (g->compact ? 0.95f : 1);
-  float R = 78 * s;
+  float R = (U.touch_on ? 60 : 78) * s;
   float cx = g->x + g->w - 22 * g->s - R, cy = g->y + g->h - 24 * g->s - R;
+  if (U.touch_on) cx = g->x + g->w * 0.5f; /* the thumbs own both bottom corners */
   const kart *k = g->k;
   const hudv *h = g->hs;
   float frac = clamp01(h->speed_s / 62.0f);
@@ -428,6 +435,7 @@ static void hud_drift(const hv *g) {
   if (h->drift_show <= 0 && !(k->drifting)) return;
   float s = g->s, w = 300 * s, bh = 20 * s;
   float x = g->x + g->w * 0.5f - w * 0.5f, y = g->y + g->h - 54 * s;
+  if (U.touch_on) y -= 136 * s;
   float a = k->drifting ? 1 : (float)h->drift_show / 20.0f;
   static const cw_color LC[3] = { { 0.30f, 0.62f, 1.0f, 1 }, { 1.0f, 0.55f, 0.15f, 1 }, { 0.82f, 0.35f, 1.0f, 1 } };
   float gap = 6 * s, segw = (w - 2 * gap) / 3;
@@ -739,14 +747,18 @@ static void hud_view(int v, float W, float H, int nviews) {
   hud_place(&g);
   hud_lap(&g);
   hud_item(&g);
-  if (!g.compact && !g.shared_map) {
+  if (U.touch_on) {
+    float ms = 128 * g.s;
+    hud_minimap(&g, cw_rect_make(g.x + 14 * g.s, g.y + 116 * g.s, ms, ms));
+  } else if (!g.compact && !g.shared_map) {
     float ms = (g.medium ? 130 : 176) * g.s;
     hud_minimap(&g, cw_rect_make(g.x + 14 * g.s, g.y + g.h - ms - 14 * g.s, ms, ms));
   } else if (g.compact && !g.shared_map && g.w > 300) {
     float ms = 118 * g.s * 1.1f;
     hud_minimap(&g, cw_rect_make(g.x + 12 * g.s, g.y + g.h - ms - 12 * g.s, ms, ms));
   }
-  if (!g.medium) hud_standings(&g, g.x + 14 * g.s, g.y + 116 * g.s, 8);
+  if (U.touch_on) {
+  } else if (!g.medium) hud_standings(&g, g.x + 14 * g.s, g.y + 116 * g.s, 8);
   else if (!g.compact) hud_standings(&g, g.x + 14 * g.s, g.y + 114 * g.s, 4);
   hud_speed(&g);
   hud_drift(&g);
@@ -783,11 +795,11 @@ typedef struct tbtn {
   float x, y, w, h; /* in 540-high design units from the right/bottom edges: x from the right, y from the bottom */
 } tbtn;
 static const tbtn TB[] = {
-  { &U.t_gas, "GAS", { 0.30f, 0.75f, 0.30f, 1 }, 190, 220, 170, 200 },
-  { &U.t_item, "ITEM", { 0.95f, 0.6f, 0.15f, 1 }, 190, 330, 170, 100 },
-  { &U.t_trick, "TRICK", { 0.85f, 0.4f, 0.9f, 1 }, 190, 440, 170, 100 },
+  { &U.t_gas, "GAS", { 0.30f, 0.75f, 0.30f, 1 }, 190, 190, 170, 170 },
+  { &U.t_item, "ITEM", { 0.95f, 0.6f, 0.15f, 1 }, 190, 290, 170, 90 },
+  { &U.t_trick, "TRICK", { 0.85f, 0.4f, 0.9f, 1 }, 190, 390, 170, 90 },
   { &U.t_drift, "DRIFT", { 0.3f, 0.6f, 0.95f, 1 }, 370, 190, 170, 170 },
-  { &U.t_brake, "BRAKE", { 0.85f, 0.25f, 0.2f, 1 }, 370, 300, 170, 100 },
+  { &U.t_brake, "BRAKE", { 0.85f, 0.25f, 0.2f, 1 }, 370, 290, 170, 90 },
 };
 
 static void touch_layout(float ww, float wh) {
