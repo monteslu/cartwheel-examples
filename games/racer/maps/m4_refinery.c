@@ -502,9 +502,9 @@ static const char *const REC_SMOKE[] = { "amount", "70", "lifetime", "9", "lifet
   "gravity", "vec3(2.2, 1.2, 0.6)", "damping", "0.2", "size", "7", "size_random", "0.4", "size_curve", "\"0 0.35, 0.35 1, 1 2.8\"",
   "color_ramp", "\"0 1 0.42 0.12 0, 0.06 0.95 0.38 0.12 0.6, 0.25 0.3 0.18 0.14 0.55, 0.7 0.1 0.09 0.11 0.4, 1 0.06 0.06 0.08 0\"",
   "blend", "ALPHA", "soft_distance", "2", "turbulence", "1.3", "turbulence_scale", "0.06", "turbulence_speed", "0.3", "local_coords", "false", NULL };
-static const char *const REC_SPARKS[] = { "amount", "70", "lifetime", "1.1", "lifetime_random", "0.4", "emission_shape", "BOX",
-  "emission_extents", "vec3(0.1, 0.1, 0.1)", "direction", "vec3(0, 1, 0)", "spread", "55", "speed_min", "3", "speed_max", "9",
-  "gravity", "vec3(0, -14, 0)", "size", "0.07", "size_random", "0.5", "size_curve", "\"0 1, 0.7 0.8, 1 0.2\"",
+static const char *const REC_SPARKS[] = { "amount", "110", "lifetime", "1.2", "lifetime_random", "0.4", "emission_shape", "BOX",
+  "emission_extents", "vec3(0.1, 0.1, 0.1)", "direction", "vec3(0, 1, 0)", "spread", "60", "speed_min", "3", "speed_max", "10",
+  "gravity", "vec3(0, -14, 0)", "size", "0.13", "size_random", "0.5", "size_curve", "\"0 1, 0.7 0.8, 1 0.2\"",
   "color_ramp", "\"0 1 0.95 0.7 1, 0.3 1 0.6 0.18 1, 1 0.6 0.1 0.02 0\"", "energy", "8", "blend", "ADD", "local_coords", "false", NULL };
 static const char *const REC_SHOWER[] = { "amount", "90", "lifetime", "1.5", "lifetime_random", "0.3", "emission_shape", "BOX",
   "emission_extents", "vec3(8, 0.1, 0.4)", "direction", "vec3(0, -1, 0)", "spread", "14", "speed_min", "2", "speed_max", "5",
@@ -818,6 +818,11 @@ static bool near_special(float s, float margin) {
     if (s > (float)R.gap[i][0] - margin - 70 && s < (float)R.gap[i][1] + margin + 50) return true;
   return false;
 }
+static bool near_gap(float s, float m) {
+  for (int i = 0; i < R.ngap; i++)
+    if (s > (float)R.gap[i][0] - m && s < (float)R.gap[i][1] + m) return true;
+  return false;
+}
 static bool in_pit(float x, float z, float pad) {
   for (int g = 0; g < R.ngap; g++) {
     float dx = x - R.pit_c[g].x, dz = z - R.pit_c[g].z;
@@ -908,6 +913,8 @@ static void start_stack(void) {
 
 /* ── the pits under the jumps ────────────────────────────────────────────────────────────────────── */
 
+static int beacon_new(t3_vec3 p, float size, int kind, float phase, float period, float duty);
+
 static void pit_build(int g) {
   const track *t = R.t;
   t3_vec3 C = R.pit_c[g], F = R.pit_f[g], Rt = R.pit_r[g];
@@ -975,6 +982,13 @@ static void pit_build(int g) {
     if (flame_new(p, 4.0f + 3.0f * hf(80u, (uint32_t)k), h, 300u + (uint32_t)(g * 20 + k), 0, 0, k % 2 == 0, 0.8f) >= 0) n++;
   }
   lamp_new(V3(C.x, fl + 10.0f, C.z), 0xff7a30, 2600.0f, 95.0f, 0, 190.0f);
+  /* amber warning lamps blink along the lip and the landing edge */
+  for (int e = 0; e < 2; e++)
+    for (int sd = -1; sd <= 1; sd += 2) {
+      int idx = e ? R.gap[g][1] + 2 : R.gap[g][0] - 2;
+      t3_vec3 bp = v3add(v3add(t->s[idx].p, v3mul(t->s[idx].r, (float)sd * (t->s[idx].hw + 1.3f))), V3(0, 2.4f, 0));
+      beacon_new(bp, 0.32f, 1, (float)(e + (sd > 0)) * 0.2f, 0.8f, 0.5f);
+    }
   int sm = emit_new(REC_SMOKE, "PitSmoke", V3(C.x, fl + 8.0f, C.z), 0, 320.0f, 0, 0, 0);
   (void)sm;
   fx_ambient_at(R.scene, FXA_EMBERS, V3(C.x, fl + 6.0f, C.z), V3(hl, 5.0f, hw), 2.2f, 240.0f);
@@ -1341,8 +1355,9 @@ static void racks(void) {
   float last = -1000;
   int n = 0;
   for (float s = 150; s < t->length - 150; s += 10) {
-    if (s - last < 260 || near_special(s, 60)) continue;
     tsample a = track_at(t, s);
+    /* near a tunnel or a jump nothing crosses the road, except in the cutting (the road is far below the ground there) */
+    if (s - last < 260 || (near_special(s, 60) && !(a.p.y < -8.0f && !near_gap(s, 70.0f)))) continue;
     if (a.flags & (TF_GAP | TF_TUNNEL | TF_LOOP) || fabsf(track_curvature(t, s - 40, 80)) > 0.0009f) continue;
     if (fabsf(a.f.y) > 0.08f) continue;
     last = s;
@@ -1961,8 +1976,8 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
   go.height = terrain;
   go.tex = TEX_GROUND_ROCK;
   go.tex_repeat = 7;
-  go.tint = rgb(0.62f, 0.5f, 0.45f);
-  go.tint2 = rgb(0.42f, 0.3f, 0.28f);
+  go.tint = rgb(0.74f, 0.6f, 0.54f);
+  go.tint2 = rgb(0.5f, 0.36f, 0.33f);
   go.patch_scale = 50;
   go.follow_road = false;
   go.darken_edge = 0.35f;
@@ -1984,6 +1999,11 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
     deco_corner_signs(R.root, t, 0.012f, &st);
   }
   start_stack();
+  for (int i = 0; i < R.ntun; i++) deco_sign(R.root, t, (float)R.tun[i][0] - 50.0f, i & 1 ? 1 : -1, SIGN_WARN, &st);
+  for (int g2 = 0; g2 < R.ngap; g2++) {
+    deco_sign(R.root, t, (float)R.gap[g2][0] - 85.0f, -1, SIGN_WARN, &st);
+    deco_sign(R.root, t, (float)R.gap[g2][0] - 85.0f, 1, SIGN_WARN, &st);
+  }
   lamp_new(road_pt(6, 0, 10.0f), 0xffb070, 420.0f, 70.0f, 1, 150.0f);
   for (int g2 = 0; g2 < R.ngap; g2++) pit_build(g2);
   if (R.ntun > 0) tunnel_tanks(0), tunnel_lights(0, 26.0f, 90.0f, 0xff9a50);
