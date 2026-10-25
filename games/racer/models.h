@@ -89,6 +89,7 @@ typedef struct anchor {
 typedef struct veh_geo {
   t3_geometry *g[S_COUNT];
   t3_geometry *tyre, *rim[2];            /* rim[0] for the +x (left) wheels, rim[1] the right */
+  t3_geometry *tyre_lo, *rim_lo[2];      /* the same, plain, for a kart seen from far */
   wheel_look wl;
   anchor flame[4];                       /* exhaust mouths: position and the way the flame points */
   int nflame;
@@ -125,6 +126,7 @@ typedef struct kart_rig {
   t3_object *root;        /* trick and tumble pivot (the sim node's child) */
   t3_object *body;        /* roll / pitch / drift / squash pivot */
   t3_object *wheel[4];    /* steer + spin from the vehicle controller */
+  t3_mesh *wheel_hi[4][2], *wheel_lo[4][2]; /* the detailed and the plain tyre and rim, one pair drawn */
   t3_object *torso, *head, *arm_up[2], *arm_lo[2], *hand[2], *steer_wheel;
   t3_object *scarf[4];
   t3_object *prop;

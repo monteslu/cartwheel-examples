@@ -35,6 +35,14 @@ static struct {
   const sim *sim;
 } K;
 
+/* where the views' eyes are, for the far karts' simpler rigs */
+static t3_vec3 EYE[4];
+static int NEYE;
+void kartgfx_set_eyes(const t3_vec3 *e, int n) {
+  NEYE = n > 4 ? 4 : n;
+  for (int i = 0; i < NEYE; i++) EYE[i] = e[i];
+}
+
 cw_node kartgfx_node(int i) { return K.node[i]; }
 
 void kartgfx_reset(void) {
@@ -208,6 +216,32 @@ void kartgfx_frame(const sim *s, float alpha) {
     for (int j = 0; j < KP_COUNT; j++) P[j] = lerp_(st->prev[j], st->cur[j], alpha);
     float tsec = ((float)s->tick + alpha) / (float)TICK_HZ;
     float ds = vg->driver_scale;
+
+    /* a kart far from every view loses what cannot be seen at that size: the arms and the scarf first, then the driver */
+    float near2 = 1e12f;
+    for (int e = 0; e < NEYE; e++) {
+      float dx = k->p.x - EYE[e].x, dy = k->p.y - EYE[e].y, dz = k->p.z - EYE[e].z;
+      near2 = fminf(near2, dx * dx + dy * dy + dz * dz);
+    }
+    bool mid = NEYE == 0 || near2 < 60.0f * 60.0f, close = NEYE == 0 || near2 < 120.0f * 120.0f;
+    for (int a = 0; a < 2; a++) {
+      if (r->arm_up[a]) r->arm_up[a]->visible = mid;
+      if (r->arm_lo[a]) r->arm_lo[a]->visible = mid;
+      if (r->hand[a]) r->hand[a]->visible = mid;
+    }
+    for (int a = 0; a < 4; a++) {
+      if (r->scarf[a]) r->scarf[a]->visible = mid;
+      if (r->strut[a]) r->strut[a]->visible = mid;
+    }
+    if (r->antenna) r->antenna->visible = mid;
+    if (r->steer_wheel) r->steer_wheel->visible = mid;
+    for (int w = 0; w < 4; w++)
+      for (int p = 0; p < 2; p++) {
+        r->wheel_hi[w][p]->base.visible = near2 < 40.0f * 40.0f || NEYE == 0;
+        r->wheel_lo[w][p]->base.visible = !r->wheel_hi[w][p]->base.visible;
+      }
+    if (r->torso) r->torso->visible = close;
+    if (r->head) r->head->visible = close;
 
     /* flicker while it comes back */
     r->root->visible = !(k->respawn_ticks > 0 && ((k->respawn_ticks / 4) & 1));

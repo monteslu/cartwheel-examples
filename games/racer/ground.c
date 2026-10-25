@@ -182,6 +182,9 @@ typedef struct gbuild {
   t3_object *group;
   t3_material *mat;
   int cells, tris;
+  /* cells whose centres share a 128 m block are one mesh: a draw per cell was most of the ground's cost */
+  struct { int64_t key; gmesh m; } blk[256];
+  int nblk;
 } gbuild;
 
 static pcol ground_colour(const gbuild *B, float x, float z, float h, float slope, float gap) {
@@ -212,8 +215,15 @@ static void build_cell(gbuild *B, float x0, float z0, float S, int n) {
       float ry;
       gp[j * W + i] = (o->darken_edge > 0 && B->t) ? road_gap(B->t, x, z, &ry) : 100.0f;
     }
-  gmesh m = { 0 };
-  int base = 0;
+  int64_t key = ((int64_t)floorf((x0 + S * 0.5f) / 128.0f) + 4096) * 100000 + (int64_t)floorf((z0 + S * 0.5f) / 128.0f) + 4096;
+  int bi = 0;
+  while (bi < B->nblk && B->blk[bi].key != key) bi++;
+  if (bi == B->nblk) {
+    if (bi == 256) bi = 255;
+    else B->blk[B->nblk++].key = key;
+  }
+  gmesh *mp = &B->blk[bi].m;
+  int base = 0, ni0 = mp->ni;
   for (int j = 0; j <= n; j++)
     for (int i = 0; i <= n; i++) {
       int k = (j + 1) * W + (i + 1);
@@ -221,7 +231,7 @@ static void build_cell(gbuild *B, float x0, float z0, float S, int n) {
       float dx = (hh[k + 1] - hh[k - 1]) / (2 * d), dz = (hh[k + W] - hh[k - W]) / (2 * d);
       float l = sqrtf(dx * dx + 1 + dz * dz);
       pcol c = ground_colour(B, x, z, hh[k], sqrtf(dx * dx + dz * dz), gp[k]);
-      int v = gv(&m, x, hh[k], z, -dx / l, 1 / l, -dz / l, x / o->tex_repeat, z / o->tex_repeat, c);
+      int v = gv(mp, x, hh[k], z, -dx / l, 1 / l, -dz / l, x / o->tex_repeat, z / o->tex_repeat, c);
       if (i == 0 && j == 0) base = v;
     }
   for (int j = 0; j < n; j++)
@@ -229,9 +239,9 @@ static void build_cell(gbuild *B, float x0, float z0, float S, int n) {
       int a = base + j * (n + 1) + i, b = a + 1, c = a + n + 1, e = c + 1;
       /* the diagonal runs the way the surface bends least, so ridges stay crisp */
       if (fabsf(hh[(j + 1) * W + (i + 1)] - hh[(j + 2) * W + (i + 2)]) < fabsf(hh[(j + 1) * W + (i + 2)] - hh[(j + 2) * W + (i + 1)])) {
-        gt(&m, a, c, e), gt(&m, a, e, b);
+        gt(mp, a, c, e), gt(mp, a, e, b);
       } else {
-        gt(&m, a, c, b), gt(&m, b, c, e);
+        gt(mp, a, c, b), gt(mp, b, c, e);
       }
     }
   /* skirts: a strip dropped along every edge, so a seam against a coarser cell never shows sky */
@@ -242,22 +252,15 @@ static void build_cell(gbuild *B, float x0, float z0, float S, int n) {
       int i = side == 0 ? s : side == 1 ? n : side == 2 ? n - s : 0, j = side == 0 ? 0 : side == 1 ? s : side == 2 ? n : n - s;
       int vtx = base + j * (n + 1) + i;
       float nx = side == 0 ? 0 : side == 1 ? 1 : side == 2 ? 0 : -1, nz = side == 0 ? -1 : side == 2 ? 1 : 0;
-      int lo = gv(&m, m.p[vtx * 3], m.p[vtx * 3 + 1] - drop, m.p[vtx * 3 + 2], nx, 0, nz, m.uv[vtx * 2], m.uv[vtx * 2 + 1] + 0.5f,
-                  (pcol){ m.c[vtx * 3] * 0.6f, m.c[vtx * 3 + 1] * 0.6f, m.c[vtx * 3 + 2] * 0.6f });
+      int lo = gv(mp, mp->p[vtx * 3], mp->p[vtx * 3 + 1] - drop, mp->p[vtx * 3 + 2], nx, 0, nz, mp->uv[vtx * 2], mp->uv[vtx * 2 + 1] + 0.5f,
+                  (pcol){ mp->c[vtx * 3] * 0.6f, mp->c[vtx * 3 + 1] * 0.6f, mp->c[vtx * 3 + 2] * 0.6f });
       if (first < 0) first = vtx;
-      if (prev >= 0) gt(&m, prev, prevb, lo), gt(&m, prev, lo, vtx);
+      if (prev >= 0) gt(mp, prev, prevb, lo), gt(mp, prev, lo, vtx);
       prev = vtx, prevb = lo;
     }
     (void)first;
   }
-  B->tris += m.ni / 3;
-  t3_geometry *g = gfinish(&m, true);
-  t3_mesh *me = t3_mesh_new(g, B->mat);
-  me->base.cast_shadow = false;
-  me->base.receive_shadow = true;
-  t3_object_add(B->group, me);
-  t3_release(me);
-  t3_release(g);
+  B->tris += (mp->ni - ni0) / 3;
   free(hh), free(gp);
   B->cells++;
 }
@@ -301,6 +304,15 @@ cw_node ground_plane(cw_node parent, const track *t, const ground_opts *in) {
   if (o.tex >= 0) tex_apply(m, o.tex, 1, 1, 0.9f, 0.8f);
   gbuild B = { t, &G.o, t3_group_new(), m, 0, 0 };
   split(&B, x0, z0, S);
+  for (int i = 0; i < B.nblk; i++) {
+    t3_geometry *g = gfinish(&B.blk[i].m, true);
+    t3_mesh *me = t3_mesh_new(g, B.mat);
+    me->base.cast_shadow = false;
+    me->base.receive_shadow = true;
+    t3_object_add(B.group, me);
+    t3_release(me);
+    t3_release(g);
+  }
   cw_node node = hang(parent, "Ground", B.group);
   t3_release(B.group);
   t3_release(m);

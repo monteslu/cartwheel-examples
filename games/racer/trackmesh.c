@@ -19,7 +19,7 @@
 #include "track.h"
 
 #define MAX_RP 40
-#define CHUNK 40
+#define CHUNK 80
 #define ARC_N 14
 #define WALL_T 0.55f
 

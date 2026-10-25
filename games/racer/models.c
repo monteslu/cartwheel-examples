@@ -121,6 +121,7 @@ t3_geometry *mb_done(mb *b) {
   a = t3_attribute_new(T3_UINT32, b->i, b->ni, 1);
   t3_geometry_set_index(g, a);
   t3_release(a);
+  if (getenv("RACER_MBTRIS")) cw_info("mb: %d tris", b->ni / 3);
   free(b->p), free(b->n), free(b->c), free(b->i);
   float j = b->jit;
   memset(b, 0, sizeof *b);
@@ -393,6 +394,12 @@ static void build_wheel(veh_geo *vg, const vehicle_def *vd) {
     mb_rbox(&t, lx, lw, lug * 1.1f, chunk * 0.42f, 0, 0, body);
   }
   vg->tyre = mb_done(&t);
+  {
+    /* the plain tyre for a kart seen from far: the same profile with fewer sides and no tread blocks */
+    mb tl = { .jit = 0 };
+    mb_lathe(&tl, along_x(0), prof, 8, 12, body);
+    vg->tyre_lo = mb_done(&tl);
+  }
   /* the rim, one per side: a barrel, a dished face, spokes and a hub */
   for (int side = 0; side < 2; side++) {
     float sg = side == 0 ? 1.0f : -1.0f; /* outward along x */
@@ -420,6 +427,10 @@ static void build_wheel(veh_geo *vg, const vehicle_def *vd) {
     xf hx = along_x(face + sg * w * 0.1f);
     mb_cyl(&m, hx, rr * 0.2f, rr * 0.24f, w * 0.18f, 10, C_CHROME);
     vg->rim[side] = mb_done(&m);
+    mb ml = { .jit = 0 };
+    t3_vec2 pl[3] = { dish[0], dish[1], dish[2] };
+    mb_lathe(&ml, along_x(0), pl, 3, 12, wl->rim);
+    vg->rim_lo[side] = mb_done(&ml);
   }
 }
 
@@ -455,8 +466,11 @@ void kit_free(void) {
     for (int i = 0; i < S_COUNT; i++)
       if (VG[v]->g[i]) t3_release(VG[v]->g[i]);
     if (VG[v]->tyre) t3_release(VG[v]->tyre);
+    if (VG[v]->tyre_lo) t3_release(VG[v]->tyre_lo);
     for (int i = 0; i < 2; i++)
       if (VG[v]->rim[i]) t3_release(VG[v]->rim[i]);
+    for (int i = 0; i < 2; i++)
+      if (VG[v]->rim_lo[i]) t3_release(VG[v]->rim_lo[i]);
     free(VG[v]);
     VG[v] = NULL;
   }
@@ -644,8 +658,12 @@ void rig_build(kart_rig *r, int veh, int colour, int number) {
   /* wheels: pivots under the root, the tyre and the rim of its side in each */
   for (int w = 0; w < 4; w++) {
     r->wheel[w] = pivot_at(r->root, v3(0, 0, 0));
-    add_mesh_to(r->wheel[w], vg->tyre, r->mat[S_DARK], true);
-    add_mesh_to(r->wheel[w], vg->rim[(w & 1) ? 1 : 0], r->mat[S_METAL], true);
+    int sd = (w & 1) ? 1 : 0;
+    r->wheel_hi[w][0] = add_mesh_to(r->wheel[w], vg->tyre, r->mat[S_DARK], true);
+    r->wheel_hi[w][1] = add_mesh_to(r->wheel[w], vg->rim[sd], r->mat[S_METAL], true);
+    r->wheel_lo[w][0] = add_mesh_to(r->wheel[w], vg->tyre_lo, r->mat[S_DARK], true);
+    r->wheel_lo[w][1] = add_mesh_to(r->wheel[w], vg->rim_lo[sd], r->mat[S_METAL], true);
+    r->wheel_lo[w][0]->base.visible = r->wheel_lo[w][1]->base.visible = false;
   }
   /* the number plates: a tail plate and a roundel on each flank */
   {

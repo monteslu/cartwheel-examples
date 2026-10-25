@@ -36,6 +36,7 @@ typedef struct rig {
 
 static struct {
   int32_t ticks, phase, views, loaded;
+  int32_t draws, tris;
   int32_t place[MAXK], lap[MAXK], prog[MAXK], falls[MAXK], speed[MAXK], tricks[MAXK], hits[MAXK], spd_max[MAXK], finished[MAXK], best_lap[MAXK], finish_tick[MAXK];
   uint32_t hash;
   cw_node scene, sun;
@@ -186,7 +187,8 @@ static void views_setup(void) {
   cw_pipeline_set_views(pl, vw, G.nviews);
   cw_pipeline_set_views_shared_post(pl, true);
   cw_node post = find_type(G.scene, "PostProcess");
-  if (cw_node_valid(post)) cw_node_set(post, "ssao", cw_val_bool(false));
+  /* no ambient occlusion in split screen, and so no depth prepass to feed it: that pass only doubles the draw calls of the views */
+  if (cw_node_valid(post)) cw_node_set(post, "ssao", cw_val_bool(false)), cw_node_set(post, "depth_prepass", cw_val_bool(false));
 }
 
 void game_start_race(const race_setup *rs) {
@@ -492,7 +494,7 @@ static void fixed(void *u, double dt) {
     fx_tick(&G.S);
     audio_events(&G.S);
     t3_vec3 eyes[CW_MAX_VIEWS];
-    for (int v = 0; v < G.nviews; v++) eyes[v] = G.rig[v].cam_eye;
+    for (int v = 0; v < G.nviews; v++) eyes[v] = cw_node_valid(G.rig[v].cam) ? cw_node3d_global_position(G.rig[v].cam) : G.rig[v].cam_eye;
     audio_tick(&G.S, eyes, G.nviews);
     trace();
     if (G.S.phase == PH_DONE && G.S.phase_ticks == 1) ui_race_over();
@@ -564,7 +566,17 @@ static void render(void *u, double alpha) {
   (void)u;
   audio_frame();
   if (G.have_track) {
+    {
+      t3_vec3 eyes[CW_MAX_VIEWS];
+      for (int v = 0; v < G.nviews; v++) eyes[v] = cw_node_valid(G.rig[v].cam) ? cw_node3d_global_position(G.rig[v].cam) : G.rig[v].cam_eye;
+      world_set_eyes(eyes, G.nviews);
+    }
     world_frame(alpha);
+    {
+      cw_render3d_stats rs;
+      cw_render3d_get_stats(cw_scene_app_tree(), &rs);
+      G.draws = rs.draw_calls, G.tris = rs.triangles;
+    }
     fx_frame(&G.S, (float)alpha);
   }
   cw_r2d_begin(&(cw_r2d_pass_desc){ .clear = false });
@@ -601,6 +613,8 @@ static void init(void *u) {
   cw_debug_field("karts.falls", G.falls, CW_DBG_I32, MAXK);
   cw_debug_field("karts.speed", G.speed, CW_DBG_I32, MAXK);
   cw_debug_field("karts.tricks", G.tricks, CW_DBG_I32, MAXK);
+  cw_debug_field("render.draws", &G.draws, CW_DBG_I32, 1);
+  cw_debug_field("render.tris", &G.tris, CW_DBG_I32, 1);
   cw_debug_field("karts.hits", G.hits, CW_DBG_I32, MAXK);
   cw_debug_field("karts.top_speed", G.spd_max, CW_DBG_I32, MAXK);
   cw_debug_field("karts.finished", G.finished, CW_DBG_I32, MAXK);

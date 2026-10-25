@@ -54,6 +54,8 @@ static struct {
   bool built;
   const map_def *map;
   float frame_time;
+  t3_vec3 eye[4];
+  int neye;
   t3_material *boost;   /* one material for every boost strip: its arrows run forward and pulse */
 } W;
 
@@ -105,6 +107,19 @@ static t3_material *road_material(const map_look *L, int surf, int road_tex) {
     m->depth_write = false;
   }
   return m;
+}
+
+static void dev_walk(cw_node n, int depth, const char *hide) {
+  for (int i = 0; i < cw_node_child_count(n); i++) {
+    cw_node c = cw_node_child(n, i);
+    const char *nm = cw_node_name(c);
+    if (getenv("RACER_LIST") && depth < 3) cw_log(CW_LOG_INFO, "node %*s%s children=%d", depth * 2, "", nm, cw_node_child_count(c));
+    if (hide && nm && strstr(nm, hide)) {
+      cw_node_set(c, "visible", cw_val_bool(false));
+      continue;
+    }
+    dev_walk(c, depth + 1, hide);
+  }
 }
 
 void world_build(cw_node scene, const sim *s, const map_def *map) {
@@ -189,9 +204,20 @@ void world_build(cw_node scene, const sim *s, const map_def *map) {
   }
   kartgfx_build(W.root, s);
   if (map->scenery) map->scenery(scene, s->track, 1234);
+  {
+    /* dev aid: RACER_LIST=1 logs the scene's nodes (to a depth of three) with their child counts; RACER_HIDE=text hides the nodes whose name contains it (draw-call attribution) */
+    const char *hide = getenv("RACER_HIDE");
+    if (hide || getenv("RACER_LIST")) dev_walk(scene, 0, hide);
+  }
 }
 
 void world_tick(const sim *s) { kartgfx_tick(s); }
+
+void world_set_eyes(const t3_vec3 *e, int n) {
+  W.neye = n > 4 ? 4 : n;
+  for (int i = 0; i < W.neye; i++) W.eye[i] = e[i];
+  kartgfx_set_eyes(e, n);
+}
 
 void world_frame(double alpha) {
   if (W.map && W.map->scenery_frame) W.map->scenery_frame((float)alpha, (double)W.frame_time);

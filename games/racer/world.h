@@ -31,6 +31,8 @@ int game_planned_views(void);
 /* kartgfx.c: the karts as drawn: nodes, wheels, body motion, effects that belong to a kart (shield, flames) */
 void kartgfx_build(cw_node parent, const sim *s);
 void kartgfx_reset(void);
+void kartgfx_set_eyes(const t3_vec3 *e, int n); /* the views eyes: far karts draw simpler */
+void world_set_eyes(const t3_vec3 *e, int n);     /* the views eyes: far karts draw simpler */
 void kartgfx_tick(const sim *s);               /* fixed tick: pose from the sim */
 cw_node kartgfx_node(int i);
 void kartgfx_frame(const sim *s, float alpha); /* every frame: body, driver, wheels, flames, shield posed between the last two ticks (s may be NULL: the last sim) */
