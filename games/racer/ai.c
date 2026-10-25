@@ -51,6 +51,8 @@ kin ai_think(const sim *s, int me, ai_mem *m) {
     if (ds > 0 && ds < 14 && fabsf(s->k[j].loc.lat - k->loc.lat) < 2.4f) lane += (k->loc.lat > s->k[j].loc.lat ? 1.0f : -1.0f) * 2.6f;
   }
   lane = clampf(lane, -hw, hw);
+  /* on a corkscrew or in a loop the road turns under the kart: it holds the middle */
+  if (here.flags & TF_LOOP) lane = 0;
   t3_vec3 target = track_point(t, k->loc.s + look, lane, 0);
   t3_vec3 d = v3sub(target, k->p);
   t3_vec3 up = kart_up(k), f = kart_fwd(k), r = kart_right(k);

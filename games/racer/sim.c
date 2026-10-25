@@ -236,14 +236,14 @@ static void world_make(sim *s, const map_def *map, const bool on[MAXK], const in
     sd = cw_shape3d_default_def();
     sd.layer = L_KART;
     sd.mask = (1u << L_TRACK) | (1u << L_WALL) | (1u << L_KART);
-    float rr0 = vd->wid * 0.82f, vol = 3.1416f * rr0 * rr0 * (2 * (vd->len - rr0) + 1.333f * rr0);
+    float rr0 = vd->wid * 0.78f, vol = 3.1416f * rr0 * rr0 * (2 * (vd->len - rr0) + 1.333f * rr0);
     sd.density = vd->mass / vol;
     sd.material.friction = 0.2f;
     sd.material.restitution = 0.2f;
     sd.hit_events = true;
     /* a rounded hull (a capsule along the kart): a wall or another kart slides along it instead of catching a corner */
-    float rr = vd->wid * 0.82f;
-    PH.hull[i] = cw_shape3d_capsule(PH.body[i], &sd, (t3_vec3){ 0, 0.12f, -(vd->len - rr) }, (t3_vec3){ 0, 0.12f, vd->len - rr }, rr);
+    float rr = vd->wid * 0.78f;
+    PH.hull[i] = cw_shape3d_capsule(PH.body[i], &sd, (t3_vec3){ 0, 0.36f, -(vd->len - rr) }, (t3_vec3){ 0, 0.36f, vd->len - rr }, rr);
     b3MassData md = b3Body_GetMassData(cw_body3d_raw(PH.body[i]));
     md.center = (b3Vec3){ 0, -0.25f, 0 };
     b3Body_SetMassData(cw_body3d_raw(PH.body[i]), md);
@@ -354,6 +354,13 @@ void sim_init(sim *s, const track *t, const map_def *map, int map_index, int lap
 void sim_free(sim *s) {
   (void)s;
   phys_free();
+}
+
+/* dev aid: stand kart i on the road at s metres, lat to the right, already moving at speed */
+void sim_put(sim *s, int i, float sd, float lat, float speed) {
+  kart_place(s, i, sd, lat, speed);
+  s->k[i].prog = sd;
+  s->k[i].last_safe_s = sd;
 }
 
 const track *sim_track(const sim *s) { return s->track; }
@@ -674,8 +681,8 @@ static void kart_control(sim *s, int i, kin in) {
   bool gap = (ts->flags & TF_GAP) != 0 || (t->s[(k->loc.i + 1) % t->n].flags & TF_GAP) != 0;
   float attach = 0;
   if (!gap && lat_over < 2.5f && h > -1.0f) {
-    float reach = (ts->flags & TF_LOOP) ? 6.5f : 3.4f;
-    attach = clampf((reach - h) / 1.6f, 0, 1);
+    float reach = (ts->flags & TF_LOOP) ? 2.3f : 3.0f;
+    attach = clampf((reach - h) / 0.9f, 0, 1);
     float al = v3dot(up, m.u);
     if (al < 0.0f && !(ts->flags & TF_LOOP)) attach *= 0.0f;
   }
@@ -683,7 +690,7 @@ static void kart_control(sim *s, int i, kin in) {
   if (attach > 0) {
     /* gravity leans towards the road's own down: all of the way in a loop or corkscrew (a kart needs no more speed
      * than it can drive), half way on a hill (a slope still slows a climb and speeds a drop, a little) */
-    float blend = (ts->flags & TF_LOOP) ? 0.88f : 0.45f;
+    float blend = (ts->flags & TF_LOOP) ? 1.0f : 0.45f;
     t3_vec3 gdiff = v3sub((t3_vec3){ 0, 1, 0 }, m.u);
     cw_body3d_apply_force(b, v3mul(gdiff, GRAV * mass * attach * blend), NULL);
     float sp = absf(k->speed);
@@ -782,14 +789,19 @@ static void kart_control(sim *s, int i, kin in) {
   /* the road's boost strips */
   if ((ts->flags & TF_BOOST) && touching && k->boost_ticks < 50) start_boost(s, i, 70, 1.1f, 0);
 
-  /* grounded: the body lies on the road; the legs take what the surface asks */
-  if (touching && attach > 0) {
+  /* grounded: the body lies on the road; the legs take what the surface asks. The turn that lays it flat is a rate
+   * (so many radians a second per radian off), held hard in a loop or corkscrew where the road turns under the kart */
+  bool in_loop = (ts->flags & TF_LOOP) != 0;
+  if (attach > 0 && (touching || in_loop)) {
     t3_vec3 w = k->w;
     t3_vec3 ax = v3cross(up, m.u);
     float sa = v3len(ax);
     if (sa > 1e-5f) {
       float ang2 = cw_atan2(sa, v3dot(up, m.u));
-      w = v3add(w, v3mul(ax, ang2 * 6.0f * DT / sa * (grounded ? 1.0f : 0.4f)));
+      t3_vec3 axn = v3mul(ax, 1.0f / sa);
+      float gain = (ts->flags & TF_LOOP) ? 16.0f : 7.0f;
+      float target = ang2 * gain * (grounded ? 1.0f : touching ? 0.7f : 0.6f), have = v3dot(w, axn);
+      w = v3add(w, v3mul(axn, (target - have) * 0.5f));
     }
     cw_body3d_set_angular_velocity(b, w);
   }
@@ -802,7 +814,7 @@ static void kart_control(sim *s, int i, kin in) {
     if (steer != 0) w = v3add(w, v3mul(up, -steer * 4.5f * DT));
     /* gently level out along the flight (wings level, nose along the path) */
     float spd = v3len(k->v);
-    if (spd > 8 && k->air_ticks > 8) {
+    if (spd > 8 && k->air_ticks > 8 && !(attach > 0 && in_loop)) {
       t3_vec3 want_f = v3norm(k->v);
       t3_vec3 want_r = v3norm(v3cross(want_f, (t3_vec3){ 0, 1, 0 }));
       t3_vec3 want_u = v3cross(want_r, want_f);
