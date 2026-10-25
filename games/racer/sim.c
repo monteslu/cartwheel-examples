@@ -611,7 +611,39 @@ static void drive(sim *s, int i, float thr, float st, bool grounded_front) {
       if (s->k[j].on && s->k[j].human && s->k[j].prog > lead) lead = s->k[j].prog;
     if (lead > -1e8f) rb = clampf((lead - k->prog) / 900.0f, -0.04f, 0.07f);
   }
+  if (k->human) {
+    /* a human far behind the pack gets up to 4% more top speed: the road is long, and so is the gap, but never hopeless */
+    float lead = k->prog;
+    for (int j = 0; j < MAXK; j++)
+      if (s->k[j].on && s->k[j].prog > lead) lead = s->k[j].prog;
+    rb = clampf((lead - k->prog) / 1500.0f, 0, 0.04f);
+  }
   top *= 1.0f + rb;
+  /* the slipstream: close behind another kart in its lane the air is thin. A little more top speed while it lasts, and a
+   * short boost once the tow has held for a moment (with a pause before the next, so a train does not boost for ever) */
+  if (k->draft_cool > 0) k->draft_cool--;
+  {
+    bool towed = false;
+    if (s->phase == PH_RACE && k->grounded && spd > vd->top * 0.6f) {
+      t3_vec3 fw = kart_fwd(k), rt = kart_right(k);
+      for (int j = 0; j < MAXK && !towed; j++) {
+        if (j == i || !s->k[j].on || s->k[j].spin_ticks > 0) continue;
+        t3_vec3 d = v3sub(s->k[j].p, k->p);
+        float ahead = v3dot(d, fw), side = v3dot(d, rt);
+        towed = ahead > 3 && ahead < 18 && side < 2.0f && side > -2.0f && absf(v3dot(d, kart_up(k))) < 3;
+      }
+    }
+    if (towed) {
+      top *= 1.03f;
+      if (++k->draft_ticks >= 100 && k->draft_cool == 0) {
+        start_boost(s, i, 45, 0.9f * vd->boost, 5);
+        k->draft_ticks = 0;
+        k->draft_cool = 240;
+      }
+    } else if (k->draft_ticks > 0) {
+      k->draft_ticks = k->draft_ticks > 2 ? k->draft_ticks - 2 : 0;
+    }
+  }
   accel_k = 1.0f + 2.0f * rb;
   float acc = 0, brake = 0;
   if (thr > 0.05f) {

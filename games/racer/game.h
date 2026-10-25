@@ -131,6 +131,7 @@ typedef struct kart {
   float spin_dir;
   int shield_ticks;
   int trick_ticks;      /* a trick in the air */
+  int draft_ticks, draft_cool; /* time spent in the slipstream of a kart ahead; a pause after the boost it pays */
   bool trick_done;
   int bump_ticks;
   int respawn_ticks;    /* flickering back in */
