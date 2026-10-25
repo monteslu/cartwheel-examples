@@ -557,7 +557,7 @@ static void windows_face(pm *b, float w, float y0, float y1, float lit, const ti
   pcol glass = rgb(0.012f, 0.02f, 0.045f), frame = rgb(0.05f, 0.055f, 0.08f);
   for (int j = 0; j < ny; j++) {
     float floor_k = frand(&rs); /* this floor's share of lit windows */
-    float p = fclampf(lit * (0.45f + 1.5f * floor_k), 0, 1);
+    float p = fclampf(lit * (0.5f + 1.6f * floor_k), 0, 1);
     float y = y0 + ((float)j + 0.5f) * ch;
     for (int i = 0; i < nx; i++) {
       float x = -w * 0.5f + 0.8f + ((float)i + 0.5f) * (w - 1.6f) / (float)nx;
@@ -1966,7 +1966,7 @@ static void drones(const track *t, cw_node root, uint32_t seed) {
     DR.count++;
   }
   /* the searchlight under drone 0: a pale cone to the water */
-  t3_material *m = basic_add(0.5f, 0.55f, 0.6f, true, NULL);
+  t3_material *m = basic_add(0.16f, 0.2f, 0.24f, true, NULL);
   t3_geometry *g = shaft_geometry(0.5f, 6.0f, 40.0f, 14);
   t3_mesh *me = t3_mesh_new(g, m);
   DR.beam = hang(DR.n[0], "DroneBeam", &me->base);
