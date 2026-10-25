@@ -727,7 +727,8 @@ static void hud_view(int v, float W, float H, int nviews) {
   g.kart = game_view_kart(v);
   game_view_rect(v, W, H, &g.x, &g.y, &g.w, &g.h);
   g.s = sqrtf(fminf(g.w / 960.0f, 3.0f) * fminf(g.h / 540.0f, 3.0f));
-  if (nviews == 1) g.s = fminf(g.w / 960.0f, g.h / 540.0f) * (is_portrait(W, H) ? 1.5f : 1.0f);
+  if (nviews == 1) g.s = fminf(g.w / 960.0f, g.h / 540.0f) * (is_portrait(W, H) ? 1.8f : 1.0f);
+  g.s = fminf(g.s, g.w / 480.0f); /* place, item and lap need about 480 design units across */
   g.medium = g.s < 0.85f;
   g.compact = g.s < 0.62f;
   g.S = S;
@@ -753,7 +754,7 @@ static void hud_view(int v, float W, float H, int nviews) {
   } else if (!g.compact && !g.shared_map) {
     float ms = (g.medium ? 130 : 176) * g.s;
     hud_minimap(&g, cw_rect_make(g.x + 14 * g.s, g.y + g.h - ms - 14 * g.s, ms, ms));
-  } else if (g.compact && !g.shared_map && g.w > 300) {
+  } else if (g.compact && !g.shared_map) {
     float ms = 118 * g.s * 1.1f;
     hud_minimap(&g, cw_rect_make(g.x + 12 * g.s, g.y + g.h - ms - 12 * g.s, ms, ms));
   }

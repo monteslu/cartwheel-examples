@@ -863,7 +863,7 @@ static void tick_race(float W, float H) {
     float vx, vy, vw, vh;
     game_view_rect(0, W, H, &vx, &vy, &vw, &vh);
     g.x = vx, g.y = vy, g.w = vw, g.h = vh;
-    g.s = fminf(vw / 960.0f, vh / 540.0f) * (is_portrait(W, H) ? 1.5f : 1.0f);
+    g.s = fminf(vw / 960.0f, vh / 540.0f) * (is_portrait(W, H) ? 1.8f : 1.0f);
     if (in_rect(N.m, pause_button_rect(&g))) pause = true;
   }
   if (pause && U.mt > 20 && U.pending == PD_NONE) {
