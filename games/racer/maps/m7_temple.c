@@ -118,6 +118,8 @@ static bool off(const char *name) {
 }
 
 static const track *T;
+static int NV = 1; /* views planned for this race: more than one thins the scenery */
+static float thin(float one, float many) { return NV > 1 ? many : one; }
 static ground_opts G;
 static rng R;
 
@@ -223,7 +225,7 @@ static float river_cut(float x, float z) {
 
 static float temple_ground(float x, float z, void *ud) {
   (void)ud;
-  float h = ground_hills(T, x, z, 7.0f, 110.0f, 10.0f, 50.0f, 11);
+  float h = ground_hills(T, x, z, 7.0f, 110.0f, 16.0f, 60.0f, 11);
   {
     float pdx = x - PYR.c.x, pdz = z - PYR.c.z; /* the pyramid stands on level ground */
     h *= sstep(PYR.base + 2.0f, PYR.base + 20.0f, sqrtf(pdx * pdx + pdz * pdz));
@@ -274,6 +276,10 @@ static inst inst_new(prop_model m, int tex, pcol tint, float rough) {
 static void inst_add(inst *r, t3_vec3 p, float yaw, float scale) {
   for (int l = 0; l < PL_COUNT; l++)
     if (r->b[l]) pb_add(r->b[l], p, yaw, V(scale, scale, scale));
+}
+static void inst_add_c(inst *r, t3_vec3 p, t3_quat q, t3_vec3 scale, pcol tint) {
+  for (int l = 0; l < PL_COUNT; l++)
+    if (r->b[l]) pb_add_c(r->b[l], p, q, scale, tint);
 }
 static void inst_add3(inst *r, t3_vec3 p, float yaw, t3_vec3 scale) {
   for (int l = 0; l < PL_COUNT; l++)
@@ -539,7 +545,7 @@ static prop_model model_crown(uint32_t seed, float rad, float trunk) {
   rng r = { seed * 40503u + 7 };
   /* a buttressed trunk reaching down into the ground, three limbs up to the leaf masses */
   pm_layer(b, PL_MAIN);
-  pcol bark0 = rgb(0.12f, 0.08f, 0.05f), bark1 = rgb(0.34f, 0.26f, 0.16f);
+  pcol bark0 = rgb(0.24f, 0.17f, 0.1f), bark1 = rgb(0.5f, 0.38f, 0.24f);
   pm_push(b);
   pm_move(b, 0, -trunk, 0);
   pm_cyl(b, 1.7f, 0.95f, trunk - 3.0f, 7, bark0, bark1);
@@ -554,7 +560,7 @@ static prop_model model_crown(uint32_t seed, float rad, float trunk) {
     pm_push(b);
     pm_move(b, rnds(&r) * rad * 0.55f, rnds(&r) * rad * 0.12f + rad * 0.12f, rnds(&r) * rad * 0.55f);
     float s = rad * (0.45f + 0.5f * rnd(&r));
-    pm_ball(b, s, s * 0.62f, s, 2, 0.3f, rgb(0.05f, 0.22f, 0.07f), leaf_green(&r, 0.55f));
+    pm_ball(b, s, s * (0.5f + 0.45f * rnd(&r)), s * (0.8f + 0.3f * rnd(&r)), 2, 0.35f, rgb(0.06f, 0.26f, 0.08f), leaf_green(&r, 0.6f));
     pm_pop(b);
   }
   return pm_finish(b);
@@ -673,7 +679,7 @@ static prop_model make_guardian(float sz, bool arms_up, uint32_t seed) {
 /* ── the shared decoration: models instanced everywhere, finished together ─────────────────────────── */
 
 static struct {
-  inst vines, wallvines, crowns, braziers, banners, guards, sconces, flowers[4];
+  inst vines, wallvines, crowns, crowns2, braziers, banners, guards, sconces, flowers[4];
   prop_batch *flame[4];
   t3_material *flame_mat[4];
   int nflame;
@@ -684,6 +690,7 @@ static void dec_begin(void) {
   memset(&D, 0, sizeof D);
   D.vines = inst_new(model_vines(3, 9.0f), -1, (pcol){ 1, 1, 1 }, 1.0f);
   D.wallvines = inst_new(model_vines(8, 2.6f), -1, (pcol){ 1, 1, 1 }, 1.0f);
+  D.crowns2 = inst_new(model_crown(17, 12.0f, 40.0f), -1, (pcol){ 1, 1, 1 }, 1.0f);
   D.crowns = inst_new(model_crown(5, 9.0f, 40.0f), -1, (pcol){ 1, 1, 1 }, 1.0f);
   D.braziers = inst_new(model_brazier(7), TEX_WALL_STONE, (pcol){ 1, 1, 1 }, 1.0f);
   D.banners = inst_new(model_banner(9, 7.0f), -1, (pcol){ 1, 1, 1 }, 1.0f);
@@ -727,6 +734,7 @@ static void dec_finish(cw_node scene) {
   inst_finish(&D.vines, scene, "Vines", false, 200);
   inst_finish(&D.wallvines, scene, "WallVines", false, 160);
   inst_finish(&D.crowns, scene, "Crowns", true, 220);
+  inst_finish(&D.crowns2, scene, "Crowns2", true, 220);
   inst_finish(&D.braziers, scene, "Braziers", true, 160);
   inst_finish(&D.banners, scene, "Banners", true, 160);
   inst_finish(&D.guards, scene, "Guards", true, 200);
@@ -782,7 +790,19 @@ static int fm_make(prop_kind k, int variant, float size, int tex, pcol tint, uin
   }
   return nfm++;
 }
-static void fm_add(int i, t3_vec3 p, float yaw, float scale, bool far_) { inst_add(&FM[i].in[far_ ? 1 : 0], p, yaw, scale); }
+/* every copy leans a little, is taller or squatter than its neighbours and has its own shade of green (a few turn yellow) */
+static rng VAR = { 99 };
+static void fm_add(int i, t3_vec3 p, float yaw, float scale, bool far_) {
+  float lean = 0.09f * rnds(&VAR), lean_dir = rnd(&VAR) * 6.2832f;
+  t3_quat qy = t3_quat_from_axis_angle(V(0, 1, 0), yaw), qt = t3_quat_from_axis_angle(V(cosf(lean_dir), 0, sinf(lean_dir)), lean);
+  t3_quat q = { qt.w * qy.x + qt.x * qy.w + qt.y * qy.z - qt.z * qy.y, qt.w * qy.y - qt.x * qy.z + qt.y * qy.w + qt.z * qy.x, qt.w * qy.z + qt.x * qy.y - qt.y * qy.x + qt.z * qy.w,
+                qt.w * qy.w - qt.x * qy.x - qt.y * qy.y - qt.z * qy.z };
+  float w = scale * (0.85f + 0.4f * rnd(&VAR)), h = scale * (0.8f + 0.45f * rnd(&VAR));
+  float g = 0.8f + 0.4f * rnd(&VAR);
+  pcol tint = { g * (0.85f + 0.3f * rnd(&VAR)), g * (0.92f + 0.14f * rnd(&VAR)), g * (0.75f + 0.4f * rnd(&VAR)) };
+  if (rnd(&VAR) < 0.07f) tint = (pcol){ 1.5f, 1.15f, 0.45f };
+  inst_add_c(&FM[i].in[far_ ? 1 : 0], p, q, V(w, h, w), tint);
+}
 static void fm_finish(cw_node scene) {
   for (int i = 0; i < nfm; i++)
     for (int lod = 0; lod < 2; lod++) {
@@ -813,6 +833,7 @@ static int plant_along(const track *t, const planting *p, rng *r, float (*mask)(
       float sc = p->smin + (p->smax - p->smin) * rnd(r);
       float gap = road_gap(t, q.x, q.z, &ry);
       if (gap < 1.5f + FM[mi].radius * sc * 0.45f) continue;
+      if (s > t->length - 70.0f && lat < a.hw + 12.0f && FM[mi].kind != PK_FERN) continue; /* keep the grid's rear clear for the cameras */
       float w = mask ? mask(q.x, q.z, NULL) : 1.0f;
       if (w < rnd(r)) continue;
       bool far_ = gap > p->far_dist;
@@ -829,36 +850,37 @@ static void build_jungle(cw_node scene, const track *t) {
   rng r = { 4242 };
   nfm = 0;
   /* big trees: jungle giants and round broadleaf */
-  planting trees = { .n = 0, .spacing = 9, .lat_min = 2.5f, .lat_max = 85, .curve = 1.5f, .smin = 1.0f, .smax = 1.9f, .far_dist = 38, .far_keep = 0.7f };
+  planting trees = { .n = 0, .spacing = thin(9.5f, 17.0f), .lat_min = 2.5f, .lat_max = 85, .curve = 1.5f, .smin = 1.0f, .smax = 1.9f, .far_dist = 38, .far_keep = thin(0.5f, 0.3f) };
   trees.models[trees.n++] = fm_make(PK_JUNGLE_TREE, 0, 0, -1, rgb(0.7f, 1.0f, 0.55f), 11);
   trees.models[trees.n++] = fm_make(PK_JUNGLE_TREE, 1, 0, -1, rgb(0.62f, 1.0f, 0.5f), 12);
+  trees.models[trees.n++] = fm_make(PK_JUNGLE_TREE, 2, 0, -1, rgb(0.66f, 0.98f, 0.5f), 14);
   trees.models[trees.n++] = fm_make(PK_BROADLEAF, 0, 0, -1, rgb(0.55f, 0.95f, 0.45f), 13);
   int a = plant_along(t, &trees, &r, mask_jungle);
   /* the canopy sea round the pyramid: giants whose crowns reach the helix's upper turns */
   int canopy = 0;
-  for (int i = 0; i < 260; i++) {
+  for (int i = 0; i < (int)thin(260.0f, 110.0f); i++) {
     float ang = rnd(&r) * 6.2832f, dist = PYR.base + 8.0f + 190.0f * sqrtf(rnd(&r));
     t3_vec3 q = V(PYR.c.x + cosf(ang) * dist, 0, PYR.c.z + sinf(ang) * dist);
     float ry, gap = road_gap(t, q.x, q.z, &ry);
     if (gap < 9.0f || mask_open(q.x, q.z, NULL) < 0.5f) continue;
     q.y = gy(q.x, q.z) - 0.2f;
-    fm_add(trees.models[(int)(rnd(&r) * 2.0f) % 2], q, rnd(&r) * 6.28f, 1.7f + 0.9f * rnd(&r), dist > 110);
+    fm_add(trees.models[(int)(rnd(&r) * 3.0f) % 3], q, rnd(&r) * 6.28f, 1.5f + 1.0f * rnd(&r), dist > 110);
     canopy++;
   }
   /* the gorge: giants growing from its floor, their crowns well under the bridge, half hidden in the mist */
   int gorge_trees = 0;
-  for (int i = 0; i < 34; i++) {
+  for (int i = 0; i < (int)thin(34.0f, 16.0f); i++) {
     float d = (rnd(&r) * 2 - 1) * (GORGE.half - 6.0f), l = (rnd(&r) * 2 - 1) * 120.0f;
     t3_vec3 q = V(GORGE.c.x + GORGE.f.x * d + GORGE.r.x * l, 0, GORGE.c.z + GORGE.f.z * d + GORGE.r.z * l);
     float ry, gap = road_gap(t, q.x, q.z, &ry);
     if (gap < 12.0f) continue;
     q.y = gy(q.x, q.z) - 0.3f;
     float sc = (GORGE.depth - 15.0f + rnds(&r) * 8.0f) / 18.0f; /* the crowns stop 10 m or so under the deck */
-    fm_add(trees.models[(int)(rnd(&r) * 2.0f) % 2], q, rnd(&r) * 6.28f, sc, false);
+    fm_add(trees.models[(int)(rnd(&r) * 3.0f) % 3], q, rnd(&r) * 6.28f, sc, false);
     gorge_trees++;
   }
   /* ferns, grass tufts and bushes at the verge */
-  planting fern = { .n = 0, .spacing = 3.4f, .lat_min = 0.4f, .lat_max = 20, .curve = 1.9f, .smin = 1.0f, .smax = 2.4f, .far_dist = 24, .far_keep = 0.4f };
+  planting fern = { .n = 0, .spacing = thin(3.6f, 6.5f), .lat_min = 0.4f, .lat_max = 20, .curve = 1.9f, .smin = 1.0f, .smax = 2.4f, .far_dist = 24, .far_keep = 0.4f };
   fern.models[fern.n++] = fm_make(PK_FERN, 0, 0, -1, rgb(0.6f, 1.0f, 0.5f), 21);
   fern.models[fern.n++] = fm_make(PK_FERN, 1, 0, -1, rgb(0.5f, 0.95f, 0.45f), 22);
   fern.models[fern.n++] = fm_make(PK_BUSH, 0, 0, -1, rgb(0.55f, 0.95f, 0.4f), 23);
@@ -1462,7 +1484,7 @@ static void build_waterfall(cw_node scene, const track *t) {
   wo.deep = rgb(0.04f, 0.42f, 0.4f);
   wo.clarity = 0.3f;
   wo.wave_height = 0.12f;
-  wo.foam = 0.55f;
+  wo.foam = 0.0f;
   wo.reflect = 0.0f;
   wo.refract = false;
   wo.flow_x = 0.5f, wo.flow_z = 0.5f;
@@ -1525,7 +1547,7 @@ static void build_waterfall(cw_node scene, const track *t) {
     t3_release(g);
   }
   /* mist lying on the ford */
-  {
+  if (NV == 1) {
     tsample f0 = track_at(t, C.water.s0 + 25.0f), f1 = track_at(t, C.water.s1 - 25.0f);
     fx_ambient_at(scene, FXA_MIST, vadd(f0.p, V(0, 1.2f, 0)), V(10, 0.8f, 10), 0.4f, 170);
     fx_ambient_at(scene, FXA_MIST, vadd(f1.p, V(0, 1.2f, 0)), V(10, 0.8f, 10), 0.4f, 170);
@@ -1656,7 +1678,7 @@ static void build_pyramid(cw_node parent, const track *t) {
   t3_object_set_position(g, PYR.c.x, PYR.h + 3.0f + 52.0f, PYR.c.z);
   hang(parent, "ShrineBeam", g);
   t3_release(g);
-  fx_ambient_at(parent, FXA_FIREFLIES, V(PYR.c.x, 12, PYR.c.z), V(46, 12, 46), 1.6f, 230);
+  if (NV == 1) fx_ambient_at(parent, FXA_FIREFLIES, V(PYR.c.x, 12, PYR.c.z), V(46, 12, 46), 1.6f, 230);
   fx_ambient_at(parent, FXA_MIST, V(PYR.c.x, 3, PYR.c.z), V(50, 3, 50), 1.1f, 260);
 }
 
@@ -1717,7 +1739,7 @@ static void build_roadside(cw_node scene, const track *t) {
     else inst_add(&D.guards, p, yaw_of(vmul(V(a.r.x, 0, a.r.z), -(float)side)), 1.0f);
   }
   /* vines draped over the walls' inner faces */
-  for (float s = 4; s < t->length - 4; s += 6.0f + rnd(&r) * 7.0f) {
+  for (float s = 4; s < t->length - 4; s += thin(6.0f, 12.0f) + rnd(&r) * 7.0f) {
     tsample a = track_at(t, s);
     if (a.flags & (TF_GAP | TF_LOOP | TF_TUNNEL)) continue;
     for (int k = -1; k <= 1; k += 2) {
@@ -1729,7 +1751,7 @@ static void build_roadside(cw_node scene, const track *t) {
     }
   }
   /* flowers in the verge, in four colours */
-  for (float s = 3; s < t->length - 3; s += 3.2f + rnd(&r) * 3.0f) {
+  for (float s = 3; s < t->length - 3; s += thin(3.2f, 7.0f) + rnd(&r) * 3.0f) {
     tsample a = track_at(t, s);
     if (a.flags & (TF_GAP | TF_LOOP | TF_TUNNEL | TF_OPEN) || a.p.y > 1.2f) continue;
     for (int k = -1; k <= 1; k += 2) {
@@ -1743,7 +1765,7 @@ static void build_roadside(cw_node scene, const track *t) {
     }
   }
   /* vines hanging from the canopy edge over the verge, above the camera's reach */
-  for (float s = 6; s < t->length - 6; s += 14.0f + rnd(&r) * 10.0f) {
+  for (float s = 6; s < t->length - 6; s += thin(14.0f, 26.0f) + rnd(&r) * 10.0f) {
     tsample a = track_at(t, s);
     if (a.flags & (TF_GAP | TF_LOOP | TF_TUNNEL)) continue;
     for (int k = -1; k <= 1; k += 2) {
@@ -1761,7 +1783,10 @@ static void build_roadside(cw_node scene, const track *t) {
     float lat = side * (a.hw + 6.0f + rnd(&r) * 8.0f);
     t3_vec3 p = vadd(a.p, vmul(a.r, lat));
     p.y = a.p.y + 20.0f + rnd(&r) * 8.0f;
-    inst_add3(&D.crowns, p, rnd(&r) * 6.28f, V(1.0f + rnd(&r) * 0.6f, 1.0f, 1.0f + rnd(&r) * 0.6f));
+    {
+      float w = 0.8f + rnd(&r) * 0.9f;
+      inst_add_c(rnd(&r) < 0.5f ? &D.crowns : &D.crowns2, p, t3_quat_from_axis_angle(V(0, 1, 0), rnd(&r) * 6.28f), V(w, 0.7f + rnd(&r) * 0.8f, w * (0.8f + 0.4f * rnd(&r))), (pcol){ 0.8f + 0.5f * rnd(&r), 0.9f + 0.2f * rnd(&r), 0.7f + 0.4f * rnd(&r) });
+    }
   }
 }
 
@@ -1883,7 +1908,7 @@ static void add_mesh_obj(t3_object *parent, t3_geometry *g, t3_material *m, floa
 }
 
 static void make_flyer(cw_node scene, int variant, bool butterfly, t3_vec3 c, float rad, float speed, uint32_t seed) {
-  if (nfly >= 24) return;
+  if (nfly >= (NV > 1 ? 8 : 24)) return;
   flyer *f = &FLY[nfly];
   static char name[24][16];
   snprintf(name[nfly], 16, "Fly%d", nfly);
@@ -1904,10 +1929,10 @@ static void make_flyer(cw_node scene, int variant, bool butterfly, t3_vec3 c, fl
     add_mesh_obj(wl, wm.g[PL_LEAF], prop_material(PL_LEAF, -1, (pcol){ 1, 1, 1 }, 1), 0, 0, 0, 1);
     add_mesh_obj(wr, wm.g[PL_LEAF], prop_material(PL_LEAF, -1, (pcol){ 1, 1, 1 }, 1), 0, 0, 0, -1);
     prop_model_free(&wm);
-    t3_object_set_scale(root, 1.0f, 1.0f, 1.0f);
   }
   t3_object_add(root, wl);
   t3_object_add(root, wr);
+  { float sc = butterfly ? 2.6f : 2.0f; t3_object_set_scale(root, sc, sc, sc); }
   t3_retain(wl), t3_retain(wr), t3_retain(root);
   t3_release(wl);
   t3_release(wr);
@@ -1976,7 +2001,7 @@ static void build_gorge_river(cw_node scene) {
   wo.deep = rgb(0.04f, 0.36f, 0.36f);
   wo.clarity = 0.3f;
   wo.reflect = 0.0f;
-  wo.foam = 0.5f;
+  wo.foam = 0.1f;
   wo.flow_x = 0.4f, wo.flow_z = 0.4f;
   t3_vec3 p[5];
   for (int i = 0; i < 5; i++) {
@@ -1989,7 +2014,7 @@ static void build_gorge_river(cw_node scene) {
 static void ambient_fx(cw_node scene, const track *t) {
   fx_ambient_follow(scene, FXA_DUST, 0.55f);
   /* the gorge: mist rolling at three depths along its length */
-  for (int i = -2; i <= 2; i++) {
+  for (int i = -2; i <= 2; i += (NV > 1 ? 2 : 1)) {
     t3_vec3 c = V(GORGE.c.x + GORGE.r.x * (float)i * 55.0f, -GORGE.depth * 0.35f, GORGE.c.z + GORGE.r.z * (float)i * 55.0f);
     fx_ambient_at(scene, FXA_MIST, c, V(40, 12, 40), 1.4f, 260);
   }
@@ -1997,12 +2022,13 @@ static void ambient_fx(cw_node scene, const track *t) {
   /* fireflies and motes in the verges at a few places along the lap */
   float where[] = { 70, 180, 320, 470, 700, 800, 1080, 1180, 2500, 2700 };
   for (int i = 0; i < (int)(sizeof where / sizeof where[0]); i++) {
+    if (NV > 1 && (i & 1)) continue;
     tsample a = track_at(t, where[i]);
     float lat = (i & 1 ? -1.0f : 1.0f) * (a.hw + 7.0f);
     t3_vec3 p = vadd(a.p, vmul(a.r, lat));
     fx_ambient_at(scene, FXA_FIREFLIES, V(p.x, gy(p.x, p.z) + 2.5f, p.z), V(14, 3.0f, 14), 0.9f, 150);
   }
-  for (int i = 0; i < C.ntunnel; i++) {
+  for (int i = 0; i < C.ntunnel && NV == 1; i++) {
     tsample a = track_at(t, C.tunnel[i].s0 - 8);
     fx_ambient_at(scene, FXA_MIST, vadd(a.p, V(0, 2, 0)), V(9, 1.6f, 7), 0.8f, 160);
   }
@@ -2011,6 +2037,7 @@ static void ambient_fx(cw_node scene, const track *t) {
 static void scenery(cw_node scene, const track *t, uint32_t seed) {
   (void)seed;
   T = t;
+  NV = game_planned_views();
   R.s = 7;
   nfly = 0;
   memset(&FX, 0, sizeof FX);
@@ -2041,7 +2068,7 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
   G.tint = rgb(0.2f, 0.46f, 0.14f);
   G.tint2 = rgb(0.34f, 0.4f, 0.14f);
   G.near_cell = 64;
-  G.detail_range = 32;
+  G.detail_range = thin(32.0f, 18.0f);
   G.half = 1300;
   G.shoulder = 5;
   G.road_drop = 0.2f;
