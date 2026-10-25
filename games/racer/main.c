@@ -253,6 +253,12 @@ static float steer_smooth[CW_MAX_VIEWS];
 static kin human_in(int kart) {
   int p = G.pl[G.human_of[kart]];
   kin in = { 0 };
+  {
+    /* dev aid: RACER_BOT=1 drives the human karts with the CPU driver through the human path (a whole split-screen race without hands) */
+    static int bot = -1;
+    if (bot < 0) bot = getenv("RACER_BOT") != NULL;
+    if (bot) return ai_think(&G.S, kart, &G.ai[kart]);
+  }
   in.thr = q127(cw_action_strength(p, G.a_fwd) - cw_action_strength(p, G.a_back));
   /* a key is all or nothing: ease it in and out so a tap is a nudge and a hold a full lock */
   float raw = cw_input_axis(p, G.a_left, G.a_right), *ss = &steer_smooth[G.human_of[kart]];
