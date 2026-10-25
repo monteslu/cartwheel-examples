@@ -64,3 +64,15 @@ physical+instbig+senv+icol+sheen+l0301+xcsm
 physical+shadow+senv+ds+l1301+s100
 physical+senv+cc+l1001+xcluster
 physical+senv+l1001+xcluster
+physical+instbig+senv+icol+cc+l1001+xcluster
+physical+instbig+senv+l1001+xcluster
+physical+vcol+shadow+senv+l1001+xcluster
+physical+vcol+shadow+senv+cc+l1001+xcluster
+physical+vcol+senv+l1001+xcluster
+physical+map+rep+nmap+ao+emap+rmap+shadow+senv+l1001+xcluster
+physical+map+rep+nmap+ao+emap+rmap+shadow+senv+ds+l1001+xcluster
+basic+trans+instbig+ds
+physical+vcol+instbig+shadow+senv+l1001+xcluster
+physical+vcol+instbig+shadow+senv+ds+l1001+xcluster
+physical+map+vcol+rep+instbig+nmap+ao+rmap+shadow+senv+l1001+xcluster
+basic+vcol+instbig
