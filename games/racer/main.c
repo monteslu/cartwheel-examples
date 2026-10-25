@@ -31,11 +31,12 @@ typedef struct rig {
   cw_node cam;
   t3_vec3 eye, eye_v, look, look_v, up, fwd, cam_eye, cam_at;
   bool live, snap;
+  float base_fov, fov_k;
 } rig;
 
 static struct {
   int32_t ticks, phase, views, loaded;
-  int32_t place[MAXK], lap[MAXK], prog[MAXK], falls[MAXK], speed[MAXK], tricks[MAXK], hits[MAXK], spd_max[MAXK], finished[MAXK];
+  int32_t place[MAXK], lap[MAXK], prog[MAXK], falls[MAXK], speed[MAXK], tricks[MAXK], hits[MAXK], spd_max[MAXK], finished[MAXK], best_lap[MAXK], finish_tick[MAXK];
   uint32_t hash;
   cw_node scene, sun;
   track trk;
@@ -140,6 +141,7 @@ static void views_setup(void) {
     if (G.human_of[i] >= 0) G.view_kart[G.human_of[i]] = i;
   cw_pipeline *pl = cw_pipeline_of(cw_scene_app_tree());
   if (G.nviews < 2) {
+    G.rig[0].base_fov = 64;
     cw_pipeline_set_views(pl, NULL, 0);
     cw_pipeline_set_views_shared_post(pl, false);
     return;
@@ -164,6 +166,7 @@ static void views_setup(void) {
       G.rig[v].cam = c;
     }
     cw_node_set(c, "fov", cw_val_float(fov));
+    G.rig[v].base_fov = fov;
     if (G.nviews == 2) vw[v] = stacked ? (cw_view){ c, 0, 0.5f * v, 1, 0.5f } : (cw_view){ c, 0.5f * v, 0, 0.5f, 1 };
     else {
       int q = G.nviews == 3 ? Q3[v] : v;
@@ -233,11 +236,15 @@ void game_start_race(const race_setup *rs) {
 
 static int8_t q127(float v) { return (int8_t)(cw_clampf(v, -1, 1) * 127.0f); }
 
+static float steer_smooth[CW_MAX_VIEWS];
 static kin human_in(int kart) {
   int p = G.pl[G.human_of[kart]];
   kin in = { 0 };
   in.thr = q127(cw_action_strength(p, G.a_fwd) - cw_action_strength(p, G.a_back));
-  in.steer = q127(cw_input_axis(p, G.a_left, G.a_right));
+  /* a key is all or nothing: ease it in and out so a tap is a nudge and a hold a full lock */
+  float raw = cw_input_axis(p, G.a_left, G.a_right), *ss = &steer_smooth[G.human_of[kart]];
+  *ss += (raw - *ss) * (fabsf(raw) > fabsf(*ss) ? 0.28f : 0.40f);
+  in.steer = q127(*ss);
   in.pitch = q127(cw_action_strength(p, G.a_pup) - cw_action_strength(p, G.a_pdn));
   if (cw_action_pressed(p, G.a_drift)) in.btn |= KB_DRIFT;
   if (cw_action_pressed(p, G.a_item)) in.btn |= KB_ITEM;
@@ -331,6 +338,10 @@ static void rig_tick(int v) {
     spring3(&r->look, &r->look_v, look, 9.0f);
     e = r->eye, at = r->look;
     upv = r->up;
+    /* the field of view opens with speed and a boost: the world rushes */
+    float want_k = cw_clampf((spd - 24.0f) / 32.0f, 0, 1) + (k->boost_ticks > 0 ? 0.6f : 0);
+    r->fov_k += (want_k - r->fov_k) * 0.06f;
+    if (r->base_fov > 0) cw_node_set(r->cam, "fov", cw_val_float(r->base_fov + 13.0f * r->fov_k));
     float sh = fx_shake(me);
     if (sh > 0.001f) {
       e.x += sh * 0.25f * cw_sin((float)G.ticks * 1.9f + (float)v);
@@ -437,6 +448,8 @@ static void fixed(void *u, double dt) {
       G.hits[i] = k->hits_taken;
       G.spd_max[i] = (int32_t)(k->top_speed_seen * 10);
       G.finished[i] = k->finished;
+      G.best_lap[i] = (int32_t)(k->best_lap * 100);
+      G.finish_tick[i] = k->finished ? k->finish_tick : 0;
     }
     G.phase = G.S.phase;
     G.hash = G.S.hash;
@@ -501,6 +514,8 @@ static void init(void *u) {
   cw_debug_field("karts.hits", G.hits, CW_DBG_I32, MAXK);
   cw_debug_field("karts.top_speed", G.spd_max, CW_DBG_I32, MAXK);
   cw_debug_field("karts.finished", G.finished, CW_DBG_I32, MAXK);
+  cw_debug_field("karts.best_lap", G.best_lap, CW_DBG_I32, MAXK);
+  cw_debug_field("karts.finish_tick", G.finish_tick, CW_DBG_I32, MAXK);
   cw_debug_u32("sim.hash", &G.hash);
 #ifdef RACER_AUTOPILOT
   G.auto_all = true;
