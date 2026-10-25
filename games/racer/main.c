@@ -261,6 +261,13 @@ static kin human_in(int kart) {
       kin b = ai_think(&G.S, kart, &G.ai[kart]);
       /* the CPU driver never tricks: the bot taps the button once it has been airborne a while */
       if (G.S.k[kart].air_ticks > 14 && G.S.k[kart].air_ticks < 18) b.btn |= KB_TRICK;
+      if (!strcmp(getenv("RACER_BOT"), "keys")) {
+        /* RACER_BOT=keys: a keyboard driver, steering all or nothing through the same easing as a held key */
+        float want = fabsf(b.steer) < 20 ? 0.0f : (b.steer > 0 ? 1.0f : -1.0f), *ss = &steer_smooth[G.human_of[kart]];
+        *ss += (want - *ss) * (fabsf(want) > fabsf(*ss) ? 0.28f : 0.40f);
+        b.steer = q127(*ss);
+        b.btn &= ~KB_DRIFT;
+      }
       return b;
     }
   }
