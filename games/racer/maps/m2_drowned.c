@@ -149,20 +149,8 @@ static void scan_course(const track *t) {
 
 /* ── the ground: flooded street bed, with a deep lake basin over the glass tube ──────────────────── */
 
-#define SEA_Y (-1.6f)
-
-static struct {
-  float lake_cx, lake_cz, lake_r;
-} G;
-
-static float city_ground(float x, float z, void *ud) {
-  (void)ud;
-  float h = -4.0f + ground_noise(x, z, 90, 1.6f, 3, 11);
-  /* the lake basin: a bowl round the dip, a few metres under the tube */
-  h += ground_basin(x, z, G.lake_cx, G.lake_cz, G.lake_r, G.lake_r, -L.lowest_y + 2.0f, 40);
-  return h;
-}
-
+#define SEA_Y (-3.4f)       /* the tide: the road after the dip lies about 2 m under the start line, so this stays under it */
+#define STREET_BED (-7.0f)  /* the drowned streets */
 
 /* ── colours: the neon palette ───────────────────────────────────────────────────────────────────── */
 
@@ -548,69 +536,7 @@ static void blade_sign(pm *b, float x, float y0, float reach, float w, float h, 
   }
 }
 
-/* ── the walls: shop fronts, posters, awnings, blades and lamps along both sides ─────────────────── */
 
-static bool walled(const tsample *a, int side) {
-  return !(a->flags & (TF_GAP | TF_TUNNEL)) && (a->flags & (side < 0 ? TF_WALL_L : TF_WALL_R)) != 0;
-}
-static bool in_run(run r, float s, float pad) { return s >= r.s0 - pad && s <= r.s1 + pad; }
-
-/* a stretch with fixtures hanging over the road would clutter the corkscrew and the jump: they keep clear */
-static bool keep_clear(float s) { return in_run(L.cork, s, 30) || in_run(L.gap, s, 40); }
-
-static void dress_walls(const track *t, uint32_t seed) {
-  uint32_t rs = seed ^ 0x51ed;
-  for (int side = -1; side <= 1; side += 2) {
-    float s = 8 + frand(&rs) * 4;
-    int bay = 0;
-    while (s < t->length - 8) {
-      tsample a = track_at(t, s);
-      float step = 9.0f + 6.0f * frand(&rs);
-      bay++;
-      if (!walled(&a, side)) {
-        s += 6;
-        continue;
-      }
-      float r = frand(&rs);
-      bool clear = keep_clear(s);
-      /* flush things on the wall face: a neon sign, or a poster */
-      if (r < 0.34f) {
-        int g = frand(&rs) < 0.2f ? GR_FLICK : frand(&rs) < 0.5f ? GR_BUZZ : GR_STEADY;
-        pm *b = wall_frame(N.c[g], &a, side, 0.0f, 0.02f);
-        float w = 2.6f + 3.0f * frand(&rs), h = 0.9f + 0.5f * frand(&rs);
-        pm_move(b, 0, 1.55f + 0.3f * frand(&rs), 0);
-        neon_sign(b, w, h, (int)(frand(&rs) * 4.99f), neon_pick(&rs), neon_pick(&rs), (uint32_t)(s * 31.0f) + (uint32_t)side * 7u);
-        pm_pop(b);
-      } else if (r < 0.58f) {
-        int kind = (int)(frand(&rs) * (float)AD_N) % AD_N;
-        float w = 2.6f, h = 1.3f;
-        t3_vec3 p = vadd(vadd(a.p, vmul(a.r, (float)side * (a.hw - 0.05f))), vmul(a.u, 1.1f + 0.5f * frand(&rs)));
-        t3_vec3 n = vmul(a.r, (float)-side);
-        ad_add(kind, p, n, a.u, w, h);
-      }
-      /* the awning over the wall top, and the lamp */
-      if (!clear && frand(&rs) < 0.45f) {
-        pm *b = wall_frame(N.c[GR_STEADY], &a, side, 0.0f, 0.0f);
-        pcol c1 = frand(&rs) < 0.5f ? hex(0xd02070) : hex(0x1aa6c0), c2 = frand(&rs) < 0.5f ? hex(0xe8e0f0) : hex(0x20204a);
-        awning(b, -3.2f, 6.4f, 1.15f, 3.55f, 0.55f, c1, c2, 8);
-        pm_pop(b);
-      }
-      if (!clear && frand(&rs) < 0.30f) {
-        int g = frand(&rs) < 0.3f ? GR_FLICK : GR_BUZZ;
-        pm *b = wall_frame(N.c[g], &a, side, 0.0f, 0.0f);
-        pcol c1 = neon_pick(&rs), c2 = neon_pick(&rs);
-        blade_sign(b, 0, 4.25f + 0.5f * frand(&rs), 1.7f, 1.7f, 2.6f + 1.2f * frand(&rs), (int)(frand(&rs) * 4.99f), c1, c2, (uint32_t)(s * 17.0f));
-        pm_pop(b);
-      }
-      if (!clear && ((bay % 4) == 0)) {
-        pm *b = wall_frame(N.c[GR_STEADY], &a, side, 0.0f, 0.0f);
-        gooseneck(b, 0, 3.2f, 1.7f, frand(&rs) < 0.5f ? WARM : hex(0xffb0e0));
-        pm_pop(b);
-      }
-      s += step;
-    }
-  }
-}
 
 /* ── the buildings along the road ────────────────────────────────────────────────────────────────── */
 
@@ -622,20 +548,36 @@ static pcol window_colour(uint32_t *rs, const tint_set *ts) {
   return glow(c, 1.3f + 1.2f * frand(rs));
 }
 
-/* the windows of one face, in the face's own frame: x along, y up, z out of the face, face is w wide, y0..y1 */
+/* the windows of one face, in the face's own frame: x along, y up, z out of the face, face is w wide, y0..y1. Every cell has a
+ * dark pane and a frame; a share of them are lit, floor by floor (an office keeps a whole floor on), with a cross of mullions. */
 static void windows_face(pm *b, float w, float y0, float y1, float lit, const tint_set *ts, uint32_t seed) {
   uint32_t rs = seed;
-  pm_layer(b, PL_GLOW);
   const float cw = 3.4f, ch = 3.8f;
   int nx = (int)((w - 1.6f) / cw), ny = (int)((y1 - y0) / ch);
-  for (int j = 0; j < ny; j++)
+  pcol glass = rgb(0.012f, 0.02f, 0.045f), frame = rgb(0.05f, 0.055f, 0.08f);
+  for (int j = 0; j < ny; j++) {
+    float floor_k = frand(&rs); /* this floor's share of lit windows */
+    float p = fclampf(lit * (0.45f + 1.5f * floor_k), 0, 1);
+    float y = y0 + ((float)j + 0.5f) * ch;
     for (int i = 0; i < nx; i++) {
-      if (frand(&rs) > lit) continue;
-      float x = -w * 0.5f + 0.8f + ((float)i + 0.5f) * (w - 1.6f) / (float)nx, y = y0 + ((float)j + 0.5f) * ch;
-      float ww = 1.15f + 0.4f * frand(&rs), hh = 1.6f + 0.4f * frand(&rs);
-      pcol c = window_colour(&rs, ts);
-      pm_quad(b, V(x - ww, y - hh * 0.5f, 0.06f), V(x + ww, y - hh * 0.5f, 0.06f), V(x + ww, y + hh * 0.5f, 0.06f), V(x - ww, y + hh * 0.5f, 0.06f), c);
+      float x = -w * 0.5f + 0.8f + ((float)i + 0.5f) * (w - 1.6f) / (float)nx;
+      bool on = frand(&rs) < p;
+      float ww = 1.05f, hh = 1.3f;
+      pm_layer(b, PL_MAIN);
+      pm_quad(b, V(x - ww - 0.12f, y - hh - 0.12f, 0.03f), V(x + ww + 0.12f, y - hh - 0.12f, 0.03f), V(x + ww + 0.12f, y + hh + 0.12f, 0.03f), V(x - ww - 0.12f, y + hh + 0.12f, 0.03f), frame);
+      pm_quad(b, V(x - ww, y - hh, 0.05f), V(x + ww, y - hh, 0.05f), V(x + ww, y + hh, 0.05f), V(x - ww, y + hh, 0.05f), glass);
+      if (on) {
+        pm_layer(b, PL_GLOW);
+        pcol c = window_colour(&rs, ts);
+        /* a curtain or a blind across part of the pane keeps the glow from being a flat tile */
+        float drop = frand(&rs) < 0.4f ? 0.2f + 0.6f * frand(&rs) : 0.0f;
+        pm_quad(b, V(x - ww, y - hh, 0.07f), V(x + ww, y - hh, 0.07f), V(x + ww, y + hh - drop * 2.0f * hh, 0.07f), V(x - ww, y + hh - drop * 2.0f * hh, 0.07f), c);
+        pm_layer(b, PL_MAIN);
+        pm_quad(b, V(x - 0.05f, y - hh, 0.09f), V(x + 0.05f, y - hh, 0.09f), V(x + 0.05f, y + hh, 0.09f), V(x - 0.05f, y + hh, 0.09f), frame);
+        pm_quad(b, V(x - ww, y - 0.05f + 0.25f, 0.09f), V(x + ww, y - 0.05f + 0.25f, 0.09f), V(x + ww, y + 0.05f + 0.25f, 0.09f), V(x - ww, y + 0.05f + 0.25f, 0.09f), frame);
+      }
     }
+  }
   pm_layer(b, PL_MAIN);
 }
 
@@ -660,6 +602,13 @@ static void building(const tsample *a, t3_vec3 p, int side, float len, float dep
   pm_move(b, 0, 0, 0);
   pm_box(b, depth + 0.5f, 4.4f, len + 0.5f, dk(ts.wall0, 0.8f), dk(ts.wall1, 0.8f));
   pm_pop(b);
+  /* a ledge every second floor, and a rib up the road face at each end */
+  for (float ly = 7.0f + 4.6f; ly < h - 2.0f; ly += 7.6f) {
+    pm_push(b);
+    pm_move(b, 0, ly, 0);
+    pm_box(b, depth + 0.35f, 0.3f, len + 0.35f, dk(ts.wall1, 0.8f), ts.wall1);
+    pm_pop(b);
+  }
   pm_push(b);
   pm_move(b, 0, h, 0);
   pm_box(b, depth + 0.7f, 0.7f, len + 0.7f, dk(ts.wall1, 0.9f), ts.wall1);
@@ -709,6 +658,175 @@ static void building(const tsample *a, t3_vec3 p, int side, float len, float dep
     }
   }
 }
+
+/* ── glow on the wet road: soft streaks under the signs, drawn additive just above the surface ───── */
+
+typedef struct gbuf {
+  float *p, *c;
+  uint32_t *ix;
+  int nv, ni, capv, capi;
+} gbuf;
+#define POOL_CHUNKS 24
+static struct {
+  gbuf b[GR_N][POOL_CHUNKS];
+  t3_material *mat[GR_N];
+} PO;
+
+static void gbuf_quad_grid(gbuf *g, const t3_vec3 *pts, const pcol *cols) { /* a 5 x 5 grid of vertices, row-major */
+  if (g->nv + 25 > g->capv) {
+    g->capv = g->capv ? g->capv * 2 : 512;
+    g->p = realloc(g->p, sizeof(float) * 3 * (size_t)g->capv), g->c = realloc(g->c, sizeof(float) * 3 * (size_t)g->capv);
+  }
+  if (g->ni + 96 > g->capi) g->capi = g->capi ? g->capi * 2 : 768, g->ix = realloc(g->ix, sizeof(uint32_t) * (size_t)g->capi);
+  int b0 = g->nv;
+  for (int i = 0; i < 25; i++) {
+    g->p[(g->nv) * 3] = pts[i].x, g->p[g->nv * 3 + 1] = pts[i].y, g->p[g->nv * 3 + 2] = pts[i].z;
+    g->c[g->nv * 3] = cols[i].r, g->c[g->nv * 3 + 1] = cols[i].g, g->c[g->nv * 3 + 2] = cols[i].b;
+    g->nv++;
+  }
+  for (int r = 0; r < 4; r++)
+    for (int c = 0; c < 4; c++) {
+      uint32_t a = (uint32_t)(b0 + r * 5 + c), b = a + 1, d = a + 5, e = a + 6;
+      g->ix[g->ni++] = a, g->ix[g->ni++] = d, g->ix[g->ni++] = b, g->ix[g->ni++] = b, g->ix[g->ni++] = d, g->ix[g->ni++] = e;
+    }
+}
+
+/* a smear lying on the road beside the wall at sample a: a wet road mirrors a light as a streak that runs toward the
+ * viewer, so it is long along the road and a few metres wide across it. half_w is the lateral reach, len the length. */
+static void pool_add(int g, const tsample *a, int side, float x_along, float half_w, float len, pcol col, float gain) {
+  int chunk = (int)(a->s / 180.0f);
+  if (chunk >= POOL_CHUNKS) chunk = POOL_CHUNKS - 1;
+  t3_vec3 base = vadd(vadd(a->p, vmul(a->u, 0.045f)), vmul(a->f, x_along));
+  t3_vec3 pts[25];
+  pcol cols[25];
+  static const float along_at[5] = { -1.0f, -0.62f, -0.28f, 0.0f, 0.3f }, along_k[5] = { 0.0f, 0.22f, 0.62f, 1.0f, 0.0f };
+  static const float lat_at[5] = { 0.0f, 0.25f, 0.5f, 0.75f, 1.0f }, lat_k[5] = { 0.35f, 0.8f, 1.0f, 0.5f, 0.0f };
+  for (int r = 0; r < 5; r++)
+    for (int c = 0; c < 5; c++) {
+      float lat = (float)side * (a->hw - 0.15f - half_w * lat_at[c]);
+      pts[r * 5 + c] = vadd(vadd(base, vmul(a->r, lat)), vmul(a->f, len * along_at[r]));
+      float k = along_k[r] * lat_k[c] * gain;
+      cols[r * 5 + c] = (pcol){ col.r * k, col.g * k, col.b * k };
+    }
+  gbuf_quad_grid(&PO.b[g][chunk], pts, cols);
+}
+
+static void pools_finish(cw_node parent) {
+  for (int g = 0; g < GR_N; g++) {
+    t3_material *m = t3_mesh_basic_material_new(0xffffff);
+    m->vertex_colors = true;
+    m->transparent = true;
+    m->blending = T3_ADDITIVE_BLENDING;
+    m->depth_write = false;
+    m->fog = true;
+    PO.mat[g] = m;
+    for (int c = 0; c < POOL_CHUNKS; c++) {
+      gbuf *b = &PO.b[g][c];
+      if (!b->nv) continue;
+      t3_geometry *geo = t3_geometry_new();
+      t3_attribute *at = t3_attribute_new(T3_FLOAT32, b->p, b->nv, 3);
+      t3_geometry_set_attribute(geo, T3_ATTR_POSITION, at), t3_release(at);
+      at = t3_attribute_new(T3_FLOAT32, b->c, b->nv, 3), t3_geometry_set_attribute(geo, T3_ATTR_COLOR, at), t3_release(at);
+      at = t3_attribute_new(T3_UINT32, b->ix, b->ni, 1), t3_geometry_set_index(geo, at), t3_release(at);
+      t3_mesh *me = t3_mesh_new(geo, m);
+      me->base.render_order = 3;
+      t3_release(geo);
+      char name[24];
+      snprintf(name, sizeof name, "Glow%d_%d", g, c);
+      hang(parent, name, &me->base);
+      t3_release(me);
+      free(b->p), free(b->c), free(b->ix);
+    }
+  }
+}
+
+/* ── the walls: shop fronts, posters, awnings, blades and lamps along both sides ─────────────────── */
+
+static bool walled(const tsample *a, int side) {
+  return !(a->flags & (TF_GAP | TF_TUNNEL)) && (a->flags & (side < 0 ? TF_WALL_L : TF_WALL_R)) != 0;
+}
+static bool in_run(run r, float s, float pad) { return s >= r.s0 - pad && s <= r.s1 + pad; }
+
+/* a stretch with fixtures hanging over the road would clutter the corkscrew and the jump: they keep clear */
+static bool keep_clear(float s) { return in_run(L.cork, s, 30) || in_run(L.gap, s, 40); }
+
+static void dress_walls(const track *t, uint32_t seed) {
+  uint32_t rs = seed ^ 0x51ed;
+  for (int side = -1; side <= 1; side += 2) {
+    float s = 8 + frand(&rs) * 4;
+    int bay = 0;
+    while (s < t->length - 8) {
+      tsample a = track_at(t, s);
+      float step = 9.0f + 6.0f * frand(&rs);
+      bay++;
+      if (!walled(&a, side)) {
+        s += 6;
+        continue;
+      }
+      float r = frand(&rs);
+      bool clear = keep_clear(s);
+      /* flush things on the wall face: a neon sign, or a poster */
+      if (r < 0.34f) {
+        int g = frand(&rs) < 0.2f ? GR_FLICK : frand(&rs) < 0.5f ? GR_BUZZ : GR_STEADY;
+        pm *b = wall_frame(N.c[g], &a, side, 0.0f, 0.02f);
+        float w = 2.6f + 3.0f * frand(&rs), h = 0.9f + 0.5f * frand(&rs);
+        pcol c1 = neon_pick(&rs), c2 = neon_pick(&rs);
+        pm_move(b, 0, 1.55f + 0.3f * frand(&rs), 0);
+        neon_sign(b, w, h, (int)(frand(&rs) * 4.99f), c1, c2, (uint32_t)(s * 31.0f) + (uint32_t)side * 7u);
+        pm_pop(b);
+        pool_add(g, &a, side, 0, 3.2f, 9.0f + 6.0f * frand(&rs), c1, 0.8f);
+      } else if (r < 0.58f) {
+        int kind = (int)(frand(&rs) * (float)AD_N) % AD_N;
+        float w = 2.6f, h = 1.3f;
+        t3_vec3 p = vadd(vadd(a.p, vmul(a.r, (float)side * (a.hw - 0.05f))), vmul(a.u, 1.1f + 0.5f * frand(&rs)));
+        t3_vec3 n = vmul(a.r, (float)-side);
+        ad_add(kind, p, n, a.u, w, h);
+      }
+      /* the awning over the wall top, and the blade sign */
+      if (!clear && frand(&rs) < 0.45f) {
+        pm *b = wall_frame(N.c[GR_STEADY], &a, side, 0.0f, 0.0f);
+        pcol c1 = frand(&rs) < 0.5f ? hex(0xd02070) : hex(0x1aa6c0), c2 = frand(&rs) < 0.5f ? hex(0xe8e0f0) : hex(0x20204a);
+        awning(b, -3.2f, 6.4f, 1.15f, 3.55f, 0.55f, c1, c2, 8);
+        pm_pop(b);
+      }
+      if (!clear && frand(&rs) < 0.30f) {
+        int g = frand(&rs) < 0.3f ? GR_FLICK : GR_BUZZ;
+        pm *b = wall_frame(N.c[g], &a, side, 0.0f, 0.0f);
+        pcol c1 = neon_pick(&rs), c2 = neon_pick(&rs);
+        blade_sign(b, 0, 4.25f + 0.5f * frand(&rs), 1.7f, 1.7f, 2.6f + 1.2f * frand(&rs), (int)(frand(&rs) * 4.99f), c1, c2, (uint32_t)(s * 17.0f));
+        pm_pop(b);
+        pool_add(g, &a, side, 0, 3.4f, 12.0f, c2, 0.7f);
+      }
+      if (!clear && ((bay % 4) == 0)) {
+        pm *b = wall_frame(N.c[GR_STEADY], &a, side, 0.0f, 0.0f);
+        pcol lamp = frand(&rs) < 0.5f ? WARM : hex(0xffb0e0);
+        gooseneck(b, 0, 3.2f, 1.7f, lamp);
+        pm_pop(b);
+        pool_add(GR_STEADY, &a, side, 0, 4.0f, 14.0f, lamp, 0.6f);
+      }
+      s += step;
+    }
+  }
+}
+
+/* ── placing finished models ─────────────────────────────────────────────────────────────────────── */
+
+static cw_node model_node(cw_node parent, const char *name, prop_model m, bool shadow) {
+  t3_object *grp = t3_group_new();
+  for (int l = 0; l < PL_COUNT; l++) {
+    if (!m.g[l]) continue;
+    t3_mesh *me = t3_mesh_new(m.g[l], prop_material(l, -1, (pcol){ 1, 1, 1 }, 1));
+    me->base.cast_shadow = shadow && l != PL_GLOW;
+    me->base.receive_shadow = true;
+    t3_object_add(grp, me);
+    t3_release(me);
+  }
+  prop_model_free(&m);
+  cw_node n = hang(parent, name, grp);
+  t3_release(grp);
+  return n;
+}
+
 
 /* where the blocks stand: per 70 m of road and per side one of: a street canyon of tall blocks close to the wall,
  * a row of low shops, or open water (nothing near, the sea and the far towers show) */
@@ -784,15 +902,1219 @@ static cw_node add_omni(cw_node parent, const char *name, t3_vec3 at, pcol c, fl
   return l;
 }
 
+/* ── set piece 1: the start line under a giant neon arch ─────────────────────────────────────────── */
+
+/* an elliptical tube in the road frame (x across, y up, z along): angles a0..a1 round centre (0, cy), semi axes ax, ay */
+static void arch_tube(pm *b, float cy, float ax, float ay, float r, float a0, float a1, int segs, pcol col) {
+  for (int i = 0; i < segs; i++) {
+    float t0 = lerpf(a0, a1, (float)i / (float)segs), t1 = lerpf(a0, a1, (float)(i + 1) / (float)segs);
+    pm_rod(b, V(cosf(t0) * ax, cy + sinf(t0) * ay, 0), V(cosf(t1) * ax, cy + sinf(t1) * ay, 0), r, 6, col);
+  }
+}
+
+static void chequer_banner(pm *b, float x0, float x1, float y0, float y1, float z, float cell, bool front, pcol a, pcol c) {
+  int nx = (int)((x1 - x0) / cell + 0.5f), ny = (int)((y1 - y0) / cell + 0.5f);
+  float dx = (x1 - x0) / (float)nx, dy = (y1 - y0) / (float)ny;
+  for (int j = 0; j < ny; j++)
+    for (int i = 0; i < nx; i++) {
+      pcol col = ((i + j) & 1) ? a : c;
+      float xa = x0 + dx * (float)i, xb = xa + dx, ya = y0 + dy * (float)j, yb = ya + dy;
+      if (front) pm_quad(b, V(xa, ya, z), V(xb, ya, z), V(xb, yb, z), V(xa, yb, z), col);
+      else pm_quad(b, V(xb, ya, z), V(xa, ya, z), V(xa, yb, z), V(xb, yb, z), col);
+    }
+}
+
+static void start_arch(const track *t, cw_node root) {
+  tsample a = track_at(t, L.start_s + 26.0f);
+  float W = a.hw + 5.0f;
+  pm *b = frame_in(N.c[GR_STEADY], a.p, a.r, a.u, a.f);
+  /* two pylons: dark ribbed towers with a lit seam up each face */
+  for (int k = -1; k <= 1; k += 2) {
+    pm_layer(b, PL_MAIN);
+    pm_push(b);
+    pm_move(b, (float)k * W, -2.0f, 0);
+    pm_box(b, 3.2f, 27.0f, 3.2f, rgb(0.06f, 0.06f, 0.1f), rgb(0.14f, 0.12f, 0.22f));
+    pm_box(b, 4.2f, 1.2f, 4.2f, rgb(0.1f, 0.1f, 0.16f), rgb(0.18f, 0.16f, 0.26f));
+    pm_pop(b);
+    pm_layer(b, PL_GLOW);
+    for (int s2 = -1; s2 <= 1; s2 += 2) {
+      pm_beam(b, V((float)k * W + (float)s2 * 1.62f, 0.5f, -0.8f), V((float)k * W + (float)s2 * 1.62f, 24.0f, -0.8f), 0.22f, glow(CYAN, 3.0f));
+      pm_beam(b, V((float)k * W + (float)s2 * 1.62f, 0.5f, 0.8f), V((float)k * W + (float)s2 * 1.62f, 24.0f, 0.8f), 0.22f, glow(CYAN, 3.0f));
+    }
+    pm_beam(b, V((float)k * W, 0.5f, -1.62f), V((float)k * W, 24.0f, -1.62f), 0.3f, glow(PINK, 3.0f));
+    pm_beam(b, V((float)k * W, 0.5f, 1.62f), V((float)k * W, 24.0f, 1.62f), 0.3f, glow(PINK, 3.0f));
+  }
+  pm_pop(b);
+  /* the arch itself is two rings that breathe together */
+  pm *c = frame_in(N.c[GR_PULSE], a.p, a.r, a.u, a.f);
+  pm_layer(c, PL_GLOW);
+  arch_tube(c, 22.0f, W, 8.0f, 0.62f, 0.0f, 3.14159265f, 40, glow(PINK, 3.4f));
+  arch_tube(c, 22.0f, W - 1.8f, 6.2f, 0.34f, 0.0f, 3.14159265f, 36, glow(CYAN, 3.2f));
+  arch_tube(c, 22.0f, W + 1.6f, 9.6f, 0.2f, 0.0f, 3.14159265f, 44, glow(VIOLET, 3.0f));
+  pm_pop(c);
+  /* a chequered banner across the springing line, both faces, in dark and bright glass */
+  pm *d = frame_in(N.c[GR_STEADY], a.p, a.r, a.u, a.f);
+  pm_layer(d, PL_MAIN);
+  pm_beam(d, V(-W, 21.0f, 0), V(W, 21.0f, 0), 0.7f, rgb(0.08f, 0.08f, 0.12f));
+  chequer_banner(d, -W + 1.2f, W - 1.2f, 22.0f, 25.2f, -0.45f, 1.6f, false, rgb(0.03f, 0.03f, 0.05f), rgb(0.9f, 0.9f, 0.95f));
+  pm_layer(d, PL_GLOW);
+  chequer_banner(d, -W + 1.2f, W - 1.2f, 22.0f, 25.2f, -0.46f, 1.6f, false, glow(rgb(0.02f, 0.02f, 0.04f), 0.1f), glow(rgb(1.0f, 0.95f, 1.0f), 1.3f));
+  pm_pop(d);
+  /* the screen under the banner: a picture facing the grid */
+  ad_add(AD_SUN, vadd(vadd(a.p, vmul(a.u, 28.2f)), vmul(a.f, -0.8f)), vmul(a.f, -1), a.u, 20.0f, 10.0f);
+  ad_add(AD_BURST, vadd(vadd(a.p, vmul(a.u, 28.2f)), vmul(a.f, 0.8f)), a.f, a.u, 20.0f, 10.0f);
+  /* the lights: a pink and a cyan from the pylon tops, over the grid and the first metres */
+  add_omni(root, "ArchPink", vadd(vadd(a.p, vmul(a.r, -W + 3.0f)), V(0, 16, -6)), PINK, 520, 46);
+  add_omni(root, "ArchCyan", vadd(vadd(a.p, vmul(a.r, W - 3.0f)), V(0, 16, -6)), CYAN, 520, 46);
+}
+
+/* ── the giant neon wheel: a ferris wheel for a sign, turning slowly over the flooded middle ───────── */
+
+static cw_node WHEEL;
+static t3_vec3 WHEEL_AT; /* the middle of the big wheel (the towers keep clear of it) */
+
+static void build_wheel(const track *t, cw_node root) {
+  /* find a spot in the middle that is far from every road, facing the start line */
+  t3_vec3 c = V(L.cx, 0, L.cz);
+  float gap = road_gap(t, c.x, c.z, NULL);
+  const float R = 60.0f, H = 74.0f;
+  tsample st = track_at(t, L.start_s);
+  if (gap < R + 40) {
+    /* slide toward the start line's side of the middle until there is room */
+    for (int i = 0; i < 20 && gap < R + 40; i++) c.x += (st.p.x - c.x) * -0.05f, c.z += (st.p.z - c.z) * -0.05f, gap = road_gap(t, c.x, c.z, NULL);
+  }
+  float yaw = atan2f(st.p.x - c.x, st.p.z - c.z); /* the wheel's +z faces the start */
+  WHEEL_AT = c;
+  cw_info("drowned: wheel at %.0f %.0f, road gap %.0f", c.x, c.z, gap);
+  /* the turning part */
+  pm *b = pm_new(77);
+  pm_layer(b, PL_GLOW);
+  pm_push(b);
+  pm_ring(b, R, 1.5f, 72, 8, glow(PINK, 3.2f));
+  pm_pop(b);
+  pm_push(b);
+  pm_ring(b, R * 0.66f, 0.95f, 56, 6, glow(CYAN, 3.0f));
+  pm_pop(b);
+  pm_push(b);
+  pm_ring(b, R * 0.30f, 0.8f, 36, 6, glow(VIOLET, 3.2f));
+  pm_pop(b);
+  const int nsp = 18;
+  for (int i = 0; i < nsp; i++) {
+    float an = 6.2831853f * (float)i / (float)nsp;
+    pm_beam(b, V(0, 0, 0.0f), V(cosf(an) * R, sinf(an) * R, 0), 0.6f, glow(i & 1 ? CYAN : PINK, 2.8f));
+    /* a pod at the rim: a lit bubble */
+    pm_push(b);
+    pm_move(b, cosf(an + 0.17f) * R, sinf(an + 0.17f) * R, 0);
+    pm_ball(b, 3.4f, 3.4f, 3.4f, 1, 0.0f, glow(neon_pick(&(uint32_t){ 100u + (uint32_t)i * 7u }), 2.4f), glow(WARM, 2.2f));
+    pm_pop(b);
+  }
+  pm_layer(b, PL_METAL);
+  pm_push(b);
+  pm_move(b, 0, 0, 0);
+  pm_ball(b, 4.5f, 4.5f, 4.5f, 1, 0.0f, rgb(0.2f, 0.2f, 0.28f), rgb(0.3f, 0.3f, 0.4f));
+  pm_pop(b);
+  prop_model wheel = pm_finish(b);
+  /* the frame it stands in: two A legs and a base, under the sea and above */
+  pm *f = pm_new(78);
+  pm_layer(f, PL_METAL);
+  for (int k = -1; k <= 1; k += 2) {
+    pm_beam(f, V((float)k * 3.0f, 0, 3.4f), V((float)k * 34.0f, -H - 6.0f, 14.0f), 2.4f, rgb(0.16f, 0.16f, 0.22f));
+    pm_beam(f, V((float)k * 3.0f, 0, 3.4f), V((float)k * 34.0f, -H - 6.0f, -14.0f), 2.4f, rgb(0.16f, 0.16f, 0.22f));
+    pm_beam(f, V((float)k * 3.0f, 0, -3.4f), V((float)k * 34.0f, -H - 6.0f, 14.0f), 2.4f, rgb(0.16f, 0.16f, 0.22f));
+  }
+  pm_layer(f, PL_GLOW);
+  for (int k = -1; k <= 1; k += 2) pm_beam(f, V((float)k * 3.0f, -2.0f, 4.8f), V((float)k * 33.0f, -H - 4.0f, 15.0f), 0.5f, glow(CYAN, 2.4f));
+  prop_model frame = pm_finish(f);
+  cw_node root2 = cw_node_new("Node3D", "Wheel");
+  cw_node_add_child(root, root2);
+  cw_node3d_set_position(root2, V(c.x, H - 4.0f, c.z));
+  cw_node3d_set_rotation(root2, V(0, yaw, 0));
+  model_node(root2, "WheelFrame", frame, true);
+  WHEEL = model_node(root2, "WheelTurn", wheel, false);
+  cw_node3d_set_position(WHEEL, V(0, 0, 0));
+}
+
+
+/* ── set piece 2: the fords. Standing water with neon in it, tram wires over it, drowned traffic beside it ── */
+
+static void tram_wires(const track *t, float s0, float s1) {
+  pcol steel = rgb(0.1f, 0.1f, 0.14f), wire = rgb(0.02f, 0.02f, 0.03f);
+  t3_vec3 prev = V(0, 0, 0);
+  bool have = false;
+  for (float s = s0; s <= s1; s += 22.0f) {
+    tsample a = track_at(t, s);
+    float H = 9.0f;
+    pm *b = frame_in(N.c[GR_STEADY], a.p, a.r, a.u, a.f);
+    pm_layer(b, PL_METAL);
+    for (int k = -1; k <= 1; k += 2) {
+      pm_beam(b, V((float)k * (a.hw + 0.6f), 0, 0), V((float)k * (a.hw + 0.6f), H, 0), 0.3f, steel);
+      pm_beam(b, V((float)k * (a.hw + 0.6f), H, 0), V((float)k * (a.hw - 0.4f), H + 0.5f, 0), 0.16f, steel);
+    }
+    /* the span across the road, and two hanging wires along it */
+    pm_cable(b, V(-(a.hw - 0.4f), H + 0.5f, 0), V(a.hw - 0.4f, H + 0.5f, 0), 0.5f, 0.05f, wire);
+    pm_layer(b, PL_GLOW);
+    for (int k = -1; k <= 1; k += 2) { /* a lamp on each pole head */
+      pm_push(b);
+      pm_move(b, (float)k * (a.hw + 0.6f), H + 0.2f, 0);
+      pm_ball(b, 0.35f, 0.35f, 0.35f, 0, 0, glow(k < 0 ? CYAN : PINK, 4.0f), glow(WARM, 4.0f));
+      pm_pop(b);
+    }
+    pm_pop(b);
+    t3_vec3 top = vadd(vadd(a.p, vmul(a.u, H + 0.5f)), vmul(a.r, 0.0f));
+    if (have) {
+      pm *c = pmc_at(N.c[GR_STEADY], top);
+      pm_push(c);
+      pm_layer(c, PL_METAL);
+      pm_cable(c, prev, top, 0.7f, 0.04f, wire);
+      pm_pop(c);
+    }
+    prev = top, have = true;
+  }
+}
+
+/* a drowned tram on its side in the water beside the road, windows still lit */
+static void tram_wreck(const tsample *a, int side, float lat, uint32_t seed) {
+  uint32_t rs = seed;
+  t3_vec3 p = vadd(a->p, vmul(a->r, (float)side * (a->hw + lat)));
+  p.y = SEA_Y - 1.0f;
+  pm *b = upright_frame(N.c[GR_STEADY], p, a);
+  pm_roty(b, (frand(&rs) - 0.5f) * 0.4f);
+  pm_rotz(b, (float)side * (0.28f + 0.2f * frand(&rs)));
+  pm_layer(b, PL_MAIN);
+  pm_box(b, 3.2f, 3.3f, 15.0f, rgb(0.55f, 0.1f, 0.25f), rgb(0.7f, 0.2f, 0.35f));
+  pm_push(b);
+  pm_move(b, 0, 3.3f, 0);
+  pm_box(b, 3.0f, 0.3f, 14.6f, rgb(0.5f, 0.5f, 0.55f), rgb(0.6f, 0.6f, 0.65f));
+  pm_pop(b);
+  pm_layer(b, PL_GLOW);
+  for (int sd = -1; sd <= 1; sd += 2)
+    for (int i = 0; i < 6; i++) {
+      float z = -6.0f + 2.4f * (float)i;
+      if (frand(&rs) < 0.25f) continue;
+      pm_quad(b, V((float)sd * 1.62f, 1.6f, z - 0.9f), V((float)sd * 1.62f, 1.6f, z + 0.9f), V((float)sd * 1.62f, 2.7f, z + 0.9f), V((float)sd * 1.62f, 2.7f, z - 0.9f), glow(frand(&rs) < 0.6f ? WARM : CYAN, 1.8f));
+    }
+  pm_layer(b, PL_METAL);
+  pm_beam(b, V(0, 3.5f, -2), V(0, 5.6f, -1), 0.14f, rgb(0.15f, 0.15f, 0.2f));
+  pm_beam(b, V(-1.3f, 5.6f, -1), V(1.3f, 5.6f, -1), 0.12f, rgb(0.15f, 0.15f, 0.2f));
+  pm_pop(b);
+}
+
+static float open_zone_mask(float x, float z, void *ud) {
+  (void)ud;
+  const track *t = L.t;
+  float d;
+  int i = road_nearest(t, x, z, &d);
+  const tsample *a = &t->s[i];
+  float dx = x - a->p.x, dz = z - a->p.z;
+  int side = (dx * a->r.x + dz * a->r.z) < 0 ? -1 : 1;
+  return zone_mode(side, a->s) == 2 ? 1.0f : 0.0f;
+}
+
+static void flood_dressing(const track *t, cw_node root, uint32_t seed) {
+  /* fords: a film of water with a restless surface that holds the neon */
+  water_opts wf = water_defaults();
+  wf.color = rgb(0.2f, 0.45f, 0.6f);
+  wf.deep = rgb(0.03f, 0.06f, 0.14f);
+  wf.clarity = 0.45f;
+  wf.reflect = 1.0f;
+  wf.foam = 0.7f;
+  wf.flow_x = 0.2f, wf.flow_z = 0.05f;
+  water_along_track(root, t, 0.2f, 0.12f, &wf);
+  for (int i = 0; i < L.nwater; i++) {
+    tram_wires(t, L.water[i].s0 - 20, L.water[i].s1 + 20);
+    /* the drowned traffic: a tram or two in the water behind the wall, a chain of lamps through the ford */
+    for (int k = 0; k < 2; k++) {
+      tsample a = track_at(t, L.water[i].s0 + 25 + 55 * (float)k);
+      tram_wreck(&a, k ? 1 : -1, 8.0f + 6.0f * (float)k, seed + (uint32_t)(i * 5 + k));
+    }
+  }
+  /* the sunken street: things standing and floating in the sea wherever the road is open to it */
+  prop_set *ps = ps_new(root, "Sunken");
+  scatter_opts so = scatter_defaults();
+  so.kinds[0] = PK_WRECK_CAR, so.weight[0] = 3;
+  so.kinds[1] = PK_DEBRIS, so.weight[1] = 4;
+  so.kinds[2] = PK_STREET_LAMP, so.weight[2] = 3;
+  so.kinds[3] = PK_BOLLARD, so.weight[3] = 2;
+  so.kinds[4] = PK_BARREL, so.weight[4] = 1;
+  so.kinds[5] = PK_NEON_SIGN, so.weight[5] = 2;
+  so.kinds[6] = PK_CONTAINER, so.weight[6] = 0.6f;
+  so.nkinds = 7;
+  so.spacing = 16, so.lat_min = 3, so.lat_max = 38, so.lat_curve = 1.6f;
+  so.margin = 3, so.base_y = SEA_Y - 0.45f, so.sink = 0.0f, so.seed = seed ^ 0x5eed;
+  so.mask = open_zone_mask;
+  so.scale_min = 0.9f, so.scale_max = 1.5f;
+  scatter_along(ps, t, &so);
+  ps_finish(ps);
+}
+
+
+/* ── set piece 3: the glass tube under the lake ────────────────────────────────────────────────────
+ * The road drops through the sea into a glass tube lying on the lake bed. Outside the glass: murky green water with a
+ * storm-lit ceiling of rippling light, shafts down from it, fish, a manta overhead, jellyfish, a drowned bus with its
+ * windows still lit, neon signs standing on the bed. Inside: ribs and lamps, and the gates at either end. */
+
+static t3_material *basic_add(float r, float g, float b, bool vcol, t3_texture *map) {
+  t3_material *m = t3_mesh_basic_material_new(0xffffff);
+  m->color = (t3_color){ r, g, b };
+  m->transparent = true;
+  m->blending = T3_ADDITIVE_BLENDING;
+  m->depth_write = false;
+  m->vertex_colors = vcol;
+  m->side = T3_DOUBLE_SIDE;
+  if (map) t3_material_set_map(m, map);
+  return m;
+}
+
+/* soft caustic light: bright wandering lines, tiles seamlessly */
+static t3_texture *caustic_texture(void) {
+  const int W = 256;
+  uint8_t *px = malloc((size_t)W * W * 4);
+  for (int j = 0; j < W; j++)
+    for (int i = 0; i < W; i++) {
+      float u = (float)i / (float)W * 6.2831853f, v = (float)j / (float)W * 6.2831853f;
+      /* three layers of ridged interference, each periodic */
+      float a = sinf(u * 2 + 1.7f * sinf(v * 1 + 0.5f)) + sinf(v * 2 + 1.3f * sinf(u * 2 + 1.0f));
+      float b = sinf(u * 3 - v * 2 + 2.0f * sinf(v * 3)) + sinf(v * 3 + u * 1 + 1.5f * sinf(u * 1 + 2.0f));
+      float r1 = 1.0f - fabsf(a * 0.5f), r2 = 1.0f - fabsf(b * 0.5f);
+      float c = powf(fclampf(r1 * r2, 0, 1), 5.0f) * 1.6f + 0.05f;
+      uint8_t k = (uint8_t)(fclampf(c, 0, 1) * 255.0f);
+      uint8_t *p = px + ((size_t)j * W + i) * 4;
+      p[0] = k, p[1] = k, p[2] = k, p[3] = 255;
+    }
+  t3_texture *t = t3_texture_new(W, W, px);
+  free(px);
+  t->wrap_s = t->wrap_t = T3_REPEAT;
+  return t;
+}
+
+static struct {
+  t3_vec3 a, b;        /* the dip's two ends */
+  float prof[65];      /* road height along the axis, 0..1 */
+  float bed_below;     /* the bed lies this far under the road */
+  float r0, r1;        /* flat bed within r0 of the axis, back to street level at r1 */
+  t3_texture *caustic;
+  t3_material *ceil_mat, *shaft_mat;
+  cw_node shaft[8];
+  int nshaft;
+  float shaft_ph[8];
+  cw_node school[8], manta, jelly[5], bus_light;
+  int nschool, njelly;
+  struct { float cx, cz, r, y, w, ph, sz; } sc[8];
+} LK;
+
+static float lake_prof(float u) {
+  float f = fclampf(u, 0, 1) * 64.0f;
+  int i = (int)f;
+  if (i >= 64) return LK.prof[64];
+  return lerpf(LK.prof[i], LK.prof[i + 1], f - (float)i);
+}
+
+static float lake_axis_dist(float x, float z, float *road_y) {
+  float abx = LK.b.x - LK.a.x, abz = LK.b.z - LK.a.z, l2 = abx * abx + abz * abz;
+  float t = l2 > 1e-6f ? ((x - LK.a.x) * abx + (z - LK.a.z) * abz) / l2 : 0;
+  t = fclampf(t, 0, 1);
+  float px = LK.a.x + abx * t, pz = LK.a.z + abz * t;
+  if (road_y) *road_y = lake_prof(t);
+  return sqrtf((x - px) * (x - px) + (z - pz) * (z - pz));
+}
+
+static float city_ground(float x, float z, void *ud) {
+  (void)ud;
+  float h = STREET_BED + ground_noise(x, z, 90, 1.6f, 3, 11);
+  float ry;
+  float d = lake_axis_dist(x, z, &ry);
+  float k = 1.0f - cw_smoothstep(LK.r0, LK.r1, d);
+  if (k > 0) {
+    float bed = fminf(L.lowest_y - LK.bed_below, STREET_BED);
+    /* the bed follows the road down and up, a good way below it */
+    float follow = fminf(ry - LK.bed_below, STREET_BED);
+    bed = lerpf(follow, bed, 0.35f) + ground_noise(x, z, 40, 0.7f, 2, 29);
+    h = lerpf(h, bed, k);
+  }
+  return h;
+}
+
+static float lake_mask(float x, float z, void *ud) {
+  (void)ud;
+  float d = lake_axis_dist(x, z, NULL);
+  return d < LK.r0 + 18.0f ? 1.0f : 0.0f;
+}
+
+/* an open cone of light, bright at the top and gone at the bottom (vertex colour) */
+static t3_geometry *shaft_geometry(float rtop, float rbot, float h, int segs) {
+  float *pos = malloc(sizeof(float) * 3 * 2 * (size_t)(segs + 1)), *col = malloc(sizeof(float) * 3 * 2 * (size_t)(segs + 1));
+  uint32_t *ix = malloc(sizeof(uint32_t) * 6 * (size_t)segs);
+  int n = 0;
+  for (int i = 0; i <= segs; i++) {
+    float an = 6.2831853f * (float)i / (float)segs, c = cosf(an), s = sinf(an);
+    pos[n * 3] = c * rtop, pos[n * 3 + 1] = 0, pos[n * 3 + 2] = s * rtop;
+    col[n * 3] = col[n * 3 + 1] = col[n * 3 + 2] = 1.0f, n++;
+    pos[n * 3] = c * rbot, pos[n * 3 + 1] = -h, pos[n * 3 + 2] = s * rbot;
+    col[n * 3] = col[n * 3 + 1] = col[n * 3 + 2] = 0.0f, n++;
+  }
+  int ni = 0;
+  for (int i = 0; i < segs; i++) {
+    uint32_t a = (uint32_t)(i * 2);
+    ix[ni++] = a, ix[ni++] = a + 1, ix[ni++] = a + 2, ix[ni++] = a + 1, ix[ni++] = a + 3, ix[ni++] = a + 2;
+  }
+  t3_geometry *g = t3_geometry_new();
+  t3_attribute *at = t3_attribute_new(T3_FLOAT32, pos, n, 3);
+  t3_geometry_set_attribute(g, T3_ATTR_POSITION, at), t3_release(at);
+  at = t3_attribute_new(T3_FLOAT32, col, n, 3), t3_geometry_set_attribute(g, T3_ATTR_COLOR, at), t3_release(at);
+  at = t3_attribute_new(T3_UINT32, ix, ni, 1), t3_geometry_set_index(g, at), t3_release(at);
+  free(pos), free(col), free(ix);
+  return g;
+}
+
+static void lake_surface_and_shafts(cw_node root) {
+  /* the underside of the sea: a ceiling of moving light that only shows from below */
+  LK.caustic = caustic_texture();
+  LK.caustic->repeat = (t3_vec2){ 22, 22 };
+  LK.ceil_mat = basic_add(0.28f, 0.75f, 0.65f, false, LK.caustic);
+  LK.ceil_mat->side = T3_FRONT_SIDE;
+  float cx = 0.5f * (LK.a.x + LK.b.x), cz = 0.5f * (LK.a.z + LK.b.z);
+  float len = sqrtf((LK.b.x - LK.a.x) * (LK.b.x - LK.a.x) + (LK.b.z - LK.a.z) * (LK.b.z - LK.a.z)) + 2.0f * LK.r1;
+  t3_geometry *g = t3_plane_geometry_new(len, len, 1, 1);
+  t3_mesh *me = t3_mesh_new(g, LK.ceil_mat);
+  me->base.render_order = 4;
+  cw_node n = hang(root, "LakeCeiling", &me->base);
+  t3_release(me), t3_release(g);
+  cw_node3d_set_position(n, V(cx, SEA_Y - 0.1f, cz));
+  cw_node3d_set_rotation(n, V(1.5707963f, 0, 0));
+  /* shafts from the surface to the bed, slanted all the same way, on both sides of the tube */
+  LK.shaft_mat = basic_add(0.3f, 0.7f, 0.7f, true, NULL);
+  uint32_t rs = 9001;
+  t3_vec3 ax = V(LK.b.x - LK.a.x, 0, LK.b.z - LK.a.z);
+  float al = sqrtf(ax.x * ax.x + ax.z * ax.z);
+  ax = vmul(ax, 1.0f / al);
+  t3_vec3 side = V(-ax.z, 0, ax.x);
+  for (int i = 0; i < 8; i++) {
+    float along = (0.15f + 0.7f * (float)i / 7.0f) * al, lat = ((i & 1) ? 1.0f : -1.0f) * (14.0f + 20.0f * frand(&rs));
+    t3_vec3 p = vadd(vadd(V(LK.a.x, SEA_Y - 0.2f, LK.a.z), vmul(ax, along)), vmul(side, lat));
+    float h = 36.0f;
+    t3_geometry *sg = shaft_geometry(3.0f + 3.0f * frand(&rs), 0.8f, h, 12);
+    t3_mesh *sm = t3_mesh_new(sg, LK.shaft_mat);
+    sm->base.frustum_culled = true;
+    LK.shaft[i] = hang(root, "Shaft", &sm->base);
+    t3_release(sm), t3_release(sg);
+    cw_node3d_set_position(LK.shaft[i], p);
+    cw_node3d_set_rotation(LK.shaft[i], V(0.18f, frand(&rs) * 6.0f, 0.12f));
+    LK.shaft_ph[i] = frand(&rs) * 6.28f;
+    LK.nshaft++;
+  }
+}
+
+/* ── the creatures ───────────────────────────────────────────────────────────────────────────────── */
+
+static prop_model make_fish_school(uint32_t seed, int count, pcol body, pcol belly, float size) {
+  pm *b = pm_new(seed);
+  uint32_t rs = seed * 7u + 1u;
+  pm_layer(b, PL_GLOW);
+  for (int i = 0; i < count; i++) {
+    float x = (frand(&rs) - 0.5f) * 9.0f, y = (frand(&rs) - 0.5f) * 4.0f, z = (frand(&rs) - 0.5f) * 7.0f, sc = size * (0.75f + 0.5f * frand(&rs));
+    pm_push(b);
+    pm_move(b, x, y, z);
+    pm_roty(b, (frand(&rs) - 0.5f) * 0.5f);
+    pm_scale(b, sc, sc, sc);
+    pm_ball(b, 0.2f, 0.28f, 0.7f, 0, 0.0f, glow(belly, 1.0f), glow(body, 1.5f));
+    pm_tri(b, V(0, 0, -0.55f), V(0, 0.35f, -1.1f), V(0, -0.35f, -1.1f), glow(body, 1.3f));
+    pm_tri(b, V(0, 0, -0.55f), V(0, -0.35f, -1.1f), V(0, 0.35f, -1.1f), glow(body, 1.3f));
+    pm_pop(b);
+  }
+  return pm_finish(b);
+}
+
+static prop_model make_manta(void) {
+  pm *b = pm_new(321);
+  pm_layer(b, PL_MAIN);
+  pcol top = rgb(0.02f, 0.05f, 0.1f), under = rgb(0.5f, 0.6f, 0.7f);
+  t3_vec3 nose = V(0, 0, 3.2f), wl = V(-5.5f, 0.1f, -0.2f), wr = V(5.5f, 0.1f, -0.2f), tail = V(0, 0, -2.4f), ct = V(0, 0.55f, 0.4f), cb = V(0, -0.35f, 0.4f);
+  /* the upper faces then the lower faces of a flattened diamond */
+  pm_tri(b, nose, wr, ct, top), pm_tri(b, ct, wr, tail, top), pm_tri(b, nose, ct, wl, top), pm_tri(b, ct, tail, wl, top);
+  pm_tri(b, nose, cb, wr, under), pm_tri(b, cb, tail, wr, under), pm_tri(b, nose, wl, cb, under), pm_tri(b, cb, wl, tail, under);
+  pm_rod(b, V(0, 0, -2.2f), V(0, -0.1f, -8.0f), 0.1f, 5, top);
+  pm_tri(b, V(-0.5f, 0.2f, 3.0f), V(-1.1f, 0.0f, 4.0f), V(-0.2f, 0.1f, 3.4f), top);
+  pm_tri(b, V(0.5f, 0.2f, 3.0f), V(0.2f, 0.1f, 3.4f), V(1.1f, 0.0f, 4.0f), top);
+  return pm_finish(b);
+}
+
+static prop_model make_jelly(uint32_t seed, pcol c) {
+  pm *b = pm_new(seed);
+  pm_layer(b, PL_GLOW);
+  pm_ball(b, 1.6f, 1.1f, 1.6f, 1, 0.05f, glow(c, 1.2f), glow(pc_mix(c, WARM, 0.4f), 2.4f));
+  uint32_t rs = seed;
+  for (int i = 0; i < 9; i++) {
+    float an = 6.2831853f * (float)i / 9.0f, r = 0.9f;
+    pm_rod(b, V(cosf(an) * r, -0.3f, sinf(an) * r), V(cosf(an) * r * 1.5f, -4.5f - 2.0f * frand(&rs), sinf(an) * r * 1.5f), 0.07f, 4, glow(c, 1.2f));
+  }
+  return pm_finish(b);
+}
+
+/* the drowned bus: tipped on the bed, windows lit from inside, a sign still burning on its roof */
+static void sunken_bus(cw_node root, t3_vec3 at, float yaw) {
+  pm *b = pm_new(555);
+  pm_layer(b, PL_MAIN);
+  pm_box(b, 3.4f, 3.3f, 13.0f, rgb(0.12f, 0.42f, 0.5f), rgb(0.18f, 0.55f, 0.6f));
+  pm_push(b);
+  pm_move(b, 0, 3.3f, 0);
+  pm_box(b, 3.2f, 0.3f, 12.8f, rgb(0.6f, 0.62f, 0.66f), rgb(0.7f, 0.72f, 0.76f));
+  pm_pop(b);
+  pm_push(b);
+  pm_move(b, 0, 0, 0);
+  for (int sd = -1; sd <= 1; sd += 2)
+    for (int k = 0; k < 2; k++) {
+      pm_push(b);
+      pm_move(b, (float)sd * 1.7f, 0, -3.8f + 7.6f * (float)k);
+      pm_roty(b, 1.5707963f);
+      pm_cyl(b, 0.62f, 0.62f, 0.3f, 12, rgb(0.04f, 0.04f, 0.05f), rgb(0.08f, 0.08f, 0.09f));
+      pm_pop(b);
+    }
+  pm_pop(b);
+  pm_layer(b, PL_GLOW);
+  for (int sd = -1; sd <= 1; sd += 2)
+    for (int i = 0; i < 6; i++) {
+      float z = -5.4f + 2.1f * (float)i;
+      if (i == 3 && sd < 0) continue;
+      pm_quad(b, V((float)sd * 1.72f, 1.4f, z - 0.8f), V((float)sd * 1.72f, 1.4f, z + 0.8f), V((float)sd * 1.72f, 2.8f, z + 0.8f), V((float)sd * 1.72f, 2.8f, z - 0.8f), glow(i == 2 ? PINK : WARM, 1.5f));
+    }
+  pm_quad(b, V(-1.2f, 0.9f, 6.52f), V(1.2f, 0.9f, 6.52f), V(1.2f, 2.6f, 6.52f), V(-1.2f, 2.6f, 6.52f), glow(CYAN, 1.2f));
+  for (int sd = -1; sd <= 1; sd += 2) pm_ball(b, 0.3f, 0.3f, 0.3f, 0, 0, glow(AMBER, 3.0f), glow(WARM, 3.0f));
+  pm_push(b);
+  pm_move(b, 0, 3.8f, -1.0f);
+  neon_sign(b, 3.8f, 1.6f, 2, PINK, CYAN, 4u);
+  pm_pop(b);
+  prop_model m = pm_finish(b);
+  cw_node n = model_node(root, "SunkenBus", m, false);
+  cw_node3d_set_position(n, at);
+  cw_node3d_set_rotation(n, V(0.12f, yaw, 0.38f));
+}
+
+static void creatures(cw_node root) {
+  uint32_t rs = 1717;
+  t3_vec3 ax = V(LK.b.x - LK.a.x, 0, LK.b.z - LK.a.z);
+  float al = sqrtf(ax.x * ax.x + ax.z * ax.z);
+  ax = vmul(ax, 1.0f / al);
+  t3_vec3 side = V(-ax.z, 0, ax.x);
+  /* schools of fish circling over the bed on both sides of the tube */
+  static const uint32_t cols[4] = { 0x18e6ff, 0xffa22e, 0xff2d95, 0x9dff4a };
+  for (int i = 0; i < 7; i++) {
+    float along = (0.12f + 0.76f * (float)i / 6.0f) * al, lat = ((i & 1) ? 1.0f : -1.0f) * (22.0f + 12.0f * frand(&rs));
+    t3_vec3 c = vadd(vadd(V(LK.a.x, 0, LK.a.z), vmul(ax, along)), vmul(side, lat));
+    float roadY = lake_prof(along / al);
+    pcol body = hex(cols[i % 4]);
+    prop_model m = make_fish_school(100u + (uint32_t)i, 16, body, pc_mix(body, WARM, 0.5f), 1.3f);
+    LK.school[i] = model_node(root, "School", m, false);
+    LK.sc[i].cx = c.x, LK.sc[i].cz = c.z, LK.sc[i].r = 9.0f + 7.0f * frand(&rs), LK.sc[i].y = roadY + 2.0f + 5.0f * frand(&rs);
+    LK.sc[i].w = (0.18f + 0.1f * frand(&rs)) * ((i & 2) ? 1.0f : -1.0f), LK.sc[i].ph = frand(&rs) * 6.28f;
+    LK.nschool++;
+  }
+  /* a manta gliding over the roof of the tube */
+  LK.manta = model_node(root, "Manta", make_manta(), false);
+  /* jellyfish drifting, lit from inside */
+  for (int i = 0; i < 5; i++) {
+    float along = (0.2f + 0.6f * frand(&rs)) * al, lat = ((i & 1) ? 1.0f : -1.0f) * (16.0f + 14.0f * frand(&rs));
+    t3_vec3 c = vadd(vadd(V(LK.a.x, 0, LK.a.z), vmul(ax, along)), vmul(side, lat));
+    float roadY = lake_prof(along / al);
+    LK.jelly[i] = model_node(root, "Jelly", make_jelly(200u + (uint32_t)i, i % 2 ? VIOLET : CYAN), false);
+    cw_node3d_set_position(LK.jelly[i], V(c.x, roadY + 3.0f + 5.0f * frand(&rs), c.z));
+    cw_node3d_set_quaternion(LK.jelly[i], t3_quat_from_axis_angle(V(0, 1, 0), frand(&rs) * 6.0f));
+    LK.njelly++;
+  }
+  /* the bus, halfway down on the near side */
+  float along = 0.5f * al, lat = 24.0f;
+  t3_vec3 c = vadd(vadd(V(LK.a.x, 0, LK.a.z), vmul(ax, along)), vmul(side, lat));
+  float bed = city_ground(c.x, c.z, NULL);
+  sunken_bus(root, V(c.x, bed + 1.0f, c.z), atan2f(ax.x, ax.z) + 0.5f);
+  /* plankton: little lights wandering through the water over the tube */
+  for (int i = 0; i < 6; i++) {
+    float a2 = (0.1f + 0.16f * (float)i) * al;
+    t3_vec3 p = vadd(V(LK.a.x, lake_prof(a2 / al) + 3.0f, LK.a.z), vmul(ax, a2));
+    fx_ambient_at(root, FXA_FIREFLIES, p, V(26, 8, 26), 1.4f, 90);
+  }
+}
+
+static void creatures_frame(double time) {
+  float tt = (float)time;
+  for (int i = 0; i < LK.nschool; i++) {
+    float an = LK.sc[i].ph + tt * LK.sc[i].w;
+    float x = LK.sc[i].cx + cosf(an) * LK.sc[i].r, z = LK.sc[i].cz + sinf(an) * LK.sc[i].r;
+    float y = LK.sc[i].y + 1.2f * sinf(tt * 0.5f + (float)i);
+    cw_node3d_set_position(LK.school[i], V(x, y, z));
+    /* heading along the circle's tangent */
+    float dir = LK.sc[i].w > 0 ? 1.0f : -1.0f;
+    float hx = -sinf(an) * dir, hz = cosf(an) * dir;
+    cw_node3d_set_rotation(LK.school[i], V(0, atan2f(hx, hz), 0));
+  }
+  if (cw_node_valid(LK.manta)) {
+    /* up and down the deep middle of the lake over the tube roof, turning at either end */
+    float al = sqrtf((LK.b.x - LK.a.x) * (LK.b.x - LK.a.x) + (LK.b.z - LK.a.z) * (LK.b.z - LK.a.z));
+    float leg = 0.4f * al, cyc = 2.0f * leg + 50.0f, ph = fmodf(tt * 4.5f, cyc);
+    bool back = ph > leg + 25.0f;
+    float u = 0.3f + 0.4f * (back ? fclampf((cyc - ph) / leg, 0, 1) : fminf(ph, leg) / leg);
+    t3_vec3 ax = V((LK.b.x - LK.a.x) / al, 0, (LK.b.z - LK.a.z) / al);
+    t3_vec3 side = V(-ax.z, 0, ax.x);
+    float lat = 7.0f * sinf(tt * 0.21f);
+    t3_vec3 p = vadd(vadd(V(LK.a.x, 0, LK.a.z), vmul(ax, u * al)), vmul(side, lat));
+    p.y = fminf(lake_prof(u) + 10.5f, SEA_Y - 3.0f) + 0.8f * sinf(tt * 0.8f);
+    cw_node3d_set_position(LK.manta, p);
+    cw_node3d_set_rotation(LK.manta, V(0.05f * sinf(tt * 1.6f), atan2f(ax.x, ax.z) + (back ? 3.14159265f : 0), 0.18f * sinf(tt * 1.6f)));
+  }
+  for (int i = 0; i < LK.njelly; i++) {
+    t3_vec3 p = cw_node3d_position(LK.jelly[i]);
+    p.y += 0.004f * sinf(tt * 1.2f + (float)i * 2.0f);
+    cw_node3d_set_position(LK.jelly[i], p);
+    float k = 1.0f + 0.14f * sinf(tt * 2.4f + (float)i);
+    cw_node3d_set_scale(LK.jelly[i], V(1.0f / sqrtf(k), k, 1.0f / sqrtf(k)));
+  }
+  /* the ceiling's ripples slide, and brighten with the lightning */
+  if (LK.caustic) {
+    LK.caustic->offset = (t3_vec2){ tt * 0.012f, tt * 0.007f };
+    LK.caustic->version++;
+  }
+  for (int i = 0; i < LK.nshaft; i++) {
+    if (!cw_node_valid(LK.shaft[i])) continue;
+    cw_node3d_set_rotation(LK.shaft[i], V(0.18f + 0.04f * sinf(tt * 0.3f + LK.shaft_ph[i]), tt * 0.05f + LK.shaft_ph[i], 0.12f));
+  }
+}
+
+/* ── the tube itself: ribs, lamps and the gates at its two mouths ────────────────────────────────── */
+
+static void tube_dressing(const track *t) {
+  pcol rib = rgb(0.07f, 0.09f, 0.12f);
+  for (float s = L.plate.s0 + 4.0f; s < L.plate.s1 - 2.0f; s += 9.0f) {
+    tsample a = track_at(t, s);
+    float Rr = a.hw, hc = 1.6f, Rt = 8.0f - hc;
+    pm *b = frame_in(N.c[GR_STEADY], a.p, a.r, a.u, a.f);
+    pm_layer(b, PL_METAL);
+    /* a rib: up the side, over the arch, down the other side, just inside the glass */
+    for (int k = 0; k < 14; k++) {
+      float t0 = 3.14159265f * (float)k / 14.0f, t1 = 3.14159265f * (float)(k + 1) / 14.0f;
+      pm_rod(b, V(-cosf(t0) * (Rr - 0.15f), hc + sinf(t0) * (Rt - 0.15f), 0), V(-cosf(t1) * (Rr - 0.15f), hc + sinf(t1) * (Rt - 0.15f), 0), 0.17f, 5, rib);
+    }
+    pm_rod(b, V(-(Rr - 0.15f), 0, 0), V(-(Rr - 0.15f), hc, 0), 0.17f, 5, rib);
+    pm_rod(b, V(Rr - 0.15f, 0, 0), V(Rr - 0.15f, hc, 0), 0.17f, 5, rib);
+    pm_layer(b, PL_GLOW);
+    /* a lit strip along the inside of the rib at the crown, and a lamp at each foot */
+    for (int k = 2; k < 12; k++) {
+      float t0 = 3.14159265f * (float)k / 14.0f, t1 = 3.14159265f * (float)(k + 1) / 14.0f;
+      pm_rod(b, V(-cosf(t0) * (Rr - 0.4f), hc + sinf(t0) * (Rt - 0.4f), 0.1f), V(-cosf(t1) * (Rr - 0.4f), hc + sinf(t1) * (Rt - 0.4f), 0.1f), 0.07f, 4, glow(((int)(s / 9.0f)) & 1 ? CYAN : VIOLET, 2.6f));
+    }
+    for (int k = -1; k <= 1; k += 2) {
+      pm_push(b);
+      pm_move(b, (float)k * (Rr - 0.6f), 0.5f, 0);
+      pm_box_c(b, 0.4f, 0.4f, 0.9f, glow(((int)(s / 9.0f) + (k > 0)) & 1 ? PINK : WARM, 3.0f));
+      pm_pop(b);
+    }
+    pm_pop(b);
+  }
+  /* the gates: a thick lit ring round each mouth, and a plinth under it */
+  for (int e = 0; e < 2; e++) {
+    tsample a = track_at(t, e ? L.plate.s1 + 1.0f : L.plate.s0 - 1.0f);
+    float Rr = a.hw + 1.0f, hc = 1.6f, Rt = 8.0f - hc + 1.0f;
+    pm *b = frame_in(N.c[GR_PULSE], a.p, a.r, a.u, a.f);
+    pm_layer(b, PL_METAL);
+    arch_tube(b, hc, Rr, Rt, 0.7f, 0.0f, 3.14159265f, 36, rgb(0.09f, 0.1f, 0.14f));
+    for (int k = -1; k <= 1; k += 2) pm_rod(b, V((float)k * Rr, -0.3f, 0), V((float)k * Rr, hc, 0), 0.7f, 6, rgb(0.09f, 0.1f, 0.14f));
+    pm_layer(b, PL_GLOW);
+    arch_tube(b, hc, Rr - 0.3f, Rt - 0.3f, 0.26f, 0.0f, 3.14159265f, 36, glow(e ? PINK : CYAN, 3.4f));
+    arch_tube(b, hc, Rr + 1.3f, Rt + 1.3f, 0.16f, 0.0f, 3.14159265f, 40, glow(VIOLET, 3.0f));
+    pm_pop(b);
+    /* a fish for a sign over the gate, facing the way you arrive */
+    t3_vec3 up = a.u, face = e ? vmul(a.f, 1.0f) : vmul(a.f, -1.0f);
+    ad_add(AD_FISH, vadd(vadd(a.p, vmul(up, Rt + hc + 2.0f)), vmul(a.f, e ? 0.5f : -0.5f)), e ? a.f : vmul(a.f, -1), up, 12.0f, 6.0f);
+    (void)face;
+  }
+}
+
+/* what lies on the bed round the tube: the stumps of towers, wrecks, signs still lit */
+static void lakebed(const track *t, cw_node root, uint32_t seed) {
+  prop_set *ps = ps_new(root, "LakeBed");
+  scatter_opts so = scatter_defaults();
+  so.kinds[0] = PK_RUIN_BUILDING, so.weight[0] = 2;
+  so.kinds[1] = PK_WRECK_CAR, so.weight[1] = 3;
+  so.kinds[2] = PK_WRECK_TRUCK, so.weight[2] = 1;
+  so.kinds[3] = PK_NEON_SIGN, so.weight[3] = 4;
+  so.kinds[4] = PK_DEBRIS, so.weight[4] = 2;
+  so.kinds[5] = PK_SKYSCRAPER, so.weight[5] = 1;
+  so.nkinds = 6;
+  so.cx = 0.5f * (LK.a.x + LK.b.x), so.cz = 0.5f * (LK.a.z + LK.b.z), so.half_x = so.half_z = 0.5f * (LK.r0 + 160.0f);
+  so.density = 0.55f, so.scale_min = 0.8f, so.scale_max = 1.5f;
+  so.margin = 7.0f, so.seed = seed ^ 0xbed;
+  so.ground = city_ground;
+  so.mask = lake_mask;
+  so.sink = 0.3f;
+  scatter_area(ps, t, &so);
+  ps_finish(ps);
+}
+
+
+/* ── set pieces 4 and 5: the collapsed overpass (a gap to jump, a billboard to land under) and the corkscrew through
+ * its ruins ──────────────────────────────────────────────────────────────────────────────────────────── */
+
+static pcol concrete_dark, concrete_light, rust_col;
+
+/* a slab of fallen deck: concrete with a broken edge, rebar and a stub of railing, in the current frame */
+static void ruin_slab(pm *b, float w, float len, uint32_t seed) {
+  uint32_t rs = seed;
+  pm_layer(b, PL_MAIN);
+  pm_push(b);
+  pm_box(b, w, 1.5f, len, concrete_dark, concrete_light);
+  /* a broken end: a stepped break of smaller blocks */
+  for (int i = 0; i < 4; i++) {
+    pm_push(b);
+    pm_move(b, (frand(&rs) - 0.5f) * w * 0.8f, 0, len * 0.5f + 0.2f + frand(&rs) * 0.8f);
+    pm_rotx(b, (frand(&rs) - 0.5f) * 0.5f);
+    pm_box(b, 1.5f + 2.0f * frand(&rs), 1.1f, 1.2f + 1.6f * frand(&rs), dk(concrete_dark, 0.9f), concrete_light);
+    pm_pop(b);
+  }
+  /* the kerb and the railing stump along one side */
+  pm_push(b);
+  pm_move(b, w * 0.5f - 0.3f, 1.5f, 0);
+  pm_box(b, 0.5f, 1.0f, len * 0.9f, concrete_dark, concrete_light);
+  pm_pop(b);
+  pm_layer(b, PL_METAL);
+  for (int i = 0; i < 8; i++) {
+    float x = (frand(&rs) - 0.5f) * w * 0.9f, z = len * 0.5f + 0.2f;
+    pm_rod(b, V(x, 0.7f, z), V(x + pm_rands(b) * 0.4f, 0.6f + frand(&rs) * 0.8f, z + 1.0f + 2.8f * frand(&rs)), 0.07f, 4, rust_col);
+  }
+  pm_layer(b, PL_GLOW);
+  /* the last metres of a strip light along the kerb, still on */
+  pm_push(b);
+  pm_move(b, w * 0.5f - 0.3f, 2.1f, 0);
+  pm_beam(b, V(0, 0, -len * 0.4f), V(0, 0, len * 0.35f), 0.12f, glow(CYAN, 2.4f));
+  pm_pop(b);
+  pm_pop(b);
+  pm_layer(b, PL_MAIN);
+}
+
+static void stump(pm *b, float h, float r, uint32_t seed) {
+  uint32_t rs = seed;
+  pm_layer(b, PL_MAIN);
+  pm_box(b, r * 2.0f, h, r * 2.0f, concrete_dark, concrete_light);
+  pm_push(b);
+  pm_move(b, 0, h, 0);
+  for (int i = 0; i < 3; i++) {
+    pm_push(b);
+    pm_move(b, (frand(&rs) - 0.5f) * r, 0, (frand(&rs) - 0.5f) * r);
+    pm_box(b, r * (0.5f + 0.5f * frand(&rs)), 0.8f + 1.8f * frand(&rs), r * (0.5f + 0.5f * frand(&rs)), concrete_dark, concrete_light);
+    pm_pop(b);
+  }
+  pm_layer(b, PL_METAL);
+  for (int i = 0; i < 5; i++) pm_rod(b, V((frand(&rs) - 0.5f) * r, 0, (frand(&rs) - 0.5f) * r), V((frand(&rs) - 0.5f) * r * 2, 2.5f + 2.5f * frand(&rs), (frand(&rs) - 0.5f) * r * 2), 0.07f, 4, rust_col);
+  pm_pop(b);
+  pm_layer(b, PL_MAIN);
+}
+
+#define NDEBRIS 6
+static struct {
+  cw_node chunk[NDEBRIS];
+  t3_vec3 at[NDEBRIS];
+  float fall[NDEBRIS], per[NDEBRIS], ph[NDEBRIS];
+  cw_node spark[4];
+  t3_vec3 spark_at[4];
+  int nspark;
+} RU;
+
+static prop_model make_chunk(uint32_t seed) {
+  pm *b = pm_new(seed);
+  pm_layer(b, PL_MAIN);
+  pm_box_c(b, 1.6f, 1.0f, 1.2f, concrete_dark);
+  pm_push(b);
+  pm_move(b, 0.7f, 0.2f, 0.2f);
+  pm_box_c(b, 0.9f, 0.7f, 0.8f, concrete_light);
+  pm_pop(b);
+  pm_layer(b, PL_METAL);
+  pm_rod(b, V(-0.8f, 0.2f, 0), V(-1.7f, 0.5f, 0.3f), 0.06f, 4, rust_col);
+  return pm_finish(b);
+}
+
+/* a falling streak of sparks: a few thin glowing bars in a column, moved down by the frame function */
+static prop_model make_spark_column(uint32_t seed) {
+  pm *b = pm_new(seed);
+  uint32_t rs = seed;
+  pm_layer(b, PL_GLOW);
+  for (int i = 0; i < 9; i++) {
+    float x = (frand(&rs) - 0.5f) * 1.2f, y = -frand(&rs) * 8.0f, z = (frand(&rs) - 0.5f) * 1.2f;
+    pm_beam(b, V(x, y, z), V(x + 0.05f, y - 0.5f - frand(&rs) * 0.6f, z), 0.07f, glow(i & 1 ? AMBER : WARM, 5.0f));
+  }
+  return pm_finish(b);
+}
+
+static void corkscrew_ruins(const track *t, cw_node root, uint32_t seed) {
+  uint32_t rs = seed ^ 0xc0c;
+  pmc *c = N.c[GR_STEADY];
+  float s0 = L.cork.s0 - 30, s1 = L.cork.s1 + 30;
+  int k = 0;
+  for (float s = s0; s < s1; s += 34.0f + 8.0f * frand(&rs), k++) {
+    tsample a = track_at(t, s);
+    int side = (k & 1) ? 1 : -1;
+    float lat = 17.0f + 12.0f * frand(&rs);
+    t3_vec3 p = vadd(a.p, vmul(a.r, (float)side * lat));
+    float g = city_ground(p.x, p.z, NULL);
+    /* an overpass has fallen across this block: two stumps and a tipped deck between them */
+    t3_vec3 base = V(p.x, g - 1.0f, p.z);
+    pm *b = upright_frame(c, base, &a);
+    pm_push(b);
+    pm_layer(b, PL_MAIN);
+    float h = a.p.y - g + 4.0f + 8.0f * frand(&rs);
+    stump(b, h, 1.6f, seed + (uint32_t)k * 3u);
+    pm_pop(b);
+    pm_pop(b);
+    if (frand(&rs) < 0.75f) {
+      pm *d = upright_frame(c, V(p.x, a.p.y + 1.0f + 3.0f * frand(&rs), p.z), &a);
+      pm_move(d, (frand(&rs) - 0.5f) * 4.0f, 0, 6.0f * (frand(&rs) - 0.5f));
+      pm_roty(d, (frand(&rs) - 0.5f) * 0.9f);
+      pm_rotz(d, (float)side * (0.12f + 0.3f * frand(&rs)));
+      pm_rotx(d, (frand(&rs) - 0.5f) * 0.3f);
+      ruin_slab(d, 8.0f + 5.0f * frand(&rs), 14.0f + 10.0f * frand(&rs), seed + (uint32_t)k * 11u);
+      pm_pop(d);
+    }
+    /* a broken sign hanging by one corner, one half of it still burning */
+    if (frand(&rs) < 0.5f) {
+      pm *e = upright_frame(N.c[GR_FLICK], V(p.x, a.p.y + 5.5f + 3.0f * frand(&rs), p.z), &a);
+      pm_move(e, (float)-side * (1.0f + 3.0f * frand(&rs)), 0, 0);
+      pm_roty(e, (float)-side * 1.57f);
+      pm_rotz(e, 0.5f + 0.5f * frand(&rs));
+      pm_layer(e, PL_METAL);
+      pm_rod(e, V(0, 0, 0), V(0, 7, 0), 0.08f, 4, rgb(0.1f, 0.1f, 0.12f));
+      neon_sign(e, 5.0f, 2.0f, (int)(frand(&rs) * 4.99f), neon_pick(&rs), neon_pick(&rs), seed + (uint32_t)k * 5u);
+      pm_pop(e);
+    }
+    /* sparks falling from a cut cable beside it */
+    if (RU.nspark < 4 && frand(&rs) < 0.7f) {
+      RU.spark_at[RU.nspark] = V(p.x + (float)-side * 5.0f, a.p.y + 9.0f, p.z);
+      RU.nspark++;
+    }
+  }
+  /* falling rubble: chunks of deck letting go, over and over, a good way off the road */
+  for (int i = 0; i < NDEBRIS; i++) {
+    float sd = lerpf(L.cork.s0, L.cork.s1, (float)i / (float)(NDEBRIS - 1));
+    tsample a = track_at(t, sd);
+    int side = (i & 1) ? 1 : -1;
+    RU.at[i] = vadd(vadd(a.p, vmul(a.r, (float)side * (22.0f + 6.0f * frand(&rs)))), V(0, 10.0f + 4.0f * frand(&rs), 0));
+    RU.fall[i] = 16.0f + 4.0f * frand(&rs), RU.per[i] = 1.6f + 0.8f * frand(&rs), RU.ph[i] = frand(&rs) * 4.0f;
+    RU.chunk[i] = model_node(root, "Rubble", make_chunk(30u + (uint32_t)i), false);
+    cw_node3d_set_position(RU.chunk[i], RU.at[i]);
+  }
+  for (int i = 0; i < RU.nspark; i++) {
+    RU.spark[i] = model_node(root, "Sparks", make_spark_column(60u + (uint32_t)i), false);
+    cw_node3d_set_position(RU.spark[i], RU.spark_at[i]);
+    fx_ambient_at(root, FXA_EMBERS, vadd(RU.spark_at[i], V(0, -3, 0)), V(1.5f, 1.0f, 1.5f), 0.8f, 110);
+  }
+  /* a flickering orange light where the cables are cut, one for the whole stretch (it follows the nearest spark) */
+  if (RU.nspark > 0) add_omni(root, "SparkLight", vadd(RU.spark_at[0], V(0, -3, 0)), AMBER, 160, 28);
+}
+
+static void ruins_frame(double time) {
+  float tt = (float)time;
+  for (int i = 0; i < NDEBRIS; i++) {
+    if (!cw_node_valid(RU.chunk[i])) continue;
+    float u = fmodf(tt + RU.ph[i], RU.per[i]) / RU.per[i]; /* 0..1 through one fall */
+    float y = -RU.fall[i] * u * u;
+    cw_node3d_set_position(RU.chunk[i], vadd(RU.at[i], V(0, y, 0)));
+    cw_node3d_set_rotation(RU.chunk[i], V(tt * 1.3f + (float)i, tt * 0.9f, tt * 1.7f));
+    /* hidden for the first moments so it does not pop in full view */
+    t3_object *o = cw_node3d_object(RU.chunk[i]);
+    if (o) o->visible = u > 0.04f;
+  }
+  for (int i = 0; i < RU.nspark; i++) {
+    if (!cw_node_valid(RU.spark[i])) continue;
+    float u = fmodf(tt * 0.9f + (float)i * 0.37f, 1.0f);
+    uint32_t h = hash32((uint32_t)(tt * 0.9f + (float)i * 0.37f) * 977u + (uint32_t)i);
+    bool on = (h & 3) != 0;
+    cw_node3d_set_position(RU.spark[i], vadd(RU.spark_at[i], V(0, -u * 7.0f, 0)));
+    t3_object *o = cw_node3d_object(RU.spark[i]);
+    if (o) o->visible = on && u < 0.9f;
+  }
+}
+
+/* the gap: a broken deck at the lip, wreckage in the water under it, and a billboard on a gantry beyond the landing */
+static void jump_set_piece(const track *t, cw_node root, uint32_t seed) {
+  uint32_t rs = seed ^ 0x1a4b;
+  tsample lip = track_at(t, L.gap.s0 - 1.0f), land = track_at(t, L.gap.s1 + 1.0f);
+  pmc *c = N.c[GR_STEADY];
+  /* ragged concrete past each edge of the road at the lip and at the landing */
+  for (int e = 0; e < 2; e++) {
+    const tsample *a = e ? &land : &lip;
+    float dir = e ? 1.0f : -1.0f; /* which way the broken edge points along the road */
+    pm *b = frame_in(c, a->p, a->r, a->u, a->f);
+    pm_layer(b, PL_MAIN);
+    for (int i = 0; i < 7; i++) {
+      pm_push(b);
+      pm_move(b, (frand(&rs) - 0.5f) * (a->hw * 2.0f), -0.8f - frand(&rs) * 1.4f, dir * (0.4f + frand(&rs) * 3.2f));
+      pm_rotx(b, dir * (0.1f + 0.5f * frand(&rs)));
+      pm_box(b, 1.6f + 3.2f * frand(&rs), 1.0f, 1.2f + 2.0f * frand(&rs), concrete_dark, concrete_light);
+      pm_pop(b);
+    }
+    pm_layer(b, PL_METAL);
+    for (int i = 0; i < 12; i++) {
+      float x = (frand(&rs) - 0.5f) * (a->hw * 2.0f);
+      pm_rod(b, V(x, -0.4f, dir * 0.6f), V(x + pm_rands(b) * 0.7f, -0.3f - frand(&rs) * 1.5f, dir * (2.5f + 3.5f * frand(&rs))), 0.08f, 4, rust_col);
+    }
+    pm_layer(b, PL_GLOW);
+    /* the warning lights along the broken edge */
+    for (int i = -3; i <= 3; i += 2) {
+      pm_push(b);
+      pm_move(b, (float)i * a->hw / 3.4f, 0.4f, dir * 0.2f);
+      pm_box_c(b, 0.4f, 0.4f, 0.4f, glow(RED, 5.0f));
+      pm_pop(b);
+    }
+    pm_pop(b);
+  }
+  /* wreckage in the water between the two edges: fallen deck sections and a bus nosed in */
+  float mid = 0.5f * (L.gap.s0 + L.gap.s1);
+  tsample m = track_at(t, mid);
+  for (int i = 0; i < 4; i++) {
+    float lat = (frand(&rs) - 0.5f) * 14.0f, along = (frand(&rs) - 0.5f) * 20.0f;
+    t3_vec3 p = vadd(vadd(m.p, vmul(m.r, lat)), vmul(m.f, along));
+    p.y = SEA_Y + 0.3f - frand(&rs) * 1.0f;
+    pm *b = upright_frame(c, p, &m);
+    pm_roty(b, frand(&rs) * 3.0f);
+    pm_rotz(b, (frand(&rs) - 0.5f) * 0.6f);
+    pm_rotx(b, (frand(&rs) - 0.5f) * 0.5f);
+    ruin_slab(b, 7.0f + 3.0f * frand(&rs), 10.0f + 6.0f * frand(&rs), seed + (uint32_t)i * 9u);
+    pm_pop(b);
+  }
+  /* the billboard: two towers and a gantry over the road 60 m past the landing, a big lit picture facing the ramp */
+  tsample g = track_at(t, L.gap.s1 + 62.0f);
+  float W = g.hw + 7.0f;
+  pm *b = frame_in(N.c[GR_PULSE], vadd(g.p, V(0, -6.0f, 0)), g.r, V(0, 1, 0), g.f);
+  pm_layer(b, PL_METAL);
+  for (int sd = -1; sd <= 1; sd += 2) {
+    pm_beam(b, V((float)sd * W, 0, -1.2f), V((float)sd * W, 38.0f, -1.2f), 1.2f, rgb(0.08f, 0.08f, 0.12f));
+    pm_beam(b, V((float)sd * W, 0, 1.2f), V((float)sd * W, 38.0f, 1.2f), 1.2f, rgb(0.08f, 0.08f, 0.12f));
+    for (int i = 0; i < 9; i++) {
+      float y0 = 4.0f * (float)i, y1 = y0 + 4.0f;
+      pm_beam(b, V((float)sd * W, y0, -1.2f), V((float)sd * W, y1, 1.2f), 0.35f, rgb(0.08f, 0.08f, 0.12f));
+    }
+  }
+  pm_beam(b, V(-W, 20.0f, -1.2f), V(W, 20.0f, -1.2f), 0.9f, rgb(0.08f, 0.08f, 0.12f));
+  pm_beam(b, V(-W, 38.0f, -1.2f), V(W, 38.0f, -1.2f), 0.9f, rgb(0.08f, 0.08f, 0.12f));
+  pm_layer(b, PL_GLOW);
+  /* a lit frame round the picture and a row of chasing arrows over it, pointing down at the landing */
+  pm_beam(b, V(-W + 1.0f, 21.2f, -1.9f), V(W - 1.0f, 21.2f, -1.9f), 0.35f, glow(PINK, 3.4f));
+  pm_beam(b, V(-W + 1.0f, 37.0f, -1.9f), V(W - 1.0f, 37.0f, -1.9f), 0.35f, glow(PINK, 3.4f));
+  pm_beam(b, V(-W + 1.0f, 21.2f, -1.9f), V(-W + 1.0f, 37.0f, -1.9f), 0.35f, glow(CYAN, 3.4f));
+  pm_beam(b, V(W - 1.0f, 21.2f, -1.9f), V(W - 1.0f, 37.0f, -1.9f), 0.35f, glow(CYAN, 3.4f));
+  pm_pop(b);
+  pm *ar = frame_in(N.c[GR_FLICK], vadd(g.p, V(0, -6.0f, 0)), g.r, V(0, 1, 0), g.f);
+  pm_layer(ar, PL_GLOW);
+  for (int i = 0; i < 3; i++) {
+    float x = (float)(i - 1) * 8.0f;
+    pm_beam(ar, V(x - 3.0f, 42.0f, -1.9f), V(x, 39.2f, -1.9f), 0.55f, glow(AMBER, 4.0f));
+    pm_beam(ar, V(x + 3.0f, 42.0f, -1.9f), V(x, 39.2f, -1.9f), 0.55f, glow(AMBER, 4.0f));
+  }
+  pm_pop(ar);
+  ad_add(AD_SUN, vadd(g.p, V(0, 15.5f, 0)), vmul(g.f, -1), V(0, 1, 0), 2.0f * (W - 1.5f), 15.0f);
+  ad_add(AD_BURST, vadd(vadd(g.p, V(0, 15.5f, 0)), vmul(g.f, 0.1f)), g.f, V(0, 1, 0), 2.0f * (W - 1.5f), 15.0f);
+  /* its light on the road and the water */
+  add_omni(root, "BillboardLight", vadd(vadd(g.p, V(0, 18.0f, 0)), vmul(g.f, -16.0f)), PINK, 900, 70);
+}
+
+
+/* ── the sky life: drones, searchlights, holograms, billboards, rafts, steam ──────────────────────── */
+
+static float tower_mask(float x, float z, void *ud) {
+  (void)ud;
+  float dx = x - WHEEL_AT.x, dz = z - WHEEL_AT.z;
+  return dx * dx + dz * dz < 150.0f * 150.0f ? 0.0f : 1.0f;
+}
+
+/* big pictures on stilts standing in the water at the open stretches, facing the road: the skyline's own adverts */
+static void billboards(const track *t, cw_node root, uint32_t seed) {
+  uint32_t rs = seed ^ 0xb111;
+  pmc *c = N.c[GR_STEADY];
+  int placed = 0;
+  for (float s = 40; s < t->length - 40 && placed < 22; s += 110.0f + 80.0f * frand(&rs)) {
+    int side = frand(&rs) < 0.5f ? -1 : 1;
+    if (zone_mode(side, s) != 2 || in_run(L.plate, s, 30) || in_run(L.cork, s, 30) || in_run(L.gap, s, 60)) continue;
+    tsample a = track_at(t, s);
+    float lat = 28.0f + 36.0f * frand(&rs), w = 22.0f + 12.0f * frand(&rs), h = w * 0.5f, y0 = 11.0f + 8.0f * frand(&rs);
+    t3_vec3 p = vadd(a.p, vmul(a.r, (float)side * (a.hw + lat)));
+    if (near_other_road(t, p, s, 40.0f * 40.0f)) continue;
+    p.y = SEA_Y - 3.0f;
+    t3_vec3 face = vmul(a.r, (float)-side); /* toward the road */
+    float yaw = atan2f(face.x, face.z);
+    pm *b = pmc_at(c, p);
+    pm_push(b);
+    pm_move(b, p.x, p.y, p.z);
+    pm_roty(b, yaw);
+    pm_layer(b, PL_METAL);
+    float top = y0 + h + 1.0f + 3.0f - p.y + SEA_Y; /* legs from under the water to the board's top */
+    (void)top;
+    for (int k = -1; k <= 1; k += 2) {
+      pm_beam(b, V((float)k * w * 0.32f, 0, -0.6f), V((float)k * w * 0.32f, y0 + h + 3.0f + 3.0f, -0.6f), 0.7f, rgb(0.08f, 0.08f, 0.12f));
+      pm_beam(b, V((float)k * w * 0.32f, y0 - 1.0f, -0.6f), V((float)k * w * 0.42f, y0 - 6.0f, -0.6f), 0.35f, rgb(0.08f, 0.08f, 0.12f));
+    }
+    pm_beam(b, V(-w * 0.52f, y0 - 0.5f, -0.5f), V(w * 0.52f, y0 - 0.5f, -0.5f), 0.4f, rgb(0.08f, 0.08f, 0.12f));
+    pm_beam(b, V(-w * 0.52f, y0 + h + 0.5f, -0.5f), V(w * 0.52f, y0 + h + 0.5f, -0.5f), 0.4f, rgb(0.08f, 0.08f, 0.12f));
+    pm_layer(b, PL_GLOW);
+    pcol fc = neon_pick(&rs);
+    pm_beam(b, V(-w * 0.52f, y0 - 0.5f, 0.05f), V(w * 0.52f, y0 - 0.5f, 0.05f), 0.28f, glow(fc, 3.2f));
+    pm_beam(b, V(-w * 0.52f, y0 + h + 0.5f, 0.05f), V(w * 0.52f, y0 + h + 0.5f, 0.05f), 0.28f, glow(fc, 3.2f));
+    pm_beam(b, V(-w * 0.52f, y0 - 0.5f, 0.05f), V(-w * 0.52f, y0 + h + 0.5f, 0.05f), 0.28f, glow(fc, 3.2f));
+    pm_beam(b, V(w * 0.52f, y0 - 0.5f, 0.05f), V(w * 0.52f, y0 + h + 0.5f, 0.05f), 0.28f, glow(fc, 3.2f));
+    /* two floodlights over the board */
+    for (int k = -1; k <= 1; k += 2) {
+      pm_push(b);
+      pm_move(b, (float)k * w * 0.3f, y0 + h + 2.0f, 1.0f);
+      pm_box_c(b, 1.0f, 0.4f, 0.8f, glow(WARM, 4.0f));
+      pm_pop(b);
+    }
+    pm_pop(b);
+    t3_vec3 pos = vadd(p, V(0, y0, 0));
+    ad_add((int)(frand(&rs) * AD_N) % AD_N, vadd(pos, vmul(face, 0.2f)), face, V(0, 1, 0), w, h);
+    placed++;
+  }
+}
+
+/* ── holograms: pictures made of light floating over the water, flickering and turning ─────────────── */
+
+#define NHOLO 6
+static struct {
+  cw_node n[NHOLO];
+  t3_material *m[NHOLO];
+  float spin[NHOLO], base_y[NHOLO], ph[NHOLO];
+  int count;
+} HO;
+
+static void holograms(const track *t, cw_node root, uint32_t seed) {
+  uint32_t rs = seed ^ 0x401;
+  for (float s = 90; s < t->length - 40 && HO.count < NHOLO; s += 260.0f + 120.0f * frand(&rs)) {
+    int side = frand(&rs) < 0.5f ? -1 : 1;
+    if (zone_mode(side, s) != 2 || in_run(L.plate, s, 30) || in_run(L.cork, s, 30) || in_run(L.gap, s, 60)) continue;
+    tsample a = track_at(t, s);
+    t3_vec3 p = vadd(a.p, vmul(a.r, (float)side * (a.hw + 16.0f + 10.0f * frand(&rs))));
+    if (near_other_road(t, p, s, 30.0f * 30.0f)) continue;
+    int k = HO.count;
+    int kind = (k * 3 + 1) % AD_N;
+    t3_material *m = basic_add(0.9f, 0.9f, 0.9f, false, AD.tex[kind]);
+    t3_geometry *g = t3_plane_geometry_new(10.0f, 5.0f, 1, 1);
+    t3_mesh *me = t3_mesh_new(g, m);
+    me->base.render_order = 5;
+    HO.n[k] = hang(root, "Holo", &me->base);
+    t3_release(me), t3_release(g);
+    HO.m[k] = m;
+    HO.base_y[k] = 7.5f + 3.0f * frand(&rs);
+    cw_node3d_set_position(HO.n[k], V(p.x, HO.base_y[k], p.z));
+    HO.spin[k] = (0.25f + 0.2f * frand(&rs)) * (frand(&rs) < 0.5f ? 1 : -1);
+    HO.ph[k] = frand(&rs) * 6.28f;
+    HO.count++;
+  }
+}
+
+static void holograms_frame(double time) {
+  float tt = (float)time;
+  for (int i = 0; i < HO.count; i++) {
+    cw_node3d_set_rotation(HO.n[i], V(0, tt * HO.spin[i] + HO.ph[i], 0));
+    cw_node3d_set_position(HO.n[i], V(cw_node3d_position(HO.n[i]).x, HO.base_y[i] + 0.5f * sinf(tt * 0.7f + HO.ph[i]), cw_node3d_position(HO.n[i]).z));
+    /* flicker like a bad projector: mostly steady, now and then a dropout and a scan band */
+    uint32_t h = hash32((uint32_t)(tt * 9.0f) + (uint32_t)i * 7919u);
+    float k = (h & 15) == 0 ? 0.15f : (h & 7) == 1 ? 0.55f : 0.85f + 0.15f * sinf(tt * 40.0f);
+    HO.m[i]->color = (t3_color){ 0.9f * k, 0.9f * k, 0.9f * k };
+  }
+}
+
+/* ── drones: little lit machines buzzing over the streets; one has a searchlight it sweeps over the water ── */
+
+#define NDRONE 6
+static struct {
+  cw_node n[NDRONE];
+  cw_node beam;
+  float cx[NDRONE], cz[NDRONE], r[NDRONE], y[NDRONE], w[NDRONE], ph[NDRONE];
+  int count;
+} DR;
+
+static prop_model make_drone(void) {
+  pm *b = pm_new(808);
+  pm_layer(b, PL_MAIN);
+  pm_box_c(b, 1.4f, 0.5f, 1.4f, rgb(0.1f, 0.1f, 0.14f));
+  pm_layer(b, PL_METAL);
+  for (int i = 0; i < 4; i++) {
+    float x = (i & 1 ? 1.0f : -1.0f) * 1.0f, z = (i & 2 ? 1.0f : -1.0f) * 1.0f;
+    pm_beam(b, V(0, 0, 0), V(x, 0.1f, z), 0.1f, rgb(0.15f, 0.15f, 0.2f));
+    pm_push(b);
+    pm_move(b, x, 0.25f, z);
+    pm_cyl(b, 0.7f, 0.7f, 0.05f, 10, rgb(0.2f, 0.2f, 0.26f), rgb(0.3f, 0.3f, 0.36f));
+    pm_pop(b);
+  }
+  pm_layer(b, PL_GLOW);
+  pm_push(b);
+  pm_move(b, 0.6f, 0, 0.9f);
+  pm_ball(b, 0.2f, 0.2f, 0.2f, 0, 0, glow(RED, 6.0f), glow(RED, 6.0f));
+  pm_pop(b);
+  pm_push(b);
+  pm_move(b, -0.6f, 0, 0.9f);
+  pm_ball(b, 0.2f, 0.2f, 0.2f, 0, 0, glow(LIME, 6.0f), glow(LIME, 6.0f));
+  pm_pop(b);
+  pm_push(b);
+  pm_move(b, 0, -0.35f, 0);
+  pm_ball(b, 0.3f, 0.2f, 0.3f, 0, 0, glow(WARM, 5.0f), glow(WARM, 5.0f));
+  pm_pop(b);
+  return pm_finish(b);
+}
+
+static void drones(const track *t, cw_node root, uint32_t seed) {
+  uint32_t rs = seed ^ 0xd0e;
+  (void)t;
+  for (int i = 0; i < NDRONE; i++) {
+    DR.n[i] = model_node(root, "Drone", make_drone(), false);
+    float ang = 6.2831853f * frand(&rs);
+    DR.cx[i] = L.cx + cosf(ang) * 90.0f * frand(&rs), DR.cz[i] = L.cz + sinf(ang) * 60.0f * frand(&rs);
+    DR.r[i] = 40.0f + 90.0f * frand(&rs), DR.y[i] = 22.0f + 30.0f * frand(&rs);
+    DR.w[i] = (0.05f + 0.06f * frand(&rs)) * (i & 1 ? 1 : -1), DR.ph[i] = frand(&rs) * 6.28f;
+    DR.count++;
+  }
+  /* the searchlight under drone 0: a pale cone to the water */
+  t3_material *m = basic_add(0.5f, 0.55f, 0.6f, true, NULL);
+  t3_geometry *g = shaft_geometry(0.5f, 6.0f, 40.0f, 14);
+  t3_mesh *me = t3_mesh_new(g, m);
+  DR.beam = hang(DR.n[0], "DroneBeam", &me->base);
+  t3_release(me), t3_release(g), t3_release(m);
+  cw_node3d_set_position(DR.beam, V(0, -0.4f, 0));
+}
+
+static void drones_frame(double time) {
+  float tt = (float)time;
+  for (int i = 0; i < DR.count; i++) {
+    float an = DR.ph[i] + tt * DR.w[i];
+    float x = DR.cx[i] + cosf(an) * DR.r[i], z = DR.cz[i] + sinf(an) * DR.r[i] * 0.7f;
+    float y = DR.y[i] + 1.5f * sinf(tt * 1.3f + (float)i);
+    cw_node3d_set_position(DR.n[i], V(x, y, z));
+    float dir = DR.w[i] > 0 ? 1.0f : -1.0f;
+    cw_node3d_set_rotation(DR.n[i], V(0.12f * sinf(tt * 2.0f + (float)i), atan2f(-sinf(an) * dir, cosf(an) * 0.7f * dir), 0.1f * sinf(tt * 1.7f)));
+  }
+  if (cw_node_valid(DR.beam)) cw_node3d_set_rotation(DR.beam, V(0.35f * sinf(tt * 0.9f), 0, 0.35f * cosf(tt * 0.7f)));
+}
+
+/* ── searchlights from the far rooftops, sweeping the clouds ─────────────────────────────────────── */
+
+#define NSEARCH 4
+static struct {
+  cw_node n[NSEARCH];
+  float ph[NSEARCH], w[NSEARCH];
+} SL;
+
+static void searchlights(cw_node root, uint32_t seed) {
+  uint32_t rs = seed ^ 0x5ea;
+  t3_material *m = basic_add(0.35f, 0.4f, 0.55f, true, NULL);
+  m->fog = true;
+  for (int i = 0; i < NSEARCH; i++) {
+    float ang = 6.2831853f * ((float)i + 0.3f * frand(&rs)) / (float)NSEARCH, d = 650 + 250 * frand(&rs);
+    t3_geometry *g = shaft_geometry(1.5f, 34.0f, 700.0f, 16);
+    t3_mesh *me = t3_mesh_new(g, m);
+    me->base.frustum_culled = false;
+    SL.n[i] = hang(root, "Searchlight", &me->base);
+    t3_release(me), t3_release(g);
+    cw_node3d_set_position(SL.n[i], V(L.cx + cosf(ang) * d, 60.0f, L.cz + sinf(ang) * d));
+    SL.ph[i] = frand(&rs) * 6.28f, SL.w[i] = (0.12f + 0.1f * frand(&rs)) * (i & 1 ? 1 : -1);
+    /* the lamp itself, a hot spot on a pole */
+    cw_node3d_set_rotation(SL.n[i], V(3.14159265f, 0, 0));
+  }
+  t3_release(m);
+}
+
+static void searchlights_frame(double time) {
+  float tt = (float)time;
+  for (int i = 0; i < NSEARCH; i++) {
+    if (!cw_node_valid(SL.n[i])) continue;
+    /* beams point up (the cone hangs down from its node, so flip it) and swing round a cone of directions */
+    float an = SL.ph[i] + tt * SL.w[i], tilt = 0.45f + 0.25f * sinf(tt * 0.31f + (float)i);
+    t3_quat q = t3_quat_multiply(t3_quat_from_axis_angle(V(0, 1, 0), an), t3_quat_multiply(t3_quat_from_axis_angle(V(1, 0, 0), tilt), t3_quat_from_axis_angle(V(1, 0, 0), 3.14159265f)));
+    cw_node3d_set_quaternion(SL.n[i], q);
+  }
+}
+
+/* ── rafts: junk-built boats drifting by with a lantern, bobbing on the swell ─────────────────────── */
+
+#define NRAFT 5
+static struct {
+  cw_node n[NRAFT];
+  t3_vec3 at[NRAFT];
+  float ph[NRAFT], yaw[NRAFT], drift[NRAFT];
+  int count;
+} RF;
+
+static prop_model make_raft(uint32_t seed) {
+  pm *b = pm_new(seed);
+  uint32_t rs = seed;
+  pm_layer(b, PL_MAIN);
+  for (int i = 0; i < 6; i++) {
+    pm_push(b);
+    pm_move(b, -1.5f + 0.6f * (float)i, 0, 0);
+    pm_box(b, 0.55f, 0.2f, 4.0f + 0.4f * frand(&rs), rgb(0.35f, 0.22f, 0.12f), rgb(0.45f, 0.3f, 0.18f));
+    pm_pop(b);
+  }
+  for (int i = 0; i < 3; i++) {
+    pm_push(b);
+    pm_move(b, -1.0f + 1.0f * (float)i, 0.2f, -1.0f + frand(&rs) * 2.0f);
+    pm_cyl(b, 0.4f, 0.4f, 0.9f, 8, i == 1 ? rgb(0.7f, 0.2f, 0.15f) : rgb(0.2f, 0.35f, 0.5f), rgb(0.3f, 0.4f, 0.55f));
+    pm_pop(b);
+  }
+  pm_layer(b, PL_METAL);
+  pm_rod(b, V(1.4f, 0.2f, 1.2f), V(1.4f, 3.2f, 1.2f), 0.06f, 5, rgb(0.15f, 0.15f, 0.2f));
+  pm_layer(b, PL_MAIN);
+  pm_tri(b, V(1.4f, 3.1f, 1.2f), V(1.4f, 2.3f, 1.2f), V(2.6f, 2.7f, 1.2f), rgb(0.9f, 0.2f, 0.5f));
+  pm_tri(b, V(1.4f, 3.1f, 1.2f), V(2.6f, 2.7f, 1.2f), V(1.4f, 2.3f, 1.2f), rgb(0.9f, 0.2f, 0.5f));
+  pm_layer(b, PL_GLOW);
+  pm_push(b);
+  pm_move(b, -1.2f, 1.3f, 1.4f);
+  pm_ball(b, 0.28f, 0.34f, 0.28f, 0, 0, glow(AMBER, 4.0f), glow(WARM, 5.0f));
+  pm_pop(b);
+  return pm_finish(b);
+}
+
+static void rafts(const track *t, cw_node root, uint32_t seed) {
+  uint32_t rs = seed ^ 0xaf7;
+  for (float s = 120; s < t->length - 40 && RF.count < NRAFT; s += 330.0f + 90.0f * frand(&rs)) {
+    int side = frand(&rs) < 0.5f ? -1 : 1;
+    if (zone_mode(side, s) != 2 || in_run(L.plate, s, 30) || in_run(L.cork, s, 30) || in_run(L.gap, s, 60)) continue;
+    tsample a = track_at(t, s);
+    t3_vec3 p = vadd(a.p, vmul(a.r, (float)side * (a.hw + 10.0f + 8.0f * frand(&rs))));
+    if (near_other_road(t, p, s, 14.0f * 14.0f)) continue;
+    int k = RF.count++;
+    RF.n[k] = model_node(root, "Raft", make_raft(900u + (uint32_t)k), true);
+    RF.at[k] = V(p.x, SEA_Y, p.z);
+    RF.ph[k] = frand(&rs) * 6.28f, RF.yaw[k] = frand(&rs) * 6.28f, RF.drift[k] = 0.0f;
+    cw_node3d_set_position(RF.n[k], RF.at[k]);
+  }
+}
+
+static void rafts_frame(double time) {
+  float tt = (float)time;
+  for (int i = 0; i < RF.count; i++) {
+    float y = RF.at[i].y + 0.12f + 0.15f * sinf(tt * 0.9f + RF.ph[i]);
+    cw_node3d_set_position(RF.n[i], V(RF.at[i].x, y, RF.at[i].z));
+    cw_node3d_set_rotation(RF.n[i], V(0.05f * sinf(tt * 0.8f + RF.ph[i]), RF.yaw[i] + 0.08f * sinf(tt * 0.2f + RF.ph[i]), 0.07f * sinf(tt * 0.7f + RF.ph[i] * 2.0f)));
+  }
+}
+
+/* ── steam from the street grates, rising past the walls ─────────────────────────────────────────── */
+
+static void steam_vents(const track *t, cw_node root, uint32_t seed) {
+  uint32_t rs = seed ^ 0x57e;
+  int n = 0;
+  for (float s = 60; s < t->length - 30 && n < 14; s += 150.0f + 100.0f * frand(&rs)) {
+    int side = frand(&rs) < 0.5f ? -1 : 1;
+    if (in_run(L.plate, s, 20) || in_run(L.cork, s, 40) || in_run(L.gap, s, 60)) continue;
+    tsample a = track_at(t, s);
+    if (!walled(&a, side)) continue;
+    t3_vec3 p = vadd(vadd(a.p, vmul(a.r, (float)side * (a.hw + 1.2f))), V(0, 0.2f, 0));
+    fx_ambient_at(root, FXA_STEAM, p, V(0.6f, 0.2f, 0.6f), 0.8f, 90);
+    n++;
+  }
+}
+
+
 /* ── the animation: every frame ──────────────────────────────────────────────────────────────────── */
 
 static struct {
-  cw_node sun, env, fog, post;
+  cw_node scene, sun, env, fog, post;
   cw_node cams[4];
+  int ncams;
+  bool rain_off[4];
   float sun_e, amb_e;
-  t3_vec3 fog_col;
-  float fog_density;
-  float flash;
+  float uw;  /* how far under the sea the nearest view is, 0..1 (the fog turns green) */
 } A;
 
 static float flicker_level(int g, double time) {
@@ -958,16 +2280,75 @@ static float storm_flash(double time, int *which) {
 }
 
 
-static float smooth_to(float cur, float want, float k) { return cur + (want - cur) * k; }
+/* under the sea the fog thickens and turns to deep green water: no height fall-off, a short sight line */
+static void underwater_frame(void) {
+  float uw = 0;
+  for (int i = 0; i < A.ncams; i++) {
+    if (!cw_node_valid(A.cams[i])) continue;
+    float y = cw_node3d_global_position(A.cams[i]).y;
+    float k = 1.0f - cw_smoothstep(SEA_Y - 3.5f, SEA_Y - 0.2f, y);
+    uw = fmaxf(uw, k);
+    /* no rain falls under the sea: that view's follower stays off (the followers are named Rain, Rain2 .. in view order) */
+    bool under = k > 0.6f;
+    if (under != A.rain_off[i]) {
+      char name[12];
+      snprintf(name, sizeof name, i ? "Rain%d" : "Rain", i + 1);
+      cw_node r = cw_node_get(A.scene, name);
+      if (cw_node_valid(r)) cw_node_set(r, "visible", cw_val_bool(!under));
+      A.rain_off[i] = under;
+    }
+  }
+  if (fabsf(uw - A.uw) < 0.004f || !cw_node_valid(A.fog)) return;
+  A.uw = uw;
+  cw_node_set(A.fog, "density", cw_val_float(lerpf(0.0112f, 0.024f, uw)));
+  cw_node_set(A.fog, "height_falloff", cw_val_float(lerpf(0.06f, 0.0f, uw)));
+  cw_node_set(A.fog, "color", cw_val_color(lerpf(0.05f, 0.0f, uw), lerpf(0.02f, 0.08f, uw), lerpf(0.09f, 0.1f, uw), 1));
+}
+
+
+/* dev aid: RACER_DROWNED_CAMW=x,y,z,tx,ty,tz does the same in world coordinates.
+ * RACER_DROWNED_CAM=s,lat,height,ts,tlat,theight puts the first view at that place in road coordinates (s metres along,
+ * lat to the right, height above the road) looking at the second, whatever the race is doing: for looking at set pieces */
+static void dev_camera(void) {
+  static int mode = -1;
+  static float v[6];
+  if (mode < 0) {
+    const char *e = getenv("RACER_DROWNED_CAM"), *w = getenv("RACER_DROWNED_CAMW");
+    mode = e && sscanf(e, "%f,%f,%f,%f,%f,%f", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]) == 6 ? 1 : 0;
+    if (!mode && w && sscanf(w, "%f,%f,%f,%f,%f,%f", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]) == 6) mode = 2;
+  }
+  if (!mode || A.ncams < 1 || !cw_node_valid(A.cams[0])) return;
+  t3_vec3 eye = mode == 1 ? track_point(L.t, v[0], v[1], v[2]) : V(v[0], v[1], v[2]), at = mode == 1 ? track_point(L.t, v[3], v[4], v[5]) : V(v[3], v[4], v[5]);
+  cw_node3d_set_position(A.cams[0], eye);
+  cw_node3d_look_at(A.cams[0], at, V(0, 1, 0));
+  cw_node3d_snapshot(A.cams[0]);
+}
 
 static void scenery_frame(float alpha, double time) {
   (void)alpha;
-  for (int g = 1; g < GR_N; g++)
-    if (N.mat[g]) {
-      float k = flicker_level(g, time);
-      N.mat[g]->color = (t3_color){ k, k, k };
+  static int frame_no;
+  if ((frame_no++ & 63) == 0) { /* the views come and go with the player count: look again now and then */
+    static const char *const names[4] = { "Camera", "Camera2", "Camera3", "Camera4" };
+    A.ncams = 0;
+    for (int i = 0; i < 4; i++) {
+      cw_node c = cw_node_get(A.scene, names[i]);
+      if (cw_node_valid(c)) A.cams[A.ncams++] = c;
     }
+  }
+  for (int g = 1; g < GR_N; g++) {
+    float k = flicker_level(g, time);
+    if (N.mat[g]) N.mat[g]->color = (t3_color){ k, k, k };
+    if (PO.mat[g]) PO.mat[g]->color = (t3_color){ k, k, k };
+  }
   water_frame(time);
+  creatures_frame(time);
+  ruins_frame(time);
+  holograms_frame(time);
+  drones_frame(time);
+  searchlights_frame(time);
+  rafts_frame(time);
+  underwater_frame();
+  dev_camera();
   /* the storm */
   int bolt = 0;
   float f = storm_flash(time, &bolt);
@@ -985,6 +2366,7 @@ static void scenery_frame(float alpha, double time) {
       t3_object *o = cw_node3d_object(SKY.bolt[i]);
       if (o) o->visible = (i == bolt && f > 0.2f);
     }
+  if (cw_node_valid(WHEEL)) cw_node3d_set_rotation(WHEEL, V(0, 0, (float)time * 0.06f));
   /* the clouds creep round */
   SKY.yaw = (float)time * 0.0035f;
   if (cw_node_valid(SKY.dome)) cw_node3d_set_rotation(SKY.dome, V(0, SKY.yaw, 0));
@@ -998,18 +2380,20 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
   init_colours();
   cw_node root = cw_node_new("Node3D", "Drowned");
   cw_node_add_child(scene, root);
-  /* the lake sits over the middle of the dip */
+  /* the lake lies along the glass tube: its axis runs from one mouth to the other */
   {
-    int a = (int)(0.5f * (L.dip.s0 + L.dip.s1));
-    const tsample *m = &t->s[a < 0 ? 0 : a >= t->n ? t->n - 1 : a];
-    G.lake_cx = m->p.x, G.lake_cz = m->p.z, G.lake_r = 0.5f * (L.dip.s1 - L.dip.s0) + 40.0f;
+    float s0 = L.plate.s0, s1 = L.plate.s1;
+    tsample a0 = track_at(t, s0), a1 = track_at(t, s1);
+    LK.a = a0.p, LK.b = a1.p;
+    for (int i = 0; i <= 64; i++) LK.prof[i] = track_at(t, lerpf(s0, s1, (float)i / 64.0f)).p.y;
+    LK.bed_below = 6.0f, LK.r0 = 70.0f, LK.r1 = 150.0f;
   }
   ground_opts go = ground_defaults();
   go.height = city_ground;
   go.tex = TEX_GROUND_ASH;
   go.tint = go.tint2 = rgb(0.16f, 0.17f, 0.22f);
   go.seed = seed;
-  go.base_y = -4.0f;
+  go.base_y = STREET_BED;
   ground_plane(root, t, &go);
 
   water_opts wo = water_defaults();
@@ -1029,6 +2413,25 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
   neon_begin();
   dress_walls(t, seed);
   street_blocks(t, seed);
+  concrete_dark = rgb(0.16f, 0.16f, 0.2f), concrete_light = rgb(0.34f, 0.32f, 0.38f), rust_col = rgb(0.4f, 0.2f, 0.1f);
+  start_arch(t, root);
+  billboards(t, root, seed);
+  holograms(t, root, seed);
+  drones(t, root, seed);
+  searchlights(root, seed);
+  rafts(t, root, seed);
+  steam_vents(t, root, seed);
+  jump_set_piece(t, root, seed);
+  corkscrew_ruins(t, root, seed);
+  flood_dressing(t, root, seed);
+  build_wheel(t, root);
+  {
+    dress_style ds = dress_defaults();
+    ds.main = rgb(0.12f, 0.12f, 0.18f), ds.accent = PINK, ds.lamp = CYAN, ds.has_colours = true, ds.seed = seed;
+    dress_start_line(root, t, &ds);
+    dress_checkpoints(root, t, &ds);
+    deco_jump_marks(root, t, &ds);
+  }
 
   /* the skyline */
   prop_set *ps = ps_new(root, "Towers");
@@ -1036,17 +2439,23 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
   so.kinds[0] = PK_SKYSCRAPER, so.weight[0] = 1, so.nkinds = 1;
   so.cx = L.cx, so.cz = L.cz, so.half_x = 0.5f * (L.x1 - L.x0) + 40, so.half_z = 0.5f * (L.z1 - L.z0) + 40;
   so.density = 0.12f, so.scale_min = 0.9f, so.scale_max = 2.2f;
-  so.margin = 22, so.base_y = -4.0f, so.seed = seed;
+  so.margin = 22, so.ground = city_ground, so.mask = tower_mask, so.seed = seed;
   scatter_area(ps, t, &so);
   so.half_x = so.half_z = 0, so.ring_min = 0.5f * (L.x1 - L.x0) + 80, so.ring_max = 1500, so.density = 0.012f, so.scale_max = 3.0f;
   so.far_thin = 0.0f;
   scatter_area(ps, t, &so);
   ps_finish(ps);
 
+  tube_dressing(t);
+  lake_surface_and_shafts(root);
+  creatures(root);
+  lakebed(t, root, seed);
   build_sky(root);
-  A.sun = cw_node_get(scene, "Sun"), A.env = cw_node_get(scene, "Env");
+  A.scene = scene;
+  A.sun = cw_node_get(scene, "Sun"), A.env = cw_node_get(scene, "Env"), A.fog = cw_node_get(scene, "Fog");
   A.sun_e = 0.5f, A.amb_e = 0.1f;
   neon_finish(root);
+  pools_finish(root);
   ad_finish(root);
 }
 
