@@ -38,14 +38,14 @@ ground_color = color(0.62, 0.28, 0.12, 1)
 hemi_energy = 1.5
 
 [node name="Fog" parent="." type="HeightFog"]
-density = 0.0042
+density = 0.003
 height_falloff = 0.1
 base_height = 0
-color = color(0.2, 0.15, 0.24, 1)
+color = color(0.13, 0.1, 0.2, 1)
 use_sky_color = false
 sun_scatter = 0.45
 sun_g = 0.84
-max_opacity = 0.78
+max_opacity = 0.72
 start_distance = 18
 sky_distance = 420
 volumetric_distance = 1
@@ -55,7 +55,7 @@ depth_prepass = true
 tonemap = AGX
 exposure = 1.6
 bloom = true
-bloom_intensity = 0.2
+bloom_intensity = 0.13
 bloom_threshold = 0.95
 bloom_knee = 0.7
 ssao = true
@@ -65,7 +65,9 @@ aa = SMAA
 vignette = true
 vignette_intensity = 0.3
 vignette_smoothness = 0.55
-grade = false
+grade = true
+lut = "grades/refinery.cube"
+grade_intensity = 0.8
 grain = true
 grain_intensity = 0.03
 

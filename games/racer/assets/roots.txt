@@ -84,3 +84,12 @@ audio/wind.wav
 audio/wrongway.ogg
 # effects (tools/make-fxtex.mjs)
 fx/decals.png
+# colour grades (tools/salt_grade.mjs)
+grades/salt.cube
+# (tools/drowned_grade.mjs)
+grades/drowned.cube
+# (tools/fair_grade.mjs)
+grades/fair.cube
+grades/temple.cube
+# (tools/refinery_grade.mjs)
+grades/refinery.cube

@@ -299,8 +299,11 @@ static t3_texture *tex_flame(uint32_t seed) {
     for (int x = 0; x < W; x++) {
       float u = (float)x / W, v = (float)y / H;
       float n1 = fbm_t(u, v, 3, 3, 4, seed), n2 = fbm_t(u + 0.31f * n1, v, 6, 2, 3, seed + 9u);
-      float g = sst(0.22f, 0.78f, 0.55f * n1 + 0.45f * n2);
-      g = 0.18f + 0.82f * g;
+      float g = sst(0.3f, 0.72f, 0.55f * n1 + 0.45f * n2);
+      g = 0.08f + 0.92f * g;
+      /* the sheet's own edges fade away, so a flame is a soft ragged tongue and not a cut-out polygon */
+      float across = 1.0f - fabsf(2.0f * u - 1.0f);
+      g *= sst(0.0f, 0.55f, across);
       uint8_t *p = px + (y * W + x) * 4;
       p[0] = p[1] = p[2] = b8(g), p[3] = 255;
     }
@@ -388,7 +391,7 @@ static void materials(void) {
     R.flame_mat[i] = glow_mat(R.flame_tex[i], true);
   }
   R.flame_core_mat = glow_mat(R.flame_tex[1], true);
-  R.halo_mat = halo_material(1.0f, 0.5f, 0.16f);
+  R.halo_mat = halo_material(0.55f, 0.2f, 0.05f);
   R.halo_blue = halo_material(0.55f, 0.7f, 1.0f);
   R.halo_amber = halo_material(1.0f, 0.62f, 0.1f);
   for (int i = 0; i < 2; i++) {
@@ -426,11 +429,11 @@ static t3_geometry *flame_geo(float w, float h, int sheets, float lean, uint32_t
       /* the colour runs from near-white at the foot through orange to a dim red at the tip */
       pcol c;
       float k = 1.0f - t;
-      if (t < 0.3f) c = hot(lerpf(1.7f, 1.5f, t / 0.3f), lerpf(0.95f + white, 0.7f, t / 0.3f), lerpf(0.3f + white, 0.08f, t / 0.3f));
-      else if (t < 0.7f) c = hot(lerpf(1.5f, 1.0f, (t - 0.3f) / 0.4f), lerpf(0.7f, 0.16f, (t - 0.3f) / 0.4f), lerpf(0.08f, 0.0f, (t - 0.3f) / 0.4f));
-      else c = hot(lerpf(1.0f, 0.0f, (t - 0.7f) / 0.3f), lerpf(0.16f, 0.0f, (t - 0.7f) / 0.3f), 0.0f);
+      if (t < 0.3f) c = hot(lerpf(1.5f, 1.3f, t / 0.3f), lerpf(0.4f + white, 0.26f, t / 0.3f), lerpf(0.04f + white * 0.4f, 0.015f, t / 0.3f));
+      else if (t < 0.7f) c = hot(lerpf(1.3f, 0.9f, (t - 0.3f) / 0.4f), lerpf(0.26f, 0.04f, (t - 0.3f) / 0.4f), 0.0f);
+      else c = hot(lerpf(0.9f, 0.0f, (t - 0.7f) / 0.3f), lerpf(0.04f, 0.0f, (t - 0.7f) / 0.3f), 0.0f);
       (void)k;
-      pcol e = hot(c.r * 0.35f, c.g * 0.3f, c.b * 0.3f);
+      pcol e = hot(c.r * 0.5f, c.g * 0.45f, c.b * 0.45f);
       float vv = t * 1.7f;
       mb_v(&m, V3(cx * d.x - hw * d.z, y, cx * d.z + hw * d.x), 0.0f, vv, e);
       mb_v(&m, V3(cx * d.x, y, cx * d.z), 0.5f, vv, c);
@@ -461,8 +464,8 @@ static int flame_new(t3_vec3 p, float w, float h, uint32_t seed, float tilt_x, f
   flame *f = &R.fl[R.nfl];
   f->o = g, f->sx = w, f->sy = h, f->phase = hf(seed, 1) * TAU, f->speed = 0.8f + hf(seed, 2) * 0.6f, f->lean = 0;
   put(g, flame_geo(w, h, 4, 0.18f, seed, 0.0f), R.flame_mat[seed % 3], V3(0, 0, 0), false, false);
-  put(g, flame_geo(w * 0.52f, h * 0.7f, 3, 0.1f, seed + 40u, 0.35f), R.flame_core_mat, V3(0, 0, 0), false, false);
-  if (halo) halo_at(g, R.halo_mat, V3(0, h * 0.42f, 0), h * 1.9f * halo_k);
+  put(g, flame_geo(w * 0.5f, h * 0.68f, 3, 0.1f, seed + 40u, 0.55f), R.flame_core_mat, V3(0, 0, 0), false, false);
+  if (halo) halo_at(g, R.halo_mat, V3(0, h * 0.42f, 0), h * 1.5f * halo_k);
   (void)tilt_x, (void)tilt_z;
   return R.nfl++;
 }
@@ -766,7 +769,7 @@ static void iset_begin(iset *s, prop_model m0, prop_model m1) {
     for (int l = 0; l < PL_COUNT; l++)
       if (s->m[k].g[l]) {
         s->b[k][l] = pb_begin(s->m[k].g[l], prop_material(l, -1, (pcol){ 1, 1, 1 }, 1));
-        pb_chunk(s->b[k][l], 120);
+        pb_chunk(s->b[k][l], k ? 320.0f : 170.0f); /* few big cells: each is a draw per layer, and the far ones are drawn through fog anyway */
       }
 }
 static void iset_add(iset *s, int lod, t3_vec3 pos, float yaw, float sc) {
@@ -814,15 +817,9 @@ static t3_vec3 road_pt(float s, float lat, float lift) { return track_point(R.t,
 
 /* ── the start: a giant flare stack beside the grid whose boom carries burners and a sheet of flame over the line ─── */
 
-static void start_stack(void) {
-  const track *t = R.t;
-  float s0 = 112.0f;
-  tsample a = track_at(t, s0);
-  t3_vec3 base = road_pt(s0, -40.0f, 0);
-  base.y = terrain(base.x, base.z, NULL);
-  float H = 44.0f;
-  /* the mast, scaled up a size so it is the biggest thing in sight at the start */
-  prop_model mast = m_mast(H, 5u, 0);
+/* a lattice mast on the ground at base, as one group of meshes; its flame is the caller's */
+static t3_object *mast_at(t3_vec3 base, float H, uint32_t seed) {
+  prop_model mast = m_mast(H, seed, 0);
   t3_object *grp = group_at(R.dyn, base);
   for (int l = 0; l < PL_COUNT; l++)
     if (mast.g[l]) {
@@ -833,11 +830,35 @@ static void start_stack(void) {
       t3_release(me);
     }
   prop_model_free(&mast);
-  /* the boom: a fat pipe from the mast top out over the road, braced from below, with a burner at three points */
+  return grp;
+}
+
+static t3_vec3 ground_pt(float s, float lat) {
+  t3_vec3 p = road_pt(s, lat, 0);
+  p.y = terrain(p.x, p.z, NULL);
+  return p;
+}
+
+static void start_stack(void) {
+  /* two giant masts frame the grid, one each side, each with a roaring flame and a light that warms the road */
+  t3_vec3 la = ground_pt(58.0f, -34.0f), lb = ground_pt(80.0f, 41.0f);
+  float Ha = 48.0f, Hb = 40.0f;
+  mast_at(la, Ha, 5u);
+  mast_at(lb, Hb, 9u);
+  flame_new(v3add(la, V3(0, Ha * 1.1f, 0)), 12.0f, 30.0f, 133u, 0, 0, true, 0.8f);
+  flame_new(v3add(lb, V3(0, Hb * 1.1f, 0)), 10.0f, 26.0f, 151u, 0, 0, true, 0.8f);
+  lamp_new(v3add(la, V3(8, Ha * 0.8f, 0)), 0xff8a40, 2600.0f, 170.0f, 0, 260.0f);
+  lamp_new(v3add(lb, V3(-8, Hb * 0.8f, 0)), 0xff8a40, 2000.0f, 150.0f, 0, 260.0f);
+
+  /* further on, a flare boom reaches out over the road with three burners: a sheet of flame over the course */
+  const track *t = R.t;
+  float s0 = 150.0f;
+  t3_vec3 base = ground_pt(s0, -40.0f);
+  float H = 38.0f;
+  mast_at(base, H, 6u);
   float topy = H * 1.045f;
   t3_vec3 tgt = road_pt(s0 + 6.0f, 2.0f, 0);
   t3_vec3 span = { tgt.x - base.x, 0, tgt.z - base.z };
-  float spanl = v3len(span);
   pm *b = pm_new(77u);
   pm_layer(b, PL_METAL);
   t3_vec3 p0 = V3(0, topy - 2.2f, 0), p1 = V3(span.x, topy - 2.2f - 1.2f, span.z);
@@ -850,6 +871,7 @@ static void start_stack(void) {
     pm_push(b), pm_move(b, q.x, q.y, q.z), pm_cyl(b, 0.8f, 0.8f, 3.0f, 10, STEEL_D, STEEL), pm_move(b, 0, 3.0f, 0), pm_cyl(b, 0.8f, 1.5f, 1.0f, 10, STEEL, SOOT), pm_pop(b);
   }
   prop_model bm = pm_finish(b);
+  t3_object *grp = group_at(R.dyn, base);
   for (int l = 0; l < PL_COUNT; l++)
     if (bm.g[l]) {
       t3_mesh *me = t3_mesh_new(bm.g[l], prop_material(l, -1, (pcol){ 1, 1, 1 }, 1));
@@ -861,26 +883,11 @@ static void start_stack(void) {
   for (int k = 0; k < 3; k++) {
     float f = 0.55f + 0.225f * (float)k;
     t3_vec3 q = v3add(base, V3(span.x * f, topy - 2.2f - 1.2f * f + 4.0f, span.z * f));
-    flame_new(q, k == 1 ? 8.0f : 6.0f, k == 1 ? 21.0f : 15.0f, 100u + (uint32_t)k * 7u, 0, 0, true, 1.0f);
+    flame_new(q, k == 1 ? 12.0f : 9.0f, k == 1 ? 32.0f : 24.0f, 100u + (uint32_t)k * 7u, 0, 0, true, 0.7f);
   }
-  /* the biggest flame of the lap stands on the mast top's own tip */
-  flame_new(v3add(base, V3(0, H * 1.1f, 0)), 5.0f, 12.0f, 133u, 0, 0, true, 1.0f);
+  flame_new(v3add(base, V3(0, H * 1.1f, 0)), 8.0f, 20.0f, 163u, 0, 0, true, 0.8f);
   lamp_new(v3add(base, V3(span.x * 0.7f, topy - 6.0f, span.z * 0.7f)), 0xff8a40, 2400.0f, 170.0f, 0, 260.0f);
-  (void)a, (void)spanl;
-  /* a second, smaller mast on the other side so the line is framed by fire on both sides */
-  t3_vec3 b2 = road_pt(s0 + 55.0f, 48.0f, 0);
-  b2.y = terrain(b2.x, b2.z, NULL);
-  prop_model m2 = m_mast(34.0f, 9u, 0);
-  t3_object *g2 = group_at(R.dyn, b2);
-  for (int l = 0; l < PL_COUNT; l++)
-    if (m2.g[l]) {
-      t3_mesh *me = t3_mesh_new(m2.g[l], prop_material(l, -1, (pcol){ 1, 1, 1 }, 1));
-      me->base.cast_shadow = l != PL_GLOW;
-      t3_object_add(g2, me);
-      t3_release(me);
-    }
-  prop_model_free(&m2);
-  flame_new(v3add(b2, V3(0, 34.0f * 1.1f, 0)), 4.0f, 11.0f, 151u, 0, 0, true, 1.0f);
+  (void)t;
 }
 
 /* ── the pits under the jumps ────────────────────────────────────────────────────────────────────── */
@@ -1029,15 +1036,15 @@ static void roadside(void) {
   const track *t = R.t;
   prop_set *ps = ps_new(R.root, "Roadside");
   scatter_opts o = scatter_defaults();
-  o.from_s = 0, o.to_s = t->length, o.spacing = 20, o.jitter = 0.8f, o.lat_min = 3.0f, o.lat_max = 26.0f;
-  o.kinds[0] = PK_BARREL, o.weight[0] = 3, o.kinds[1] = PK_PIPE, o.weight[1] = 2, o.kinds[2] = PK_CONTAINER, o.weight[2] = 1.4f;
-  o.kinds[3] = PK_CRATE, o.weight[3] = 1, o.kinds[4] = PK_TYRE_STACK, o.weight[4] = 0.6f, o.kinds[5] = PK_CONE, o.weight[5] = 1.0f;
-  o.nkinds = 6, o.scale_min = 0.9f, o.scale_max = 1.5f, o.lat_curve = 1.8f, o.ground = terrain, o.margin = 2.5f, o.seed = 21;
+  o.from_s = 0, o.to_s = t->length, o.spacing = 24, o.jitter = 0.8f, o.lat_min = 3.0f, o.lat_max = 26.0f;
+  o.kinds[0] = PK_BARREL, o.weight[0] = 3, o.kinds[1] = PK_CONTAINER, o.weight[1] = 1.4f, o.kinds[2] = PK_CONE, o.weight[2] = 1.0f;
+  o.kinds[3] = PK_TYRE_STACK, o.weight[3] = 0.6f;
+  o.nkinds = 4, o.scale_min = 0.9f, o.scale_max = 1.5f, o.lat_curve = 1.8f, o.ground = terrain, o.margin = 2.5f, o.seed = 21;
   scatter_along(ps, t, &o);
-  o.spacing = 52, o.lat_min = 16, o.lat_max = 80, o.lat_curve = 1.0f, o.margin = 6;
-  o.kinds[0] = PK_TANK, o.weight[0] = 2, o.kinds[1] = PK_SILO, o.weight[1] = 1, o.kinds[2] = PK_PIPE_RACK, o.weight[2] = 2;
-  o.kinds[3] = PK_CRANE, o.weight[3] = 0.5f, o.kinds[4] = PK_LIGHT_POLE, o.weight[4] = 1.2f, o.kinds[5] = PK_ANTENNA, o.weight[5] = 0.5f;
-  o.nkinds = 6, o.scale_min = 0.9f, o.scale_max = 1.3f, o.seed = 22, o.far_thin = 0.3f;
+  /* the odd crane and pylon among the process units */
+  o.spacing = 120, o.lat_min = 30, o.lat_max = 110, o.lat_curve = 1.0f, o.margin = 6;
+  o.kinds[0] = PK_CRANE, o.weight[0] = 1, o.kinds[1] = PK_ANTENNA, o.weight[1] = 0.6f;
+  o.nkinds = 2, o.scale_min = 0.9f, o.scale_max = 1.3f, o.seed = 22, o.far_thin = 0.3f;
   scatter_along(ps, t, &o);
   ps_finish(ps);
 }
@@ -1694,7 +1701,7 @@ static void horizon_glow(void) {
         lobe += 0.4f * R.fl[f].sy / 20.0f * expf(-dd * dd / 0.05f);
       }
       lobe = fminf(lobe, 1.6f);
-      float k2 = rows_k[rI] * lobe * 0.8f;
+      float k2 = rows_k[rI] * lobe * 2.0f;
       mb_v(&m, V3(cx + rad * cosf(an), rows_y[rI], cz + rad * sinf(an)), (float)k / N, 0, pc_mul(tint[rI], k2));
     }
   for (int rI = 0; rI < 4; rI++)
@@ -1893,6 +1900,12 @@ static void far_flares(void) {
   cw_info("refinery: %d flare stacks", n);
 }
 
+/* a development aid: RACER_REFINERY_OFF=yards,pipes,... leaves those parts out of a run (to find what costs draws) */
+static bool off(const char *part) {
+  const char *e = getenv("RACER_REFINERY_OFF");
+  return e && strstr(e, part);
+}
+
 static void scenery(cw_node scene, const track *t, uint32_t seed) {
   memset(&R, 0, sizeof R);
   R.t = t, R.scene = scene, R.seed = seed;
@@ -1935,7 +1948,7 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
   go.follow_road = false;
   go.darken_edge = 0.35f;
   go.seed = 9;
-  ground_plane(R.root, t, &go);
+  if (!off("ground")) ground_plane(R.root, t, &go);
 
   dress_style st = dress_defaults();
   st.main = rgb(0.5f, 0.52f, 0.56f);
@@ -1944,29 +1957,32 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
   dress_start_line(R.root, t, &st);
   dress_checkpoints(R.root, t, &st);
   deco_jump_marks(R.root, t, &st);
-  deco_supports(R.root, t, SUP_TRUSS, terrain, NULL, 0, 2.0f, &st);
-  deco_lights(R.root, t, 80, LAMP_POLE, 0, 0, &st);
-  deco_lights(R.root, t, 36, LAMP_GLOW_POST, 0, 0, &st);
-  deco_corner_arrows(R.root, t, 0.012f, &st);
-  deco_corner_signs(R.root, t, 0.012f, &st);
+  if (!off("deco")) {
+    deco_supports(R.root, t, SUP_TRUSS, terrain, NULL, 0, 2.0f, &st);
+    deco_lights(R.root, t, 110, LAMP_POLE, 0, 0, &st);
+    deco_lights(R.root, t, 48, LAMP_GLOW_POST, 0, 0, &st);
+    deco_corner_arrows(R.root, t, 0.012f, &st);
+    deco_corner_signs(R.root, t, 0.012f, &st);
+  }
   start_stack();
+  lamp_new(road_pt(6, 0, 10.0f), 0xffb070, 420.0f, 70.0f, 1, 150.0f);
   for (int g2 = 0; g2 < R.ngap; g2++) pit_build(g2);
   if (R.ntun > 0) tunnel_tanks(0), tunnel_lights(0, 26.0f, 90.0f, 0xff9a50);
   if (R.ntun > 1) tunnel_pipes(1), tunnel_lights(1, 25.0f, 90.0f, 0xff7040);
-  yards();
-  roadside();
-  pipe_runs();
-  racks();
-  far_flares();
+  if (!off("yards")) yards();
+  if (!off("roadside")) roadside();
+  if (!off("pipes")) pipe_runs();
+  if (!off("racks")) racks();
+  if (!off("flares")) far_flares();
   lightning_tower();
   robots();
   if (R.ngap > 0) sidings((float)R.gap[0][1] + 40.0f, (float)R.gap[0][1] + 190.0f, -40.0f, 331u);
-  cooling_towers();
-  smoke_columns();
+  if (!off("cooling")) cooling_towers();
+  if (!off("smoke")) smoke_columns();
   landing_targets();
-  floodlights();
-  steam_jets();
-  puddles();
+  if (!off("floods")) floodlights();
+  if (!off("jets")) steam_jets();
+  if (!off("puddles")) puddles();
   slag_pools();
   for (int i = 0; i < R.nbpos; i++) beacon_new(R.bpos[i], 0.9f, 0, hf((uint32_t)i, 4) * 1.6f, 1.6f, 0.3f);
   horizon_glow();
@@ -2104,6 +2120,7 @@ static void scenery_frame(float alpha, double time) {
       k = on * (0.6f + 0.4f * sinf(t * 61.0f) * sinf(t * 37.0f));
     }
     l->l->intensity = l->base * l->gate * k;
+    l->l->base.visible = l->gate > 0.01f && (l->kind != 2 || R.flash > 0.0f) && (l->kind != 3 || k > 0.0f); /* a dark light costs nothing */
   }
   for (int i = 0; i < R.nbc; i++) {
     beacon *b = &R.bc[i];
