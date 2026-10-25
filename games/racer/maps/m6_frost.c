@@ -1084,6 +1084,7 @@ static void build_cave(cw_node root, const track *t) {
   gm g = { 0 };
   int chunk = 0;
   pmc *cr = pmc_new(60, 55);
+  struct { int k, left; } vein[6] = { { 0, 0 } };
   for (int ri = 0; ri < nring; ri++) {
     float s = t->s[i0].s + step * (float)ri;
     tsample a = track_at(t, s);
@@ -1096,6 +1097,24 @@ static void build_cave(cw_node root, const track *t) {
       ring1[k] = cave_point(&a, &cp, k, NA, d);
     }
     if (ri > 0) {
+      /* glowing veins in the ice: thin lit seams that run along the lining for a few metres */
+      for (int v = 0; v < 6; v++) {
+        if (vein[v].left <= 0 && hashf2(ri, v, 41) < 0.045f) vein[v].k = 2 + (int)(hashf2(ri, v, 43) * (float)(NA - 2)), vein[v].left = 4 + (int)(hashf2(ri, v, 47) * 9.0f);
+        if (vein[v].left > 0) {
+          int k = vein[v].k;
+          t3_vec3 a0 = vadd3(vmul3(ring0[k], 0.5f), vmul3(ring0[k + 1], 0.5f)), a1 = vadd3(vmul3(ring1[k], 0.5f), vmul3(ring1[k + 1], 0.5f));
+          t3_vec3 towards = vnorm3(vsub3(vadd3(a.p, vmul3(a.u, 3.0f)), a1));
+          t3_vec3 sideways = vmul3(vsub3(ring1[k + 1], ring1[k]), 0.07f);
+          t3_vec3 lift = vmul3(towards, 0.06f);
+          pm *b = pmc_at(cr, a1);
+          pm_push(b);
+          pm_layer(b, PL_GLOW);
+          pm_quad(b, vadd3(vsub3(a0, sideways), lift), vadd3(vadd3(a0, sideways), lift), vadd3(vadd3(a1, sideways), lift), vadd3(vsub3(a1, sideways), lift), glow(hex(0x40e8ff), 1.7f));
+          pm_quad(b, vadd3(vadd3(a0, sideways), lift), vadd3(vsub3(a0, sideways), lift), vadd3(vsub3(a1, sideways), lift), vadd3(vadd3(a1, sideways), lift), glow(hex(0x40e8ff), 1.7f));
+          pm_pop(b);
+          vein[v].left--;
+        }
+      }
       for (int k = 0; k + 1 < NP; k++) {
         t3_vec3 mid = vmul3(vadd3(vadd3(ring0[k], ring0[k + 1]), vadd3(ring1[k], ring1[k + 1])), 0.25f);
         t3_vec3 face = vsub3(V3(a.p.x, a.p.y, a.p.z), mid);
@@ -1331,10 +1350,10 @@ static void build_outcrops(cw_node root, const track *t) {
   o.nkinds = 2;
   o.scale_min = 2.6f, o.scale_max = 6.5f;
   o.cx = 330, o.cz = -100, o.half_x = 900, o.half_z = 1000;
-  o.density = 0.7f;
+  o.density = 0.5f;
   o.margin = 9.0f;
   o.sink = 0.8f;
-  o.lod_dist = 150.0f, o.far_thin = 0.2f;
+  o.lod_dist = 90.0f, o.far_thin = 0.45f;
   o.seed = 51;
   int n = scatter_area(ps, t, &o);
   /* needles and cliff faces on the ridges, in the cool variant of their palettes: placed by hand so every one is that variant */
@@ -1741,6 +1760,7 @@ static void build_portal(cw_node root, const track *t, int idx, int dir, uint32_
 /* ── the summit: an abandoned research station and a radio mast with a red light ────────────────── */
 
 static t3_object *BEACON;
+static t3_object *ANEMO;
 
 static void radio_mast(pm *b, float H, pcol steel, pcol paint) {
   /* four legs tapering to the top, cross braced every 3 m, red and white sections */
@@ -1863,6 +1883,30 @@ static void build_summit(cw_node root, const track *t) {
   cw_node3d_set_position(n, top);
   BEACON = &me->base;
   t3_release(me);
+  /* the anemometer on the mast: three cups that spin in the wind */
+  {
+    pm *ab = pm_new(33);
+    pm_layer(ab, PL_METAL);
+    for (int k = 0; k < 3; k++) {
+      float an = TAU_F * (float)k / 3.0f;
+      pm_rod(ab, V3(0, 0, 0), V3(cosf(an) * 0.9f, 0, sinf(an) * 0.9f), 0.04f, 4, hex(0xd8dce8));
+      pm_push(ab);
+      pm_move(ab, cosf(an) * 0.95f, 0, sinf(an) * 0.95f);
+      pm_roty(ab, -an);
+      pm_ball(ab, 0.22f, 0.22f, 0.22f, 1, 0, hex(0xd23a2a), hex(0xff7a5a));
+      pm_pop(ab);
+    }
+    pm_rod(ab, V3(0, -0.6f, 0), V3(0, 0.1f, 0), 0.05f, 4, hex(0xd8dce8));
+    prop_model am = pm_finish(ab);
+    if (am.g[PL_METAL]) {
+      t3_mesh *ame = t3_mesh_new(am.g[PL_METAL], prop_material(PL_METAL, -1, (pcol){ 1, 1, 1 }, 1.0f));
+      ame->base.cast_shadow = false;
+      cw_node an = hang(root, "Anemometer", &ame->base);
+      cw_node3d_set_position(an, V3(top.x, py + 31.0f, top.z));
+      ANEMO = &ame->base;
+      t3_release(ame);
+    }
+  }
   /* a dish on a pad and a few drums */
   prop_set *ps = ps_new(root, "StationProps");
   float cyw = cosf(yaw), syw = sinf(yaw);
@@ -2044,6 +2088,335 @@ static void build_wrecks(cw_node root, const track *t) {
   pmc_finish(drift, root, "WreckDrifts", true, -1);
 }
 
+/* ── lantern posts along the road, the lake's details, the lookout ──────────────────────────────── */
+
+static t3_material *flame_material(int k) {
+  if (!AN.flame[k]) AN.flame[k] = glow_material();
+  return AN.flame[k];
+}
+
+static void build_lamps(cw_node root, const track *t) {
+  /* one post model, instanced: a wooden pole, an iron arm and a hanging lantern that flickers (its glow is on its own material) */
+  pm *b = pm_new(17);
+  pm_layer(b, PL_MAIN);
+  pm_cyl_ex(b, 0.12f, 0.08f, 3.5f, 5, hex(0x3a2818), hex(0x8a6a48), false, true);
+  pm_push(b);
+  pm_move(b, 0, 3.15f, 0);
+  pm_beam(b, V3(0, 0, 0), V3(0.7f, 0.12f, 0), 0.07f, hex(0x3a2818));
+  pm_pop(b);
+  pm_push(b);
+  pm_move(b, 0, 0, 0);
+  pm_ball(b, 0.7f, 0.35f, 0.7f, 1, 0.12f, pc_mix(SNOW_C, ICE_LO, 0.2f), SNOW_C);
+  pm_pop(b);
+  pm_push(b);
+  pm_move(b, 0.7f, 2.05f, 0);
+  lantern(b, 0.95f, LANT_C, 3.4f);
+  pm_pop(b);
+  prop_model m = pm_finish(b);
+  prop_batch *bp[PL_COUNT] = { 0 };
+  const int use[3] = { PL_MAIN, PL_METAL, PL_GLOW };
+  for (int u = 0; u < 3; u++)
+    if (m.g[use[u]]) {
+      t3_material *mat = use[u] == PL_GLOW ? flame_material(2) : prop_material(use[u], -1, (pcol){ 1, 1, 1 }, 1.0f);
+      bp[use[u]] = pb_begin(m.g[use[u]], mat);
+      pb_chunk(bp[use[u]], 120.0f);
+    }
+  struct { float s0, s1, step; } R[] = { { 40, 150, 20 }, { 180, 1040, 28 }, { 2060, 3350, 36 } };
+  int n = 0;
+  for (unsigned k = 0; k < sizeof R / sizeof R[0]; k++)
+    for (float s = R[k].s0; s < R[k].s1; s += R[k].step)
+      for (int side = -1; side <= 1; side += 2) {
+        tsample a = track_at(t, s);
+        if (a.flags & (TF_GAP | TF_LOOP | TF_TUNNEL)) continue;
+        if (((int)(s / R[k].step) + (side > 0)) & 1 && k != 0) continue; /* alternate sides on the long stretches */
+        t3_vec3 p = track_point(t, s, side * (a.hw + 2.1f + (a.walls ? 0.8f : 0.0f)), 0);
+        p.y -= 0.6f;
+        float yaw = atan2f(a.r.z * side, -a.r.x * side);
+        for (int u = 0; u < 3; u++)
+          if (bp[use[u]]) pb_add(bp[use[u]], p, yaw, V3(1, 1, 1));
+        n++;
+      }
+  for (int u = 0; u < 3; u++)
+    if (bp[use[u]]) pb_finish(bp[use[u]], root, use[u] == PL_GLOW ? "LampFlames" : "LampPosts", use[u] == PL_MAIN);
+  cw_info("frost: %d lantern posts", n);
+}
+
+static void build_lake_details(cw_node root) {
+  uint32_t r = 8101;
+  float cx = F.lake_cx, cz = F.lake_cz, rx = F.lake_rx, rz = F.lake_rz, y = F.lake_y + 0.04f;
+  /* long cracks: random walks over the ice, glowing faintly where the light comes up through them */
+  pmc *cr = pmc_new(120, 71);
+  for (int k = 0; k < 16; k++) {
+    float a = rnd1(&r) * TAU_F, d = 0.2f + 0.6f * rnd1(&r);
+    float x = cx + cosf(a) * rx * d, z = cz + sinf(a) * rz * d, dir = rnd1(&r) * TAU_F;
+    int len = 20 + (int)(rnd1(&r) * 30.0f);
+    for (int i = 0; i < len; i++) {
+      float step = 3.0f + 3.0f * rnd1(&r);
+      float nx = x + cosf(dir) * step, nz = z + sinf(dir) * step;
+      if (!in_lake(nx, nz, 0.96f)) break;
+      pm *b = pmc_at(cr, V3(x, y, z));
+      pm_push(b);
+      pm_layer(b, PL_GLOW);
+      float w = 0.16f * (1.0f - (float)i / (float)len * 0.6f);
+      t3_vec3 px = V3(-sinf(dir) * w, 0, cosf(dir) * w);
+      pcol c = glow(hex(0x2fd0ff), 0.75f);
+      pm_quad(b, V3(x - px.x, y, z - px.z), V3(x + px.x, y, z + px.z), V3(nx + px.x, y, nz + px.z), V3(nx - px.x, y, nz - px.z), c);
+      pm_pop(b);
+      /* a branch now and then */
+      if (rnd1(&r) < 0.14f) {
+        float bd = dir + (rnd1(&r) < 0.5f ? 0.7f : -0.7f);
+        float bx = nx, bz = nz;
+        for (int j = 0; j < 4; j++) {
+          float bs = 2.5f + 2.0f * rnd1(&r), ex = bx + cosf(bd) * bs, ez = bz + sinf(bd) * bs;
+          if (!in_lake(ex, ez, 0.96f)) break;
+          pm *bb = pmc_at(cr, V3(bx, y, bz));
+          pm_push(bb);
+          pm_layer(bb, PL_GLOW);
+          t3_vec3 q = V3(-sinf(bd) * 0.07f, 0, cosf(bd) * 0.07f);
+          pm_quad(bb, V3(bx - q.x, y, bz - q.z), V3(bx + q.x, y, bz + q.z), V3(ex + q.x, y, ez + q.z), V3(ex - q.x, y, ez - q.z), glow(hex(0x2fd0ff), 0.6f));
+          pm_pop(bb);
+          bx = ex, bz = ez, bd += 0.35f * rnds(&r);
+        }
+      }
+      x = nx, z = nz, dir += 0.3f * rnds(&r);
+    }
+  }
+  pmc_finish(cr, root, "LakeCracks", false, -1);
+  /* the ice-fisher's hut and its lantern, a sledge, a heap of drift, out on the ice */
+  pmc *hut = pmc_new(60, 72);
+  float hx = cx + rx * 0.45f, hz = cz + rz * 0.5f;
+  pm *b = stand_at(hut, V3(hx, y - 0.05f, hz), 0.7f);
+  pm_layer(b, PL_MAIN);
+  pm_box(b, 3.2f, 2.0f, 2.6f, hex(0x6a3a22), hex(0xb8683a));
+  pm_push(b);
+  pm_move(b, 0, 2.0f, 0);
+  pm_roty(b, CW_PI * 0.5f);
+  pm_prism(b, 3.0f, 1.0f, 3.5f, hex(0x4a2a1a), hex(0x8a5a3a));
+  pm_pop(b);
+  pm_push(b);
+  pm_move(b, 0, 2.3f, 0);
+  pm_roty(b, CW_PI * 0.5f);
+  pm_prism(b, 3.1f, 0.8f, 3.6f, SNOW_C, SNOW_C);
+  pm_pop(b);
+  pm_push(b);
+  pm_move(b, 0.4f, 0, 1.31f);
+  pm_box_c(b, 0.8f, 1.5f, 0.08f, hex(0x2a1c14));
+  pm_pop(b);
+  pm_push(b);
+  pm_move(b, 2.3f, 0, 0.3f);
+  pm_ball(b, 1.1f, 0.5f, 1.4f, 1, 0.14f, SNOW_C, SNOW_C);
+  pm_pop(b);
+  pm_layer(b, PL_GLOW);
+  pm_push(b);
+  pm_move(b, -0.7f, 1.2f, 1.31f);
+  pm_box_c(b, 0.7f, 0.6f, 0.06f, glow(LANT_C, 2.6f));
+  pm_pop(b);
+  pm_pop(b);
+  pmc_finish(hut, root, "FisherHut", true, -1);
+  point_light(root, "HutLamp", V3(hx, y + 2.0f, hz), 1.0f, 0.66f, 0.3f, 3.0f, 18.0f);
+  /* soft cold light welling up through the ice in a few places, and the lake's own wreck */
+  t3_material *gm_mat = t3_mesh_basic_material_new(0xffffff);
+  gm_mat->vertex_colors = true;
+  gm_mat->transparent = true;
+  gm_mat->blending = T3_ADDITIVE_BLENDING;
+  gm_mat->depth_write = false;
+  gm gl = { 0 };
+  t3_vec3 up = V3(0, 1, 0);
+  for (int k = 0; k < 7; k++) {
+    float a = rnd1(&r) * TAU_F, d = 0.15f + 0.65f * rnd1(&r);
+    float gx = cx + cosf(a) * rx * d, gz = cz + sinf(a) * rz * d, R = 18.0f + 22.0f * rnd1(&r);
+    int centre = gm_vtx(&gl, V3(gx, y + 0.02f, gz), up, 0, 0, pc_mul(hex(0x1aa8e8), 0.5f));
+    int prev = -1, first = -1;
+    for (int i = 0; i < 20; i++) {
+      float an = TAU_F * (float)i / 20.0f;
+      int v = gm_vtx(&gl, V3(gx + cosf(an) * R, y + 0.02f, gz + sinf(an) * R), up, 0, 0, (pcol){ 0, 0, 0 });
+      if (first < 0) first = v;
+      if (prev >= 0) gm_tri(&gl, centre, prev, v);
+      prev = v;
+    }
+    gm_tri(&gl, centre, prev, first);
+  }
+  gm_finish(&gl, root, "IceGlow", gm_mat, false, false);
+  t3_release(gm_mat);
+}
+
+/* a lookout on the outside of the second hairpin: a deck on piles over the drop, a telescope, lanterns, a sign */
+static void build_lookout(cw_node root, const track *t) {
+  float s = 655.0f;
+  tsample a = track_at(t, s);
+  float lat = a.hw + 8.5f;
+  pmc *c = pmc_new(60, 81);
+  t3_vec3 p = track_point(t, s, lat, 0);
+  float deck_y = a.p.y - 0.8f;
+  p.y = deck_y;
+  t3_vec3 f = vnorm3(V3(a.f.x, 0, a.f.z)), rr = vnorm3(V3(a.r.x, 0, a.r.z));
+  pm *b = pmc_at(c, p);
+  pm_push(b);
+  pm_basis(b, p, rr, V3(0, 1, 0), f);
+  pm_layer(b, PL_MAIN);
+  pm_vary(b, 0.06f);
+  float W = 9.0f, D = 6.0f;
+  pm_push(b);
+  pm_move(b, 0, -0.2f, 0);
+  pm_box(b, W, 0.22f, D, hex(0x4a3524), hex(0xa07a50));
+  pm_pop(b);
+  /* piles down to the snow below */
+  for (int i = 0; i < 3; i++)
+    for (int j = 0; j < 2; j++) {
+      float lx = -W * 0.42f + W * 0.42f * (float)i, lz = -D * 0.42f + D * 0.84f * (float)j;
+      t3_vec3 w = vadd3(p, vadd3(vmul3(rr, lx), vmul3(f, lz)));
+      float gy = terrain(w.x, w.z, NULL);
+      pm_push(b);
+      pm_move(b, lx, gy - deck_y - 0.4f, lz);
+      pm_cyl_ex(b, 0.22f, 0.18f, deck_y - gy + 0.4f, 6, hex(0x3a2818), hex(0x7a5a38), false, false);
+      pm_pop(b);
+    }
+  /* railings on three sides: posts and two ropes */
+  pcol rope = hex(0xc8b080), wood = hex(0x5a4028);
+  for (int side = 0; side < 3; side++) {
+    int n = side == 1 ? 6 : 4;
+    for (int i = 0; i <= n; i++) {
+      float u = (float)i / (float)n;
+      t3_vec3 q0, q1;
+      if (side == 0) q0 = V3(-W * 0.5f, 0, -D * 0.5f + D * u), q1 = V3(-W * 0.5f, 0, -D * 0.5f + D * (u + 1.0f / (float)n));
+      else if (side == 1) q0 = V3(-W * 0.5f + W * u, 0, D * 0.5f), q1 = V3(-W * 0.5f + W * (u + 1.0f / (float)n), 0, D * 0.5f);
+      else q0 = V3(W * 0.5f, 0, -D * 0.5f + D * u), q1 = V3(W * 0.5f, 0, -D * 0.5f + D * (u + 1.0f / (float)n));
+      if (side == 1) { /* the far side faces the view: leave a gap for the telescope */
+        if (u > 0.4f && u < 0.6f && i < n) continue;
+      }
+      pm_beam(b, V3(q0.x, -0.1f, q0.z), V3(q0.x, 1.25f, q0.z), 0.12f, wood);
+      if (i < n) {
+        pm_rod(b, V3(q0.x, 1.1f, q0.z), V3(q1.x, 1.1f, q1.z), 0.04f, 4, rope);
+        pm_rod(b, V3(q0.x, 0.6f, q0.z), V3(q1.x, 0.6f, q1.z), 0.04f, 4, rope);
+      }
+    }
+  }
+  /* a telescope on a tripod, aimed down the valley at the lake */
+  pm_layer(b, PL_METAL);
+  pm_push(b);
+  pm_move(b, 0.4f, 0, D * 0.35f);
+  for (int k = 0; k < 3; k++) {
+    float an = TAU_F * (float)k / 3.0f;
+    pm_beam(b, V3(0, 1.3f, 0), V3(cosf(an) * 0.5f, 0, sinf(an) * 0.5f), 0.04f, hex(0x6a6f7a));
+  }
+  pm_push(b);
+  pm_move(b, 0, 1.35f, 0);
+  pm_rotx(b, 0.5f);
+  pm_cyl_ex(b, 0.1f, 0.14f, 1.0f, 8, hex(0x8a4a2a), hex(0xd0a050), true, true);
+  pm_pop(b);
+  pm_pop(b);
+  /* a sign post: an arrow showing the way down to the lake, in the aurora's colours */
+  pm_layer(b, PL_MAIN);
+  pm_push(b);
+  pm_move(b, -W * 0.5f + 0.7f, 0, -D * 0.5f + 0.7f);
+  pm_beam(b, V3(0, 0, 0), V3(0, 2.6f, 0), 0.1f, wood);
+  pm_push(b);
+  pm_move(b, 0, 2.2f, 0);
+  pm_box_c(b, 1.7f, 0.5f, 0.06f, hex(0x2fa6b5));
+  pm_pop(b);
+  pm_pop(b);
+  /* lanterns on the two front posts */
+  pm_layer(b, PL_METAL);
+  for (int k = -1; k <= 1; k += 2) {
+    pm_push(b);
+    pm_move(b, k * W * 0.5f, 1.25f, D * 0.5f);
+    lantern(b, 0.8f, LANT_C, 3.2f);
+    pm_pop(b);
+  }
+  pm_layer(b, PL_MAIN);
+  pm_pop(b);
+  pmc_finish(c, root, "Lookout", true, TEX_WALL_WOOD);
+  point_light(root, "LookoutLamp", V3(p.x, deck_y + 2.0f, p.z), 1.0f, 0.62f, 0.28f, 3.0f, 16.0f);
+}
+
+/* ── frozen waterfalls poured down the mountainsides ───────────────────────────────────────────── */
+
+/* a ribbon of ice that follows the steepest way down from (x0, z0): thick in the middle, glowing at its edges */
+static void ice_fall(gm *g, pmc *glowc, const track *tk, float x0, float z0, float width, uint32_t seed) {
+  uint32_t r = seed;
+  float x = x0, z = z0;
+  float px[40], pz[40], pw[40];
+  int n = 0;
+  for (int i = 0; i < 38; i++) {
+    if (road_gap(tk, x, z, NULL) < 9.0f) break;
+    px[n] = x, pz[n] = z, pw[n] = width * (0.55f + 0.45f * sinf(CW_PI * (float)i / 37.0f + 0.3f)) * (0.85f + 0.3f * rnd1(&r));
+    n++;
+    const float e = 2.5f;
+    float gx = terrain(x + e, z, NULL) - terrain(x - e, z, NULL), gz = terrain(x, z + e, NULL) - terrain(x, z - e, NULL);
+    float gl = sqrtf(gx * gx + gz * gz);
+    if (gl < 0.05f * 2 * e && i > 6) break;
+    x -= gx / (gl + 1e-4f) * 3.4f, z -= gz / (gl + 1e-4f) * 3.4f;
+    x += 0.5f * rnds(&r), z += 0.5f * rnds(&r);
+  }
+  t3_vec3 up = V3(0, 1, 0);
+  for (int i = 0; i + 1 < n; i++) {
+    t3_vec3 d = V3(px[i + 1] - px[i], 0, pz[i + 1] - pz[i]);
+    float dl = sqrtf(d.x * d.x + d.z * d.z) + 1e-4f;
+    t3_vec3 side = V3(-d.z / dl, 0, d.x / dl);
+    float w0 = pw[i] * 0.5f, w1 = pw[i + 1] * 0.5f;
+    float lift = 0.35f;
+    t3_vec3 a0 = V3(px[i] - side.x * w0, terrain(px[i] - side.x * w0, pz[i] - side.z * w0, NULL) + lift, pz[i] - side.z * w0);
+    t3_vec3 a1 = V3(px[i] + side.x * w0, terrain(px[i] + side.x * w0, pz[i] + side.z * w0, NULL) + lift, pz[i] + side.z * w0);
+    t3_vec3 b0 = V3(px[i + 1] - side.x * w1, terrain(px[i + 1] - side.x * w1, pz[i + 1] - side.z * w1, NULL) + lift, pz[i + 1] - side.z * w1);
+    t3_vec3 b1 = V3(px[i + 1] + side.x * w1, terrain(px[i + 1] + side.x * w1, pz[i + 1] + side.z * w1, NULL) + lift, pz[i + 1] + side.z * w1);
+    float f = 0.5f + 0.5f * hashf2(i, (int)seed, 3);
+    pcol c = pc_mix(pc_mix(hex(0x3a86c4), hex(0xcfeeff), f), hex(0xf4fbff), (float)i / (float)n * 0.3f);
+    gm_quad(g, a0, a1, b1, b0, up, c, 4.0f);
+    /* a glowing seam down each edge */
+    pm *b = pmc_at(glowc, a0);
+    pm_push(b);
+    pm_layer(b, PL_GLOW);
+    pcol gc = glow(hex(0x34d8ff), 1.4f);
+    pm_quad(b, V3(a0.x, a0.y + 0.05f, a0.z), V3(a0.x + side.x * 0.35f, a0.y + 0.05f, a0.z + side.z * 0.35f), V3(b0.x + side.x * 0.35f, b0.y + 0.05f, b0.z + side.z * 0.35f), V3(b0.x, b0.y + 0.05f, b0.z), gc);
+    pm_quad(b, V3(a1.x - side.x * 0.35f, a1.y + 0.05f, a1.z - side.z * 0.35f), V3(a1.x, a1.y + 0.05f, a1.z), V3(b1.x, b1.y + 0.05f, b1.z), V3(b1.x - side.x * 0.35f, b1.y + 0.05f, b1.z - side.z * 0.35f), gc);
+    pm_pop(b);
+  }
+}
+
+static void build_falls(cw_node root, const track *t) {
+  gm g = { 0 };
+  pmc *gl = pmc_new(100, 83);
+  uint32_t r = 6003;
+  int made = 0;
+  /* look for steep, tall faces within sight of the road, and pour a fall from the top of each */
+  for (int tries = 0; tries < 3000 && made < 9; tries++) {
+    float s = rnd1(&r) * t->length;
+    tsample a = track_at(t, s);
+    if (a.flags & (TF_GAP | TF_LOOP | TF_TUNNEL)) continue;
+    float lat = (rnd1(&r) < 0.5f ? 1.0f : -1.0f) * (a.hw + 30.0f + 70.0f * rnd1(&r));
+    t3_vec3 p = track_point(t, s, lat, 0);
+    if (in_lake(p.x, p.z, 1.2f) || in_gorge(p.x, p.z, 40.0f)) continue;
+    float h = terrain(p.x, p.z, NULL);
+    if (slope_at(p.x, p.z) < 0.6f || slope_at(p.x, p.z) > 1.6f) continue;
+    /* it must drop a good way from here */
+    float x = p.x, z = p.z, y0 = h;
+    for (int i = 0; i < 12; i++) {
+      const float e = 2.5f;
+      float gx = terrain(x + e, z, NULL) - terrain(x - e, z, NULL), gz = terrain(x, z + e, NULL) - terrain(x, z - e, NULL);
+      float gl2 = sqrtf(gx * gx + gz * gz) + 1e-4f;
+      x -= gx / gl2 * 3.4f, z -= gz / gl2 * 3.4f;
+    }
+    if (y0 - terrain(x, z, NULL) < 18.0f) continue;
+    bool near_fall = false;
+    (void)near_fall;
+    for (int k = 0; k < 3; k++) ice_fall(&g, gl, t, p.x + (float)(k - 1) * 4.5f, p.z, 5.5f + 2.5f * rnd1(&r), (uint32_t)(tries * 7 + k));
+    if (getenv("FROST_DEBUG")) cw_info("frost: fall at s=%.0f (%.0f, %.0f, %.0f)", s, p.x, h, p.z);
+    made++;
+  }
+  t3_material *m = phys((t3_color){ 1, 1, 1 }, 0.25f, 0.0f);
+  m->vertex_colors = true;
+  tex_apply(m, TEX_WALL_ICE, 1, 1, 1.0f, 1.0f);
+  m->color = (t3_color){ 0.9f, 1.1f, 1.3f };
+  m->emissive = (t3_color){ 0.04f, 0.3f, 0.7f };
+  m->emissive_intensity = 0.4f;
+  m->clearcoat = 0.8f;
+  m->clearcoat_roughness = 0.08f;
+  gm_finish(&g, root, "IceFalls", m, false, true);
+  t3_release(m);
+  pmc_finish(gl, root, "IceFallEdges", false, -1);
+  cw_info("frost: %d frozen waterfalls", made);
+}
+
 /* ── weather: falling snow, blown spindrift, breath-like mist, steam ──────────────────────────── */
 
 static void set_ramp(cw_node n, const char *ramp) {
@@ -2078,6 +2451,25 @@ static void build_weather(cw_node scene, cw_node root, const track *t) {
   cw_node_set(m2, "direction", cw_val_vec3(0, 1, 0));
   cw_node_set(m2, "speed_min", cw_val_float(1.5f));
   cw_node_set(m2, "speed_max", cw_val_float(3.0f));
+  /* snow blown off the high ridges in long white plumes */
+  {
+    uint32_t pr = 9091;
+    int made = 0;
+    for (int tries = 0; tries < 4000 && made < 7; tries++) {
+      float x = F.lm.centre.x + (rnd1(&pr) - 0.5f) * 1800.0f, z = F.lm.centre.z + (rnd1(&pr) - 0.5f) * 2000.0f;
+      float h = terrain(x, z, NULL);
+      float gp = road_gap(t, x, z, NULL);
+      if (h < 95.0f || gp > 380.0f || gp < 70.0f) continue;
+      cw_node n = fx_ambient_at(scene, FXA_DUST, V3(x, h + 3.0f, z), V3(14.0f, 5.0f, 14.0f), 1.6f, 520.0f);
+      set_ramp(n, "0 0.9 0.95 1 0, 0.15 0.92 0.96 1 0.35, 1 0.9 0.95 1 0");
+      cw_node_set(n, "direction", cw_val_vec3(0.8f, 0.25f, 0.6f));
+      cw_node_set(n, "speed_min", cw_val_float(10.0f));
+      cw_node_set(n, "speed_max", cw_val_float(16.0f));
+      cw_node_set(n, "size", cw_val_float(6.0f));
+      cw_node_set(n, "lifetime", cw_val_float(5.0f));
+      made++;
+    }
+  }
   /* breath of the mountain: steam from vents by the road, pale in the cold */
   static const float VS[] = { 560, 905, 1700, 2250 };
   for (unsigned i = 0; i < sizeof VS / sizeof VS[0]; i++) {
@@ -2099,6 +2491,10 @@ static void frost_scenery(cw_node scene, const track *t, uint32_t seed) {
   (void)seed;
   memset(&F, 0, sizeof F);
   memset(&SKY, 0, sizeof SKY);
+  free(FL.base);
+  memset(&FL, 0, sizeof FL);
+  memset(&AN, 0, sizeof AN);
+  BEACON = NULL;
   F.t = t;
   find_landmarks(t);
   F.gorge_floor = F.lm.base_y - 38.0f;
@@ -2162,11 +2558,11 @@ static void frost_scenery(cw_node scene, const track *t, uint32_t seed) {
   /* the sky */
   build_aurora(root);
   {
-    static const int N[3] = { 900, 900, 800 };
+    static const int N[3] = { 1200, 1000, 900 };
     for (int k = 0; k < 3; k++) {
       t3_material *m = t3_points_material_new(0xffffff);
       m->vertex_colors = true;
-      m->size = 2.2f;
+      m->size = 2.8f;
       m->size_attenuation = false;
       m->transparent = true;
       m->blending = T3_ADDITIVE_BLENDING;
@@ -2210,6 +2606,12 @@ static void frost_scenery(cw_node scene, const track *t, uint32_t seed) {
   if (!skip("camps")) {
   build_camp(root, 1, 501);
     build_camp(root, 2, 601);
+  }
+  if (!skip("falls")) build_falls(root, t);
+  if (!skip("lamps")) {
+  build_lamps(root, t);
+  build_lake_details(root);
+  build_lookout(root, t);
   }
   if (!skip("wrecks")) {
   build_wrecks(root, t);
@@ -2256,6 +2658,10 @@ static void frost_frame(float alpha, double time) {
       if (k == 1) f = 0.8f + 0.25f * sinf(t * 9.0f) + 0.15f * sinf(t * 23.0f + 1.0f);
       AN.flame[k]->color = (t3_color){ f, f, f };
     }
+  if (ANEMO) {
+    ANEMO->rotation.y = t * 3.4f;
+    ANEMO->quaternion = t3_quat_from_axis_angle(V3(0, 1, 0), t * 3.4f);
+  }
   if (AN.beacon) {
     float ph = fmodf(t, 1.6f);
     float on = ph < 0.18f ? 1.0f : ph < 0.3f ? 0.0f : ph < 0.42f ? 1.0f : 0.0f;
