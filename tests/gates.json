@@ -4932,13 +4932,339 @@
     "app": "bikemesa_unlocked",
     "frames": 1850,
     "input": "bikemesa-pedal-cmd.json",
-    "startCmds": ["track 18"],
+    "startCmds": [
+      "track 18"
+    ],
     "controlFrames": 1100,
-    "controlStartCmds": ["track 18"],
-    "fields": ["game.state", "game.track", "finished", "crashes", "checkpoint", "score", "tricks", "hoop.hits", "bike.pos", "state.hash"],
-    "expect": { "game.state": 5, "game.track": 18, "finished": 1, "crashes": 0, "checkpoint": 3, "hoop.hits": 1 },
+    "controlStartCmds": [
+      "track 18"
+    ],
+    "fields": [
+      "game.state",
+      "game.track",
+      "finished",
+      "crashes",
+      "checkpoint",
+      "score",
+      "tricks",
+      "hoop.hits",
+      "bike.pos",
+      "state.hash"
+    ],
+    "expect": {
+      "game.state": 5,
+      "game.track": 18,
+      "finished": 1,
+      "crashes": 0,
+      "checkpoint": 3,
+      "hoop.hits": 1
+    },
     "maxGt16": 0.05,
-    "webgpu": { "vsGl": 0.25, "maxGt16": 0.05, "hosts": ["native", "romdev", "chromium"] },
+    "webgpu": {
+      "vsGl": 0.25,
+      "maxGt16": 0.05,
+      "hosts": [
+        "native",
+        "romdev",
+        "chromium"
+      ]
+    },
     "note": "Liberty Leap: pedal over the buses, pass through the flaming hoop, and finish without a crash. The earlier control ends before the finish."
+  },
+  {
+    "name": "racer-salt",
+    "app": "racer",
+    "frames": 3000,
+    "startCmds": [
+      "race 0 0 1"
+    ],
+    "maxGt16": 0.08,
+    "fields": [
+      "race.loaded",
+      "race.phase",
+      "ticks",
+      "sim.hash",
+      "karts.place",
+      "karts.lap",
+      "karts.prog",
+      "karts.falls",
+      "karts.speed",
+      "karts.hits",
+      "karts.tricks",
+      "karts.finished"
+    ],
+    "expect": {
+      "race.loaded": 1,
+      "race.phase": 2
+    },
+    "webgpu": {
+      "vsGl": 0.3,
+      "maxGt16": 0.08,
+      "hosts": [
+        "native",
+        "romdev"
+      ],
+      "note": "The dual cart on romdev against native WebGPU."
+    },
+    "note": "racer map 0 (salt): eight CPU karts for 3000 frames (50 s of game time, lights out at 225): the karts' places, laps, progress, falls and the simulation hash must match on every host (the race runs on Box3D, deterministic across hosts and worker counts). The map's scenery is render-only."
+  },
+  {
+    "name": "racer-drowned",
+    "app": "racer",
+    "frames": 3000,
+    "startCmds": [
+      "race 1 0 1"
+    ],
+    "maxGt16": 0.08,
+    "fields": [
+      "race.loaded",
+      "race.phase",
+      "ticks",
+      "sim.hash",
+      "karts.place",
+      "karts.lap",
+      "karts.prog",
+      "karts.falls",
+      "karts.speed",
+      "karts.hits",
+      "karts.tricks",
+      "karts.finished"
+    ],
+    "expect": {
+      "race.loaded": 1,
+      "race.phase": 2
+    },
+    "webgpu": {
+      "vsGl": 0.3,
+      "maxGt16": 0.08,
+      "hosts": [
+        "native",
+        "romdev"
+      ],
+      "note": "The dual cart on romdev against native WebGPU."
+    },
+    "note": "racer map 1 (drowned): eight CPU karts for 3000 frames (50 s of game time, lights out at 225): the karts' places, laps, progress, falls and the simulation hash must match on every host (the race runs on Box3D, deterministic across hosts and worker counts). The map's scenery is render-only."
+  },
+  {
+    "name": "racer-fair",
+    "app": "racer",
+    "frames": 3000,
+    "startCmds": [
+      "race 2 0 1"
+    ],
+    "maxGt16": 0.08,
+    "fields": [
+      "race.loaded",
+      "race.phase",
+      "ticks",
+      "sim.hash",
+      "karts.place",
+      "karts.lap",
+      "karts.prog",
+      "karts.falls",
+      "karts.speed",
+      "karts.hits",
+      "karts.tricks",
+      "karts.finished"
+    ],
+    "expect": {
+      "race.loaded": 1,
+      "race.phase": 2
+    },
+    "webgpu": {
+      "vsGl": 0.3,
+      "maxGt16": 0.08,
+      "hosts": [
+        "native",
+        "romdev"
+      ],
+      "note": "The dual cart on romdev against native WebGPU."
+    },
+    "note": "racer map 2 (fair): eight CPU karts for 3000 frames (50 s of game time, lights out at 225): the karts' places, laps, progress, falls and the simulation hash must match on every host (the race runs on Box3D, deterministic across hosts and worker counts). The map's scenery is render-only."
+  },
+  {
+    "name": "racer-refinery",
+    "app": "racer",
+    "frames": 3000,
+    "startCmds": [
+      "race 3 0 1"
+    ],
+    "maxGt16": 0.08,
+    "fields": [
+      "race.loaded",
+      "race.phase",
+      "ticks",
+      "sim.hash",
+      "karts.place",
+      "karts.lap",
+      "karts.prog",
+      "karts.falls",
+      "karts.speed",
+      "karts.hits",
+      "karts.tricks",
+      "karts.finished"
+    ],
+    "expect": {
+      "race.loaded": 1,
+      "race.phase": 2
+    },
+    "webgpu": {
+      "vsGl": 0.3,
+      "maxGt16": 0.08,
+      "hosts": [
+        "native",
+        "romdev"
+      ],
+      "note": "The dual cart on romdev against native WebGPU."
+    },
+    "note": "racer map 3 (refinery): eight CPU karts for 3000 frames (50 s of game time, lights out at 225): the karts' places, laps, progress, falls and the simulation hash must match on every host (the race runs on Box3D, deterministic across hosts and worker counts). The map's scenery is render-only."
+  },
+  {
+    "name": "racer-dam",
+    "app": "racer",
+    "frames": 3000,
+    "startCmds": [
+      "race 4 0 1"
+    ],
+    "maxGt16": 0.08,
+    "fields": [
+      "race.loaded",
+      "race.phase",
+      "ticks",
+      "sim.hash",
+      "karts.place",
+      "karts.lap",
+      "karts.prog",
+      "karts.falls",
+      "karts.speed",
+      "karts.hits",
+      "karts.tricks",
+      "karts.finished"
+    ],
+    "expect": {
+      "race.loaded": 1,
+      "race.phase": 2
+    },
+    "webgpu": {
+      "vsGl": 0.3,
+      "maxGt16": 0.08,
+      "hosts": [
+        "native",
+        "romdev"
+      ],
+      "note": "The dual cart on romdev against native WebGPU."
+    },
+    "note": "racer map 4 (dam): eight CPU karts for 3000 frames (50 s of game time, lights out at 225): the karts' places, laps, progress, falls and the simulation hash must match on every host (the race runs on Box3D, deterministic across hosts and worker counts). The map's scenery is render-only."
+  },
+  {
+    "name": "racer-frost",
+    "app": "racer",
+    "frames": 3000,
+    "startCmds": [
+      "race 5 0 1"
+    ],
+    "maxGt16": 0.08,
+    "fields": [
+      "race.loaded",
+      "race.phase",
+      "ticks",
+      "sim.hash",
+      "karts.place",
+      "karts.lap",
+      "karts.prog",
+      "karts.falls",
+      "karts.speed",
+      "karts.hits",
+      "karts.tricks",
+      "karts.finished"
+    ],
+    "expect": {
+      "race.loaded": 1,
+      "race.phase": 2
+    },
+    "webgpu": {
+      "vsGl": 0.3,
+      "maxGt16": 0.08,
+      "hosts": [
+        "native",
+        "romdev"
+      ],
+      "note": "The dual cart on romdev against native WebGPU."
+    },
+    "note": "racer map 5 (frost): eight CPU karts for 3000 frames (50 s of game time, lights out at 225): the karts' places, laps, progress, falls and the simulation hash must match on every host (the race runs on Box3D, deterministic across hosts and worker counts). The map's scenery is render-only."
+  },
+  {
+    "name": "racer-temple",
+    "app": "racer",
+    "frames": 3000,
+    "startCmds": [
+      "race 6 0 1"
+    ],
+    "maxGt16": 0.08,
+    "fields": [
+      "race.loaded",
+      "race.phase",
+      "ticks",
+      "sim.hash",
+      "karts.place",
+      "karts.lap",
+      "karts.prog",
+      "karts.falls",
+      "karts.speed",
+      "karts.hits",
+      "karts.tricks",
+      "karts.finished"
+    ],
+    "expect": {
+      "race.loaded": 1,
+      "race.phase": 2
+    },
+    "webgpu": {
+      "vsGl": 0.3,
+      "maxGt16": 0.08,
+      "hosts": [
+        "native",
+        "romdev"
+      ],
+      "note": "The dual cart on romdev against native WebGPU."
+    },
+    "note": "racer map 6 (temple): eight CPU karts for 3000 frames (50 s of game time, lights out at 225): the karts' places, laps, progress, falls and the simulation hash must match on every host (the race runs on Box3D, deterministic across hosts and worker counts). The map's scenery is render-only."
+  },
+  {
+    "name": "racer-orbit",
+    "app": "racer",
+    "frames": 3000,
+    "startCmds": [
+      "race 7 0 1"
+    ],
+    "maxGt16": 0.08,
+    "fields": [
+      "race.loaded",
+      "race.phase",
+      "ticks",
+      "sim.hash",
+      "karts.place",
+      "karts.lap",
+      "karts.prog",
+      "karts.falls",
+      "karts.speed",
+      "karts.hits",
+      "karts.tricks",
+      "karts.finished"
+    ],
+    "expect": {
+      "race.loaded": 1,
+      "race.phase": 2
+    },
+    "webgpu": {
+      "vsGl": 0.3,
+      "maxGt16": 0.08,
+      "hosts": [
+        "native",
+        "romdev"
+      ],
+      "note": "The dual cart on romdev against native WebGPU."
+    },
+    "note": "racer map 7 (orbit): eight CPU karts for 3000 frames (50 s of game time, lights out at 225): the karts' places, laps, progress, falls and the simulation hash must match on every host (the race runs on Box3D, deterministic across hosts and worker counts). The map's scenery is render-only."
   }
 ]
