@@ -87,6 +87,8 @@ typedef struct fair_pos {
 static fair_pos P;
 static const track *TR;
 static cw_node find_type(cw_node n, const char *type);
+static void report_meshes(cw_node root);
+static bool room(const track *t, float x, float z, float r);
 
 static t3_vec3 V3(float x, float y, float z) { return (t3_vec3){ x, y, z }; }
 
@@ -826,8 +828,8 @@ static void bulb_string(pmc *wire, gcells *chase[3], t3_vec3 a, t3_vec3 b, float
 
 /* strings across the road every so often, and between the posts they hang from. Only where the road is level and open. */
 static void build_strings(cw_node root, const track *t) {
-  pmc *wood = pmc_new(80, 31), *wire = pmc_new(80, 32);
-  gcells *chase[3] = { gc_new(80, 41), gc_new(80, 42), gc_new(80, 43) };
+  pmc *wood = pmc_new(150, 31), *wire = pmc_new(150, 32);
+  gcells *chase[3] = { gc_new(150, 41), gc_new(150, 42), gc_new(150, 43) };
   float next = 60.0f;
   int count = 0;
   t3_vec3 lastL = { 0 }, lastR = { 0 };
@@ -1208,7 +1210,9 @@ static void build_chevrons(pmc *wood, gcells *chase[3], const frame *f, float di
   pm_box(b, 0.5f, 0.5f, 0.5f, WOODC, WOODC);
   pm_push(b);
   pm_move(b, 0, 8.0f, -0.2f);
-  pm_box(b, 14.0f, 9.0f, 0.3f, pc_mix(hex(0x2a3a5a), BLACK, 0.3f), hex(0x3a4a6a));
+  pm_box(b, 14.6f, 9.6f, 0.2f, hex(0xeadfc4), hex(0xeadfc4));
+  pm_move(b, 0, 0.6f, 0.12f);
+  pm_box(b, 13.4f, 8.4f, 0.2f, pc_mix(PURPLE, BLACK, 0.45f), pc_mix(PURPLE, BLACK, 0.15f));
   pm_pop(b);
   pm_pop(b);
   for (int c = 0; c < 3; c++)
@@ -1217,6 +1221,115 @@ static void build_chevrons(pmc *wood, gcells *chase[3], const frame *f, float di
       float y = 12.5f + (float)arm * 0.85f;
       bulb(chase[c], fw(f, x, y, 0.2f), 0.32f, hex(0xffd070), 4.4f);
     }
+}
+
+
+/* big tops are old: rips in the canvas (dark gaps where the sky shows through) and flaps that hang from the eaves */
+static void tent_tears(pmc *c, t3_vec3 p, float h, uint32_t seed) {
+  float r = 0.9f * h, wall = 0.28f * h, apex = 0.48f * h;
+  uint32_t k = seed * 2654435761u;
+  for (int i = 0; i < 4; i++) {
+    k = k * 1664525u + 1013904223u;
+    float th = CW_TAU * (float)(k >> 8) / 16777216.0f;
+    float ya = wall + (0.1f + 0.2f * (float)((k >> 3) & 7) / 7.0f) * h * 0.2f * 4.0f * 0.5f;
+    float yb = fminf(ya + 0.55f * (apex - ya), apex - 0.05f * h);
+    float ra = 1.05f * r * (apex - ya) / (apex - wall) + 0.12f, rb = 1.05f * r * (apex - yb) / (apex - wall) + 0.12f;
+    float w = 0.16f + 0.05f * (float)(i & 1);
+    pm *b = pmc_at(c, V3(p.x + cosf(th) * ra, p.y + ya, p.z - sinf(th) * ra));
+    pm_layer(b, PL_MAIN);
+    t3_vec3 A = V3(p.x + cosf(th - w) * ra, p.y + ya, p.z - sinf(th - w) * ra), B = V3(p.x + cosf(th + w) * ra, p.y + ya, p.z - sinf(th + w) * ra);
+    t3_vec3 C = V3(p.x + cosf(th + w * 0.3f) * rb, p.y + yb, p.z - sinf(th + w * 0.3f) * rb), D = V3(p.x + cosf(th - w * 0.5f) * rb, p.y + yb, p.z - sinf(th - w * 0.5f) * rb);
+    pcol dark = hex(0x1a1010);
+    pm_quad(b, A, B, C, D, dark);
+    pm_quad(b, D, C, B, A, dark);
+    pm_pop(b);
+  }
+  /* a flap hanging off the eave */
+  for (int i = 0; i < 3; i++) {
+    k = k * 1664525u + 1013904223u;
+    float th = CW_TAU * (float)(k >> 8) / 16777216.0f;
+    float rr0 = r * 1.04f;
+    t3_vec3 a0 = V3(p.x + cosf(th) * rr0, p.y + wall + 0.3f, p.z - sinf(th) * rr0), a1 = V3(p.x + cosf(th + 0.2f) * rr0, p.y + wall + 0.3f, p.z - sinf(th + 0.2f) * rr0);
+    t3_vec3 a2 = V3(p.x + cosf(th + 0.1f) * (rr0 + 0.6f), p.y + wall - 3.0f - 0.8f * (float)i, p.z - sinf(th + 0.1f) * (rr0 + 0.6f));
+    pm *b = pmc_at(c, a0);
+    pm_layer(b, PL_MAIN);
+    pcol col = (i & 1) ? hex(0xb83a30) : hex(0xd8cfb4);
+    pm_tri(b, a0, a1, a2, col);
+    pm_tri(b, a1, a0, a2, pc_mix(col, BLACK, 0.4f));
+    pm_pop(b);
+  }
+}
+
+
+/* ── scatter in a few big batches: dead trees, shrubs, boulders, hay, so the lawn is not a clean sheet ─── */
+
+typedef struct sbatch {
+  prop_model m;
+  prop_batch *b[PL_COUNT];
+  prop_kind k;
+} sbatch;
+
+static void sb_init(sbatch *s, prop_kind k, int variant, int lod) {
+  memset(s, 0, sizeof *s);
+  s->k = k;
+  s->m = prop_make(k, 0, 5, variant, lod);
+  for (int l = 0; l < PL_COUNT; l++) {
+    if (!s->m.g[l]) continue;
+    t3_material *mat = prop_material(l, l == PL_MAIN ? prop_tex(k) : -1, (pcol){ 1, 1, 1 }, 1);
+    s->b[l] = pb_begin(s->m.g[l], mat);
+    pb_chunk(s->b[l], 300.0f);
+  }
+}
+static void sb_add(sbatch *s, t3_vec3 p, float yaw, float scale, pcol tint) {
+  for (int l = 0; l < PL_COUNT; l++)
+    if (s->b[l]) pb_add_c(s->b[l], p, t3_quat_from_axis_angle(V3(0, 1, 0), yaw), V3(scale, scale, scale), l == PL_GLOW ? (pcol){ 1, 1, 1 } : tint);
+}
+static void sb_finish(sbatch *s, cw_node parent, const char *name) {
+  for (int l = 0; l < PL_COUNT; l++) {
+    if (!s->b[l] || pb_count(s->b[l]) == 0) continue;
+    char nm[48];
+    snprintf(nm, sizeof nm, "%s.%d", name, l);
+    pb_finish(s->b[l], parent, nm, false);
+  }
+  prop_model_free(&s->m);
+}
+
+static void build_scatter(cw_node root, const track *t) {
+  cw_node group = cw_node_new("Node3D", "Scatter");
+  cw_node_add_child(root, group);
+  sbatch bush[2], tree[2], rock[2], hay;
+  for (int lod = 0; lod < 2; lod++) {
+    sb_init(&bush[lod], PK_BUSH, 0, lod);
+    sb_init(&tree[lod], PK_DEAD_TREE, 0, lod);
+    sb_init(&rock[lod], PK_ROCK, 0, lod);
+  }
+  sb_init(&hay, PK_HAY, 0, 0);
+  RS = 9091;
+  int n = 0;
+  for (float s = 0; s < t->length; s += 17.0f)
+    for (int side = -1; side <= 1; side += 2) {
+      tsample a = track_at(t, s + rr(0, 14));
+      float lat = a.hw + 13.0f + powf(rf(), 1.6f) * 95.0f;
+      t3_vec3 p = track_point(t, a.s, side * lat, 0);
+      if (!room(t, p.x, p.z, 4.0f)) continue;
+      p.y = fair_ground(p.x, p.z, NULL) - 0.1f;
+      int lod = lat > 55.0f ? 1 : 0;
+      float pick = rf();
+      float yaw = rr(0, CW_TAU);
+      pcol tint = pc_mul((pcol){ 1, 1, 1 }, rr(0.85f, 1.15f));
+      if (pick < 0.42f) sb_add(&bush[lod], p, yaw, rr(0.8f, 1.5f), tint);
+      else if (pick < 0.7f) sb_add(&tree[lod], p, yaw, rr(0.9f, 1.5f), tint);
+      else if (pick < 0.88f) sb_add(&rock[lod], p, yaw, rr(0.7f, 1.8f), tint);
+      else if (lat < 40.0f) sb_add(&hay, p, yaw, rr(0.8f, 1.2f), tint);
+      n++;
+    }
+  for (int lod = 0; lod < 2; lod++) {
+    sb_finish(&bush[lod], group, lod ? "BushFar" : "Bush");
+    sb_finish(&tree[lod], group, lod ? "TreeFar" : "Tree");
+    sb_finish(&rock[lod], group, lod ? "RockFar" : "Rock");
+  }
+  sb_finish(&hay, group, "Hay");
+  cw_info("fair: %d scatter props", n);
 }
 
 
@@ -1282,8 +1395,8 @@ static void build_park(cw_node root, pmc *st, pmc *wood, gcells *chase[3], gcell
 
   /* the big tops: the pair at the jump, and the rest across the park */
   struct { float x, z, sc; int v; } tops[] = {
-    { 168, -120, 1.22f, 0 }, { 249, -120, 1.22f, 2 }, { 70, -215, 1.0f, 1 }, { 130, 10, 0.95f, 2 }, { 36, 560, 1.0f, 0 }, { -6, 770, 1.0f, 1 }, { 96, 760, 0.9f, 2 },
-    { 60, -380, 1.1f, 1 }, { 150, -420, 0.9f, 0 },
+    { 164, -120, 1.1f, 0 }, { 252, -120, 1.1f, 2 }, { 70, -215, 1.0f, 1 }, { 130, 10, 0.95f, 2 }, { 36, 560, 1.0f, 0 }, { -5, 650, 0.9f, 1 }, { 96, 650, 0.9f, 2 },
+    { 60, -300, 1.1f, 1 }, { 120, -330, 0.9f, 0 },
   };
   for (int i = 0; i < 9; i++) {
     float r = 0.9f * 24.0f * tops[i].sc;
@@ -1295,6 +1408,7 @@ static void build_park(cw_node root, pmc *st, pmc *wood, gcells *chase[3], gcell
     t3_vec3 p = V3(tops[i].x, gy, tops[i].z);
     float s0 = t->s[road_nearest(t, p.x, p.z, NULL)].s;
     t3_vec3 rp = track_point(t, s0, 0, 0);
+    tent_tears(st, p, 24.0f * tops[i].sc, 70u + (uint32_t)i);
     ps_add_ex(ps, PK_BIGTOP, tops[i].v, 0, p, t3_quat_from_axis_angle(V3(0, 1, 0), yaw_to(p, rp)), V3(tops[i].sc, tops[i].sc, tops[i].sc), (pcol){ 0.9f, 0.84f, 0.78f }, 900u + (uint32_t)i);
   }
 
@@ -1334,15 +1448,6 @@ static void build_park(cw_node root, pmc *st, pmc *wood, gcells *chase[3], gcell
     cw_info("fair: %d chevron boards", n);
   }
 
-  /* lamps, hay, barrels and dead trees scattered round the park */
-  scatter_opts o = scatter_defaults();
-  o.from_s = 0, o.to_s = t->length, o.spacing = 34, o.lat_min = 14, o.lat_max = 90, o.base_y = 0;
-  o.ground = fair_ground;
-  o.kinds[0] = PK_DEAD_TREE, o.weight[0] = 2, o.kinds[1] = PK_BUSH, o.weight[1] = 3, o.kinds[2] = PK_HAY, o.weight[2] = 1, o.kinds[3] = PK_BARREL, o.weight[3] = 1,
-  o.kinds[4] = PK_ROCK, o.weight[4] = 1, o.nkinds = 5;
-  o.far_thin = 0.5f;
-  o.seed = 11;
-  scatter_along(ps, t, &o);
   ps_finish(ps);
 }
 
@@ -1398,6 +1503,19 @@ static void build_life(cw_node root, const track *t) {
       "energy", "1.1", "blend", "ALPHA", "local_coords", "false", "preprocess", "30", NULL };
     cw_node n = pnode(root, nm, kv, 400 + i);
     cw_node3d_set_position(n, V3(95, 2, -60 + 40.0f * (float)i));
+    cw_node_set(n, "emitting", cw_val_bool(true));
+  }
+  /* a few slow clouds lit from below by the sunset: big soft blobs drifting across the whole sky */
+  for (int i = 0; i < 2; i++) {
+    const char *tint = i ? "1.0 0.55 0.45" : "0.75 0.6 0.85";
+    char ramp[160], nm[24];
+    snprintf(ramp, sizeof ramp, "\"0 %s 0, 0.15 %s 0.16, 0.85 %s 0.16, 1 %s 0\"", tint, tint, tint, tint);
+    snprintf(nm, sizeof nm, "Clouds%d", i);
+    const char *kv[] = { "amount", "14", "lifetime", "100", "emission_shape", "BOX", "emission_extents", "vec3(1100, 25, 1100)", "direction", "vec3(1, 0, 0.3)", "spread", "10",
+      "speed_min", "3", "speed_max", "6", "gravity", "vec3(0, 0, 0)", "size", "520", "size_random", "0.5", "color_ramp", ramp, "energy", "1.8", "blend", "ALPHA",
+      "local_coords", "false", "preprocess", "100", NULL };
+    cw_node n = pnode(root, nm, kv, 600 + i);
+    cw_node3d_set_position(n, V3(90, 330.0f + 70.0f * (float)i, 100));
     cw_node_set(n, "emitting", cw_val_bool(true));
   }
   /* fireworks: a burst now and then, each in its own colour */
@@ -1488,7 +1606,7 @@ static void arch(pmc *st, gcells *chase[3], const track *t, float s, float rise,
   float R = a.hw + 2.6f;
   t3_vec3 c = V3(a.p.x + a.u.x * 0.2f, a.p.y + a.u.y * 0.2f, a.p.z + a.u.z * 0.2f);
   pm *b = pmc_at(st, V3(c.x, c.y + R * 0.5f, c.z));
-  pm_layer(b, PL_METAL);
+  pm_layer(b, PL_MAIN);
   int n = 14;
   t3_vec3 prev = V3(c.x + a.r.x * R, c.y + a.r.y * R, c.z + a.r.z * R);
   for (int i = 1; i <= n; i++) {
@@ -1560,6 +1678,45 @@ static void dress_jump(const track *t, pmc *st, pmc *wire, gcells *chase[3]) {
 }
 
 
+/* low picket fences a few steps back from the road on the stretches that run at ground level: a rhythm that makes speed
+ * readable, in the park's candy colours */
+static void build_fences(cw_node root, const track *t) {
+  pmc *c = pmc_new(160, 91);
+  int n = 0;
+  for (int side = -1; side <= 1; side += 2) {
+    bool have = false;
+    t3_vec3 prev = { 0 };
+    for (float s = 0; s < t->length; s += 4.0f) {
+      tsample a = track_at(t, s);
+      bool ok = a.p.y < 1.0f && !(a.flags & (TF_LOOP | TF_GAP)) && fabsf(a.f.y) < 0.05f;
+      t3_vec3 p = track_point(t, s, side * (a.hw + 13.0f), 0);
+      if (ok && !room(t, p.x, p.z, 2.0f)) ok = false;
+      if (!ok) {
+        have = false;
+        continue;
+      }
+      p.y = fair_ground(p.x, p.z, NULL) - 0.1f;
+      pm *b = pmc_at(c, p);
+      pm_layer(b, PL_MAIN);
+      pcol col = ((int)(s / 4.0f) & 1) ? hex(0xc2453b) : hex(0xeadfc4);
+      pm_push(b);
+      pm_move(b, p.x, p.y, p.z);
+      pm_box(b, 0.24f, 1.25f, 0.24f, pc_mix(col, BLACK, 0.3f), col);
+      pm_pop(b);
+      if (have) {
+        for (int r = 0; r < 2; r++) {
+          float h = 0.45f + 0.5f * (float)r;
+          pm_beam(b, V3(prev.x, prev.y + h, prev.z), V3(p.x, p.y + h, p.z), 0.1f, hex(0xd8cdb0));
+        }
+      }
+      prev = p, have = true, n++;
+    }
+  }
+  pmc_finish(c, root, "Fences", true, -1);
+  cw_info("fair: %d fence posts", n);
+}
+
+
 /* ── the horizon and the paving ──────────────────────────────────────────────────────────────────── */
 
 /* the far hills and the landmarks standing on them: a coaster's lift hill, water towers, a wheel, mesas, so every way
@@ -1569,11 +1726,9 @@ static void build_backdrop(cw_node root, const track *t) {
   ps_shadows(ps, false);
   ps_style(ps, PK_MESA, -1, (pcol){ 1.3f, 0.8f, 0.7f }, 1.0f);
   struct { prop_kind k; float ang, dist, size; int variant; } far_[] = {
-    { PK_MESA, 10, 1150, 130, 0 }, { PK_MESA, 55, 1250, 150, 1 }, { PK_MESA, 120, 1100, 110, 2 }, { PK_MESA, 170, 1300, 160, 0 }, { PK_MESA, 215, 1200, 140, 1 },
-    { PK_MESA, 265, 1150, 120, 2 }, { PK_MESA, 310, 1250, 150, 0 }, { PK_MESA, 345, 1100, 100, 1 },
-    { PK_COASTER_LIFT, 30, 620, 90, 0 }, { PK_COASTER_LIFT, 140, 700, 110, 1 }, { PK_COASTER_LIFT, 250, 640, 100, 0 }, { PK_COASTER_LIFT, 330, 760, 120, 1 },
-    { PK_WATER_TOWER, 80, 560, 60, 0 }, { PK_WATER_TOWER, 195, 600, 70, 1 }, { PK_WATER_TOWER, 295, 540, 55, 0 }, { PK_FERRIS_WHEEL, 105, 800, 110, 0 },
-    { PK_FERRIS_WHEEL, 225, 900, 130, 1 }, { PK_WINDMILL, 20, 520, 50, 0 }, { PK_WINDMILL, 160, 560, 55, 1 }, { PK_SILO, 275, 500, 40, 0 },
+    { PK_MESA, 10, 1150, 130, 0 }, { PK_MESA, 120, 1100, 110, 0 }, { PK_MESA, 215, 1200, 140, 0 }, { PK_MESA, 310, 1250, 150, 0 },
+    { PK_COASTER_LIFT, 30, 620, 90, 0 }, { PK_COASTER_LIFT, 250, 640, 100, 0 }, { PK_WATER_TOWER, 195, 600, 70, 0 }, { PK_WATER_TOWER, 295, 540, 55, 0 },
+    { PK_FERRIS_WHEEL, 105, 800, 110, 0 }, { PK_WINDMILL, 20, 520, 50, 0 },
   };
   const float cx = 90, cz = 100;
   for (int i = 0; i < (int)(sizeof far_ / sizeof far_[0]); i++) {
@@ -1589,7 +1744,7 @@ static void build_backdrop(cw_node root, const track *t) {
 
 /* flat paving round the attractions: cracked concrete laid in cells, left out wherever the road is near */
 static void build_paving(cw_node root, const track *t) {
-  pmc *c = pmc_new(100, 55);
+  pmc *c = pmc_new(160, 55);
   struct { float x, z, hx, hz; } areas[] = {
     { -20, 212, 55, 40 }, { 0, 60, 52, 38 }, { P.helix_c.x, P.helix_c.z, 40, 40 }, { 112, -100, 44, 90 }, { 41, 735, 40, 28 }, { 97, -395, 36, 36 }, { 36, 560, 44, 44 },
   };
@@ -1637,6 +1792,10 @@ static void fair_scenery(cw_node scene, const track *t, uint32_t seed) {
   find_places(t);
   F.scene = scene;
   F.cam = find_type(scene, "Camera3D");
+  fx_ambient_follow(scene, FXA_DUST, 0.5f);
+  fx_ambient_at(scene, FXA_MIST, V3(P.helix_c.x, P.helix_c.y + 1.0f, P.helix_c.z), V3(46, 1.5f, 46), 0.5f, 220);
+  fx_ambient_at(scene, FXA_FIREFLIES, V3(41, 3.0f, 735), V3(48, 3.0f, 30), 1.4f, 140);
+  fx_ambient_at(scene, FXA_FIREFLIES, V3(P.helix_c.x, P.helix_c.y + 4.0f, P.helix_c.z), V3(46, 4.0f, 46), 1.0f, 140);
   cw_info("fair: loop1 c (%.1f %.1f %.1f) r %.0f  loop2 c (%.1f %.1f %.1f) r %.0f  helix c (%.1f %.1f %.1f) r %.1f top %.1f s %.0f..%.0f  crest s %.0f  drop s %.0f  jump s %.0f..%.0f",
           P.loop1_c.x, P.loop1_c.y, P.loop1_c.z, P.loop1_r, P.loop2_c.x, P.loop2_c.y, P.loop2_c.z, P.loop2_r, P.helix_c.x, P.helix_c.y, P.helix_c.z, P.helix_r,
           P.helix_top, P.helix_s0, P.helix_s1, P.crest_s, P.drop_s, P.jump_s0, P.jump_s1);
@@ -1651,10 +1810,12 @@ static void fair_scenery(cw_node scene, const track *t, uint32_t seed) {
   GO.tex = getenv("RACER_FAIR_GROUND") ? atoi(getenv("RACER_FAIR_GROUND")) : TEX_GROUND_GRASS;
   GO.tex_repeat = 7;
   GO.tint = (pcol){ 1.9f, 1.15f, 0.34f };
-  GO.tint2 = (pcol){ 1.2f, 0.7f, 0.3f };
+  GO.tint2 = (pcol){ 1.55f, 0.95f, 0.3f };
   GO.patch_scale = 45;
   GO.base_y = 0;
   GO.seed = 5;
+  GO.near_cell = 64.0f;
+  GO.detail_range = 36.0f;
   ground_plane(root, t, &GO);
 
   dress_style st = fair_dress();
@@ -1665,14 +1826,14 @@ static void fair_scenery(cw_node scene, const track *t, uint32_t seed) {
   deco_rails(root, t, RAIL_FENCE, &st);
 
   pmc *str = pmc_new(90, 11);
-  gcells *chase[3] = { gc_new(90, 21), gc_new(90, 22), gc_new(90, 23) };
-  gcells *steady = gc_new(90, 24);
+  gcells *chase[3] = { gc_new(150, 21), gc_new(150, 22), gc_new(150, 23) };
+  gcells *steady = gc_new(150, 24);
   frame clown = fr(0, 0, 38, CW_PI);
   build_clown(str, chase, steady, &clown);
   build_ferris(root, str, steady, V3(-20, 0, 212), 40.0f, 56.0f);
   build_tower(root, str, chase, steady, V3(P.helix_c.x, fair_ground(P.helix_c.x, P.helix_c.z, NULL), P.helix_c.z));
   pmc *wood = pmc_new(90, 12);
-  gcells *flick[2] = { gc_new(90, 25), gc_new(90, 26) };
+  gcells *flick[2] = { gc_new(150, 25), gc_new(150, 26) };
   build_park(root, str, wood, chase, steady, flick, t);
   dress_loop(str, chase, t, 0);
   dress_loop(str, chase, t, 1);
@@ -1680,7 +1841,7 @@ static void fair_scenery(cw_node scene, const track *t, uint32_t seed) {
   dress_climb(t, str, chase);
   dress_helix(t, chase);
   {
-    pmc *wire = pmc_new(90, 33);
+    pmc *wire = pmc_new(150, 33);
     dress_jump(t, str, wire, chase);
     pmc_finish(wire, root, "JumpBunting", false, -1);
   }
@@ -1688,7 +1849,9 @@ static void fair_scenery(cw_node scene, const track *t, uint32_t seed) {
   pmc_finish(str, root, "Structures", true, -1);
   pmc_finish(wood, root, "Painted", true, TEX_WALL_WOOD);
   build_life(root, t);
+  build_scatter(root, t);
   build_paving(root, t);
+  build_fences(root, t);
   build_backdrop(root, t);
   for (int k = 0; k < 2; k++) gc_finish(flick[k], root, k ? "FlickerB" : "FlickerA", GM[GM_FLICK + k]);
   for (int k = 0; k < 3; k++) {
@@ -1697,6 +1860,32 @@ static void fair_scenery(cw_node scene, const track *t, uint32_t seed) {
     gc_finish(chase[k], root, nm, GM[GM_PHASE_A + k]);
   }
   gc_finish(steady, root, "Bulbs", prop_material(PL_GLOW, -1, (pcol){ 1, 1, 1 }, 1));
+  report_meshes(root);
+}
+
+/* dev aid: how many meshes (draws, before culling) each group of the map holds */
+static int count_meshes(t3_object *o) {
+  int n = (o->type == T3_MESH || o->type == T3_INSTANCED_MESH) ? 1 : 0;
+  for (int i = 0; i < o->child_count; i++) n += count_meshes(o->children[i]);
+  return n;
+}
+static void report_meshes(cw_node root) {
+  int tot = 0;
+  for (int i = 0;; i++) {
+    cw_node c = cw_node_child(root, i);
+    if (!cw_node_valid(c)) break;
+    t3_object *o = cw_node3d_object(c);
+    int n = o ? count_meshes(o) : 0;
+    for (int k = 0;; k++) {
+      cw_node cc = cw_node_child(c, k);
+      if (!cw_node_valid(cc)) break;
+      t3_object *oo = cw_node3d_object(cc);
+      if (oo) n += count_meshes(oo);
+    }
+    tot += n;
+    if (n > 20) cw_info("fair: group %s: %d meshes", cw_node_name(c), n);
+  }
+  cw_info("fair: %d meshes in the map", tot);
 }
 
 static cw_node find_type(cw_node n, const char *type) {
