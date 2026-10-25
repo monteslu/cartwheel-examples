@@ -87,6 +87,8 @@ typedef struct itembox {
 } itembox;
 #define MAXBOX 160
 
+typedef struct map_def map_def;
+
 /* ── karts ──────────────────────────────────────────────────────────── */
 
 enum { SPIN_NONE, SPIN_OIL, SPIN_HIT, SPIN_BOOM, SPIN_SHOCK };
@@ -177,7 +179,8 @@ typedef struct sim {
   int tick;
   uint32_t rng;
   int phase, phase_ticks;
-  int map;
+  int map;                 /* the map's index in MAPS (-1: the proving ground) */
+  const map_def *md;
   int laps;
   int nkarts;
   kart k[MAXK];
@@ -194,7 +197,7 @@ typedef struct sim {
 } sim;
 
 /* sim.c */
-void sim_init(sim *s, const track *t, int map, int laps, const bool on[MAXK], const int veh[MAXK], uint32_t seed);
+void sim_init(sim *s, const track *t, const map_def *map, int map_index, int laps, const bool on[MAXK], const int veh[MAXK], uint32_t seed);
 void sim_free(sim *s);
 void sim_step(sim *s, const kin in[MAXK]);
 void sim_place_on_grid(sim *s); /* line the karts up behind the line */
@@ -244,7 +247,7 @@ typedef struct map_look {
   float glow[3];
 } map_look;
 
-typedef struct map_def {
+struct map_def {
   const char *name;
   const char *blurb;
   const char *scene;                 /* assets/scenes/<x>.cwscene: sky, sun, fog, post */
@@ -258,7 +261,8 @@ typedef struct map_def {
   /* called each fixed tick and each frame for animated scenery (water, flames) */
   void (*scenery_tick)(const sim *s, int ticks);
   void (*scenery_frame)(float alpha, double time);
-} map_def;
+};
 extern const map_def *const MAPS[NMAPS];
+extern const map_def map_test; /* the proving ground: RACER_MAP=-1 */
 
 #endif

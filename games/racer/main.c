@@ -179,8 +179,8 @@ static void views_setup(void) {
 void game_start_race(const race_setup *rs) {
   unload();
   G.setup = *rs;
-  int map = rs->map < 0 ? 0 : rs->map >= NMAPS ? NMAPS - 1 : rs->map;
-  const map_def *md = MAPS[map];
+  int map = rs->map < 0 ? -1 : rs->map >= NMAPS ? NMAPS - 1 : rs->map;
+  const map_def *md = map < 0 ? &map_test : MAPS[map];
   cw_tree *t = cw_scene_app_tree();
   G.scene = cw_scene_instance_path(md->scene);
   if (CW_HANDLE_IS_NULL(G.scene)) {
@@ -210,7 +210,7 @@ void game_start_race(const race_setup *rs) {
     G.human_of[i] = i;
     veh[i] = rs->vehicle[i] % NVEH;
   }
-  sim_init(&G.S, &G.trk, map, rs->laps > 0 ? rs->laps : md->laps, on, veh, 7u + (uint32_t)map * 101u);
+  sim_init(&G.S, &G.trk, md, map, rs->laps > 0 ? rs->laps : md->laps, on, veh, 7u + (uint32_t)(map + 1) * 101u);
   for (int i = 0; i < MAXK; i++) {
     G.S.k[i].human = G.human[i];
     G.S.k[i].colour = i < humans ? rs->colour[i] & 7 : (i + 3) & 7;
@@ -444,7 +444,8 @@ static void fixed(void *u, double dt) {
   static bool dev_started;
   if (!dev_started && G.ticks == 2 && getenv("RACER_MAP")) {
     dev_started = true;
-    race_setup rs = { .map = atoi(getenv("RACER_MAP")) % NMAPS, .laps = getenv("RACER_LAPS") ? atoi(getenv("RACER_LAPS")) : 0,
+    int dm = atoi(getenv("RACER_MAP"));
+    race_setup rs = { .map = dm < 0 ? -1 : dm % NMAPS, .laps = getenv("RACER_LAPS") ? atoi(getenv("RACER_LAPS")) : 0,
                       .humans = getenv("RACER_PLAYERS") ? CW_CLAMP(atoi(getenv("RACER_PLAYERS")), 1, MAXV) : 1, .cpu_skill = 3, .items = true };
     for (int i = 0; i < MAXV; i++) rs.vehicle[i] = i * 2 % NVEH, rs.colour[i] = i;
     ui_enter_race(&rs);
@@ -459,7 +460,10 @@ static void update(void *u, double dt) {
 
 static void render(void *u, double alpha) {
   (void)u;
-  if (G.have_track) fx_frame(&G.S, (float)alpha);
+  if (G.have_track) {
+    world_frame(alpha);
+    fx_frame(&G.S, (float)alpha);
+  }
   cw_r2d_begin(&(cw_r2d_pass_desc){ .clear = false });
   cw_vec2 cs = cw_r2d_canvas_size();
   ui_render(cs.x, cs.y);

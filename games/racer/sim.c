@@ -330,11 +330,12 @@ static void make_boxes(sim *s) {
   }
 }
 
-void sim_init(sim *s, const track *t, int map, int laps, const bool on[MAXK], const int veh[MAXK], uint32_t seed) {
+void sim_init(sim *s, const track *t, const map_def *map, int map_index, int laps, const bool on[MAXK], const int veh[MAXK], uint32_t seed) {
   memset(s, 0, sizeof *s);
   s->rng = seed * 2654435761u + 0x1234567u;
   s->track = t;
-  s->map = map;
+  s->map = map_index;
+  s->md = map;
   s->laps = laps < 1 ? 1 : laps > MAX_LAPS ? MAX_LAPS : laps;
   if (!t->circuit) s->laps = 1;
   for (int i = 0; i < MAXK; i++) {
@@ -343,7 +344,7 @@ void sim_init(sim *s, const track *t, int map, int laps, const bool on[MAXK], co
     s->k[i].place = i + 1;
     s->nkarts += on[i];
   }
-  world_make(s, MAPS[map], on, veh);
+  world_make(s, map, on, veh);
   make_boxes(s);
   sim_place_on_grid(s);
   s->phase = PH_GRID;

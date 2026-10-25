@@ -49,6 +49,7 @@ static struct {
   track_geo geo;
   bool built;
   const map_def *map;
+  float frame_time;
 } W;
 
 const track_geo *world_geo(void) { return &W.geo; }
@@ -121,3 +122,8 @@ void world_build(cw_node scene, const sim *s, const map_def *map) {
 }
 
 void world_tick(const sim *s) { kartgfx_tick(s); }
+
+void world_frame(double alpha) {
+  if (W.map && W.map->scenery_frame) W.map->scenery_frame((float)alpha, (double)W.frame_time);
+  W.frame_time += 1.0f / 60.0f;
+}
