@@ -836,7 +836,7 @@ static void build_strings(cw_node root, const track *t) {
   bool have = false;
   for (float s = 40.0f; s < t->length - 30.0f; s += 6.0f) {
     tsample a = track_at(t, s);
-    bool bad = (a.flags & (TF_LOOP | TF_GAP | TF_TUNNEL)) || fabsf(a.f.y) > 0.14f || fabsf(a.bank) > 0.17f || fabsf(a.u.y) < 0.97f;
+    bool bad = (a.flags & (TF_LOOP | TF_GAP | TF_TUNNEL)) || (a.s > P.crest_s - 100.0f && a.s < P.crest_s + 70.0f) || fabsf(a.f.y) > 0.14f || fabsf(a.bank) > 0.17f || fabsf(a.u.y) < 0.97f;
     for (int k = 0; k < 3 && !bad; k++) {
       tsample q = track_at(t, s + (float)(k - 1) * 22.0f);
       if (q.flags & (TF_LOOP | TF_GAP)) bad = true;
@@ -1507,7 +1507,7 @@ static void build_life(cw_node root, const track *t) {
   }
   /* a few slow clouds lit from below by the sunset: big soft blobs drifting across the whole sky */
   for (int i = 0; i < 2; i++) {
-    const char *tint = i ? "1.0 0.55 0.45" : "0.75 0.6 0.85";
+    const char *tint = i ? "1.0 0.66 0.5" : "0.95 0.55 0.7";
     char ramp[160], nm[24];
     snprintf(ramp, sizeof ramp, "\"0 %s 0, 0.15 %s 0.16, 0.85 %s 0.16, 1 %s 0\"", tint, tint, tint, tint);
     snprintf(nm, sizeof nm, "Clouds%d", i);
@@ -1807,15 +1807,13 @@ static void fair_scenery(cw_node scene, const track *t, uint32_t seed) {
 
   GO = ground_defaults();
   GO.height = fair_ground;
-  GO.tex = getenv("RACER_FAIR_GROUND") ? atoi(getenv("RACER_FAIR_GROUND")) : TEX_GROUND_GRASS;
+  GO.tex = TEX_GROUND_GRASS;
   GO.tex_repeat = 7;
   GO.tint = (pcol){ 1.9f, 1.15f, 0.34f };
   GO.tint2 = (pcol){ 1.55f, 0.95f, 0.3f };
   GO.patch_scale = 45;
   GO.base_y = 0;
   GO.seed = 5;
-  GO.near_cell = 64.0f;
-  GO.detail_range = 36.0f;
   ground_plane(root, t, &GO);
 
   dress_style st = fair_dress();
