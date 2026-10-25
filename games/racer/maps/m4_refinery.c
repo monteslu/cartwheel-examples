@@ -155,6 +155,8 @@ static struct {
   int nbpos;
   pool pool[10];                    /* slag pools */
   int npool;
+  pool keep[48];                    /* places the scatter keeps clear (set pieces) */
+  int nkeep;
   float flash;                      /* lightning, 0..1 */
   t3_material *tgt[MAXGAP];         /* the landing targets (they pulse) */
   float time;
@@ -185,6 +187,18 @@ static struct {
   uint32_t seed;
 } R;
 
+static void keep_add(float x, float z, float r) {
+  if (R.nkeep < 48) R.keep[R.nkeep++] = (pool){ x, z, r };
+}
+/* scatter mask: 0 inside a keep-out circle */
+static float keep_mask(float x, float z, void *ud) {
+  (void)ud;
+  for (int i = 0; i < R.nkeep; i++) {
+    float dx = x - R.keep[i].x, dz = z - R.keep[i].z;
+    if (dx * dx + dz * dz < R.keep[i].r * R.keep[i].r) return 0.0f;
+  }
+  return 1.0f;
+}
 static t3_vec3 tp(float s, float lat, float h) { return track_point(R.t, s, lat, h); }
 
 /* ── a tiny mesh builder for the hand-made glow meshes (vertex colours, uvs, up normals) ───────────── */
@@ -843,6 +857,7 @@ static void start_stack(void) {
   /* two giant masts frame the grid, one each side, each with a roaring flame and a light that warms the road */
   t3_vec3 la = ground_pt(58.0f, -34.0f), lb = ground_pt(80.0f, 41.0f);
   float Ha = 48.0f, Hb = 40.0f;
+  keep_add(la.x, la.z, 18), keep_add(lb.x, lb.z, 18);
   mast_at(la, Ha, 5u);
   mast_at(lb, Hb, 9u);
   flame_new(v3add(la, V3(0, Ha * 1.1f, 0)), 12.0f, 30.0f, 133u, 0, 0, true, 0.8f);
@@ -854,6 +869,7 @@ static void start_stack(void) {
   const track *t = R.t;
   float s0 = 150.0f;
   t3_vec3 base = ground_pt(s0, -40.0f);
+  keep_add(base.x, base.z, 20);
   float H = 38.0f;
   mast_at(base, H, 6u);
   float topy = H * 1.045f;
@@ -925,8 +941,8 @@ static void pit_build(int g) {
       float h0 = yt_a - fl, u1 = len * f1 / 4.0f, u0 = len * f0 / 4.0f;
       pcol cb = rgb(0.8f, 0.5f, 0.35f), ct = rgb(0.5f, 0.42f, 0.4f);
       t3_vec3 nin = v3norm(V3(C.x - (p0.x + p1.x) * 0.5f, 0, C.z - (p0.z + p1.z) * 0.5f));
-      int i0 = mb_vn(&m, V3(p0.x, fl, p0.z), nin, u0, 0, cb);
-      mb_vn(&m, V3(p1.x, fl, p1.z), nin, u1, 0, cb), mb_vn(&m, V3(p1.x, yt_c, p1.z), nin, u1, h0 / 4.0f, ct), mb_vn(&m, V3(p0.x, yt_a, p0.z), nin, u0, h0 / 4.0f, ct);
+      int i0 = mb_vn(&m, V3(p0.x, fl, p0.z), nin, 0, u0, cb);
+      mb_vn(&m, V3(p1.x, fl, p1.z), nin, 0, u1, cb), mb_vn(&m, V3(p1.x, yt_c, p1.z), nin, h0 / 4.0f, u1, ct), mb_vn(&m, V3(p0.x, yt_a, p0.z), nin, h0 / 4.0f, u0, ct);
       mb_t(&m, i0, i0 + 1, i0 + 2), mb_t(&m, i0, i0 + 2, i0 + 3);
       /* the glow: bright orange at the foot, gone by 45 percent of the height */
       float gy = fl + h0 * 0.5f;
@@ -954,7 +970,7 @@ static void pit_build(int g) {
   for (int k = 0; k < 11; k++) {
     float u = (hf(40u + (uint32_t)g, (uint32_t)k) * 2 - 1) * (hl - 1.5f), v = (hf(60u + (uint32_t)g, (uint32_t)k) * 2 - 1) * (hw - 2.0f);
     float mid = 1.0f - fabsf(u) / hl * 0.6f;
-    float h = (11.0f + 11.0f * hf(70u + (uint32_t)g, (uint32_t)k)) * mid;
+    float h = (17.0f + 14.0f * hf(70u + (uint32_t)g, (uint32_t)k)) * mid;
     t3_vec3 p = V3(C.x + F.x * u + Rt.x * v, fl + 0.3f, C.z + F.z * u + Rt.z * v);
     if (flame_new(p, 4.0f + 3.0f * hf(80u, (uint32_t)k), h, 300u + (uint32_t)(g * 20 + k), 0, 0, k % 2 == 0, 0.8f) >= 0) n++;
   }
@@ -990,7 +1006,7 @@ static void yards(void) {
       float ry;
       float gap = road_gap(t, px, pz, &ry);
       if (gap < 17.0f) continue;
-      if (in_pit(px, pz, 28.0f)) continue;
+      if (in_pit(px, pz, 28.0f) || keep_mask(px, pz, NULL) == 0.0f) continue;
       float y = terrain(px, pz, NULL);
       if (y < -1.5f && gap < 70.0f) continue; /* the cutting's slopes */
       float pick = hf(h, 3), yaw = hf(h, 4) * TAU;
@@ -1039,12 +1055,12 @@ static void roadside(void) {
   o.from_s = 0, o.to_s = t->length, o.spacing = 24, o.jitter = 0.8f, o.lat_min = 3.0f, o.lat_max = 26.0f;
   o.kinds[0] = PK_BARREL, o.weight[0] = 3, o.kinds[1] = PK_CONTAINER, o.weight[1] = 1.4f, o.kinds[2] = PK_CONE, o.weight[2] = 1.0f;
   o.kinds[3] = PK_TYRE_STACK, o.weight[3] = 0.6f;
-  o.nkinds = 4, o.scale_min = 0.9f, o.scale_max = 1.5f, o.lat_curve = 1.8f, o.ground = terrain, o.margin = 2.5f, o.seed = 21;
+  o.nkinds = 4, o.scale_min = 0.9f, o.scale_max = 1.5f, o.lat_curve = 1.8f, o.ground = terrain, o.mask = keep_mask, o.margin = 2.5f, o.seed = 21;
   scatter_along(ps, t, &o);
   /* the odd crane and pylon among the process units */
   o.spacing = 120, o.lat_min = 30, o.lat_max = 110, o.lat_curve = 1.0f, o.margin = 6;
   o.kinds[0] = PK_CRANE, o.weight[0] = 1, o.kinds[1] = PK_ANTENNA, o.weight[1] = 0.6f;
-  o.nkinds = 2, o.scale_min = 0.9f, o.scale_max = 1.3f, o.seed = 22, o.far_thin = 0.3f;
+  o.nkinds = 2, o.scale_min = 0.9f, o.scale_max = 1.3f, o.seed = 22, o.far_thin = 0.3f, o.mask = keep_mask;
   scatter_along(ps, t, &o);
   ps_finish(ps);
 }
@@ -1206,7 +1222,7 @@ static void tunnel_tanks(int ti) {
       sl = frame_pm(c, &m, (float)side * (m.hw - 0.24f), 2.9f);
       pm_layer(sl, PL_GLOW);
       pm_rotz(sl, (float)side * 0.2f);
-      pm_box_c(sl, 0.14f, 2.1f, 2.6f, glow(rgb(1, 0.42f, 0.08f), 3.4f));
+      pm_box_c(sl, 0.14f, 2.1f, 2.6f, glow(rgb(1, 0.34f, 0.05f), 2.0f));
       pm_pop(sl);
     }
     for (int side = -1; side <= 1; side += 2) {
@@ -1290,7 +1306,7 @@ static void tunnel_pipes(int ti) {
       pm *sl = frame_pm(ic, &q, (float)side * (q.hw - 0.24f), 2.9f);
       pm_layer(sl, PL_GLOW);
       pm_rotz(sl, (float)side * 0.2f);
-      pm_box_c(sl, 0.14f, 2.1f, 2.4f, glow(rgb(1, 0.18f, 0.06f), 3.0f));
+      pm_box_c(sl, 0.14f, 2.1f, 2.4f, glow(rgb(1, 0.14f, 0.04f), 2.0f));
       pm_pop(sl);
       pm *fl = frame_pm(ic, &q, (float)side * (q.hw - 1.3f), 0.05f);
       pm_layer(fl, PL_GLOW);
@@ -1409,11 +1425,11 @@ static t3_geometry *arc_geo(uint32_t seed, float height, float reach) {
     float t = (float)i / steps;
     t3_vec3 p = V3(lerpf(top.x, 0, t) + (hf(seed, 10 + (uint32_t)i) - 0.5f) * 11.0f * (1.0f - t * 0.9f), lerpf(top.y, 0, t), lerpf(top.z, 0, t) + (hf(seed, 40 + (uint32_t)i) - 0.5f) * 11.0f * (1.0f - t * 0.9f));
     if (i == steps) p = V3(0, 0, 0);
-    seg[ns++] = (typeof(seg[0])){ prev, p, 0.55f + 0.9f * t };
+    seg[ns++] = (typeof(seg[0])){ prev, p, 1.0f + 1.6f * t };
     if (i % 3 == 0 && ns < 34) { /* a fork */
       t3_vec3 q = v3add(p, V3((hf(seed, 70 + (uint32_t)i) - 0.5f) * 40.0f, -hf(seed, 90 + (uint32_t)i) * 16.0f, (hf(seed, 110 + (uint32_t)i) - 0.5f) * 40.0f));
-      seg[ns++] = (typeof(seg[0])){ p, v3add(p, v3mul(v3sub(q, p), 0.5f)), 0.3f };
-      seg[ns++] = (typeof(seg[0])){ v3add(p, v3mul(v3sub(q, p), 0.5f)), q, 0.18f };
+      seg[ns++] = (typeof(seg[0])){ p, v3add(p, v3mul(v3sub(q, p), 0.5f)), 0.55f };
+      seg[ns++] = (typeof(seg[0])){ v3add(p, v3mul(v3sub(q, p), 0.5f)), q, 0.32f };
     }
     prev = p;
   }
@@ -1446,6 +1462,7 @@ static void lightning_tower(void) {
   if (gap < 50) lat = side * (a.hw + 60.0f + (50 - gap)), base = road_pt(s, lat, 0);
   base.y = terrain(base.x, base.z, NULL) - 0.3f;
   float H = 116.0f;
+  keep_add(base.x, base.z, 45);
   prop_model m = m_crack(H, 31u, 0);
   t3_object *g = group_at(R.dyn, base);
   for (int l = 0; l < PL_COUNT; l++)
@@ -1482,6 +1499,7 @@ static void robots(void) {
   float lat = t->s[(int)s].hw + 30.0f;
   t3_vec3 c = road_pt(s, lat, 0);
   c.y = terrain(c.x, c.z, NULL);
+  keep_add(c.x, c.z, 16);
   tsample a = track_at(t, s);
   t3_vec3 along = v3norm(V3(a.f.x, 0, a.f.z)), across = v3norm(V3(a.r.x, 0, a.r.z));
   /* the work piece: a fat pipe on two cradles, a seam along its top */
@@ -1592,6 +1610,7 @@ static void sidings(float s0, float s1, float lat, uint32_t seed) {
     t3_vec3 p = road_pt(s, la, 0);
     p.y = terrain(p.x, p.z, NULL) + 0.25f;
     iset_add(&tk, 0, p, yaw_of(a.f), 1.0f);
+    keep_add(p.x, p.z, 14);
   }
   iset_end(&tk, "Tankers", true);
   pmc_finish(c, R.root, "Rails", false, -1);
@@ -1940,10 +1959,10 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
 
   ground_opts go = ground_defaults();
   go.height = terrain;
-  go.tex = TEX_GROUND_ASH;
-  go.tex_repeat = 9;
-  go.tint = rgb(0.95f, 0.88f, 0.85f);
-  go.tint2 = rgb(0.95f, 0.6f, 0.42f);
+  go.tex = TEX_GROUND_ROCK;
+  go.tex_repeat = 7;
+  go.tint = rgb(0.62f, 0.5f, 0.45f);
+  go.tint2 = rgb(0.42f, 0.3f, 0.28f);
   go.patch_scale = 50;
   go.follow_road = false;
   go.darken_edge = 0.35f;
@@ -1969,14 +1988,14 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
   for (int g2 = 0; g2 < R.ngap; g2++) pit_build(g2);
   if (R.ntun > 0) tunnel_tanks(0), tunnel_lights(0, 26.0f, 90.0f, 0xff9a50);
   if (R.ntun > 1) tunnel_pipes(1), tunnel_lights(1, 25.0f, 90.0f, 0xff7040);
+  lightning_tower();
+  robots();
+  if (R.ngap > 0) sidings((float)R.gap[0][1] + 40.0f, (float)R.gap[0][1] + 190.0f, -40.0f, 331u);
   if (!off("yards")) yards();
   if (!off("roadside")) roadside();
   if (!off("pipes")) pipe_runs();
   if (!off("racks")) racks();
   if (!off("flares")) far_flares();
-  lightning_tower();
-  robots();
-  if (R.ngap > 0) sidings((float)R.gap[0][1] + 40.0f, (float)R.gap[0][1] + 190.0f, -40.0f, 331u);
   if (!off("cooling")) cooling_towers();
   if (!off("smoke")) smoke_columns();
   landing_targets();
@@ -1988,7 +2007,6 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
   horizon_glow();
   /* embers drifting round every camera, and a haze of ash */
   fx_ambient_follow(scene, FXA_EMBERS, 1.6f);
-  fx_ambient_follow(scene, FXA_DUST, 0.5f);
   cw_info("refinery: %d flames, %d lights, %d emitters, %d beacons", R.nfl, R.nlt, R.nem, R.nbc);
 }
 
