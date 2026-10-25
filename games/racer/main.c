@@ -73,6 +73,15 @@ const sim *game_sim(void) { return &G.S; }
 int game_views(void) { return G.nviews; }
 int game_view_player(int v) { return G.pl[v]; }
 void game_set_camera(int mode) {
+  if (mode == 2 && G.nviews > 1) {
+    /* the results: one big view of the winner, not the split screen */
+    cw_pipeline *pl = cw_pipeline_of(cw_scene_app_tree());
+    cw_pipeline_set_views(pl, NULL, 0);
+    cw_pipeline_set_views_shared_post(pl, false);
+    G.nviews = 1;
+    G.views = 1;
+    G.rig[0].base_fov = 64;
+  }
   G.cam_mode = mode;
   G.cam_t = 0;
   for (int v = 0; v < CW_MAX_VIEWS; v++) G.rig[v].live = false;
@@ -435,7 +444,7 @@ static void fixed(void *u, double dt) {
     kin in[MAXK] = { { 0 } };
     for (int i = 0; i < MAXK; i++) {
       if (!G.S.k[i].on) continue;
-      if (G.human[i]) in[i] = human_in(i);
+      if (G.human[i] && !G.S.k[i].finished) in[i] = human_in(i);
       else in[i] = ai_think(&G.S, i, &G.ai[i]);
       static float test_steer = 9;
       if (test_steer == 9) test_steer = getenv("RACER_TEST_STEER") ? (float)atof(getenv("RACER_TEST_STEER")) : 0;

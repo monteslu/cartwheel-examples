@@ -202,6 +202,7 @@ typedef struct sim {
 void sim_init(sim *s, const track *t, const map_def *map, int map_index, int laps, const bool on[MAXK], const int veh[MAXK], uint32_t seed);
 void sim_free(sim *s);
 void sim_step(sim *s, const kin in[MAXK]);
+void sim_put(sim *s, int i, float s_dist, float lat, float speed);
 void sim_place_on_grid(sim *s); /* line the karts up behind the line */
 const track *sim_track(const sim *s);
 const cw_vehicle3d *sim_car(const sim *s, int i); /* the wheels' poses for the renderer */

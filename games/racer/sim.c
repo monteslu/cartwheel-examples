@@ -872,7 +872,9 @@ static void progress(sim *s, int i) {
     k->finished = true;
     k->finish_tick = s->race_ticks;
     s->finished_count++;
-    event(s, EV_FINISH, i, s->finished_count, k->p, 0);
+    float last = (float)(s->race_ticks - k->lap_start_tick) / TICK_HZ; /* the final lap counts too */
+    if (s->laps > 1 && (k->best_lap == 0 || last < k->best_lap)) k->best_lap = last;
+    event(s, EV_FINISH, i, s->finished_count, k->p, last);
   }
   int lap_now = k->prog < 0 ? 0 : (int)(k->prog / L) + 1;
   if (lap_now > s->laps) lap_now = s->laps;
@@ -1050,7 +1052,7 @@ void sim_step(sim *s, const kin in_raw[MAXK]) {
   for (int i = 0; i < MAXK; i++) {
     kart *k = &s->k[i];
     if (!k->on) continue;
-    if (k->finished) in[i] = (kin){ .thr = 60, .steer = 0, .pitch = 0, .btn = 0 };
+    if (k->finished) in[i].thr = in[i].thr > 55 ? 55 : in[i].thr; /* past the line: a cruise (main.c hands it to the CPU driver) */
     if (k->respawn_ticks > 40) in[i].thr = 0;
     /* hold a kart that fell: the respawn */
     if (in[i].btn & KB_RESET) k->reset_hold++;
