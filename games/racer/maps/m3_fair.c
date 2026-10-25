@@ -86,6 +86,7 @@ typedef struct fair_pos {
 
 static fair_pos P;
 static const track *TR;
+static int THIN; /* 1 when the race has split views: the clutter far from the road and the bulbs are thinned */
 static cw_node find_type(cw_node n, const char *type);
 static void report_meshes(cw_node root);
 static bool room(const track *t, float x, float z, float r);
@@ -288,7 +289,9 @@ static void bulb(gcells *g, t3_vec3 p, float r, pcol c, float gain) {
   pm *b = gc_pm(g, p);
   pm_push(b);
   pm_move(b, p.x, p.y, p.z);
-  pm_ball(b, r, r, r, 0, 0, glow(c, gain), glow(c, gain * 1.2f));
+  /* a small round bulb with a hot core: bright enough that the tone curve takes it to white and bloom spreads it */
+  r *= 0.62f;
+  pm_ball(b, r, r, r, 0, 0, glow(c, gain * 2.4f), glow(c, gain * 3.0f));
   pm_pop(b);
 }
 static pcol bulb_col(int i) {
@@ -493,7 +496,8 @@ typedef struct ferris {
   float R;
 } ferris;
 static ferris WHEEL;
-static cw_node LIGHT_CAROUSEL, LIGHT_HAUNTED;
+static cw_node LIGHT_CAROUSEL, LIGHT_HAUNTED, CHAIN;
+static t3_vec3 CHAIN_DIR;
 
 static t3_object *obj_from_model(const prop_model *m, t3_material *glowm, int tex, bool cast) {
   t3_object *grp = t3_group_new();
@@ -781,7 +785,7 @@ static void build_tower(cw_node root, pmc *st, gcells *chase[3], gcells *steady,
       wall_rect(steady, V3(c.x + nx * rr2, c.y + y + 2.2f, c.z + nz * rr2), nx, nz, 2.2f, T[k].h - 5.0f, glow(hex((i & 1) ? 0xffc870 : 0xffb050), 1.5f));
     }
     /* bulbs along the cornice */
-    int nb = (int)(CW_TAU * (T[k].r + 1.6f) / 3.0f);
+    int nb = (int)(CW_TAU * (T[k].r + 1.6f) / (THIN ? 5.0f : 3.0f));
     for (int i = 0; i < nb; i++, bi++) {
       float a = CW_TAU * (float)i / (float)nb;
       bulb(chase[bi % 3], V3(c.x + cosf(a) * (T[k].r + 1.7f), c.y + y + T[k].h + 0.5f, c.z - sinf(a) * (T[k].r + 1.7f)), 0.38f, bulb_col(i), 4.0f);
@@ -819,6 +823,7 @@ static void bulb_string(pmc *wire, gcells *chase[3], t3_vec3 a, t3_vec3 b, float
   pm_layer(w, PL_MAIN);
   pm_cable(w, a, b, sag, 0.05f, hex(0x241c18));
   float len = hypotf(hypotf(b.x - a.x, b.z - a.z), b.y - a.y);
+  if (THIN) spacing *= 1.9f;
   int n = (int)(len / spacing);
   for (int i = 0; i < n; i++) {
     float t = (i + 0.5f) / (float)n;
@@ -1094,6 +1099,12 @@ static void build_hall(pmc *wood, gcells *chase[3], gcells *steady, const frame 
   }
   for (int sd = -1; sd <= 1; sd += 2)
     for (int k = 0; k < 4; k++) bulb(chase[k % 3], fw(f, sd * W * 0.4f, 9.2f + 1.7f * (float)k, 1.0f), 0.28f, bulb_col(k), 4.2f);
+  /* a row of lit windows down both long sides, so the flank facing a road is not a blank wall */
+  for (int sd = -1; sd <= 1; sd += 2)
+    for (float z = -D + 4.0f; z < -2.0f; z += 6.0f) {
+      t3_vec3 c = fw(f, sd * (W * 0.5f + 0.1f), 3.2f, z);
+      wall_rect(steady, c, sd * f->cy, -sd * f->sy, 3.0f, 2.6f, glow(hex(0xffb458), 1.3f));
+    }
   /* little cars lined up under the front: boxes in candy colours on the dark floor */
 }
 
@@ -1307,7 +1318,7 @@ static void build_scatter(cw_node root, const track *t) {
   sb_init(&hay, PK_HAY, 0, 0);
   RS = 9091;
   int n = 0;
-  for (float s = 0; s < t->length; s += 17.0f)
+  for (float s = 0; s < t->length; s += THIN ? 40.0f : 17.0f)
     for (int side = -1; side <= 1; side += 2) {
       tsample a = track_at(t, s + rr(0, 14));
       float lat = a.hw + 13.0f + powf(rf(), 1.6f) * 95.0f;
@@ -1499,7 +1510,7 @@ static void build_life(cw_node root, const track *t) {
     snprintf(ramp, sizeof ramp, "\"0 %s 0, 0.06 %s 1, 0.85 %s 1, 1 %s 0\"", cols[i], cols[i], cols[i], cols[i]);
     snprintf(nm, sizeof nm, "Balloons%d", i);
     snprintf(ext, sizeof ext, "vec3(%d, 0.5, %d)", 150, 330);
-    const char *kv[] = { "amount", "26", "lifetime", "34", "lifetime_random", "0.2", "emission_shape", "BOX", "emission_extents", ext, "direction", "vec3(0, 1, 0)",
+    const char *kv[] = { "amount", THIN ? "9" : "26", "lifetime", "34", "lifetime_random", "0.2", "emission_shape", "BOX", "emission_extents", ext, "direction", "vec3(0, 1, 0)",
       "spread", "6", "speed_min", "2.2", "speed_max", "3.4", "gravity", "vec3(0.35, 0.02, 0.1)", "size", "1.5", "size_random", "0.25", "color_ramp", ramp,
       "energy", "1.1", "blend", "ALPHA", "local_coords", "false", "preprocess", "30", NULL };
     cw_node n = pnode(root, nm, kv, 400 + i);
@@ -1534,7 +1545,7 @@ static void build_life(cw_node root, const track *t) {
   prop_model bird = pm_finish(b);
   static const float cc[3][4] = { { -20, 92, 212, 52 }, { 131, 52, 242, 62 }, { 60, 60, -150, 80 } };
   for (int k = 0; k < 3; k++)
-    for (int i = 0; i < 9 && ncr < 28; i++) {
+    for (int i = 0; i < (THIN ? 3 : 9) && ncr < 28; i++) {
       t3_object *o = obj_from_model(&bird, NULL, -1, false);
       char nm[24];
       snprintf(nm, sizeof nm, "Crow%d", ncr);
@@ -1585,6 +1596,7 @@ static void life_frame(float t) {
 /* bulbs along both edges of the road from s0 to s1, a pulse running the way the road goes */
 static void edge_bulbs(const track *t, gcells *chase[3], float s0, float s1, float step, float lat_extra, float up) {
   int k = 0;
+  if (THIN) step *= 1.8f;
   for (float s = s0; s < s1; s += step, k++) {
     tsample a = track_at(t, s);
     if (a.flags & TF_GAP) continue;
@@ -1628,16 +1640,22 @@ static void dress_climb(const track *t, pmc *st, gcells *chase[3]) {
     }
   }
   if (s1 <= s0) return;
-  int k = 0;
-  for (float s = s0 - 6; s < s1 + 6; s += 0.9f, k++) {
-    tsample a = track_at(t, s);
-    t3_vec3 p = V3(a.p.x + a.u.x * 0.09f, a.p.y + a.u.y * 0.09f, a.p.z + a.u.z * 0.09f);
-    pm *b = pmc_at(st, p);
-    pm_layer(b, PL_METAL);
-    pm_push(b);
-    pm_basis(b, p, a.r, a.u, a.f);
-    pm_box_c(b, 0.42f, 0.1f, 0.3f, (k & 1) ? hex(0x5a4a38) : hex(0x9a8a6a));
-    pm_pop(b);
+  /* the chain: one node of links that the frame slides up the hill by two links, over and over (the hill is a straight) */
+  {
+    pm *cm = pm_new(640);
+    pm_layer(cm, PL_METAL);
+    int k = 0;
+    for (float s = s0 - 6; s < s1 + 6; s += 0.9f, k++) {
+      tsample a = track_at(t, s);
+      t3_vec3 p = V3(a.p.x + a.u.x * 0.09f, a.p.y + a.u.y * 0.09f, a.p.z + a.u.z * 0.09f);
+      pm_push(cm);
+      pm_basis(cm, p, a.r, a.u, a.f);
+      pm_box_c(cm, 0.42f, 0.1f, 0.3f, (k & 1) ? hex(0x5a4a38) : hex(0x9a8a6a));
+      pm_pop(cm);
+    }
+    CHAIN = node_of(F.scene, "Chain", obj_from_pm(cm, NULL, -1, false));
+    tsample m = track_at(t, (s0 + s1) * 0.5f);
+    CHAIN_DIR = m.f;
   }
   edge_bulbs(t, chase, s0 - 20, s1 + 20, 2.4f, 0.55f, 1.95f);
   for (float s = s0 + 10; s < s1; s += 26.0f) arch(st, chase, t, s, 2.0f, (uint32_t)s);
@@ -1681,7 +1699,7 @@ static void build_fences(cw_node root, const track *t) {
   for (int side = -1; side <= 1; side += 2) {
     bool have = false;
     t3_vec3 prev = { 0 };
-    for (float s = 0; s < t->length; s += 4.0f) {
+    for (float s = 0; s < t->length; s += THIN ? 8.0f : 4.0f) {
       tsample a = track_at(t, s);
       bool ok = a.p.y < 1.0f && !(a.flags & (TF_LOOP | TF_GAP)) && fabsf(a.f.y) < 0.05f;
       t3_vec3 p = track_point(t, s, side * (a.hw + 13.0f), 0);
@@ -1746,17 +1764,17 @@ static void build_paving(cw_node root, const track *t) {
   pcol a = hex(0x9a8e78), b2 = hex(0x8a7e6a);
   int n = 0;
   for (int k = 0; k < 7; k++)
-    for (float x = areas[k].x - areas[k].hx; x < areas[k].x + areas[k].hx; x += 5.0f)
-      for (float z = areas[k].z - areas[k].hz; z < areas[k].z + areas[k].hz; z += 5.0f) {
-        float cxx = x + 2.5f, czz = z + 2.5f;
+    for (float x = areas[k].x - areas[k].hx; x < areas[k].x + areas[k].hx; x += 10.0f)
+      for (float z = areas[k].z - areas[k].hz; z < areas[k].z + areas[k].hz; z += 10.0f) {
+        float cxx = x + 5.0f, czz = z + 5.0f;
         float ry;
-        if (road_gap(t, cxx, czz, &ry) < 5.0f) continue;
+        if (road_gap(t, cxx, czz, &ry) < 8.0f) continue;
         if (hypotf(cxx - areas[k].x, czz - areas[k].z) > fmaxf(areas[k].hx, areas[k].hz)) continue;
         float gy = fair_ground(cxx, czz, NULL) + 0.05f;
         pm *p = pmc_at(c, V3(cxx, gy, czz));
         pm_layer(p, PL_MAIN);
-        pcol col = (((int)(x / 5.0f) + (int)(z / 5.0f)) & 1) ? a : b2;
-        t3_vec3 q0 = V3(x, gy, z + 5.0f), q1 = V3(x + 5.0f, gy, z + 5.0f), q2 = V3(x + 5.0f, gy, z), q3 = V3(x, gy, z);
+        pcol col = a;
+        t3_vec3 q0 = V3(x, gy, z + 10.0f), q1 = V3(x + 10.0f, gy, z + 10.0f), q2 = V3(x + 10.0f, gy, z), q3 = V3(x, gy, z);
         pm_quad(p, q0, q1, q2, q3, col);
         n++;
       }
@@ -1785,6 +1803,7 @@ static void fair_scenery(cw_node scene, const track *t, uint32_t seed) {
   (void)seed;
   TR = t;
   find_places(t);
+  THIN = game_planned_views() > 1;
   F.scene = scene;
   F.cam = find_type(scene, "Camera3D");
   fx_ambient_follow(scene, FXA_DUST, 0.5f);
@@ -1798,7 +1817,7 @@ static void fair_scenery(cw_node scene, const track *t, uint32_t seed) {
   cw_node_add_child(scene, root);
   nspin = 0, nfw = 0, ncr = 0;
   memset(&WHEEL, 0, sizeof WHEEL);
-  LIGHT_CAROUSEL = LIGHT_HAUNTED = (cw_node){ 0 };
+  LIGHT_CAROUSEL = LIGHT_HAUNTED = CHAIN = (cw_node){ 0 };
   RS = 77;
   for (int i = 0; i < 8; i++) GM[i] = glow_mat_new();
 
@@ -1807,7 +1826,8 @@ static void fair_scenery(cw_node scene, const track *t, uint32_t seed) {
   GO.tex = TEX_GROUND_GRASS;
   GO.tex_repeat = 7;
   GO.tint = (pcol){ 1.9f, 1.15f, 0.34f };
-  GO.tint2 = (pcol){ 1.55f, 0.95f, 0.3f };
+  GO.tint2 = (pcol){ 1.8f, 1.1f, 0.33f };
+  GO.lumpy = 0.08f;
   GO.patch_scale = 45;
   GO.base_y = 0;
   GO.seed = 5;
@@ -1913,6 +1933,10 @@ static void fair_frame(float alpha, double time) {
     GM[GM_FLICK + k]->color = (t3_color){ v, v, v };
   }
   life_frame(t);
+  if (cw_node_valid(CHAIN)) {
+    float off = fmodf(t * 4.0f, 1.8f); /* links climb at 4 m/s */
+    cw_node3d_set_position(CHAIN, V3(CHAIN_DIR.x * off, CHAIN_DIR.y * off, CHAIN_DIR.z * off));
+  }
   if (cw_node_valid(LIGHT_HAUNTED)) {
     float fl = 0.5f + 0.5f * (sinf(t * 23.0f) * sinf(t * 9.1f) > 0.55f ? 0.1f : 1.0f);
     cw_node_set(LIGHT_HAUNTED, "energy", cw_val_float(700.0f * fl));
