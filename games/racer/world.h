@@ -46,6 +46,25 @@ void fx_frame(const sim *s, float alpha); /* every frame: emitters follow the ka
 float fx_shake(int kart);            /* camera shake for the view following this kart, 0..1 */
 float fx_speed_lines(int kart);      /* 0..1: how hard the view following this kart should show speed (HUD uses it) */
 
+/* Ambient particle emitters a map can place from its scenery() callback (fx_amb.c). All are render only.
+ *   FXA_RAIN      fast thin streaks that fall past the camera
+ *   FXA_SNOW      slow drifting flakes
+ *   FXA_EMBERS    glowing sparks rising and flickering out
+ *   FXA_STEAM     a plume of white vapour rising and spreading
+ *   FXA_DUST      low drifting dust, a haze of motes (a dust devil when the box is tall)
+ *   FXA_MIST      big soft pale clouds drifting slowly at ground level
+ *   FXA_FIREFLIES small glowing dots wandering and pulsing
+ * density scales how many particles (1 = the default for that kind). */
+enum { FXA_RAIN, FXA_SNOW, FXA_EMBERS, FXA_STEAM, FXA_DUST, FXA_MIST, FXA_FIREFLIES, FXA_KINDS };
+/* An emitter that follows EVERY view's camera (one for each of up to four views, tuned down in split screen): the box
+ * rides above the camera and slightly ahead of it, so it rains or snows wherever the player looks. Best for
+ * RAIN, SNOW and DUST. scene is the node scenery() was given. */
+void fx_ambient_follow(cw_node scene, int kind, float density);
+/* An emitter fixed in the world: particles spawn in a box of half sizes `extents` round `at`. It switches off beyond
+ * fade_dist metres from every view's camera and fades in over the last 40 percent of that range (0: always on).
+ * Returns the node (for a map that wants to move it, e.g. a steam vent that pulses). */
+cw_node fx_ambient_at(cw_node scene, int kind, t3_vec3 at, t3_vec3 extents, float density, float fade_dist);
+
 /* audio.c: engines, tyres, boosts, items, ambience and the music */
 void audio_init(void);
 void audio_race_start(const sim *s, const map_def *map);
