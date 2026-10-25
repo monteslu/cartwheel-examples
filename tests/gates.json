@@ -5322,6 +5322,7 @@
       "race 3 0 1",
       "race 5 0 1"
     ],
+    "webgpu": true,
     "maxGt16": 0.08,
     "fields": [
       "race.loaded",
