@@ -213,6 +213,8 @@ void game_start_race(const race_setup *rs) {
     G.human_of[i] = i;
     veh[i] = rs->vehicle[i] % NVEH;
   }
+  /* models agent, dev aid: RACER_STUDIO=<vehicle 0..5> makes kart 0 that vehicle (RACER_COLOUR=n paints it) and the camera orbits it */
+  if (getenv("RACER_STUDIO") && !humans) veh[0] = atoi(getenv("RACER_STUDIO")) % NVEH;
   sim_init(&G.S, &G.trk, md, map, rs->laps > 0 ? rs->laps : md->laps, on, veh, 7u + (uint32_t)(map + 1) * 101u);
   for (int i = 0; i < MAXK; i++) {
     G.S.k[i].human = G.human[i];
@@ -220,6 +222,7 @@ void game_start_race(const race_setup *rs) {
     int skill = rs->cpu_skill >= 3 ? (i < 3 ? 2 : i < 5 ? 1 : 0) : rs->cpu_skill;
     ai_reset(&G.ai[i], i, skill, 100u + (uint32_t)i);
   }
+  if (getenv("RACER_STUDIO") && getenv("RACER_COLOUR") && !humans) G.S.k[0].colour = atoi(getenv("RACER_COLOUR")) & 7;
   for (int v = 0; v < CW_MAX_VIEWS; v++) G.pl[v] = v;
   world_build(G.scene, &G.S, md);
   items_build(G.scene, &G.S);
@@ -283,6 +286,20 @@ static void rig_tick(int v) {
     e = (t3_vec3){ cx, ext * 1.05f, cz - 1 };
     at = (t3_vec3){ cx, 0, cz };
     upv = (t3_vec3){ 0, 0, 1 };
+    r->snap = true;
+  } else if (getenv("RACER_STUDIO") && v == 0 && G.cam_mode != 2) {
+    /* models agent, dev aid: orbit kart 0 in its own frame. RACER_STUDIO_CAM=azimuth,distance,height (degrees: 0 behind, 90 left,
+     * 180 front, 270 right; metres) holds a view, otherwise a slow turntable */
+    static float studio_t;
+    float az = studio_t * 24.0f, dist = 4.2f, hgt = 1.3f;
+    if (getenv("RACER_STUDIO_CAM")) sscanf(getenv("RACER_STUDIO_CAM"), "%f,%f,%f", &az, &dist, &hgt);
+    studio_t += 1.0f / 60;
+    const kart *sk = &s->k[0];
+    float a = az * 0.0174533f;
+    t3_vec3 off = v3add(v3mul(kart_fwd(sk), -cw_cos(a) * dist), v3mul(kart_right(sk), -cw_sin(a) * dist));
+    e = v3add(v3add(sk->p, off), v3mul(kart_up(sk), hgt));
+    at = v3add(sk->p, v3mul(kart_up(sk), 0.25f));
+    upv = kart_up(sk);
     r->snap = true;
   } else if (G.cam_mode == 1) {
     /* a demo: a camera flying along the track a little ahead of the leader, to one side and above it */
@@ -392,10 +409,10 @@ static void trace(void) {
     if (G.S.tick < from || G.S.tick >= from + 220) return;
     const kart *k = &G.S.k[atoi(tk)];
     const cw_vehicle3d *c = sim_car(&G.S, atoi(tk));
-    fprintf(tr, "t%d s=%.1f lat=%.2f h=%.2f spd=%.1f vy=%.1f %s i=%d pitch=%.1f falls=%d spin=%d st=%d yaw=%.2f lv=%.1f ct=%d c=%.2f/%.2f/%.2f/%.2f\n", G.S.tick,
+    fprintf(tr, "t%d s=%.1f lat=%.2f h=%.2f spd=%.1f vy=%.1f %s i=%d pitch=%.1f falls=%d spin=%d st=%d yaw=%.2f lv=%.1f ct=%d c=%.2f/%.2f/%.2f/%.2f up.y=%.2f p=(%.1f %.1f %.1f)\n", G.S.tick,
             k->loc.s, k->loc.lat, k->loc.height, k->speed, k->v.y, k->grounded ? "G" : "air", k->loc.i, kart_fwd(k).y, k->falls, k->spin_ticks,
             (int)(k->steer * 100), v3dot(k->w, kart_up(k)), v3dot(k->v, kart_right(k)), c->contacts, c->wheel[0].compression, c->wheel[1].compression,
-            c->wheel[2].compression, c->wheel[3].compression);
+            c->wheel[2].compression, c->wheel[3].compression, kart_up(k).y, k->p.x, k->p.y, k->p.z);
     return;
   }
   if (G.S.tick % 30) return;
@@ -413,6 +430,7 @@ static void fixed(void *u, double dt) {
   (void)dt;
   G.ticks++;
   ui_fixed();
+  audio_pause(G.have_track && !ui_race_runs());
   if (G.have_track && ui_race_runs()) {
     kin in[MAXK] = { { 0 } };
     for (int i = 0; i < MAXK; i++) {
@@ -422,6 +440,16 @@ static void fixed(void *u, double dt) {
       static float test_steer = 9;
       if (test_steer == 9) test_steer = getenv("RACER_TEST_STEER") ? (float)atof(getenv("RACER_TEST_STEER")) : 0;
       if (i == 0 && test_steer != 0 && G.S.phase == PH_RACE && G.S.race_ticks > 200) in[i] = (kin){ .thr = 127, .steer = q127(test_steer) };
+    }
+    {
+      /* dev aid: RACER_TEST_AT=s:speed puts kart 0 on the road there, moving, when the lights go out */
+      static int at_done;
+      if (!at_done && getenv("RACER_TEST_AT") && G.S.phase == PH_RACE && G.S.race_ticks == 1) {
+        float sd = 0, sp = 30;
+        sscanf(getenv("RACER_TEST_AT"), "%f:%f", &sd, &sp);
+        sim_put(&G.S, 0, sd, 0, sp);
+        at_done = 1;
+      }
     }
     sim_step(&G.S, in);
     world_tick(&G.S);
@@ -465,6 +493,16 @@ static void fixed(void *u, double dt) {
   }
 }
 
+/* a debug command for hosts that cannot set environment variables (carts): race <map -1..7> [humans] [laps] */
+static void cmd_race(int argc, const char **argv, cw_reply *r) {
+  int dm = argc > 1 ? atoi(argv[1]) : 0;
+  race_setup rs = { .map = dm < 0 ? -1 : dm % NMAPS, .humans = argc > 2 ? CW_CLAMP(atoi(argv[2]), 0, MAXV) : 0, .laps = argc > 3 ? atoi(argv[3]) : 0,
+                    .cpu_skill = 3, .items = true };
+  for (int i = 0; i < MAXV; i++) rs.vehicle[i] = i * 2 % NVEH, rs.colour[i] = i;
+  ui_enter_race(&rs);
+  if (r) cw_reply_printf(r, "{\"race\":%d}", dm);
+}
+
 static void update(void *u, double dt) {
   (void)u;
   (void)dt;
@@ -473,14 +511,15 @@ static void update(void *u, double dt) {
 
 static void render(void *u, double alpha) {
   (void)u;
+  audio_frame();
   if (G.have_track) {
     world_frame(alpha);
     fx_frame(&G.S, (float)alpha);
   }
   cw_r2d_begin(&(cw_r2d_pass_desc){ .clear = false });
   cw_vec2 cs = cw_r2d_canvas_size();
-  ui_render(cs.x, cs.y);
-  cw_quality_menu_draw(&(cw_quality_menu_style){ .accent = (cw_color){ 0.95f, 0.78f, 0.5f, 1 } });
+  if (!getenv("RACER_STUDIO")) ui_render(cs.x, cs.y); /* models agent: the studio view has no HUD over the kart */
+  cw_quality_menu_draw(&(cw_quality_menu_style){ .font = ui_menu_font() /* ui agent */, .accent = (cw_color){ 1.0f, 0.80f, 0.15f, 1 } });
   cw_r2d_end();
 }
 
@@ -517,6 +556,7 @@ static void init(void *u) {
   cw_debug_field("karts.best_lap", G.best_lap, CW_DBG_I32, MAXK);
   cw_debug_field("karts.finish_tick", G.finish_tick, CW_DBG_I32, MAXK);
   cw_debug_u32("sim.hash", &G.hash);
+  cw_debug_command("race", "race <map -1..7> [humans] [laps]: start a race now", cmd_race);
 #ifdef RACER_AUTOPILOT
   G.auto_all = true;
 #endif
@@ -538,5 +578,10 @@ cw_app_desc cw_main(int argc, char **argv) {
   cw_scene_register_builtin_types();
   static cw_app_desc base = { .title = GAME_TITLE, .width = 960, .height = 540, .debug = true, .init = init, .fixed_update = fixed,
                               .update = update, .render = render, .shutdown = shutdown, .touch_pointer = true, .max_substeps = 3 };
+  /* ui agent: the save data and RACER_RES (pure getters from ui.c) */
+  base.save = ui_save_ptr();
+  base.save_size = ui_save_size();
+  int rw, rh;
+  if (ui_dev_resolution(&rw, &rh)) base.width = rw, base.height = rh;
   return cw_scene_app(NULL, &base);
 }
