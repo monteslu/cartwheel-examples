@@ -1,9 +1,12 @@
 /* racer's front end and HUD (ui.c) and what the game (main.c) offers it.
  *
  * ui.c owns every screen that is not the 3D race: title, player join, vehicle and map
- * select, pause, results, and the HUD drawn over the race (also each split-screen
+ * select, options, pause, results, and the HUD drawn over the race (also each split-screen
  * view's HUD). main.c owns the race itself: it builds the track and the world, steps
- * the sim, runs the cameras, and asks the UI each tick whether to step. */
+ * the sim, runs the cameras, and asks the UI each tick whether to step.
+ *
+ * ui.c is one translation unit made of three files: ui.c (state, input, drawing helpers,
+ * the save, the screen flow), ui_hud.inc (the race HUD) and ui_screens.inc (the menus). */
 #ifndef RACER_UI_H
 #define RACER_UI_H
 
@@ -41,5 +44,15 @@ void ui_race_over(void);                     /* main: the race has ended (everyo
 void ui_render(float W, float H);            /* 2D over the 3D frame */
 void ui_enter_race(const race_setup *rs);    /* dev aids and tests: start this race now, as if chosen from the menus */
 void ui_shutdown(void);
+
+/* The save data (cw_app_desc.save / save_size): best laps, the last race's choices, the
+ * graphics and volume settings, in a versioned and checksummed layout. main.c hands these
+ * to the app description (a call, so set the fields after the static initialiser). */
+void *ui_save_ptr(void);
+size_t ui_save_size(void);
+
+/* The canvas size a dev run opens at: RACER_RES=WxH (e.g. 1920x1080, 540x960 for a portrait
+ * window). Returns false when it is not set. */
+bool ui_dev_resolution(int *w, int *h);
 
 #endif
