@@ -143,14 +143,18 @@ static void scan_course(const track *t) {
     }
   cw_info("drowned: course x %.0f..%.0f z %.0f..%.0f, lowest %.1f, plate %.0f..%.0f dip %.0f..%.0f gap %.0f..%.0f cork %.0f..%.0f",
           L.x0, L.x1, L.z0, L.z1, L.lowest_y, L.plate.s0, L.plate.s1, L.dip.s0, L.dip.s1, L.gap.s0, L.gap.s1, L.cork.s0, L.cork.s1);
+  { float lo = 1e9f, hi = -1e9f, mh = 1e9f;
+    for (int i = 0; i < t->n; i++) if (t->s[i].s >= L.cork.s0 && t->s[i].s <= L.cork.s1) { lo = fminf(lo, t->s[i].p.y), hi = fmaxf(hi, t->s[i].p.y), mh = fminf(mh, t->s[i].hw); }
+    cw_info("drowned: corkscrew road y %.1f..%.1f, narrowest half width %.1f", lo, hi, mh); }
   for (int i = 0; i < L.nwater; i++) cw_info("drowned: ford %d s %.0f..%.0f", i, L.water[i].s0, L.water[i].s1);
   for (int i = 0; i < L.nboost; i++) cw_info("drowned: boost %d s %.0f..%.0f", i, L.boost[i].s0, L.boost[i].s1);
 }
 
 /* ── the ground: flooded street bed, with a deep lake basin over the glass tube ──────────────────── */
 
-#define SEA_Y (-3.4f)       /* the tide: the road after the dip lies about 2 m under the start line, so this stays under it */
-#define STREET_BED (-7.0f)  /* the drowned streets */
+static int PLAN_VIEWS = 1;
+#define SEA_Y (-6.6f)       /* the tide: well under the road (the corkscrew rolls the camera under the road, and it must not meet the sea) */
+#define STREET_BED (-11.0f) /* the drowned streets */
 
 /* ── colours: the neon palette ───────────────────────────────────────────────────────────────────── */
 
@@ -774,7 +778,7 @@ static void dress_walls(const track *t, uint32_t seed) {
         pm_move(b, 0, 1.55f + 0.3f * frand(&rs), 0);
         neon_sign(b, w, h, (int)(frand(&rs) * 4.99f), c1, c2, (uint32_t)(s * 31.0f) + (uint32_t)side * 7u);
         pm_pop(b);
-        pool_add(g, &a, side, 0, 3.2f, 9.0f + 6.0f * frand(&rs), c1, 0.8f);
+        pool_add(g, &a, side, 0, 2.2f, 6.0f + 4.0f * frand(&rs), c1, 0.5f);
       } else if (r < 0.58f) {
         int kind = (int)(frand(&rs) * (float)AD_N) % AD_N;
         float w = 2.6f, h = 1.3f;
@@ -795,14 +799,14 @@ static void dress_walls(const track *t, uint32_t seed) {
         pcol c1 = neon_pick(&rs), c2 = neon_pick(&rs);
         blade_sign(b, 0, 4.25f + 0.5f * frand(&rs), 1.7f, 1.7f, 2.6f + 1.2f * frand(&rs), (int)(frand(&rs) * 4.99f), c1, c2, (uint32_t)(s * 17.0f));
         pm_pop(b);
-        pool_add(g, &a, side, 0, 3.4f, 12.0f, c2, 0.7f);
+        pool_add(g, &a, side, 0, 2.4f, 8.0f, c2, 0.45f);
       }
       if (!clear && ((bay % 4) == 0)) {
         pm *b = wall_frame(N.c[GR_STEADY], &a, side, 0.0f, 0.0f);
         pcol lamp = frand(&rs) < 0.5f ? WARM : hex(0xffb0e0);
         gooseneck(b, 0, 3.2f, 1.7f, lamp);
         pm_pop(b);
-        pool_add(GR_STEADY, &a, side, 0, 4.0f, 14.0f, lamp, 0.6f);
+        pool_add(GR_STEADY, &a, side, 0, 2.8f, 9.0f, lamp, 0.4f);
       }
       s += step;
     }
@@ -1397,12 +1401,12 @@ static void creatures(cw_node root) {
   t3_vec3 side = V(-ax.z, 0, ax.x);
   /* schools of fish circling over the bed on both sides of the tube */
   static const uint32_t cols[4] = { 0x18e6ff, 0xffa22e, 0xff2d95, 0x9dff4a };
-  for (int i = 0; i < 7; i++) {
+  for (int i = 0; i < (PLAN_VIEWS > 1 ? 4 : 7); i++) {
     float along = (0.12f + 0.76f * (float)i / 6.0f) * al, lat = ((i & 1) ? 1.0f : -1.0f) * (22.0f + 12.0f * frand(&rs));
     t3_vec3 c = vadd(vadd(V(LK.a.x, 0, LK.a.z), vmul(ax, along)), vmul(side, lat));
     float roadY = lake_prof(along / al);
     pcol body = hex(cols[i % 4]);
-    prop_model m = make_fish_school(100u + (uint32_t)i, 16, body, pc_mix(body, WARM, 0.5f), 1.3f);
+    prop_model m = make_fish_school(100u + (uint32_t)i, PLAN_VIEWS > 1 ? 9 : 16, body, pc_mix(body, WARM, 0.5f), 1.3f);
     LK.school[i] = model_node(root, "School", m, false);
     LK.sc[i].cx = c.x, LK.sc[i].cz = c.z, LK.sc[i].r = 9.0f + 7.0f * frand(&rs), LK.sc[i].y = roadY + 2.0f + 5.0f * frand(&rs);
     LK.sc[i].w = (0.18f + 0.1f * frand(&rs)) * ((i & 2) ? 1.0f : -1.0f), LK.sc[i].ph = frand(&rs) * 6.28f;
@@ -1411,7 +1415,7 @@ static void creatures(cw_node root) {
   /* a manta gliding over the roof of the tube */
   LK.manta = model_node(root, "Manta", make_manta(), false);
   /* jellyfish drifting, lit from inside */
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < (PLAN_VIEWS > 1 ? 3 : 5); i++) {
     float along = (0.2f + 0.6f * frand(&rs)) * al, lat = ((i & 1) ? 1.0f : -1.0f) * (16.0f + 14.0f * frand(&rs));
     t3_vec3 c = vadd(vadd(V(LK.a.x, 0, LK.a.z), vmul(ax, along)), vmul(side, lat));
     float roadY = lake_prof(along / al);
@@ -1538,7 +1542,7 @@ static void lakebed(const track *t, cw_node root, uint32_t seed) {
   so.kinds[5] = PK_SKYSCRAPER, so.weight[5] = 1;
   so.nkinds = 6;
   so.cx = 0.5f * (LK.a.x + LK.b.x), so.cz = 0.5f * (LK.a.z + LK.b.z), so.half_x = so.half_z = 0.5f * (LK.r0 + 160.0f);
-  so.density = 0.55f, so.scale_min = 0.8f, so.scale_max = 1.5f;
+  so.density = PLAN_VIEWS > 1 ? 0.3f : 0.55f, so.scale_min = 0.8f, so.scale_max = 1.5f;
   so.margin = 7.0f, so.seed = seed ^ 0xbed;
   so.ground = city_ground;
   so.mask = lake_mask;
@@ -2117,6 +2121,27 @@ static struct {
   float uw;  /* how far under the sea the nearest view is, 0..1 (the fog turns green) */
 } A;
 
+/* a soft coloured light that rides above and ahead of each view, so the karts catch the neon colours of the street:
+ * it slides between pink and cyan along the course. One light per planned view (a few, cheap, no shadows). */
+static cw_node RIM[4];
+static void rim_lights(cw_node root) {
+  for (int i = 0; i < PLAN_VIEWS && i < 4; i++) {
+    char name[12];
+    snprintf(name, sizeof name, "Rim%d", i);
+    RIM[i] = add_omni(root, name, V(0, 0, 0), PINK, 70, 16);
+  }
+}
+static void rim_frame(double time) {
+  for (int i = 0; i < PLAN_VIEWS && i < 4 && i < A.ncams; i++) {
+    if (!cw_node_valid(RIM[i]) || !cw_node_valid(A.cams[i])) continue;
+    const t3_mat4 *m = cw_node3d_global_transform(A.cams[i]);
+    t3_vec3 p = V(m->e[12], m->e[13], m->e[14]), f = V(-m->e[8], -m->e[9], -m->e[10]);
+    cw_node3d_set_position(RIM[i], vadd(vadd(p, vmul(f, 6.0f)), V(0, 3.0f, 0)));
+    float k = 0.5f + 0.5f * sinf((float)time * 0.35f + p.x * 0.01f + p.z * 0.013f);
+    cw_node_set(RIM[i], "color", cw_val_color(lerpf(1.0f, 0.1f, k), lerpf(0.2f, 0.85f, k), lerpf(0.55f, 1.0f, k), 1));
+  }
+}
+
 static float flicker_level(int g, double time) {
   switch (g) {
   case GR_FLICK: { /* a tube on the way out: stutters and drops */
@@ -2262,7 +2287,11 @@ static void build_sky(cw_node root) {
 }
 
 /* lightning: some of every few seconds, a stroke and its flickering echoes; returns the flash 0..1 and the bolt to show */
+/* RACER_DROWNED_FLASH=1 holds the first stroke at its peak so a screenshot shows it */
 static float storm_flash(double time, int *which) {
+  static int hold = -1;
+  if (hold < 0) hold = getenv("RACER_DROWNED_FLASH") ? 1 : 0;
+  if (hold) time = 1.66 + 0.02;
   const double per = 6.3;
   int k = (int)floor(time / per);
   uint32_t h = hash32((uint32_t)k * 2654435761u + 9u);
@@ -2285,8 +2314,10 @@ static void underwater_frame(void) {
   float uw = 0;
   for (int i = 0; i < A.ncams; i++) {
     if (!cw_node_valid(A.cams[i])) continue;
-    float y = cw_node3d_global_position(A.cams[i]).y;
-    float k = 1.0f - cw_smoothstep(SEA_Y - 3.5f, SEA_Y - 0.2f, y);
+    t3_vec3 cp = cw_node3d_global_position(A.cams[i]);
+    float y = cp.y;
+    /* only over the lake: elsewhere a rolled camera under the road is not under the sea */
+    float k = lake_axis_dist(cp.x, cp.z, NULL) < LK.r0 ? 1.0f - cw_smoothstep(SEA_Y - 3.5f, SEA_Y - 0.2f, y) : 0.0f;
     uw = fmaxf(uw, k);
     /* no rain falls under the sea: that view's follower stays off (the followers are named Rain, Rain2 .. in view order) */
     bool under = k > 0.6f;
@@ -2349,6 +2380,7 @@ static void scenery_frame(float alpha, double time) {
   rafts_frame(time);
   underwater_frame();
   dev_camera();
+  rim_frame(time);
   /* the storm */
   int bolt = 0;
   float f = storm_flash(time, &bolt);
@@ -2405,7 +2437,12 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
   wo.reflect = 0.9f;
   wo.refract = false;
   wo.grid = 300;
-  water_surface(root, L.cx, L.cz, 4200, 4200, SEA_Y, &wo);
+  int nv = game_planned_views();
+  /* split screen: the sea reflection draws the whole city again for every view, so with two or more views the sea is a flat
+   * tinted film lit by the environment instead (the film over the fords keeps its own look) */
+  cw_node sea = water_surface(root, L.cx, L.cz, 4200, 4200, SEA_Y, &wo);
+  if (nv > 1) cw_node_set(sea, "reflection", cw_val_bool(false));
+  PLAN_VIEWS = nv;
 
   fx_ambient_follow(scene, FXA_RAIN, 1.0f);
 
@@ -2438,10 +2475,10 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
   scatter_opts so = scatter_defaults();
   so.kinds[0] = PK_SKYSCRAPER, so.weight[0] = 1, so.nkinds = 1;
   so.cx = L.cx, so.cz = L.cz, so.half_x = 0.5f * (L.x1 - L.x0) + 40, so.half_z = 0.5f * (L.z1 - L.z0) + 40;
-  so.density = 0.12f, so.scale_min = 0.9f, so.scale_max = 2.2f;
+  so.density = nv > 1 ? 0.1f : 0.2f, so.scale_min = 0.9f, so.scale_max = 2.2f;
   so.margin = 22, so.ground = city_ground, so.mask = tower_mask, so.seed = seed;
   scatter_area(ps, t, &so);
-  so.half_x = so.half_z = 0, so.ring_min = 0.5f * (L.x1 - L.x0) + 80, so.ring_max = 1500, so.density = 0.012f, so.scale_max = 3.0f;
+  so.half_x = so.half_z = 0, so.ring_min = 0.5f * (L.x1 - L.x0) + 80, so.ring_max = nv > 1 ? 900 : 1500, so.density = nv > 1 ? 0.008f : 0.012f, so.scale_max = 3.0f;
   so.far_thin = 0.0f;
   scatter_area(ps, t, &so);
   ps_finish(ps);
@@ -2450,6 +2487,7 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
   lake_surface_and_shafts(root);
   creatures(root);
   lakebed(t, root, seed);
+  rim_lights(root);
   build_sky(root);
   A.scene = scene;
   A.sun = cw_node_get(scene, "Sun"), A.env = cw_node_get(scene, "Env"), A.fog = cw_node_get(scene, "Fog");
