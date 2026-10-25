@@ -31,4 +31,29 @@ void world_tick(const sim *s);
 const track_geo *world_geo(void);
 cw_node world_kart_node(int i);
 
+/* fx.c: everything that flies and flashes (particles, sparks, smoke, splashes, speed lines, shake) */
+void fx_init(cw_node scene, const sim *s, const map_def *map);
+void fx_reset(void);
+void fx_events(const sim *s);        /* fixed tick: this tick's sim events become effects */
+void fx_tick(const sim *s);          /* fixed tick */
+void fx_frame(const sim *s, float alpha); /* every frame: emitters follow the karts as drawn */
+float fx_shake(int kart);            /* camera shake for the view following this kart, 0..1 */
+float fx_speed_lines(int kart);      /* 0..1: how hard the view following this kart should show speed (HUD uses it) */
+
+/* audio.c: engines, tyres, boosts, items, ambience and the music */
+void audio_init(void);
+void audio_race_start(const sim *s, const map_def *map);
+void audio_race_stop(void);
+void audio_events(const sim *s);     /* fixed tick: this tick's sim events */
+void audio_tick(const sim *s, const t3_vec3 *eye, int neyes); /* fixed tick: engines follow the karts; one listener per view */
+void audio_ui(int sfx);              /* a menu sound: AUI_* */
+void audio_music(int track);         /* -1 stops; 0 menu, 1.. a map's music is NMAP+1 */
+void audio_shutdown(void);
+enum { AUI_MOVE, AUI_SELECT, AUI_BACK, AUI_COUNT, AUI_GO, AUI_COUNT_KINDS };
+
+/* items_gfx.c: what the hazards and boxes look like */
+void items_build(cw_node scene, const sim *s);
+void items_reset(void);
+void items_tick(const sim *s);       /* fixed tick: boxes, missiles, oil, mines placed from the sim */
+
 #endif

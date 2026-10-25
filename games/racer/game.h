@@ -133,6 +133,7 @@ typedef struct kart {
   int bump_ticks;
   int respawn_ticks;    /* flickering back in */
   int stuck_ticks;
+  int stall_ticks;      /* ticks it has barely moved (a respawn when it is long) */
   int reset_hold;
   /* items */
   int item;

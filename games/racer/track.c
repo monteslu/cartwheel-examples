@@ -155,9 +155,20 @@ static void do_move(walker *w, const piece *pc) {
   }
 }
 
+/* the pitch of a loop at fraction t of its length: the turn rate ramps up over the first and last `ramp` of it (a
+ * clothoid-like entry, so a kart meets the curve gently instead of at once), 0..2 pi in all */
+static float loop_pitch(float t, float ramp) {
+  float e;
+  if (t < ramp) e = t * t / (2 * ramp);
+  else if (t <= 1 - ramp) e = ramp * 0.5f + (t - ramp);
+  else e = 1 - ramp - (1 - t) * (1 - t) / (2 * ramp);
+  return TWO_PI * e / (1 - ramp);
+}
+
 static void do_loop(walker *w, const piece *pc) {
   float R = pc->a;
-  float len = TWO_PI * R;
+  const float ramp = 0.16f;
+  float len = TWO_PI * R / (1 - ramp);
   int n = (int)(len / STEP_M + 0.5f);
   float ds = len / (float)n;
   float th0 = w->ps.theta;
@@ -167,10 +178,10 @@ static void do_loop(walker *w, const piece *pc) {
     float t0 = (float)i / (float)n, t1 = (float)(i + 1) / (float)n, tm = 0.5f * (t0 + t1);
     emit(w, v3_(0, 0, 0), false, TF_LOOP);
     t3_vec3 r, u, f;
-    frame_of(w->ps.psi, th0 + TWO_PI * tm, w->ps.phi, &r, &u, &f);
+    frame_of(w->ps.psi, th0 + loop_pitch(tm, ramp), w->ps.phi, &r, &u, &f);
     w->ps.p = add(add(w->ps.p, mul(f, ds)), mul(r, shift * (smooth(t1) - smooth(t0))));
     w->s += ds;
-    w->ps.theta = th0 + TWO_PI * t1;
+    w->ps.theta = th0 + loop_pitch(t1, ramp);
   }
   w->ps.theta = th0;
   if (w->t && w->t->nloops < 16) {
@@ -207,6 +218,9 @@ static void do_jump(walker *w, const piece *pc) {
   float th0 = w->ps.theta;
   float c = cw_cos(th0), tn = cw_sin(th0) / (c > 0.2f ? c : 0.2f);
   if (c < 0.2f) return;
+  /* a gap of 0 is the arc that lands level with the lip at the design speed */
+  if (L <= 0) L = 2.0f * v * v * cw_sin(th0) * c / TRACK_G;
+  if (L < 3) return;
   t3_vec3 r0, u0, f0;
   frame_of(w->ps.psi, 0, 0, &r0, &u0, &f0); /* f0: the horizontal heading */
   float k = TRACK_G / (2.0f * v * v * c * c);
@@ -430,6 +444,17 @@ bool track_build(track *t, const track_spec *spec) {
   }
   t->n = w.n;
   t->length = w.s;
+  /* the run-up to every jump: the AI wants speed here and a respawn is never placed in it */
+  for (int g = 0; g < t->ngaps; g++)
+    for (int i = t->gap_from[g] - 60; i < t->gap_from[g]; i++) {
+      int j = t->circuit ? (i + t->n) % t->n : i;
+      if (j >= 0 && j < t->n) t->s[j].flags |= TF_RAMP;
+    }
+  for (int g = 0; g < t->nloops; g++)
+    for (int i = t->loop_from[g] - 60; i < t->loop_from[g]; i++) {
+      int j = t->circuit ? (i + t->n) % t->n : i;
+      if (j >= 0 && j < t->n) t->s[j].flags |= TF_RAMP;
+    }
   /* a circuit's flags wrap: the finish sample keeps the line, the last keeps what it had */
   if (t->circuit) {
     /* snap the end to the start exactly, spread over the last 40 samples */

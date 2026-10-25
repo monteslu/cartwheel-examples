@@ -46,7 +46,7 @@ const char *const ITEM_NAME[IT_KINDS] = { "-", "Turbo", "Triple Turbo", "Missile
 /* ── tuning ─────────────────────────────────────────────────────────── */
 
 #define RIDE 0.62f      /* the body origin's height above the road at rest */
-#define TRAVEL 0.30f
+#define TRAVEL 0.40f
 #define HZ_SPRING 3.0f
 #define TYRE_GRIP 2.6f
 #define MAX_SPEED 78.0f
@@ -212,8 +212,8 @@ static void world_make(sim *s, const map_def *map, const bool on[MAXK], const in
   PH.wallb = cw_body3d_create(PH.w, &bd);
   sd = cw_shape3d_default_def();
   sd.layer = L_WALL;
-  sd.material.friction = 0.05f;
-  sd.material.restitution = 0.15f;
+  sd.material.friction = 0.0f;
+  sd.material.restitution = 0.0f;
   if (PH.walls.nt) {
     PH.wall_mesh = cw_mesh3d_create(PH.walls.v, PH.walls.nv, PH.walls.idx, PH.walls.nt);
     cw_shape3d_mesh(PH.wallb, &sd, PH.wall_mesh, (t3_vec3){ 1, 1, 1 });
@@ -236,12 +236,14 @@ static void world_make(sim *s, const map_def *map, const bool on[MAXK], const in
     sd = cw_shape3d_default_def();
     sd.layer = L_KART;
     sd.mask = (1u << L_TRACK) | (1u << L_WALL) | (1u << L_KART);
-    float vol = 8 * vd->wid * 0.28f * vd->len;
+    float rr0 = vd->wid * 0.82f, vol = 3.1416f * rr0 * rr0 * (2 * (vd->len - rr0) + 1.333f * rr0);
     sd.density = vd->mass / vol;
     sd.material.friction = 0.2f;
     sd.material.restitution = 0.2f;
     sd.hit_events = true;
-    PH.hull[i] = cw_shape3d_box(PH.body[i], &sd, (t3_vec3){ vd->wid, 0.28f, vd->len }, cw_xform3_at(0, 0.02f, 0));
+    /* a rounded hull (a capsule along the kart): a wall or another kart slides along it instead of catching a corner */
+    float rr = vd->wid * 0.82f;
+    PH.hull[i] = cw_shape3d_capsule(PH.body[i], &sd, (t3_vec3){ 0, 0.12f, -(vd->len - rr) }, (t3_vec3){ 0, 0.12f, vd->len - rr }, rr);
     b3MassData md = b3Body_GetMassData(cw_body3d_raw(PH.body[i]));
     md.center = (b3Vec3){ 0, -0.25f, 0 };
     b3Body_SetMassData(cw_body3d_raw(PH.body[i]), md);
@@ -567,11 +569,12 @@ static void boxes_step(sim *s) {
 
 static void respawn(sim *s, int i) {
   kart *k = &s->k[i];
-  float sd = k->last_safe_s - 5.0f;
+  float sd = k->last_safe_s - 18.0f;
   const track *t = s->track;
   if (!t->circuit && sd < 0) sd = 0;
-  kart_place(s, i, sd, 0, 6.0f);
+  kart_place(s, i, sd, 0, 20.0f);
   k->respawn_ticks = 90;
+  k->stall_ticks = 0;
   k->boost_ticks = 0;
   k->item_cool = 30;
   k->falls++;
@@ -666,8 +669,11 @@ static void kart_control(sim *s, int i, kin in) {
   }
   float mass = vd->mass;
   if (attach > 0) {
+    /* gravity leans towards the road's own down: all of the way in a loop or corkscrew (a kart needs no more speed
+     * than it can drive), half way on a hill (a slope still slows a climb and speeds a drop, a little) */
+    float blend = (ts->flags & TF_LOOP) ? 0.88f : 0.45f;
     t3_vec3 gdiff = v3sub((t3_vec3){ 0, 1, 0 }, m.u);
-    cw_body3d_apply_force(b, v3mul(gdiff, GRAV * mass * attach), NULL);
+    cw_body3d_apply_force(b, v3mul(gdiff, GRAV * mass * attach * blend), NULL);
     float sp = absf(k->speed);
     float press = STICK * clampf(sp / 14.0f, 0, 1) * GRAV * mass;
     if (grounded || touching) cw_body3d_apply_force(b, v3mul(m.u, -press * attach), NULL);
@@ -700,13 +706,13 @@ static void kart_control(sim *s, int i, kin in) {
 
   /* drift */
   float sp = k->speed;
-  if (!k->drifting && grounded && (in.btn & KB_DRIFT) && (pressed_drift || k->last_btn & KB_DRIFT) && absf(steer) > 0.25f && sp > DRIFT_MIN) {
+  if (!k->drifting && grounded && (in.btn & KB_DRIFT) && (pressed_drift || k->last_btn & KB_DRIFT) && absf(steer) > 0.25f && sp > DRIFT_MIN && !(ts->flags & (TF_LOOP | TF_GAP | TF_RAMP))) {
     k->drifting = true;
     k->drift_dir = steer > 0 ? 1 : -1; /* + right */
     k->drift_ticks = 0;
     k->drift_level = 0;
     /* a little hop into it */
-    cw_body3d_apply_impulse(b, v3mul(up, 3.2f * mass), NULL);
+    cw_body3d_apply_impulse(b, v3mul(up, 2.0f * mass), NULL);
   }
   if (k->drifting) {
     if (!(in.btn & KB_DRIFT) || sp < DRIFT_MIN * 0.6f || !touching) {
@@ -854,7 +860,7 @@ static void progress(sim *s, int i) {
     if (lap_now > 1) event(s, EV_LAP, i, lap_now, k->p, secs);
   }
   /* a safe place to come back to */
-  if (k->grounded && k->loc.on_road && absf(k->loc.lat) < t->s[k->loc.i].hw - 0.5f && !(t->s[k->loc.i].flags & TF_GAP)) {
+  if (k->grounded && k->loc.on_road && absf(k->loc.lat) < t->s[k->loc.i].hw - 0.5f && !(t->s[k->loc.i].flags & (TF_GAP | TF_RAMP))) {
     if (++k->safe_hold >= 24) {
       k->last_safe_s = k->loc.s;
       k->safe_hold = 0;
@@ -915,8 +921,20 @@ static void contacts(sim *s) {
       cw_body3d_apply_impulse(PH.body[a], v3mul(n, -shove * mb * 0.5f * (mb / (ma + mb)) * 2), NULL);
       if (h->speed > 4) event(s, EV_BUMP, a, b, h->point, clampf(h->speed / 20, 0, 1));
     } else if (a >= 0 || b >= 0) {
-      int k = a >= 0 ? a : b;
-      if (h->speed > 6) event(s, EV_WALL, k, 0, h->point, clampf(h->speed / 25, 0, 1));
+      int ki = a >= 0 ? a : b;
+      kart *k = &s->k[ki];
+      /* a wall takes some of the speed, kills the spin it would give and never throws the kart back */
+      t3_vec3 n = a >= 0 ? h->normal : v3mul(h->normal, -1); /* kart to wall */
+      t3_vec3 v = cw_body3d_velocity(PH.body[ki]);
+      float vn = v3dot(v, n);
+      if (vn > 0) v = v3sub(v, v3mul(n, vn));
+      v = v3mul(v, h->speed > 8 ? 0.93f : 0.99f);
+      cw_body3d_set_velocity(PH.body[ki], v);
+      t3_vec3 w = cw_body3d_angular_velocity(PH.body[ki]);
+      t3_vec3 up = kart_up(k);
+      float wy = v3dot(w, up);
+      cw_body3d_set_angular_velocity(PH.body[ki], v3add(v3sub(w, v3mul(up, wy)), v3mul(up, wy * 0.25f)));
+      if (h->speed > 6) event(s, EV_WALL, ki, 0, h->point, clampf(h->speed / 25, 0, 1));
     }
   }
 }
@@ -1027,9 +1045,11 @@ void sim_step(sim *s, const kin in_raw[MAXK]) {
     bool lost = k->p.y < PH.min_y - 40.0f || (k->loc.dist > ts->hw * 2.5f + 14.0f) ||
                 (k->loc.height < -9.0f && !(ts->flags & TF_GAP));
     bool flipped = k->grounded == false && k->loc.on_road && v3dot(kart_up(k), ts->u) < -0.35f && !(ts->flags & TF_LOOP) && k->loc.height < 1.3f;
+    if (s->phase == PH_RACE && !k->finished && k->respawn_ticks <= 0 && k->spin_ticks <= 0 && absf(k->speed) < 2.5f) k->stall_ticks++;
+    else k->stall_ticks = 0;
     if (flipped) k->stuck_ticks++;
     else if (k->stuck_ticks > 0) k->stuck_ticks--;
-    if (k->respawn_ticks <= 0 && (lost || k->stuck_ticks > 150 || k->reset_hold > 55) && !k->finished) {
+    if (k->respawn_ticks <= 0 && (lost || k->stuck_ticks > 150 || k->stall_ticks > 210 || k->reset_hold > 55) && !k->finished) {
       if (lost) event(s, EV_FALL, i, 0, k->p, 0);
       respawn(s, i);
     }

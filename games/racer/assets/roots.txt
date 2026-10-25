@@ -3,6 +3,14 @@
 project.cwproj
 input.cfg
 scenes/test.cwscene
+scenes/salt.cwscene
+scenes/drowned.cwscene
+scenes/fair.cwscene
+scenes/refinery.cwscene
+scenes/dam.cwscene
+scenes/frost.cwscene
+scenes/temple.cwscene
+scenes/orbit.cwscene
 fonts/Bungee-OFL.txt
 fonts/Bungee-Regular.ttf
 fonts/Fredoka-OFL.txt

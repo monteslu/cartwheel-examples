@@ -63,6 +63,9 @@ kin ai_think(const sim *s, int me, ai_mem *m) {
   /* corners: the speed the road ahead allows */
   float curv = 0;
   for (int c = 1; c <= 4; c++) {
+    /* loops, corkscrews and jumps have no plan-view bend worth braking for */
+    const tsample *ahead = &t->s[(k->loc.i + c * 14) % t->n];
+    if (ahead->flags & (TF_LOOP | TF_GAP)) continue;
     float cv = fabsf(track_curvature(t, k->loc.s + c * 14.0f, 14.0f));
     if (cv > curv) curv = cv;
   }
@@ -74,10 +77,10 @@ kin ai_think(const sim *s, int me, ai_mem *m) {
   /* a gap ahead: all the speed it can have */
   for (int c = 0; c < 6; c++) {
     int idx = (k->loc.i + c * 6) % t->n;
-    if (t->s[idx].flags & (TF_GAP | TF_RAMP)) in.thr = 127;
+    if (t->s[idx].flags & (TF_GAP | TF_RAMP | TF_LOOP)) in.thr = 127;
   }
   /* drift through the sharp ones (the skilled) */
-  if (m->skill >= 1 && curv > 0.012f && spd > 22 && fabsf(ang) > 0.15f) in.btn |= KB_DRIFT;
+  if (m->skill >= 1 && curv > 0.012f && spd > 22 && fabsf(ang) > 0.15f && !(here.flags & (TF_LOOP | TF_GAP | TF_RAMP))) in.btn |= KB_DRIFT;
   /* stuck: back out */
   if (fabsf(spd) < 1.5f && s->phase == PH_RACE) m->stuck++;
   else m->stuck = 0;

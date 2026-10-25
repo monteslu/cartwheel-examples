@@ -68,7 +68,8 @@ typedef enum {
   P_MOVE,    /* a: length   b: heading change (deg, + left)  c: pitch to (deg)  d: bank to (deg)  e: half width to */
   P_LOOP,    /* a: radius   b: side the loop steps to (+1 right, -1 left)  c: pitch the lead-in has */
   P_CORK,    /* a: length   b: turns (+ rolls to the left over the top)  */
-  P_JUMP,    /* a: horizontal distance of the gap   b: design speed m/s   (the frame lands where the arc does) */
+  P_JUMP,    /* a: horizontal distance of the gap (0: where the arc lands level with the lip)   b: design speed m/s, the SLOWEST
+             a kart is expected to take off at: faster ones fly further and land on the slope after the gap */
   P_SURF,    /* a: surface kind from here on */
   P_WALLS,   /* a: left class  b: right class  (0 none, 1 low, 2 high, 3 tall) */
   P_TUNNEL,  /* a: 1 roof on, 0 off, 2 glass plate on */
