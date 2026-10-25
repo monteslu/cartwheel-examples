@@ -914,12 +914,14 @@ static void contacts(sim *s) {
     if (h->type != CW_PHYS_HIT) continue;
     int a = kart_of(h->body_a), b = kart_of(h->body_b);
     if (a >= 0 && b >= 0) {
-      /* the heavier shoves the lighter */
+      /* the heavier shoves the lighter, sideways along the road: never up into the air */
       float ma = VEH[s->k[a].veh].mass, mb = VEH[s->k[b].veh].mass;
       t3_vec3 n = h->normal; /* from a to b */
-      float shove = clampf(h->speed * 0.18f, 0, 5);
-      cw_body3d_apply_impulse(PH.body[b], v3mul(n, shove * ma * 0.5f * (ma / (ma + mb)) * 2), NULL);
-      cw_body3d_apply_impulse(PH.body[a], v3mul(n, -shove * mb * 0.5f * (mb / (ma + mb)) * 2), NULL);
+      t3_vec3 ua = kart_up(&s->k[a]);
+      n = v3norm(v3sub(n, v3mul(ua, v3dot(n, ua))));
+      float shove = clampf(h->speed * 0.08f, 0, 2.5f);
+      cw_body3d_apply_impulse(PH.body[b], v3mul(n, shove * ma * (ma / (ma + mb))), NULL);
+      cw_body3d_apply_impulse(PH.body[a], v3mul(n, -shove * mb * (mb / (ma + mb))), NULL);
       if (h->speed > 4) event(s, EV_BUMP, a, b, h->point, clampf(h->speed / 20, 0, 1));
     } else if (a >= 0 || b >= 0) {
       int ki = a >= 0 ? a : b;

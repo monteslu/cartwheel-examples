@@ -13,6 +13,7 @@
 #define DEG (3.14159265f / 180.0f)
 #define TWO_PI 6.2831853f
 #define TRACK_G 20.0f /* must match the sim's gravity: the arc of a jump */
+int track_debug; /* the host-side track tool sets it: print the closing solve */
 #define MAX_PIECES 256
 #define MAX_SAMPLES 16384
 
@@ -309,6 +310,7 @@ typedef struct var {
   int piece;
   char which; /* 'a' length, 'b' turn, 'c' pitch */
   float scale;
+  float lo, hi; /* the range the solve may move it within */
 } var;
 
 static float *var_ref(piece *p, const var *v) {
@@ -359,9 +361,13 @@ static bool close_circuit(piece *p, int np, const track_spec *spec, float *err_o
   int nv = 0;
   for (int i = 0; i < np && nv < 45; i++) {
     if (!p[i].adj) continue;
-    vars[nv++] = (var){ i, 'a', 1.0f };
-    if (p[i].kind == P_MOVE && p[i].b != 0) vars[nv++] = (var){ i, 'b', 0.5f };
-    if (p[i].kind == P_MOVE && p[i].c < KEEP) vars[nv++] = (var){ i, 'c', 0.3f };
+    /* a piece keeps its character: lengths move by 40% down to 250% up, a turn by 40% to 190%, a slope by 12 degrees */
+    vars[nv++] = (var){ i, 'a', 1.0f, p[i].a * 0.4f, p[i].a * 2.5f };
+    if (p[i].kind == P_MOVE && p[i].b != 0) {
+      float b = p[i].b;
+      vars[nv++] = (var){ i, 'b', 0.5f, b > 0 ? b * 0.4f : b * 1.9f, b > 0 ? b * 1.9f : b * 0.4f };
+    }
+    if (p[i].kind == P_MOVE && p[i].c < KEEP) vars[nv++] = (var){ i, 'c', 0.3f, p[i].c - 12.0f, p[i].c + 12.0f };
   }
   if (nv < 4) {
     cw_error("track %s: the closing solve needs at least four adjustable values (ADJ), got %d", spec->name, nv);
@@ -402,10 +408,15 @@ static bool close_circuit(piece *p, int np, const track_spec *spec, float *err_o
       float dx = 0;
       for (int i = 0; i < 4; i++) dx += J[i][k] * y[i];
       *var_ref(p, &vars[k]) += dx * vars[k].scale * damp;
-      if (vars[k].which == 'a' && *var_ref(p, &vars[k]) < 1.0f) *var_ref(p, &vars[k]) = 1.0f;
+      float *ref = var_ref(p, &vars[k]);
+      if (*ref < vars[k].lo) *ref = vars[k].lo;
+      if (*ref > vars[k].hi) *ref = vars[k].hi;
     }
     residual(p, np, spec, r);
+    if (track_debug) cw_info("closing solve %d: error %.2f", it, sqrtf(r[0] * r[0] + r[1] * r[1] + r[2] * r[2] + r[3] * r[3]));
   }
+  if (track_debug)
+    for (int k = 0; k < nv; k++) cw_info("  var piece %d %c = %.2f in [%.2f, %.2f]", vars[k].piece, vars[k].which, *var_ref(p, &vars[k]), vars[k].lo, vars[k].hi);
   float e = sqrtf(r[0] * r[0] + r[1] * r[1] + r[2] * r[2]);
   *err_out = e;
   if (e > 0.5f || fabsf(r[3] / 20.0f) > 1.0f * DEG) {

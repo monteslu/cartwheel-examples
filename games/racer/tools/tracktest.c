@@ -10,37 +10,34 @@ float cw_sin(float x) { return sinf(x); }
 float cw_cos(float x) { return cosf(x); }
 void cw_sincos(float x, float *s, float *c) { *s = sinf(x), *c = cosf(x); }
 float cw_atan2(float y, float x) { return atan2f(y, x); }
-void cw_error(const char *f, ...) {
-  va_list a;
-  va_start(a, f);
-  fprintf(stderr, "ERROR: ");
-  vfprintf(stderr, f, a);
-  fprintf(stderr, "\n");
-  va_end(a);
-}
-void cw_info(const char *f, ...) {
-  va_list a;
-  va_start(a, f);
-  vfprintf(stdout, f, a);
-  fprintf(stdout, "\n");
-  va_end(a);
-}
-void cw_warn(const char *f, ...) {
-  va_list a;
-  va_start(a, f);
-  fprintf(stderr, "WARN: ");
-  vfprintf(stderr, f, a);
-  fprintf(stderr, "\n");
-  va_end(a);
-}
-
 #include "../track.h"
 #include MAPFILE
 
+void cw_log(cw_log_level level, const char *f, ...) {
+  va_list a;
+  va_start(a, f);
+  fprintf(level >= CW_LOG_ERROR ? stderr : stdout, level >= CW_LOG_ERROR ? "ERROR: " : "");
+  vfprintf(level >= CW_LOG_ERROR ? stderr : stdout, f, a);
+  fprintf(level >= CW_LOG_ERROR ? stderr : stdout, "\n");
+  va_end(a);
+}
+
+
+extern int track_debug;
 int main(int argc, char **argv) {
+  track_debug = getenv("TRACK_DEBUG") != NULL;
   const char *out = argc > 1 ? argv[1] : "/tmp/track";
   track t;
   if (!track_build(&t, MAP_SPEC)) {
+    /* show where the open path ends, to tune the closing run by hand */
+    track_spec open = *MAP_SPEC;
+    open.circuit = false;
+    track o;
+    if (track_build(&o, &open)) {
+      const tsample *e = &o.s[o.n - 1];
+      printf("open path: %d samples, %.0f m; ends at (%.0f, %.0f, %.0f) heading %.0f deg (from +z, left +), pitch %.1f deg\n", o.n, o.length, e->p.x, e->p.y, e->p.z,
+             atan2f(e->f.x, e->f.z) * 57.2958f, asinf(e->f.y) * 57.2958f);
+    }
     fprintf(stderr, "build failed\n");
     return 1;
   }
@@ -75,6 +72,13 @@ int main(int argc, char **argv) {
     }
   printf("closest approach of distant parts: %.1f m (at s=%.0f and s=%.0f)\n", mind, t.s[mi].s, t.s[mj].s);
   /* rasters: a top view coloured by height, and a side profile */
+  if (getenv("TRACKTEST_DUMP")) {
+    int a = atoi(getenv("TRACKTEST_DUMP")), b = a + 12;
+    for (int i = a; i < b && i < t.n; i++) {
+      const tsample *s = &t.s[i];
+      printf("i=%d s=%.2f p=(%.2f %.2f %.2f) f=(%.3f %.3f %.3f) u=(%.3f %.3f %.3f) bank=%.1f hw=%.2f flags=%x\n", i, s->s, s->p.x, s->p.y, s->p.z, s->f.x, s->f.y, s->f.z, s->u.x, s->u.y, s->u.z, s->bank * 57.3f, s->hw, s->flags);
+    }
+  }
   char path[512];
   {
     float W = maxx - minx + 80, H = maxz - minz + 80, sc = 1000.0f / (W > H ? W : H);
