@@ -155,7 +155,7 @@ static struct {
   int nbpos;
   pool pool[10];                    /* slag pools */
   int npool;
-  pool keep[48];                    /* places the scatter keeps clear (set pieces) */
+  pool keep[96];                    /* places the scatter keeps clear (set pieces) */
   int nkeep;
   float flash;                      /* lightning, 0..1 */
   t3_material *tgt[MAXGAP];         /* the landing targets (they pulse) */
@@ -183,12 +183,15 @@ static struct {
     t3_sprite *spark;
   } rob[2];
   int nrob;
-  /* the heat and dust that follows the road's cameras */
   uint32_t seed;
 } R;
 
+/* views the race will have (1..4): split screen runs every part of this scene once per view, so more views get a thinner,
+ * cheaper plant (fewer yard pieces, flame cards instead of flame meshes, fewer lights and emitters) */
+static int NV = 1;
+
 static void keep_add(float x, float z, float r) {
-  if (R.nkeep < 48) R.keep[R.nkeep++] = (pool){ x, z, r };
+  if (R.nkeep < 96) R.keep[R.nkeep++] = (pool){ x, z, r };
 }
 /* scatter mask: 0 inside a keep-out circle */
 static float keep_mask(float x, float z, void *ud) {
@@ -522,7 +525,7 @@ static const char *const REC_VENT[] = { "amount", "30", "lifetime", "2.6", "life
   "turbulence", "0.9", "turbulence_scale", "0.4", "local_coords", "false", NULL };
 
 static int emit_new(const char *const *rec, const char *name, t3_vec3 at, int kind, float range, float period, float duty, float phase) {
-  if (R.nem >= MAXEM) return -1;
+  if (R.nem >= MAXEM || (NV > 1 && R.nem % 3 == 2)) return -1;
   emitter *e = &R.em[R.nem];
   e->n = fx_pnode(R.root, name, rec, 7000 + R.nem * 13);
   cw_node3d_set_position(e->n, at);
@@ -542,6 +545,9 @@ static void emit_aim(int i, t3_vec3 d) {
   cw_node3d_set_quaternion(R.em[i].n, t3_quat_from_axis_angle(v3mul(ax, 1.0f / s), atan2f(s, c)));
 }
 
+#define RIVER_W 38.0f
+static float river_x(float z) { return 560.0f + 90.0f * sinf(z * 0.004f + 1.0f); }
+
 /* ── terrain ─────────────────────────────────────────────────────────────────────────────────────── */
 
 /* The ground is flat with slow swells, falls into a cutting where the course dips below it, and drops into a pit
@@ -553,6 +559,10 @@ static float terrain(float x, float z, void *ud) {
   int idx;
   float gap = road_gap_idx(t, x, z, &ry, &idx);
   float h = -0.12f + (ground_noise(x, z, 120, 1.0f, 3, 41u) + 1.0f) * 0.9f * sst(14, 130, gap);
+  if (x > 380.0f) { /* the slag river: a trench down the east side, far from the road */
+    float d = fabsf(x - river_x(z)) / 1.07f;
+    h = lerpf(-2.2f, h, sst(RIVER_W * 0.5f, RIVER_W * 0.5f + 10.0f, d));
+  }
   const tsample *s = &t->s[idx];
   if (gap < 60.0f && !(s->flags & TF_GAP)) {
     /* the ground meets the road at the height of the road's own surface there (a banked road is lower at its inner
@@ -783,7 +793,7 @@ static void iset_begin(iset *s, prop_model m0, prop_model m1) {
     for (int l = 0; l < PL_COUNT; l++)
       if (s->m[k].g[l]) {
         s->b[k][l] = pb_begin(s->m[k].g[l], prop_material(l, -1, (pcol){ 1, 1, 1 }, 1));
-        pb_chunk(s->b[k][l], k ? 320.0f : 170.0f); /* few big cells: each is a draw per layer, and the far ones are drawn through fog anyway */
+        pb_chunk(s->b[k][l], k ? 420.0f : 260.0f); /* few big cells: each is a draw per layer, and the far ones are drawn through fog anyway */
       }
 }
 static void iset_add(iset *s, int lod, t3_vec3 pos, float yaw, float sc) {
@@ -926,10 +936,14 @@ static void pit_build(int g) {
     corner[i] = V3(C.x + F.x * u + Rt.x * v, 0, C.z + F.z * u + Rt.z * v);
   }
   /* four inner walls, dark scorched plate with a heat gradient painted on (a lit mesh) and an additive glow over it */
-  t3_material *wall = phys(lin(1, 1, 1), 0.8f, 0.2f);
+  /* scorched rock (the ground's rock texture, darkened) whose cracks glow: the slag texture is its emissive map */
+  t3_material *wall = phys(lin(0.34f, 0.27f, 0.25f), 0.85f, 0.0f);
   wall->vertex_colors = true;
   wall->side = T3_DOUBLE_SIDE;
-  tex_apply(wall, TEX_WALL_RUST, 1, 1, 0.8f, 1.0f);
+  tex_apply(wall, TEX_GROUND_ROCK, 1, 1, 1.0f, 1.0f);
+  wall->emissive = (t3_color){ 1, 1, 1 };
+  wall->emissive_intensity = 1.1f;
+  t3_material_set_texture(wall, T3_EMISSIVE_MAP, R.lava_tex[0]);
   t3_material *gl = glow_mat(NULL, true);
   mb m = { 0 }, mg = { 0 };
   for (int i = 0; i < 4; i++) {
@@ -946,10 +960,11 @@ static void pit_build(int g) {
       float f0 = (float)k / (float)cols, f1 = (float)(k + 1) / (float)cols;
       t3_vec3 p0 = V3(lerpf(a.x, c.x, f0), 0, lerpf(a.z, c.z, f0)), p1 = V3(lerpf(a.x, c.x, f1), 0, lerpf(a.z, c.z, f1));
       float h0 = yt_a - fl, u1 = len * f1 / 4.0f, u0 = len * f0 / 4.0f;
-      pcol cb = rgb(0.8f, 0.5f, 0.35f), ct = rgb(0.5f, 0.42f, 0.4f);
+      pcol cb = rgb(1.0f, 0.62f, 0.45f), ct = rgb(0.55f, 0.5f, 0.5f);
       t3_vec3 nin = v3norm(V3(C.x - (p0.x + p1.x) * 0.5f, 0, C.z - (p0.z + p1.z) * 0.5f));
-      int i0 = mb_vn(&m, V3(p0.x, fl, p0.z), nin, 0, u0, cb);
-      mb_vn(&m, V3(p1.x, fl, p1.z), nin, 0, u1, cb), mb_vn(&m, V3(p1.x, yt_c, p1.z), nin, h0 / 4.0f, u1, ct), mb_vn(&m, V3(p0.x, yt_a, p0.z), nin, h0 / 4.0f, u0, ct);
+      float uvs = 1.0f / 8.0f; /* one rock tile per 8 m: the glowing cracks read as a rough wall, not a printed panel */
+      int i0 = mb_vn(&m, V3(p0.x, fl, p0.z), nin, 0, u0 * 4.0f * uvs, cb);
+      mb_vn(&m, V3(p1.x, fl, p1.z), nin, 0, u1 * 4.0f * uvs, cb), mb_vn(&m, V3(p1.x, yt_c, p1.z), nin, h0 * uvs, u1 * 4.0f * uvs, ct), mb_vn(&m, V3(p0.x, yt_a, p0.z), nin, h0 * uvs, u0 * 4.0f * uvs, ct);
       mb_t(&m, i0, i0 + 1, i0 + 2), mb_t(&m, i0, i0 + 2, i0 + 3);
       /* the glow: bright orange at the foot, gone by 45 percent of the height */
       float gy = fl + h0 * 0.5f;
@@ -974,7 +989,7 @@ static void pit_build(int g) {
   put(R.dyn, mb_done(&f), R.lava_mat[g & 1], V3(0, 0, 0), false, false);
   /* flames licking up from the floor: a loose grid, taller toward the middle */
   int n = 0;
-  for (int k = 0; k < 11; k++) {
+  for (int k = 0; k < (NV > 1 ? 6 : 11); k++) {
     float u = (hf(40u + (uint32_t)g, (uint32_t)k) * 2 - 1) * (hl - 1.5f), v = (hf(60u + (uint32_t)g, (uint32_t)k) * 2 - 1) * (hw - 2.0f);
     float mid = 1.0f - fabsf(u) / hl * 0.6f;
     float h = (17.0f + 14.0f * hf(70u + (uint32_t)g, (uint32_t)k)) * mid;
@@ -1006,12 +1021,13 @@ static void yards(void) {
   iset_begin(&cyl, m_cyltank(8, 14, 6u, 0), m_cyltank(8, 14, 6u, 1));
   iset_begin(&stk, m_stack(70, 2u, 0), m_stack(70, 2u, 1));
   prop_set *ps = ps_new(R.root, "YardProps");
+  ps_shadows(ps, false);
   float minx = 1e9f, maxx = -1e9f, minz = 1e9f, maxz = -1e9f;
   for (int i = 0; i < t->n; i += 4) {
     minx = fminf(minx, t->s[i].p.x), maxx = fmaxf(maxx, t->s[i].p.x);
     minz = fminf(minz, t->s[i].p.z), maxz = fmaxf(maxz, t->s[i].p.z);
   }
-  const float step = 46.0f, ext = 760.0f;
+  const float step = NV > 1 ? 66.0f : 46.0f, ext = 760.0f;
   int placed = 0;
   for (float z = minz - ext; z < maxz + ext; z += step)
     for (float x = minx - ext; x < maxx + ext; x += step) {
@@ -1057,7 +1073,7 @@ static void yards(void) {
       }
     }
   cw_info("refinery: %d yard pieces", placed);
-  iset_end(&crack_a, "CrackA", true), iset_end(&crack_b, "CrackB", true), iset_end(&sph, "Sphere", true), iset_end(&cyl, "CylTank", true), iset_end(&stk, "Stack", false);
+  iset_end(&crack_a, "CrackA", false), iset_end(&crack_b, "CrackB", false), iset_end(&sph, "Sphere", false), iset_end(&cyl, "CylTank", false), iset_end(&stk, "Stack", false); /* no shadows: they sit tens of metres out, past the sun's shadow range */
   ps_finish(ps);
 }
 
@@ -1065,11 +1081,11 @@ static void yards(void) {
 static void roadside(void) {
   const track *t = R.t;
   prop_set *ps = ps_new(R.root, "Roadside");
+  ps_shadows(ps, false);
   scatter_opts o = scatter_defaults();
-  o.from_s = 0, o.to_s = t->length, o.spacing = 24, o.jitter = 0.8f, o.lat_min = 3.0f, o.lat_max = 26.0f;
+  o.from_s = 0, o.to_s = t->length, o.spacing = NV > 1 ? 42 : 24, o.jitter = 0.8f, o.lat_min = 3.0f, o.lat_max = 26.0f;
   o.kinds[0] = PK_BARREL, o.weight[0] = 3, o.kinds[1] = PK_CONTAINER, o.weight[1] = 1.4f, o.kinds[2] = PK_CONE, o.weight[2] = 1.0f;
-  o.kinds[3] = PK_TYRE_STACK, o.weight[3] = 0.6f;
-  o.nkinds = 4, o.scale_min = 0.9f, o.scale_max = 1.5f, o.lat_curve = 1.8f, o.ground = terrain, o.mask = keep_mask, o.margin = 2.5f, o.seed = 21;
+  o.nkinds = NV > 1 ? 2 : 3, o.scale_min = 0.9f, o.scale_max = 1.5f, o.lat_curve = 1.8f, o.ground = terrain, o.mask = keep_mask, o.margin = 2.5f, o.seed = 21;
   scatter_along(ps, t, &o);
   /* the odd crane and pylon among the process units */
   o.spacing = 120, o.lat_min = 30, o.lat_max = 110, o.lat_curve = 1.0f, o.margin = 6;
@@ -1907,6 +1923,167 @@ static void pick_pools(void) {
   }
 }
 
+/* ── the far landmarks: a slag river and two great tower complexes on the horizon ────────────────── */
+
+/* the river: a ribbon of the glowing slag texture at the bottom of a trench cut by terrain() */
+static void slag_river(void) {
+  mb m = { 0 };
+  float y = -1.55f;
+  int n = 0;
+  for (float z = -900.0f; z <= 1700.0f; z += 30.0f, n++) {
+    float x = river_x(z), w = RIVER_W * 0.5f;
+    float wob = 1.0f + 0.15f * sinf(z * 0.05f);
+    mb_v(&m, V3(x - w * wob, y, z), 0.0f, z / 14.0f, hot(1, 1, 1));
+    mb_v(&m, V3(x + w * wob, y, z), 1.0f * RIVER_W / 14.0f, z / 14.0f, hot(1, 1, 1));
+    if (n) {
+      int i = m.nv - 4;
+      mb_t(&m, i, i + 2, i + 3), mb_t(&m, i, i + 3, i + 1);
+    }
+  }
+  put(R.dyn, mb_done(&m), R.lava_mat[1], V3(0, 0, 0), false, false);
+  /* a glow strip above it, so it lights the haze and blooms */
+  mb g = { 0 };
+  n = 0;
+  for (float z = -900.0f; z <= 1700.0f; z += 60.0f, n++) {
+    float x = river_x(z);
+    pcol c = hot(0.9f, 0.3f, 0.06f), o = hot(0, 0, 0);
+    mb_v(&g, V3(x - 40.0f, y + 0.4f, z), 0, 0, o), mb_v(&g, V3(x, y + 0.4f, z), 0, 0, c), mb_v(&g, V3(x + 40.0f, y + 0.4f, z), 0, 0, o);
+    if (n) {
+      int i = g.nv - 6;
+      mb_t(&g, i, i + 1, i + 4), mb_t(&g, i, i + 4, i + 3), mb_t(&g, i + 1, i + 2, i + 5), mb_t(&g, i + 1, i + 5, i + 4);
+    }
+  }
+  t3_material *gm = glow_mat(NULL, true);
+  put(R.dyn, mb_done(&g), gm, V3(0, 0, 0), false, false);
+  t3_release(gm);
+  for (float z = -700.0f; z < 1600.0f; z += 230.0f) keep_add(river_x(z), z, 120);
+}
+
+/* a giant tower: a tall tapering column with lit bands and a dim red lamp, drawn cheaply (it stands a kilometre off) */
+static prop_model m_giant(float H, uint32_t seed) {
+  pm *b = pm_new(seed);
+  float r0 = H * 0.11f, r1 = H * 0.065f;
+  int segs = 5;
+  pm_layer(b, PL_MAIN);
+  for (int i = 0; i < segs; i++) {
+    float t0 = (float)i / segs, t1 = (float)(i + 1) / segs;
+    pm_push(b), pm_move(b, 0, H * t0, 0), pm_cyl(b, lerpf(r0, r1, t0), lerpf(r0, r1, t1), H / segs * 1.02f, 10, SOOT, (i & 1) ? STEEL_D : rgb(0.38f, 0.36f, 0.4f)), pm_pop(b);
+  }
+  pm_push(b), pm_move(b, 0, H, 0), pm_cyl(b, r1, r1 * 1.5f, H * 0.04f, 10, STEEL_D, SOOT), pm_pop(b);
+  for (int k = 0; k < 3; k++) /* work platforms and buttresses */
+    pm_push(b), pm_move(b, 0, H * (0.3f + 0.2f * (float)k), 0), pm_cyl(b, lerpf(r0, r1, 0.3f + 0.2f * (float)k) * 1.4f, lerpf(r0, r1, 0.3f + 0.2f * (float)k) * 1.4f, H * 0.008f, 10, STEEL_D, STEEL), pm_pop(b);
+  pm_layer(b, PL_GLOW);
+  for (int k = 0; k < 9; k++) {
+    float t = 0.06f + 0.1f * (float)k;
+    float r = lerpf(r0, r1, t) * 1.04f;
+    pm_push(b), pm_move(b, 0, H * t, 0), pm_cyl(b, r, r, H * 0.009f, 10, hot(0.9f, 0.3f, 0.06f), hot(1.2f, 0.4f, 0.08f)), pm_pop(b);
+  }
+  pm_push(b), pm_move(b, 0, H * 1.04f, 0), pm_box_c(b, H * 0.02f, H * 0.02f, H * 0.02f, glow(rgb(1, 0.1f, 0.06f), 5)), pm_pop(b);
+  return pm_finish(b);
+}
+
+static void landmarks(void) {
+  /* two complexes: one ahead of the grid (the first thing the player sees) and one behind the closing straight */
+  static const float L[2][5][4] = {
+    { { -60, 1450, 340, 1 }, { 90, 1560, 280, 0 }, { 230, 1480, 400, 1 }, { -210, 1520, 250, 0 }, { 30, 1650, 220, 0 } },
+    { { 120, -1250, 300, 1 }, { -40, -1330, 240, 0 }, { 260, -1300, 330, 1 }, { -190, -1210, 210, 0 }, { 60, -1420, 200, 0 } },
+  };
+  for (int c = 0; c < 2; c++)
+    for (int i = 0; i < (NV > 1 ? 3 : 5); i++) {
+      float H = L[c][i][2];
+      prop_model m = m_giant(H, 40u + (uint32_t)(c * 7 + i));
+      t3_vec3 at = V3(L[c][i][0], -0.5f, L[c][i][1]);
+      t3_object *g = group_at(R.dyn, at);
+      for (int l = 0; l < PL_COUNT; l++)
+        if (m.g[l]) {
+          t3_mesh *me = t3_mesh_new(m.g[l], prop_material(l, -1, (pcol){ 1, 1, 1 }, 1));
+          me->base.cast_shadow = false;
+          t3_object_add(g, me);
+          t3_release(me);
+        }
+      prop_model_free(&m);
+      if (L[c][i][3] > 0.5f) {
+        /* a huge flare burning on the top */
+        if (NV > 1) halo_at(R.dyn, R.halo_amber, v3add(at, V3(0, H * 1.1f, 0)), H * 0.5f);
+        else flame_new(v3add(at, V3(0, H * 1.04f, 0)), H * 0.05f, H * 0.17f, 1500u + (uint32_t)(c * 5 + i), 0, 0, true, 1.0f);
+      }
+      halo_at(R.dyn, R.halo_mat, v3add(at, V3(0, H * 0.3f, 0)), H * 0.6f);
+    }
+}
+
+/* ── the ground's own variety: dirt haul tracks and concrete pads beside the road, oily patches ─────── */
+
+static void tracks_and_pads(void) {
+  const track *t = R.t;
+  t3_material *dm = phys(lin(1, 0.92f, 0.88f), 1.0f, 0);
+  tex_apply(dm, TEX_ROAD_DIRT, 1, 1, 1.0f, 1.0f);
+  t3_material *cm = phys(lin(0.8f, 0.78f, 0.78f), 0.95f, 0);
+  tex_apply(cm, TEX_ROAD_CONCRETE, 1, 1, 1.0f, 1.0f);
+  t3_material *om = phys(lin(0.02f, 0.02f, 0.025f), 0.12f, 0.2f);
+  mb dt = { 0 }, cc = { 0 }, oi = { 0 };
+  int ntrk = 0, npad = 0;
+  for (float s = 70.0f; s < t->length - 60.0f; s += 95.0f + 40.0f * hf((uint32_t)s, 61)) {
+    uint32_t h = hh((uint32_t)s, 77u);
+    tsample a = track_at(t, s);
+    if (a.flags & (TF_GAP | TF_TUNNEL | TF_LOOP) || near_special(s, 20)) continue;
+    float side = hf(h, 1) < 0.5f ? -1.0f : 1.0f;
+    /* a haul track: it leaves the road edge at an angle and runs out to a pad */
+    float len = 55.0f + 40.0f * hf(h, 2), ang = (hf(h, 3) - 0.5f) * 0.7f;
+    t3_vec3 r = v3norm(V3(a.r.x, 0, a.r.z)), f = v3norm(V3(a.f.x, 0, a.f.z));
+    t3_vec3 st = v3add(v3add(a.p, v3mul(r, side * (a.hw + 14.0f))), V3(0, 0, 0));
+    t3_vec3 dir = v3norm(v3add(v3mul(r, side * cosf(ang)), v3mul(f, sinf(ang))));
+    bool ok = true;
+    int base = dt.nv, ni0 = dt.ni;
+    for (float d = 0; d <= len; d += 6.0f) {
+      t3_vec3 c = v3add(st, v3mul(dir, d));
+      float gap = road_gap(t, c.x, c.z, NULL);
+      if (gap < 8.0f || in_pit(c.x, c.z, 6.0f) || keep_mask(c.x, c.z, NULL) == 0.0f) { ok = d > 24.0f; if (!ok) break; len = d; break; }
+      float y = terrain(c.x, c.z, NULL) + 0.13f;
+      t3_vec3 p = V3(-dir.z, 0, dir.x);
+      float w = 3.6f * (1.0f - 0.25f * d / len);
+      mb_v(&dt, V3(c.x - p.x * w, terrain(c.x - p.x * w, c.z - p.z * w, NULL) + 0.13f, c.z - p.z * w), 0, d / 8.0f, hot(1, 1, 1));
+      mb_v(&dt, V3(c.x + p.x * w, terrain(c.x + p.x * w, c.z + p.z * w, NULL) + 0.13f, c.z + p.z * w), 1, d / 8.0f, hot(1, 1, 1));
+      (void)y;
+      if (dt.nv - base >= 4) {
+        int i = dt.nv - 4;
+        mb_t(&dt, i, i + 2, i + 3), mb_t(&dt, i, i + 3, i + 1);
+      }
+    }
+    if (!ok || dt.nv - base < 6) {
+      dt.nv = base, dt.ni = ni0; /* a track that hit something is dropped */
+      continue;
+    }
+    ntrk++;
+    /* the pad at its end: a slab with a joint pattern, and an oily stain beside it */
+    t3_vec3 e = v3add(st, v3mul(dir, len + 14.0f));
+    float gp = road_gap(t, e.x, e.z, NULL);
+    if (gp > 26.0f && !in_pit(e.x, e.z, 10.0f) && keep_mask(e.x, e.z, NULL) != 0.0f) {
+      float hw2 = 12.0f, hl2 = 15.0f, y = terrain(e.x, e.z, NULL) + 0.2f;
+      t3_vec3 p = V3(-dir.z, 0, dir.x);
+      t3_vec3 q0 = V3(e.x - p.x * hw2 - dir.x * hl2, y, e.z - p.z * hw2 - dir.z * hl2), q1 = V3(e.x + p.x * hw2 - dir.x * hl2, y, e.z + p.z * hw2 - dir.z * hl2);
+      t3_vec3 q2 = V3(e.x + p.x * hw2 + dir.x * hl2, y, e.z + p.z * hw2 + dir.z * hl2), q3 = V3(e.x - p.x * hw2 + dir.x * hl2, y, e.z - p.z * hw2 + dir.z * hl2);
+      int i0 = mb_v(&cc, q0, 0, 0, hot(1, 1, 1));
+      mb_v(&cc, q1, hw2 * 2 / 6.0f, 0, hot(1, 1, 1)), mb_v(&cc, q2, hw2 * 2 / 6.0f, hl2 * 2 / 6.0f, hot(1, 1, 1)), mb_v(&cc, q3, 0, hl2 * 2 / 6.0f, hot(1, 1, 1));
+      mb_t(&cc, i0, i0 + 1, i0 + 2), mb_t(&cc, i0, i0 + 2, i0 + 3);
+      /* an oily puddle on the pad */
+      float ox = e.x + p.x * 4.0f, oz = e.z + p.z * 4.0f, rad = 3.0f + 3.0f * hf(h, 9);
+      int j0 = mb_v(&oi, V3(ox, y + 0.05f, oz), 0, 0, hot(1, 1, 1));
+      for (int k = 0; k <= 12; k++) {
+        float an = TAU * (float)k / 12.0f, rr = rad * (0.7f + 0.5f * hf(h * 5u + (uint32_t)(k % 12), 3));
+        mb_v(&oi, V3(ox + rr * cosf(an), y + 0.05f, oz + rr * sinf(an) * 0.7f), 0, 0, hot(1, 1, 1));
+      }
+      for (int k = 0; k < 12; k++) mb_t(&oi, j0, j0 + 2 + k, j0 + 1 + k);
+      keep_add(e.x, e.z, 22);
+      npad++;
+    }
+  }
+  if (dt.ni) put(R.dyn, mb_done(&dt), dm, V3(0, 0, 0), false, true);
+  if (cc.ni) put(R.dyn, mb_done(&cc), cm, V3(0, 0, 0), false, true);
+  if (oi.ni) put(R.dyn, mb_done(&oi), om, V3(0, 0, 0), false, true);
+  t3_release(dm), t3_release(cm), t3_release(om);
+  cw_info("refinery: %d haul tracks, %d pads", ntrk, npad);
+}
+
 /* ── flare stacks out in the plant, each with a live flame ────────────────────────────────────────── */
 
 static void far_flares(void) {
@@ -1925,7 +2102,8 @@ static void far_flares(void) {
       p.y = y - 0.3f;
       iset_add(&mast, gap > 220.0f ? 1 : 0, p, hf((uint32_t)n, 2) * TAU, sc);
       float tipy = 60.0f * 1.1f * sc;
-      flame_new(v3add(p, V3(0, tipy, 0)), 6.0f * sc, 20.0f * sc, 1200u + (uint32_t)n, 0, 0, true, 1.1f);
+      if (NV > 1) halo_at(R.dyn, R.halo_amber, v3add(p, V3(0, tipy + 4.0f * sc, 0)), 26.0f * sc); /* a glow card: no flame mesh, no animation */
+      else flame_new(v3add(p, V3(0, tipy, 0)), 6.0f * sc, 20.0f * sc, 1200u + (uint32_t)n, 0, 0, true, 1.1f);
       n++;
       break;
     }
@@ -1943,6 +2121,7 @@ static bool off(const char *part) {
 static void scenery(cw_node scene, const track *t, uint32_t seed) {
   memset(&R, 0, sizeof R);
   R.t = t, R.scene = scene, R.seed = seed;
+  NV = game_planned_views();
   R.root = cw_node_new("Node3D", "Refinery");
   cw_node_add_child(scene, R.root);
   t3_object *g = t3_group_new();
@@ -1994,7 +2173,7 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
   if (!off("deco")) {
     deco_supports(R.root, t, SUP_TRUSS, terrain, NULL, 0, 2.0f, &st);
     deco_lights(R.root, t, 110, LAMP_POLE, 0, 0, &st);
-    deco_lights(R.root, t, 48, LAMP_GLOW_POST, 0, 0, &st);
+    if (NV == 1) deco_lights(R.root, t, 60, LAMP_GLOW_POST, 0, 0, &st);
     deco_corner_arrows(R.root, t, 0.012f, &st);
     deco_corner_signs(R.root, t, 0.012f, &st);
   }
@@ -2006,11 +2185,13 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
   }
   lamp_new(road_pt(6, 0, 10.0f), 0xffb070, 420.0f, 70.0f, 1, 150.0f);
   for (int g2 = 0; g2 < R.ngap; g2++) pit_build(g2);
-  if (R.ntun > 0) tunnel_tanks(0), tunnel_lights(0, 26.0f, 90.0f, 0xff9a50);
-  if (R.ntun > 1) tunnel_pipes(1), tunnel_lights(1, 25.0f, 90.0f, 0xff7040);
+  if (R.ntun > 0) tunnel_tanks(0), tunnel_lights(0, NV > 1 ? 40.0f : 26.0f, 90.0f, 0xff9a50);
+  if (R.ntun > 1) tunnel_pipes(1), tunnel_lights(1, NV > 1 ? 38.0f : 25.0f, 90.0f, 0xff7040);
+  slag_river();
   lightning_tower();
   robots();
   if (R.ngap > 0) sidings((float)R.gap[0][1] + 40.0f, (float)R.gap[0][1] + 190.0f, -40.0f, 331u);
+  tracks_and_pads();
   if (!off("yards")) yards();
   if (!off("roadside")) roadside();
   if (!off("pipes")) pipe_runs();
@@ -2024,9 +2205,10 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
   if (!off("puddles")) puddles();
   slag_pools();
   for (int i = 0; i < R.nbpos; i++) beacon_new(R.bpos[i], 0.9f, 0, hf((uint32_t)i, 4) * 1.6f, 1.6f, 0.3f);
+  landmarks();
   horizon_glow();
   /* embers drifting round every camera, and a haze of ash */
-  fx_ambient_follow(scene, FXA_EMBERS, 1.6f);
+  fx_ambient_follow(scene, FXA_EMBERS, NV > 1 ? 0.8f : 1.4f);
   cw_info("refinery: %d flames, %d lights, %d emitters, %d beacons", R.nfl, R.nlt, R.nem, R.nbc);
 }
 
