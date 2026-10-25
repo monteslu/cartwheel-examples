@@ -27,14 +27,14 @@
 
 /* ── recipes ────────────────────────────────────────────────────────── */
 
-static const char *const R_PUFF[] = { "amount", "60", "lifetime", "1.1", "lifetime_random", "0.4", "emission_shape", "BOX",
+static const char *const R_PUFF[] = { "amount", "90", "lifetime", "1.4", "lifetime_random", "0.4", "emission_shape", "BOX",
   "emission_extents", "vec3(0.7, 0.05, 0.15)", "direction", "vec3(0, 0.5, -1)", "spread", "35", "speed_min", "0.8", "speed_max", "3",
-  "gravity", "vec3(0, 0.35, 0)", "damping", "1.2", "size", "0.55", "size_random", "0.5", "size_curve", "\"0 0.4, 0.3 1, 1 1.9\"",
+  "gravity", "vec3(0, 0.35, 0)", "damping", "1.2", "size", "0.7", "size_random", "0.5", "size_curve", "\"0 0.4, 0.25 1, 1 2.6\"",
   "color_ramp", "\"0 0.5 0.4 0.3 0, 0.1 0.5 0.4 0.3 0.4, 1 0.5 0.4 0.3 0\"", "blend", "ALPHA", "soft_distance", "0.5",
   "turbulence", "0.8", "turbulence_scale", "0.4", "local_coords", "false", NULL };
 static const char *const R_DRIFT[] = { "amount", "40", "lifetime", "0.36", "lifetime_random", "0.4", "emission_shape", "BOX",
-  "emission_extents", "vec3(0.75, 0.03, 0.1)", "direction", "vec3(0, 0.6, -1)", "spread", "55", "speed_min", "3", "speed_max", "7.5",
-  "gravity", "vec3(0, -15, 0)", "draw_mode", "STRETCHED", "stretch", "0.03", "size", "0.03", "size_random", "0.4",
+  "emission_extents", "vec3(0.75, 0.03, 0.1)", "direction", "vec3(0, 0.6, -1)", "spread", "50", "speed_min", "5", "speed_max", "11",
+  "gravity", "vec3(0, -15, 0)", "draw_mode", "STRETCHED", "stretch", "0.07", "size", "0.022", "size_random", "0.4",
   "color_ramp", "\"0 0.5 0.8 1 1, 1 0.1 0.3 1 0\"", "energy", "8", "blend", "ADD", "local_coords", "false", NULL };
 static const char *const R_FLAME[] = { "amount", "60", "lifetime", "0.34", "lifetime_random", "0.3", "emission_shape", "BOX",
   "emission_extents", "vec3(0.3, 0.06, 0.04)", "direction", "vec3(0, 0.05, -1)", "spread", "6", "speed_min", "5", "speed_max", "9",
@@ -67,26 +67,21 @@ static const char *const R_CLOUD[] = { "amount", "36", "lifetime", "1.6", "lifet
   "gravity", "vec3(0, 0.3, 0)", "damping", "1.8", "size", "1.2", "size_random", "0.5", "size_curve", "\"0 0.4, 0.3 1, 1 1.8\"",
   "color_ramp", "\"0 0.5 0.4 0.3 0, 0.08 0.5 0.4 0.3 0.5, 1 0.5 0.4 0.3 0\"", "blend", "ALPHA", "soft_distance", "0.8",
   "turbulence", "0.9", "turbulence_scale", "0.35", NULL };
-static const char *const R_BOOM[] = { "amount", "140", "lifetime", "0.9", "explosiveness", "1", "one_shot", "true", "emission_shape", "SPHERE",
+static const char *const R_BOOM[] = { "amount", "80", "lifetime", "0.9", "explosiveness", "1", "one_shot", "true", "emission_shape", "SPHERE",
   "emission_radius", "0.6", "spread", "180", "speed_min", "1.5", "speed_max", "7", "gravity", "vec3(0, 3, 0)", "damping", "3.2",
   "size", "1.4", "size_random", "0.5", "size_curve", "\"0 0.5, 0.2 1.4, 1 0.3\"",
-  "color_ramp", "\"0 1 0.95 0.7 1, 0.2 1 0.6 0.15 1, 0.55 0.6 0.18 0.04 0.8, 1 0.12 0.08 0.06 0\"", "energy", "4", "blend", "ADD",
+  "color_ramp", "\"0 1 0.62 0.25 1, 0.25 1 0.36 0.07 1, 0.6 0.45 0.1 0.03 0.8, 1 0.08 0.05 0.05 0\"", "energy", "0.9", "blend", "ADD",
   "turbulence", "1.5", "turbulence_scale", "0.5", NULL };
 static const char *const R_FLARE[] = { "amount", "1", "lifetime", "0.3", "explosiveness", "1", "one_shot", "true", "emission_shape", "POINT",
-  "size", "4.5", "size_curve", "\"0 0.3, 0.2 1, 1 0.4\"", "color_ramp", "\"0 1 0.95 0.8 1, 1 1 0.5 0.15 0\"", "energy", "5", "blend", "ADD", NULL };
+  "size", "1.5", "size_curve", "\"0 0.3, 0.15 1, 1 0.2\"", "color_ramp", "\"0 1 0.9 0.6 1, 1 1 0.4 0.1 0\"", "energy", "0.9", "blend", "ADD", NULL };
 static const char *const R_SPLASH[] = { "amount", "80", "lifetime", "0.9", "lifetime_random", "0.4", "explosiveness", "0.8", "one_shot", "true",
   "emission_shape", "BOX", "emission_extents", "vec3(0.8, 0.05, 0.6)", "direction", "vec3(0, 1, 0)", "spread", "60", "speed_min", "4", "speed_max", "11",
   "gravity", "vec3(0, -16, 0)", "draw_mode", "STRETCHED", "stretch", "0.03", "size", "0.045", "size_random", "0.5",
   "color_ramp", "\"0 0.9 0.97 1 0.9, 1 0.7 0.85 1 0\"", "energy", "1.4", "blend", "ALPHA", NULL };
-static const char *const R_SPARKLE[] = { "amount", "40", "lifetime", "1", "lifetime_random", "0.4", "explosiveness", "0.9", "one_shot", "true",
+static const char *const R_SPARKLE[] = { "amount", "60", "lifetime", "1", "lifetime_random", "0.4", "explosiveness", "0.9", "one_shot", "true",
   "emission_shape", "SPHERE", "emission_radius", "0.5", "spread", "180", "speed_min", "1", "speed_max", "4.5", "direction", "vec3(0, 1, 0)",
-  "gravity", "vec3(0, -2.5, 0)", "damping", "0.8", "size", "0.16", "size_random", "0.5", "spin", "5", "size_curve", "\"0 0.2, 0.15 1, 1 0\"",
+  "gravity", "vec3(0, -2.5, 0)", "damping", "0.8", "size", "0.3", "size_random", "0.5", "spin", "5", "size_curve", "\"0 0.2, 0.15 1, 1 0\"",
   "color_ramp", "\"0 1 1 1 1, 1 1 0.8 0.3 0\"", "energy", "5", "blend", "ADD", NULL };
-/* a shockwave: particles thrown out along a sphere's skin; the node is squashed flat so it travels as a ring */
-static const char *const R_RING[] = { "amount", "110", "lifetime", "0.6", "explosiveness", "1", "one_shot", "true", "emission_shape", "SPHERE_SURFACE",
-  "emission_radius", "0.4", "emission_normal_speed", "20", "speed_min", "0", "speed_max", "1", "damping", "2.4",
-  "size", "0.5", "size_random", "0.3", "size_curve", "\"0 0.6, 0.2 1, 1 0.3\"",
-  "color_ramp", "\"0 1 1 1 1, 0.3 0.7 0.85 1 0.8, 1 0.4 0.5 1 0\"", "energy", "3", "blend", "ADD", NULL };
 static const char *const R_TRAIL_SMOKE[] = { "amount", "60", "lifetime", "1.4", "lifetime_random", "0.3", "emission_shape", "SPHERE",
   "emission_radius", "0.15", "direction", "vec3(0, 0.3, 0)", "spread", "30", "speed_min", "0.2", "speed_max", "0.9",
   "gravity", "vec3(0, 0.5, 0)", "damping", "0.8", "size", "0.5", "size_random", "0.4", "size_curve", "\"0 0.4, 0.3 1, 1 2\"",
@@ -171,7 +166,8 @@ static emit emit_make(cw_node parent, const char *name, const char *const *kv, i
 #define NFLARE 4
 #define NSPLASH 3
 #define NSPARKLE 6
-#define NRING 2
+#define NRING 3
+#define RING_LIFE 26
 #define NLIGHT 5
 #define NTRAIL 6
 #define NSKID 192
@@ -205,13 +201,14 @@ typedef struct light {
 
 static struct {
   bool ready, dev_ready;
-  cw_node scene, root;
+  cw_node scene, root, cam0;
   const sim *s;
   float dust_rgb[3];
   int nviews;
   int ticks;
   kfx k[MAXK];
-  cw_node sparks[NSPARK], grind[NGRIND], chips[NCHIPS], cloud[NCLOUD], boom[NBOOM], flare[NFLARE], splash[NSPLASH], sparkle[NSPARKLE], ring[NRING];
+  cw_node sparks[NSPARK], grind[NGRIND], chips[NCHIPS], cloud[NCLOUD], boom[NBOOM], flare[NFLARE], splash[NSPLASH], sparkle[NSPARKLE];
+  struct { cw_node d; int age; float maxr, r, g, b; } ring[NRING];
   int sparks_i, grind_i, chips_i, cloud_i, boom_i, flare_i, splash_i, sparkle_i, ring_i;
   light light[NLIGHT];
   int light_i;
@@ -226,7 +223,8 @@ static struct {
   cw_node cam[MAXV];
   t3_vec3 cam_pos[MAXV], cam_prev[MAXV], cam_vel[MAXV];
   int ncams;
-  int dev_kind;
+  int dev_kind, dev_state;
+  bool off;
 } FX;
 
 /* ── geometry helpers ───────────────────────────────────────────────── */
@@ -314,15 +312,42 @@ static void flare_at(t3_vec3 at, float size, float r, float g, float b) {
   snprintf(s, sizeof s, "\"0 1 1 0.9 1, 0.3 %.2f %.2f %.2f 1, 1 %.2f %.2f %.2f 0\"", r, g, b, r * 0.5f, g * 0.3f, b * 0.2f);
   fx_set_str(n, "color_ramp", s);
   cw_node_set(n, "size", cw_val_float(size));
-  burst(n, at, v3(0, 1, 0), v3(0, 0, 1));
+  burst(n, v3add(at, v3(0, 0.7f, 0)), v3(0, 1, 0), v3(0, 0, 1));
 }
-static void ring_at(t3_vec3 at, t3_vec3 up, t3_vec3 fwd, float r, float g, float b, float speed) {
-  cw_node n = NEXT(ring, ring_i);
-  char s[160];
-  snprintf(s, sizeof s, "\"0 1 1 1 1, 0.3 %.2f %.2f %.2f 0.8, 1 %.2f %.2f %.2f 0\"", r, g, b, r * 0.5f, g * 0.5f, b * 0.5f);
-  fx_set_str(n, "color_ramp", s);
-  cw_node_set(n, "emission_normal_speed", cw_val_float(speed));
-  burst(n, at, up, fwd);
+static void ring_at(t3_vec3 at, t3_vec3 up, t3_vec3 fwd, float r, float g, float b, float maxr) {
+  int i = FX.ring_i++ % NRING;
+  cw_node d = FX.ring[i].d;
+  if (!cw_node_valid(d)) return;
+  t3_vec3 dir = v3sub(fwd, v3mul(up, v3dot(fwd, up)));
+  dir = v3len(dir) < 0.1f ? v3(1, 0, 0) : v3norm(dir);
+  cw_node3d_set_position(d, v3add(at, v3mul(up, 0.1f)));
+  cw_node3d_set_quaternion(d, quat_basis(v3cross(v3mul(dir, -1), up), v3mul(dir, -1), up));
+  FX.ring[i].age = 1, FX.ring[i].maxr = maxr, FX.ring[i].r = r, FX.ring[i].g = g, FX.ring[i].b = b;
+  cw_node_set(d, "visible", cw_val_bool(true));
+}
+/* rings: a soft disc of light on the road that swells and fades (shockwave, blast, shield pop) */
+static void set_region(cw_node d, float x, float y, float w, float h) {
+  cw_value r = { CW_T_VEC4 };
+  r.v[0] = x, r.v[1] = y, r.v[2] = w, r.v[3] = h;
+  cw_node_set(d, "region", r);
+}
+
+static void rings_update(void) {
+  for (int i = 0; i < NRING; i++) {
+    if (!FX.ring[i].age) continue;
+    cw_node d = FX.ring[i].d;
+    float t = (float)FX.ring[i].age / RING_LIFE;
+    if (FX.ring[i].age++ >= RING_LIFE) {
+      FX.ring[i].age = 0;
+      cw_node_set(d, "visible", cw_val_bool(false));
+      continue;
+    }
+    float e = 1 - (1 - t) * (1 - t); /* quick out, then slows */
+    float rad = FX.ring[i].maxr * (0.15f + 0.85f * e);
+    cw_node_set(d, "size", cw_val_vec3(rad * 2, rad * 2, 2.5f));
+    float a = (1 - t) * (1 - t);
+    cw_node_set(d, "color", cw_val_color(FX.ring[i].r, FX.ring[i].g, FX.ring[i].b, a));
+  }
 }
 
 static void shake_add(int kart, float a) {
@@ -388,6 +413,14 @@ void fx_init(cw_node scene, const sim *s, const map_def *map) {
   static const char *const DEV[] = { "land", "wall", "bump", "trick", "boost0", "boost1", "boost2", "boost3", "boost4", "box", "missile",
                                      "homing", "mine", "oil", "shock", "shield", "respawn", "fall", "water", "level1", "level2", "level3" };
   FX.dev_kind = -1;
+  FX.off = getenv("RACER_FX_OFF") != NULL;
+  static const char *const DEVS[] = { "", "s_dust", "s_snow", "s_mist", "s_stars", "s_flame", "s_drift3", "s_smoke", "s_oil", "s_trick" };
+  for (int i = 1; dev && i < 10; i++)
+    if (!strcmp(dev, DEVS[i])) FX.dev_state = i;
+  if (dev && !strcmp(dev, "rain")) fx_ambient_follow(scene, FXA_RAIN, 1);
+  if (dev && !strcmp(dev, "snow")) fx_ambient_follow(scene, FXA_SNOW, 1);
+  if (dev && !strcmp(dev, "dust")) fx_ambient_follow(scene, FXA_DUST, 1);
+  if (dev && !strcmp(dev, "mist")) fx_ambient_follow(scene, FXA_MIST, 1);
   for (int i = 0; dev && i < (int)(sizeof DEV / sizeof DEV[0]); i++)
     if (!strcmp(dev, DEV[i])) FX.dev_kind = i;
 
@@ -422,8 +455,15 @@ void fx_init(cw_node scene, const sim *s, const map_def *map) {
   for (int i = 0; i < NSPLASH; i++) FX.splash[i] = fx_pnode(FX.root, "Splash", R_SPLASH, 260 + i);
   for (int i = 0; i < NSPARKLE; i++) FX.sparkle[i] = fx_pnode(FX.root, "Sparkle", R_SPARKLE, 270 + i);
   for (int i = 0; i < NRING; i++) {
-    FX.ring[i] = fx_pnode(FX.root, "Ring", R_RING, 280 + i);
-    cw_node3d_set_scale(FX.ring[i], (t3_vec3){ 1, 0.1f, 1 });
+    cw_node d = cw_node_new("Decal3D", "Ring");
+    cw_node_add_child(FX.root, d);
+    cw_node_set(d, "blend", cw_val_enum("ADD"));
+    cw_node_set(d, "texture", cw_val_string("fx/decals.png"));
+    set_region(d, 0, 0, 256, 256);
+    cw_node_set(d, "energy", cw_val_float(1.6f));
+    cw_node_set(d, "normal_fade", cw_val_float(0.4f));
+    cw_node_set(d, "visible", cw_val_bool(false));
+    FX.ring[i].d = d;
   }
   for (int i = 0; i < NLIGHT; i++) FX.light[i].n = light_node("FlashLight");
   for (int i = 0; i < 2; i++) FX.mlight[i].n = light_node("MissileLight");
@@ -477,7 +517,7 @@ static void on_event(const sim *s, const struct sim_event *e) {
   case EV_BUMP: {
     spark_burst(e->at, v3(0, 1, 0), fwd, 1, 0.85f, 0.4f);
     if (e->k > 0.4f && ka) chips_burst(e->at, up, kr[0], kr[1], kr[2]);
-    flare_at(e->at, 1.0f + e->k, 1, 0.8f, 0.4f);
+    flare_at(e->at, 0.35f + 0.35f * e->k, 1, 0.8f, 0.4f);
     shake_add(a, 0.1f + 0.4f * e->k);
     shake_add(e->b, 0.1f + 0.4f * e->k);
     break;
@@ -497,11 +537,11 @@ static void on_event(const sim *s, const struct sim_event *e) {
     if (src == 4) r = 0.7f, g = 1, b = 0.4f;
     if (src == 2) r = DRIFT_RGB[f->prev_dlvl & 3][0], g = DRIFT_RGB[f->prev_dlvl & 3][1], b = DRIFT_RGB[f->prev_dlvl & 3][2];
     f->flame_src = src == 2 ? 10 + (f->prev_dlvl & 3) : src;
-    flare_at(rear, src == 2 ? 2.0f + (float)f->prev_dlvl : 2.4f, r, g, b);
-    spark_burst(rear, kart_up(k), v3mul(kart_fwd(k), -1), r, g, b);
+    if (src != 0) flare_at(rear, src == 2 ? 0.6f + 0.15f * (float)f->prev_dlvl : 0.8f, r, g, b);
+    if (src != 0) spark_burst(rear, kart_up(k), v3mul(kart_fwd(k), -1), r, g, b);
     if (src == 2 || src == 4) sparkle_burst(rear, kart_up(k), r, g, b);
-    light_flash(v3add(rear, v3mul(kart_up(k), 0.5f)), 16 + 6 * (float)f->prev_dlvl, 9, 0.22f, r, g, b);
-    shake_add(a, src == 0 ? 0.2f : src == 2 ? 0.2f + 0.1f * (float)f->prev_dlvl : 0.4f);
+    if (src != 0) light_flash(v3add(rear, v3mul(kart_up(k), 0.5f)), 16 + 6 * (float)f->prev_dlvl, 9, 0.22f, r, g, b);
+    shake_add(a, src == 0 ? 0.12f : src == 2 ? 0.2f + 0.1f * (float)f->prev_dlvl : 0.4f);
     break;
   }
   case EV_DRIFT_LEVEL: {
@@ -523,7 +563,7 @@ static void on_event(const sim *s, const struct sim_event *e) {
     int hk = (int)e->k;
     if (hk == HZ_SHOCK) {
       if (!ka) break;
-      ring_at(e->at, up, fwd, 0.5f, 0.7f, 1, 26);
+      ring_at(e->at, up, fwd, 0.45f, 0.65f, 1, 13);
       sparkle_burst(e->at, up, 0.6f, 0.8f, 1);
       light_flash(e->at, 60, 22, 0.15f, 0.5f, 0.7f, 1);
       shake_near(s, e->at, 0.6f, 40);
@@ -531,11 +571,10 @@ static void on_event(const sim *s, const struct sim_event *e) {
     }
     t3_vec3 u = v3(0, 1, 0);
     if (ka) u = up;
-    burst(NEXT(boom, boom_i), e->at, u, v3(0, 0, 1));
-    flare_at(e->at, hk == HZ_MINE ? 7.0f : 5.5f, 1, 0.8f, 0.4f);
+    burst(NEXT(boom, boom_i), v3add(e->at, v3mul(u, 0.8f)), u, v3(0, 0, 1));
+    flare_at(e->at, hk == HZ_MINE ? 2.2f : 1.8f, 1, 0.8f, 0.4f);
     cloud_burst(v3add(e->at, v3mul(u, 0.4f)), u, 0.12f, 0.11f, 0.1f, 0.75f, 2.0f);
-    dust_cloud(v3sub(e->at, v3mul(u, 0.2f)), u, 0.5f, 2.0f);
-    ring_at(e->at, u, v3(0, 0, 1), 1, 0.7f, 0.35f, 24);
+    ring_at(e->at, u, v3(0, 0, 1), 1, 0.6f, 0.25f, 7);
     spark_burst(e->at, u, v3(0, 0, 1), 1, 0.7f, 0.2f);
     chips_burst(e->at, u, 0.12f, 0.1f, 0.1f);
     light_flash(e->at, 140, 26, 0.1f, 1, 0.6f, 0.2f);
@@ -553,9 +592,9 @@ static void on_event(const sim *s, const struct sim_event *e) {
     break;
   case EV_SHIELD:
     if (!ka) break;
-    ring_at(s->k[a].p, up, fwd, 0.4f, 0.9f, 1, 18);
+    ring_at(s->k[a].p, up, fwd, 0.35f, 0.8f, 1, 3.2f);
     sparkle_burst(s->k[a].p, up, 0.5f, 0.95f, 1);
-    flare_at(s->k[a].p, 3.5f, 0.5f, 0.9f, 1);
+    flare_at(s->k[a].p, 1.1f, 0.5f, 0.9f, 1);
     light_flash(s->k[a].p, 30, 10, 0.18f, 0.4f, 0.8f, 1);
     shake_add(a, 0.5f);
     break;
@@ -587,7 +626,7 @@ static void on_event(const sim *s, const struct sim_event *e) {
 
 /* a forced event for the dev aid: kart 0, once a second */
 static void dev_event(const sim *s) {
-  if (FX.dev_kind < 0 || s->phase == PH_GRID || s->tick % 60 != 30) return;
+  if (FX.dev_kind < 0 || s->phase == PH_GRID || s->tick != 330) return;
   const kart *k = &s->k[0];
   struct sim_event e = { .a = 0, .b = 1, .at = k->p };
   switch (FX.dev_kind) {
@@ -612,7 +651,7 @@ static void dev_event(const sim *s) {
 }
 
 void fx_events(const sim *s) {
-  if (!FX.ready) return;
+  if (!FX.ready || FX.off) return;
   for (int i = 0; i < s->ev_n; i++) on_event(s, &s->ev[i]);
   dev_event(s);
 }
@@ -621,9 +660,10 @@ void fx_events(const sim *s) {
 
 static void refresh_cams(void) {
   if (!cw_node_valid(FX.scene)) return;
+  if (!cw_node_valid(FX.cam0)) FX.cam0 = find_cam(FX.scene);
   int n = 0;
   for (int v = 0; v < FX.nviews && v < MAXV; v++) {
-    cw_node c = v == 0 ? find_cam(FX.scene) : (cw_node){ 0 };
+    cw_node c = v == 0 ? FX.cam0 : (cw_node){ 0 };
     if (v > 0) {
       char name[16];
       snprintf(name, sizeof name, "Camera%d", v + 1);
@@ -678,6 +718,10 @@ static void kart_tick(const sim *s, int i) {
     else if (ground && spd > 6 && ts->surf == SURF_ICE) mode = PM_SNOW;
     else if (ground && spd > 5 && ((ts->flags & TF_ROUGH) || ts->surf == SURF_DIRT)) mode = PM_DUST;
   }
+  if (i == 0 && FX.dev_state >= 1 && FX.dev_state <= 3) mode = FX.dev_state == 1 ? PM_DUST : FX.dev_state == 2 ? PM_SNOW : PM_MIST;
+  if (i == 0 && FX.dev_state == 7) mode = PM_SMOKE;
+  if (i == 0 && FX.dev_state == 8) mode = PM_OIL;
+  if (i == 0 && FX.dev_state) water = water || FX.dev_state == 3;
   if (!near && mode != PM_FALL) mode = mid && mode != PM_MIST ? mode : PM_NONE;
   if (mode != PM_NONE && mode != f->puff_mode) {
     f->puff_mode = mode;
@@ -698,6 +742,7 @@ static void kart_tick(const sim *s, int i) {
 
   /* drift sparks */
   int dl = k->drifting && ground && near ? k->drift_level : -1;
+  if (i == 0 && FX.dev_state == 6) dl = 3;
   if (dl >= 0 && dl != f->drift_level) {
     f->drift_level = dl;
     set_ramp(f->drift.n, DRIFT_RGB[dl][0] * 1.0f, DRIFT_RGB[dl][1], DRIFT_RGB[dl][2], DRIFT_RGB[dl][0] * 0.4f, DRIFT_RGB[dl][1] * 0.3f, DRIFT_RGB[dl][2] * 0.5f);
@@ -711,6 +756,7 @@ static void kart_tick(const sim *s, int i) {
 
   /* the exhaust */
   bool boosting = k->boost_ticks > 0 && race && mid;
+  if (i == 0 && FX.dev_state == 5) boosting = true;
   if (boosting) {
     if (f->flame_src >= 0) {
       /* colour by what gave the boost, set when it changes */
@@ -748,6 +794,8 @@ static void kart_tick(const sim *s, int i) {
     if (k->spin_ticks > 0 && k->spin_kind != SPIN_OIL) sm = k->spin_kind == SPIN_SHOCK ? ST_SHOCK : k->spin_kind == SPIN_BOOM ? ST_BOOM : ST_HIT;
     else if (k->trick_ticks > 0) sm = ST_TRICK;
   }
+  if (i == 0 && FX.dev_state == 4) sm = ST_HIT;
+  if (i == 0 && FX.dev_state == 9) sm = ST_TRICK;
   if (sm != ST_NONE && !cw_node_valid(f->stars.n)) {
     f->stars = emit_make(f->root, "Stars", R_STARS, 180 + i);
     f->stars_mode = ST_NONE;
@@ -806,8 +854,10 @@ static void kart_tick(const sim *s, int i) {
       cw_node d = cw_node_new("Decal3D", "Skid");
       cw_node_add_child(FX.root, d);
       cw_node_set(d, "blend", cw_val_enum("MULTIPLY"));
+      cw_node_set(d, "texture", cw_val_string("fx/decals.png"));
+      set_region(d, 256, 0, 128, 256);
       cw_node_set(d, "normal_fade", cw_val_float(0.3f));
-      cw_node_set(d, "size", cw_val_vec3(0.3f, SKID_STEP * 1.35f, 0.5f));
+      cw_node_set(d, "size", cw_val_vec3(0.34f, SKID_STEP * 1.25f, 0.5f));
       FX.skid[di] = d;
     }
     cw_node d = FX.skid[di];
@@ -952,7 +1002,7 @@ static void hazards_tick(const sim *s) {
 }
 
 void fx_tick(const sim *s) {
-  if (!FX.ready) return;
+  if (!FX.ready || FX.off) return;
   FX.ticks++;
   refresh_cams();
   for (int i = 0; i < MAXK; i++) {
@@ -963,6 +1013,7 @@ void fx_tick(const sim *s) {
   hazards_tick(s);
   for (int i = 0; i < NLIGHT; i++) light_update(&FX.light[i]);
   skids_update();
+  rings_update();
 }
 
 void fx_frame(const sim *s, float alpha) {

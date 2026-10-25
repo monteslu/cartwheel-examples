@@ -82,3 +82,5 @@ audio/turbo.wav
 audio/water.wav
 audio/wind.wav
 audio/wrongway.ogg
+# effects (tools/make-fxtex.mjs)
+fx/decals.png

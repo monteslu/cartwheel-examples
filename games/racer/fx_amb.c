@@ -33,9 +33,9 @@ static const char *const REC_RAIN[] = { "amount", "900", "lifetime", "0.8", "lif
   "emission_extents", "vec3(13, 0.3, 13)", "direction", "vec3(0, -1, 0)", "spread", "2", "speed_min", "22", "speed_max", "27",
   "gravity", "vec3(0, -6, 0)", "draw_mode", "STRETCHED", "stretch", "0.03", "size", "0.014", "size_random", "0.3",
   "color_ramp", "\"0 0.7 0.78 0.9 0, 0.12 0.72 0.8 0.92 0.55, 0.9 0.7 0.78 0.9 0.5, 1 0.7 0.78 0.9 0\"", "blend", "ALPHA", "local_coords", "false", NULL };
-static const char *const REC_SNOW[] = { "amount", "700", "lifetime", "6", "lifetime_random", "0.3", "emission_shape", "BOX",
+static const char *const REC_SNOW[] = { "amount", "1100", "lifetime", "6", "lifetime_random", "0.3", "emission_shape", "BOX",
   "emission_extents", "vec3(18, 0.3, 18)", "direction", "vec3(0, -1, 0)", "spread", "25", "speed_min", "1.2", "speed_max", "2.2",
-  "gravity", "vec3(0, 0, 0)", "size", "0.07", "size_random", "0.5", "spin", "2",
+  "gravity", "vec3(0, 0, 0)", "size", "0.11", "size_random", "0.5", "spin", "2",
   "color_ramp", "\"0 0.95 0.97 1 0, 0.08 0.95 0.97 1 0.85, 0.9 0.95 0.97 1 0.8, 1 0.95 0.97 1 0\"", "blend", "ALPHA",
   "turbulence", "0.9", "turbulence_scale", "0.3", "turbulence_speed", "0.4", "local_coords", "false", NULL };
 static const char *const REC_EMBERS[] = { "amount", "80", "lifetime", "4", "lifetime_random", "0.4", "emission_shape", "BOX",
