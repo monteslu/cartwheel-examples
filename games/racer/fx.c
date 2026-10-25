@@ -962,6 +962,7 @@ static void hazards_tick(const sim *s) {
       if (t < 0) continue;
       FX.trail_of[t] = h;
       FX.hz_trail[h] = t;
+      if (getenv("RACER_FX_LOG")) cw_info("racer fx: trail %d for hazard %d (owner %d) at tick %d", t, h, z->owner, FX.ticks);
       cw_node3d_set_position(FX.tsmoke[t].n, z->p);
       cw_node3d_snapshot(FX.tsmoke[t].n);
       cw_node3d_set_position(FX.tflame[t].n, z->p);
