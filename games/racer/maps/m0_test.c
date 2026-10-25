@@ -1,5 +1,6 @@
 /* a proving ground: every piece kind once. Not shipped as a map. */
 #include "../game.h"
+#include "../props.h"
 
 static const piece SPEC[] = {
   WALLS(2, 2),
@@ -47,6 +48,12 @@ static const piece SPEC[] = {
 
 #define MAP_SPEC (&(track_spec){ .name = "test", .pieces = SPEC, .npieces = sizeof SPEC / sizeof SPEC[0], .hw0 = 9, .circuit = true })
 
+/* ── dev showcase (RACER_PROPS, see props.h): the props agent's gallery of every generator, a clearly marked block ── */
+static void m0_scenery(cw_node scene, const track *t, uint32_t seed) {
+  (void)seed;
+  props_gallery(scene, t);
+}
+
 const map_def map_test = {
   .name = "Proving Ground",
   .blurb = "Every piece once.",
@@ -57,4 +64,5 @@ const map_def map_test = {
             .wall_top = { 0.9f, 0.85f, 0.75f }, .road_rough = 0.75f },
   .laps = 3,
   .par_lap = 60,
+  .scenery = m0_scenery,
 };
