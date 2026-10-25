@@ -1554,7 +1554,7 @@ static void draw_results(float W, float H, float s) {
     for (int i = 0; i < U.res_n; i++) rec = rec || U.res[i].record;
     if (rec) {
       float pulse = 0.7f + 0.3f * cw_sin(U.time * 6);
-      tx(U.f_title, "NEW LAP RECORD", tab.x + 128 * s, hy, 12 * s, alpha(LIME, pulse * pa), CW_ALIGN_LEFT);
+      tx(U.f_title, "NEW LAP RECORD", tab.x + 24 * s, tab.y + tab.h - 62 * s, 14 * s, alpha(LIME, pulse * pa), CW_ALIGN_LEFT);
     }
     /* the podium */
     if (!por) {
