@@ -5346,6 +5346,7 @@
       "bot 1",
       "trial 0 1"
     ],
+    "webgpu": { "vsGl": 0.3, "maxGt16": 0.08 },
     "maxGt16": 0.08,
     "fields": [
       "race.loaded",
