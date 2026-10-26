@@ -91,7 +91,9 @@ static float lerpf(float a, float b, float t) { return a + (b - a) * t; }
 static float clampf(float x, float a, float b) { return x < a ? a : x > b ? b : x; }
 static float sstep(float a, float b, float x) { return cw_smoothstep(a, b, x); }
 
-/* a small deterministic generator for placing things */
+/* a small deterministic generator for placing things. Draw each value in a statement (or declarator) of its own, never two
+ * in one call's arguments or one braced initializer: C leaves their order unspecified, and GCC (native) and clang (carts)
+ * evaluate them in different orders, so the same seed grew different trees on the two hosts. */
 typedef struct { uint32_t s; } rng;
 static float rnd(rng *r) {
   r->s = r->s * 1664525u + 1013904223u;
@@ -558,9 +560,11 @@ static prop_model model_crown(uint32_t seed, float rad, float trunk) {
   pm_vary(b, 0.1f);
   for (int k = 0; k < 6; k++) {
     pm_push(b);
-    pm_move(b, rnds(&r) * rad * 0.55f, rnds(&r) * rad * 0.12f + rad * 0.12f, rnds(&r) * rad * 0.55f);
-    float s = rad * (0.45f + 0.5f * rnd(&r));
-    pm_ball(b, s, s * (0.5f + 0.45f * rnd(&r)), s * (0.8f + 0.3f * rnd(&r)), 2, 0.35f, rgb(0.06f, 0.26f, 0.08f), leaf_green(&r, 0.6f));
+    float mx = rnds(&r), my = rnds(&r), mz = rnds(&r);
+    pm_move(b, mx * rad * 0.55f, my * rad * 0.12f + rad * 0.12f, mz * rad * 0.55f);
+    float s = rad * (0.45f + 0.5f * rnd(&r)), sy = s * (0.5f + 0.45f * rnd(&r)), sz = s * (0.8f + 0.3f * rnd(&r));
+    pcol leaf = leaf_green(&r, 0.6f);
+    pm_ball(b, s, sy, sz, 2, 0.35f, rgb(0.06f, 0.26f, 0.08f), leaf);
     pm_pop(b);
   }
   return pm_finish(b);
@@ -799,7 +803,8 @@ static void fm_add(int i, t3_vec3 p, float yaw, float scale, bool far_) {
                 qt.w * qy.w - qt.x * qy.x - qt.y * qy.y - qt.z * qy.z };
   float w = scale * (0.85f + 0.4f * rnd(&VAR)), h = scale * (0.8f + 0.45f * rnd(&VAR));
   float g = 0.8f + 0.4f * rnd(&VAR);
-  pcol tint = { g * (0.85f + 0.3f * rnd(&VAR)), g * (0.92f + 0.14f * rnd(&VAR)), g * (0.75f + 0.4f * rnd(&VAR)) };
+  float tr = 0.85f + 0.3f * rnd(&VAR), tg = 0.92f + 0.14f * rnd(&VAR), tb = 0.75f + 0.4f * rnd(&VAR);
+  pcol tint = { g * tr, g * tg, g * tb };
   if (rnd(&VAR) < 0.07f) tint = (pcol){ 1.5f, 1.15f, 0.45f };
   inst_add_c(&FM[i].in[far_ ? 1 : 0], p, q, V(w, h, w), tint);
 }
@@ -864,7 +869,9 @@ static void build_jungle(cw_node scene, const track *t) {
     float ry, gap = road_gap(t, q.x, q.z, &ry);
     if (gap < 9.0f || mask_open(q.x, q.z, NULL) < 0.5f) continue;
     q.y = gy(q.x, q.z) - 0.2f;
-    fm_add(trees.models[(int)(rnd(&r) * 3.0f) % 3], q, rnd(&r) * 6.28f, 1.5f + 1.0f * rnd(&r), dist > 110);
+    int mi = (int)(rnd(&r) * 3.0f) % 3;
+    float yaw = rnd(&r) * 6.28f, sc = 1.5f + 1.0f * rnd(&r);
+    fm_add(trees.models[mi], q, yaw, sc, dist > 110);
     canopy++;
   }
   /* the gorge: giants growing from its floor, their crowns well under the bridge, half hidden in the mist */
@@ -876,7 +883,9 @@ static void build_jungle(cw_node scene, const track *t) {
     if (gap < 12.0f) continue;
     q.y = gy(q.x, q.z) - 0.3f;
     float sc = (GORGE.depth - 15.0f + rnds(&r) * 8.0f) / 18.0f; /* the crowns stop 10 m or so under the deck */
-    fm_add(trees.models[(int)(rnd(&r) * 3.0f) % 3], q, rnd(&r) * 6.28f, sc, false);
+    int mi = (int)(rnd(&r) * 3.0f) % 3;
+    float yaw = rnd(&r) * 6.28f;
+    fm_add(trees.models[mi], q, yaw, sc, false);
     gorge_trees++;
   }
   /* ferns, grass tufts and bushes at the verge */
@@ -1131,7 +1140,10 @@ static void tunnel_mass(pmc *c, const track *t, float s0, float s1, bool to_grou
       for (int k = 0; k < 2; k++) {
         float lat = ((float)k - 0.5f) * (Wout - 2.5f);
         t3_vec3 p = V(a.p.x + a.r.x * lat, ty, a.p.z + a.r.z * lat);
-        if ((int)(s / seg + (float)k) % 3 == 0) ps_add(tops, PK_BROADLEAF, p, rnd(&R) * 6.28f, 0.9f + rnd(&R) * 0.5f, (uint32_t)(s * 7 + (float)k));
+        if ((int)(s / seg + (float)k) % 3 == 0) {
+          float yaw = rnd(&R) * 6.28f, sc = 0.9f + rnd(&R) * 0.5f;
+          ps_add(tops, PK_BROADLEAF, p, yaw, sc, (uint32_t)(s * 7 + (float)k));
+        }
         else ps_add(tops, PK_FERN, V(p.x, ty - 0.2f, p.z), rnd(&R) * 6.28f, 1.8f, (uint32_t)(s * 3 + (float)k));
       }
     }
@@ -1158,7 +1170,8 @@ static void build_tunnels(cw_node parent, const track *t) {
       for (int k = 0; k < 6; k++) {
         float lat = -8.0f + 3.2f * (float)k + rnds(&R) * 0.6f;
         t3_vec3 p = vadd(vadd(q.p, vmul(q.r, lat)), vadd(vmul(q.u, 13.6f), vmul(q.f, dirn * (ee ? 0.8f : 1.4f))));
-        inst_add(&D.vines, p, rnd(&R) * 6.28f, 0.52f + rnd(&R) * 0.2f);
+        float yaw = rnd(&R) * 6.28f, sc = 0.52f + rnd(&R) * 0.2f;
+        inst_add(&D.vines, p, yaw, sc);
       }
     }
     /* torches along the tube's walls and statues beside each mouth */
@@ -1761,7 +1774,9 @@ static void build_roadside(cw_node scene, const track *t) {
       float ry;
       if (road_gap(t, p.x, p.z, &ry) < 1.2f) continue;
       p.y = gy(p.x, p.z) - 0.05f;
-      inst_add(&D.flowers[(int)(rnd(&r) * 4.0f) & 3], p, rnd(&r) * 6.28f, 1.2f + rnd(&r) * 1.2f);
+      int fi = (int)(rnd(&r) * 4.0f) & 3;
+      float yaw = rnd(&r) * 6.28f, sc = 1.2f + rnd(&r) * 1.2f;
+      inst_add(&D.flowers[fi], p, yaw, sc);
     }
   }
   /* vines hanging from the canopy edge over the verge, above the camera's reach */
@@ -1772,7 +1787,8 @@ static void build_roadside(cw_node scene, const track *t) {
       if (rnd(&r) < 0.4f) continue;
       float lat = (float)k * (a.hw + 2.5f + rnd(&r) * 5.0f);
       t3_vec3 p = vadd(vadd(a.p, vmul(a.r, lat)), V(0, 12.0f + rnd(&r) * 4.0f, 0));
-      inst_add(&D.vines, p, rnd(&r) * 6.28f, 1.0f + rnd(&r) * 0.5f);
+      float yaw = rnd(&r) * 6.28f, sc = 1.0f + rnd(&r) * 0.5f;
+      inst_add(&D.vines, p, yaw, sc);
     }
   }
   /* crowns of canopy over parts of the road: leaf masses with holes between, high enough to pass under */
@@ -1795,7 +1811,9 @@ static void build_roadside(cw_node scene, const track *t) {
         if (dx * dx + dz * dz < R * R && t->s[i].p.y + 6.0f > p.y - R * 0.6f) clear = false;
       }
       if (!clear) continue;
-      inst_add_c(big ? &D.crowns2 : &D.crowns, p, t3_quat_from_axis_angle(V(0, 1, 0), rnd(&r) * 6.28f), V(w, 0.7f + rnd(&r) * 0.8f, w * (0.8f + 0.4f * rnd(&r))), (pcol){ 0.8f + 0.5f * rnd(&r), 0.9f + 0.2f * rnd(&r), 0.7f + 0.4f * rnd(&r) });
+      float yaw = rnd(&r) * 6.28f, sy = 0.7f + rnd(&r) * 0.8f, sz = w * (0.8f + 0.4f * rnd(&r));
+      float cr = 0.8f + 0.5f * rnd(&r), cg = 0.9f + 0.2f * rnd(&r), cb = 0.7f + 0.4f * rnd(&r);
+      inst_add_c(big ? &D.crowns2 : &D.crowns, p, t3_quat_from_axis_angle(V(0, 1, 0), yaw), V(w, sy, sz), (pcol){ cr, cg, cb });
     }
   }
 }
