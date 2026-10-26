@@ -88,6 +88,8 @@ kin ai_think(const sim *s, int me, ai_mem *m) {
   }
   /* drift through the sharp ones (the skilled) */
   if (m->skill >= 1 && curv > 0.012f && spd > 22 && fabsf(ang) > 0.15f && !(here.flags & (TF_LOOP | TF_GAP | TF_RAMP))) in.btn |= KB_DRIFT;
+  /* a Shockwave is coming: the skilled hop it */
+  if (m->skill >= 1 && k->shock_warn > 0 && k->shock_warn <= 9 + 2 * (2 - m->skill)) in.btn |= KB_DRIFT;
   /* stuck: back out */
   if (fabsf(spd) < 1.5f && s->phase == PH_RACE) m->stuck++;
   else m->stuck = 0;

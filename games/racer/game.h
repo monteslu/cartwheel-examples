@@ -131,6 +131,7 @@ typedef struct kart {
   float spin_dir;
   int shield_ticks;
   int trick_ticks;      /* a trick in the air */
+  int shock_warn, shock_by;   /* a Shockwave is coming: ticks to go, and whose; a hop over it dodges it */
   int draft_ticks, draft_cool; /* time spent in the slipstream of a kart ahead; a pause after the boost it pays */
   bool trick_done;
   int bump_ticks;
@@ -175,7 +176,8 @@ enum {
   EV_SHIELD,       /* a = kart absorbed a hit */
   EV_BOX,          /* a = kart took a box */
   EV_OVERTAKE,     /* a = kart passed b */
-  EV_WATER         /* a = kart in water, k = speed */
+  EV_WATER,        /* a = kart in water, k = speed */
+  EV_WARN          /* a = kart a Shockwave is coming for (hop to dodge it), b = attacker */
 };
 
 typedef struct sim {
@@ -204,6 +206,7 @@ void sim_init(sim *s, const track *t, const map_def *map, int map_index, int lap
 void sim_free(sim *s);
 void sim_step(sim *s, const kin in[MAXK]);
 void sim_put(sim *s, int i, float s_dist, float lat, float speed);
+void sim_use(sim *s, int i, int item); /* dev aid: kart i uses this item now */
 void sim_place_on_grid(sim *s); /* line the karts up behind the line */
 const track *sim_track(const sim *s);
 const cw_vehicle3d *sim_car(const sim *s, int i); /* the wheels' poses for the renderer */

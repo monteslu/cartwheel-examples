@@ -590,6 +590,9 @@ static void on_event(const sim *s, const struct sim_event *e) {
       shake_add(a, 0.3f);
     }
     break;
+  case EV_WARN:
+    if (ka) shake_add(a, 0.25f);
+    break;
   case EV_SHIELD:
     if (!ka) break;
     ring_at(s->k[a].p, up, fwd, 0.35f, 0.8f, 1, 3.2f);

@@ -472,6 +472,12 @@ static void fixed(void *u, double dt) {
       if (i == 0 && test_steer != 0 && G.S.phase == PH_RACE && G.S.race_ticks > 200) in[i] = (kin){ .thr = 127, .steer = q127(test_steer) };
     }
     {
+      /* dev aid: RACER_USE=kart:item:tick makes that kart use that item (IT_*) at that race tick */
+      if (getenv("RACER_USE") && G.S.phase == PH_RACE) {
+        int uk = 0, ui = 0, ut = 0;
+        sscanf(getenv("RACER_USE"), "%d:%d:%d", &uk, &ui, &ut);
+        if (G.S.race_ticks == ut) sim_use(&G.S, uk & 7, ui);
+      }
       /* dev aid: RACER_TEST_AT=s:speed puts kart 0 on the road there, moving, when the lights go out */
       static int at_done;
       if (!at_done && getenv("RACER_TEST_AT") && G.S.phase == PH_RACE && G.S.race_ticks == 1) {

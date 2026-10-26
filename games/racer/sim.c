@@ -57,6 +57,7 @@ const char *const ITEM_NAME[IT_KINDS] = { "-", "Turbo", "Triple Turbo", "Missile
 #define OIL_SPIN 60
 #define BOOM_SPIN 85
 #define SHOCK_SPIN 80
+#define SHOCK_WARN 78 /* ticks between the alarm and the wave: a quick hop on the drift button clears it */
 
 static struct {
   cw_world3d w;
@@ -363,6 +364,13 @@ void sim_put(sim *s, int i, float sd, float lat, float speed) {
   s->k[i].last_safe_s = sd;
 }
 
+static void use_item(sim *s, int i);
+/* dev aid: kart i uses an item now, whatever it held */
+void sim_use(sim *s, int i, int item) {
+  s->k[i].item = item, s->k[i].item_count = 1;
+  use_item(s, i);
+}
+
 const track *sim_track(const sim *s) { return s->track; }
 const cw_vehicle3d *sim_car(const sim *s, int i) {
   (void)s;
@@ -541,7 +549,10 @@ static void use_item(sim *s, int i) {
   case IT_SHOCK:
     for (int j = 0; j < MAXK; j++) {
       if (j == i || !s->k[j].on) continue;
-      if (s->k[j].place < k->place) spin_kart(s, j, SPIN_SHOCK, i);
+      if (s->k[j].place < k->place && s->k[j].shock_warn == 0) {
+        s->k[j].shock_warn = SHOCK_WARN, s->k[j].shock_by = i;
+        event(s, EV_WARN, j, i, s->k[j].p, 0);
+      }
     }
     event(s, EV_HIT, i, i, k->p, (float)HZ_SHOCK);
     break;
@@ -704,6 +715,18 @@ static void kart_control(sim *s, int i, kin in) {
     k->air_ticks++;
   }
   k->grounded = grounded;
+  if (k->shock_warn > 0) {
+    /* the alarm: a tap of the drift button hops (even straight), and a kart in the air when the wave arrives is over it */
+    if (pressed_drift && grounded && !k->drifting && s->phase == PH_RACE) cw_body3d_apply_impulse(b, v3mul(up, 2.6f * vd->mass), NULL);
+    if (--k->shock_warn == 0) {
+      if (!grounded || k->air_ticks > 0) {
+        event(s, EV_SHIELD, i, k->shock_by, k->p, 1);
+        start_boost(s, i, 36, 0.8f * vd->boost, 4);
+      } else {
+        spin_kart(s, i, SPIN_SHOCK, k->shock_by);
+      }
+    }
+  }
 
   /* track gravity: the road's own down near the road, the world's elsewhere */
   const tsample *ts = &t->s[k->loc.i];
