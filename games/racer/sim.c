@@ -520,15 +520,23 @@ static const uint8_t ITEM_W[IT_KINDS][MAXK] = {
   [IT_SHOCK] = { 0, 0, 2, 7, 12, 16, 20, 24 },
 };
 
-static int roll_item(sim *s, int place) {
+static int roll_item(sim *s, int place, bool final_lap) {
   int p = place - 1;
   if (p < 0) p = 0;
   if (p > MAXK - 1) p = MAXK - 1;
-  int total = 0;
-  for (int i = 1; i < IT_KINDS; i++) total += ITEM_W[i][p];
+  int w[IT_KINDS] = { 0 }, total = 0;
+  for (int i = 1; i < IT_KINDS; i++) {
+    w[i] = ITEM_W[i][p];
+    /* turbos only: the party preset with no weapons */
+    if (s->item_set == 1 && i != IT_TURBO && i != IT_TURBO3) w[i] = 0;
+    /* the last lap is decided by driving more than by a Shockwave from the back */
+    if (final_lap && i == IT_SHOCK) w[i] /= 3;
+    total += w[i];
+  }
+  if (total <= 0) return IT_TURBO;
   int r = (int)(rnd(s) % (uint32_t)total);
   for (int i = 1; i < IT_KINDS; i++) {
-    r -= ITEM_W[i][p];
+    r -= w[i];
     if (r < 0) return i;
   }
   return IT_TURBO;
@@ -945,7 +953,7 @@ static void kart_control(sim *s, int i, kin in) {
 
   /* items */
   if (k->item_wait > 0 && --k->item_wait == 0) {
-    k->item = roll_item(s, k->place);
+    k->item = roll_item(s, k->place, k->lap >= s->laps);
     k->item_count = k->item == IT_TURBO3 ? 3 : 1;
   }
   if (k->item_cool > 0) k->item_cool--;

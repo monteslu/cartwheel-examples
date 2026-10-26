@@ -27,6 +27,7 @@ typedef struct race_setup {
   int vehicle[MAXV];/* each human's vehicle (VEH index) */
   int colour[MAXV]; /* each human's paint (0..7) */
   bool items;       /* item boxes on */
+  bool turbos_only; /* the boxes give turbos only (a party preset) */
   bool attract;     /* a demo race behind the menus: the camera flies the track */
   int mode;         /* RM_* */
   int speed_class;  /* CLASS_*: every kart's top speed and acceleration (the time trial is always Standard) */

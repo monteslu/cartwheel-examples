@@ -199,6 +199,7 @@ typedef struct sim {
   int finished_count;
   int race_ticks;          /* ticks since the lights went out */
   int speed_class;         /* 0 Standard, 1 Fast, 2 Blazing (sim_set_class) */
+  int item_set;            /* 0 every item, 1 turbos only (a party preset) */
   float class_top, class_acc; /* every kart's top speed and acceleration scale for the class (1 = Standard) */
   uint32_t hash;
   int ev_n;

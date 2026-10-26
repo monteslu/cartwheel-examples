@@ -281,6 +281,7 @@ void game_start_race(const race_setup *rs) {
   sim_set_class(&G.S, G.trial ? CLASS_STANDARD : rs->speed_class);
   /* the item boxes option (and the time trial) leaves the road without boxes; nothing is built for them */
   if (!rs->items || G.trial) G.S.nbox = 0;
+  G.S.item_set = rs->turbos_only || getenv("RACER_TURBOS") ? 1 : 0; /* dev aid: RACER_TURBOS=1 forces the turbos-only preset */
   for (int i = 0; i < MAXK; i++) {
     G.S.k[i].human = G.human[i];
     G.S.k[i].colour = i < humans ? rs->colour[i] & 7 : (i + 3) & 7;

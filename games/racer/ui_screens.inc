@@ -357,7 +357,7 @@ static void opt_text(int opt, char *b, size_t n) {
   switch (opt) {
   case OPT_LAPS: snprintf(b, n, "%d", U.laps); break;
   case OPT_CPU: snprintf(b, n, "%s", SKILL_NAME[U.skill]); break;
-  case OPT_ITEMS: snprintf(b, n, "%s", U.items ? "ON" : "OFF"); break;
+  case OPT_ITEMS: snprintf(b, n, "%s", U.items == 2 ? "TURBOS ONLY" : U.items ? "ON" : "OFF"); break;
   case OPT_CLASS: snprintf(b, n, "%s", CLASS_NAME[U.cls]); break;
   case OPT_ASSIST: snprintf(b, n, "%s", ASSIST_NAME[U.assist & 3]); break;
   default: snprintf(b, n, "%s", U.ghost_on ? "ON" : "OFF"); break;
@@ -367,7 +367,7 @@ static void opt_bump(int opt, int dir) {
   switch (opt) {
   case OPT_LAPS: U.laps = CW_CLAMP(U.laps + dir, 1, MAX_LAPS); break;
   case OPT_CPU: U.skill = (U.skill + dir + 4) % 4; break;
-  case OPT_ITEMS: U.items = !U.items; break;
+  case OPT_ITEMS: U.items = (U.items + (dir < 0 ? 2 : 1)) % 3; break; /* ON, TURBOS ONLY, OFF */
   case OPT_CLASS: U.cls = (U.cls + dir + CLASS_COUNT) % CLASS_COUNT; break;
   case OPT_ASSIST: U.assist = (U.assist + dir + 4) & 3; break;
   default: U.ghost_on = !U.ghost_on; break;
@@ -469,7 +469,7 @@ static void enter_vehicle(int n) {
 }
 
 static void start_race_from_menu(void) {
-  race_setup rs = { .map = U.map, .laps = U.laps, .humans = U.setup.humans, .cpu_skill = U.skill, .items = U.items != 0 };
+  race_setup rs = { .map = U.map, .laps = U.laps, .humans = U.setup.humans, .cpu_skill = U.skill, .items = U.items != 0, .turbos_only = U.items == 2 };
   U.cup.on = false;
   for (int i = 0; i < MAXV; i++) rs.vehicle[i] = U.veh[i], rs.colour[i] = U.col[i];
   rs.speed_class = U.cls, rs.assist_steer = (U.assist & 1) != 0, rs.assist_gas = (U.assist & 2) != 0;
