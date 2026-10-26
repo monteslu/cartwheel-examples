@@ -92,6 +92,8 @@ typedef struct mmap_t {
   float minx, maxx, minz, maxz, miny, maxy;
   float length;
   int njumps, nloops, ntunnels;
+  int nbr, nbp[4];   /* the branches (shortcuts): a thinner line each */
+  float bx[4][40], bz[4][40];
 } mmap_t;
 
 typedef struct result_row {
@@ -575,6 +577,16 @@ static void mm_from_track(mmap_t *m, const track *t) {
     m->miny = fminf(m->miny, s->p.y), m->maxy = fmaxf(m->maxy, s->p.y);
   }
   m->n = n;
+  for (int b = 0; b < t->nbranch && b < 4; b++) {
+    const track_branch *B = &t->br[b];
+    int k = 0;
+    for (int j = 0; j < 40; j++) {
+      const tsample *s = &t->s[B->first + (B->n - 1) * j / 39];
+      m->bx[b][k] = s->p.x, m->bz[b][k] = s->p.z, k++;
+    }
+    m->nbp[b] = k;
+    m->nbr = b + 1;
+  }
   m->njumps = t->ngaps, m->nloops = t->nloops;
   for (int j = 0; j < n; j++)
     if ((m->fl[j] & 4) && (j == 0 || !(m->fl[j - 1] & 4))) m->ntunnels++;
@@ -620,6 +632,13 @@ static void mm_draw(const mmap_t *m, cw_rect r, float pad, float s, float width,
   if (!m || !m->ok) return;
   mfit f = mm_fit(m, r, pad);
   cw_vec2 pts[MMN];
+  /* the shortcuts first, under the main line: a thinner pale line on its own casing */
+  for (int b = 0; b < m->nbr; b++) {
+    cw_vec2 bp[40];
+    for (int i = 0; i < m->nbp[b]; i++) bp[i] = mm_pt(&f, m->bx[b][i], m->bz[b][i]);
+    cw_r2d_polyline(bp, m->nbp[b], width * 0.75f + 3 * s, false, rgba(0.02f, 0.02f, 0.03f, 0.85f));
+    cw_r2d_polyline(bp, m->nbp[b], width * 0.7f, false, rgba(0.62f, 0.95f, 0.55f, 0.95f));
+  }
   for (int i = 0; i < m->n; i++) pts[i] = mm_pt(&f, m->x[i], m->z[i]);
   cw_r2d_polyline(pts, m->n, width + 4 * s, true, rgba(0.02f, 0.02f, 0.03f, 0.9f));
   float hr = m->maxy - m->miny + 1e-3f;

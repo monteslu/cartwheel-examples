@@ -23,6 +23,14 @@ static t3_vec3 vnorm(t3_vec3 a) {
 }
 static pcol dk(pcol c, float k) { return pc_mul(c, k); }
 
+/* Roadside dressing keeps off a fork: the side of a sample where the other road is right there (TF_FORK_*), and any spot
+ * on or next to a branch (a shortcut) when dressing the main road. */
+static bool fork_side(const tsample *a, int side) { return (a->flags & (side < 0 ? TF_FORK_L : TF_FORK_R)) != 0; }
+static bool keep_clear(const track *t, const tsample *a, int side, t3_vec3 p, float room) {
+  if (fork_side(a, side)) return true;
+  return t->nbranch > 0 && branch_gap(t, p.x, p.z) < room;
+}
+
 dress_style dress_defaults(void) {
   dress_style d = { 0 };
   d.main = rgb(0.55f, 0.57f, 0.62f);
@@ -455,6 +463,7 @@ void deco_lights(cw_node parent, const track *t, float spacing, lamp_style style
       if (a.flags & (TF_GAP | TF_LOOP | TF_TUNNEL)) continue;
       float lat = side * (a.hw + 1.1f + (a.walls ? 0.7f : 0.0f) + (style == LAMP_POLE ? 0.8f : 0.0f));
       t3_vec3 p = track_point(t, s, lat, 0);
+      if (keep_clear(t, &a, side, p, 1.0f)) continue;
       p.y -= 0.7f;
       t3_vec3 d = V(-side * a.r.x, 0, -side * a.r.z);
       float yaw = atan2f(d.x, d.z);
@@ -483,6 +492,7 @@ void deco_rails(cw_node parent, const track *t, rail_style style, const dress_st
       if (a.flags & wallbit) continue;
       float lat = side * (a.hw + 0.35f), lat2 = side * (e.hw + 0.35f);
       t3_vec3 p0 = track_point(t, s, lat, 0), p1 = track_point(t, s + step, lat2, 0);
+      if (fork_side(&a, side) || fork_side(&e, side) || keep_clear(t, &a, side, p0, 0.3f) || keep_clear(t, &e, side, p1, 0.3f)) continue;
       pm *b = pmc_at(c, p0);
       pm_push(b);
       pm_layer(b, PL_METAL);
@@ -628,6 +638,27 @@ static int find_corners(const track *t, float min_curv, float *at, float *dir, i
   return n;
 }
 
+/* an arrow painted on the road at lateral x of sample a that bends the way d says (+ left) through `ang` radians of an
+ * arc of radius R: slabs round the arc, a head at the end */
+static void bend_arrow(pmc *c, const tsample *a, float x, float d, float R, float ang, const dress_style *st) {
+  pm *b = frame_at(c, a, x, 0);
+  pm_layer(b, PL_GLOW);
+  float w = 0.55f, px = 0, pz = 0;
+  for (int sIdx = 0; sIdx < 8; sIdx++) {
+    float an0 = ang * (float)sIdx / 8.0f, an1 = ang * (float)(sIdx + 1) / 8.0f;
+    float x0 = d * -R * (cosf(an0) - 1) * -1.0f, z0 = R * sinf(an0), x1 = d * -R * (cosf(an1) - 1) * -1.0f, z1 = R * sinf(an1);
+    float tx = x1 - x0, tz = z1 - z0, l = sqrtf(tx * tx + tz * tz);
+    float nx = -tz / l * w, nz = tx / l * w;
+    pm_quad(b, V(x0 - nx, 0.045f, z0 - nz), V(x0 + nx, 0.045f, z0 + nz), V(x1 + nx, 0.045f, z1 + nz), V(x1 - nx, 0.045f, z1 - nz), glow(st->lamp, 1.5f));
+    px = x1, pz = z1;
+  }
+  float tx = px - d * -R * (cosf(ang * 0.875f) - 1) * -1.0f, tz = pz - R * sinf(ang * 0.875f), l = sqrtf(tx * tx + tz * tz);
+  tx /= l, tz /= l;
+  float nx = -tz, nz = tx;
+  pm_tri(b, V(px - nx * 1.6f, 0.045f, pz - nz * 1.6f), V(px + nx * 1.6f, 0.045f, pz + nz * 1.6f), V(px + tx * 3.2f, 0.045f, pz + tz * 3.2f), glow(st->accent, 1.8f));
+  pm_pop(b);
+}
+
 void deco_corner_arrows(cw_node parent, const track *t, float min_curv, const dress_style *in) {
   dress_style st = styled(in);
   if (min_curv <= 0) min_curv = 0.012f;
@@ -639,27 +670,7 @@ void deco_corner_arrows(cw_node parent, const track *t, float min_curv, const dr
     if (s < 4) continue;
     tsample a = track_at(t, s);
     if (a.flags & (TF_GAP | TF_LOOP | TF_TUNNEL)) continue;
-    for (int k = -1; k <= 1; k += 2) {
-      float x = k * a.hw * 0.5f;
-      pm *b = frame_at(c, &a, x, 0);
-      pm_layer(b, PL_GLOW);
-      /* an arrow that bends the way the road does: seven slabs round an arc, a head at the end */
-      float d = dir[i], w = 0.55f, R = 14.0f, ang = 0.7f;
-      float px = 0, pz = 0;
-      for (int sIdx = 0; sIdx < 8; sIdx++) {
-        float an0 = ang * (float)sIdx / 8.0f, an1 = ang * (float)(sIdx + 1) / 8.0f;
-        float x0 = d * -R * (cosf(an0) - 1) * -1.0f, z0 = R * sinf(an0), x1 = d * -R * (cosf(an1) - 1) * -1.0f, z1 = R * sinf(an1);
-        float tx = x1 - x0, tz = z1 - z0, l = sqrtf(tx * tx + tz * tz);
-        float nx = -tz / l * w, nz = tx / l * w;
-        pm_quad(b, V(x0 - nx, 0.045f, z0 - nz), V(x0 + nx, 0.045f, z0 + nz), V(x1 + nx, 0.045f, z1 + nz), V(x1 - nx, 0.045f, z1 - nz), glow(st.lamp, 1.5f));
-        px = x1, pz = z1;
-      }
-      float tx = px - d * -R * (cosf(ang * 0.875f) - 1) * -1.0f, tz = pz - R * sinf(ang * 0.875f), l = sqrtf(tx * tx + tz * tz);
-      tx /= l, tz /= l;
-      float nx = -tz, nz = tx;
-      pm_tri(b, V(px - nx * 1.6f, 0.045f, pz - nz * 1.6f), V(px + nx * 1.6f, 0.045f, pz + nz * 1.6f), V(px + tx * 3.2f, 0.045f, pz + tz * 3.2f), glow(st.accent, 1.8f));
-      pm_pop(b);
-    }
+    for (int k = -1; k <= 1; k += 2) bend_arrow(c, &a, k * a.hw * 0.5f, dir[i], 14.0f, 0.7f, &st);
   }
   pmc_finish(c, parent, "CornerArrows", false, -1);
 }
@@ -717,6 +728,10 @@ void deco_sign(cw_node parent, const track *t, float s, int side, int kind, cons
   tsample a = track_at(t, s);
   float lat = (side < 0 ? -1.0f : 1.0f) * (a.hw + 2.4f);
   t3_vec3 p = track_point(t, s, lat, 0);
+  if (keep_clear(t, &a, side < 0 ? -1 : 1, p, 1.5f)) {
+    pmc_finish(c, parent, "Sign", true, -1);
+    return;
+  }
   pm *b = pmc_at(c, p);
   pm_push(b);
   /* faces back down the road at the oncoming kart, turned a little toward the line */
@@ -750,6 +765,7 @@ int deco_corner_signs(cw_node parent, const track *t, float min_curv, const dres
       if (k == 0) side = -side;
       float lat = side * (a.hw + 2.4f + (a.walls ? 0.8f : 0));
       t3_vec3 p = track_point(t, s, lat, 0);
+      if (keep_clear(t, &a, side, p, 1.5f)) continue;
       pm *b = pmc_at(c, p);
       pm_push(b);
       t3_vec3 face;
@@ -780,6 +796,7 @@ void deco_banners(cw_node parent, const track *t, float s0, float s1, float spac
     if (a.flags & (TF_GAP | TF_LOOP | TF_TUNNEL)) continue;
     if (fabsf(track_curvature(t, s, 12)) > 0.02f) continue;
     float rx = a.hw + 1.2f, H = 6.2f + a.hw * 0.12f;
+    if (keep_clear(t, &a, -1, track_point(t, s, -rx, 0), 1.0f) || keep_clear(t, &a, 1, track_point(t, s, rx, 0), 1.0f)) continue;
     pm *b = frame_at(c, &a, 0, 0);
     pm_layer(b, PL_METAL);
     pm_beam(b, V(-rx, -0.7f, 0), V(-rx, H, 0), 0.34f, st.main);
@@ -810,4 +827,123 @@ void deco_cables(cw_node parent, const t3_vec3 *pts, int n, float sag, float r, 
     pm_cable(b, pts[i], pts[i + 1], sag, r, col);
   }
   pmc_finish(c, parent, "Cables", false, -1);
+}
+
+/* ── branches: the shortcuts signposted ──────────────────────────────────────────────────────────────── */
+
+branch_dress branch_dress_defaults(void) {
+  branch_dress d = { 0 };
+  d.st = dress_defaults();
+  d.lamps = LAMP_GLOW_POST;
+  d.lamp_spacing = 12;
+  d.tip = PK_BOLLARD;
+  d.tip_scale = 1.0f;
+  d.chevrons = true;
+  d.arrows = true;
+  d.sign = true;
+  d.nose = true;
+  return d;
+}
+
+/* the island tip where branch b parts from (end 0) or meets (end 1) the main road: the first sample past the overlap
+ * with at least `gap` metres of ground between the two roads' edges; *tip is the middle of that ground */
+static int island_tip(const track *t, int b, int end, float gap, t3_vec3 *tip) {
+  const track_branch *B = &t->br[b];
+  int dir = end ? -1 : 1, i = end ? B->first + B->n - 1 : B->first;
+  int hint = -1;
+  for (int k = 0; k < B->n; k++, i += dir) {
+    const tsample *q = &t->s[i];
+    if (q->flags & (TF_JOIN | TF_GAP)) continue;
+    float in = B->side < 0 ? q->hw : -q->hw; /* the branch's edge on the main road's side */
+    t3_vec3 e = vadd(q->p, vmul(q->r, in));
+    track_loc l;
+    track_locate_main(t, e, hint, &l);
+    hint = l.i;
+    float hm = t->s[l.i].hw, g = fabsf(l.lat) - hm;
+    if (g < gap) continue;
+    t3_vec3 m = track_point(t, l.s, (float)B->side * hm, 0);
+    *tip = vmul(vadd(e, m), 0.5f);
+    return i;
+  }
+  return -1;
+}
+
+void deco_branches(cw_node parent, const track *t, const branch_dress *in) {
+  branch_dress bd = in ? *in : branch_dress_defaults();
+  dress_style st = bd.st;
+  pmc *c = pmc_new(70, st.seed + 12);
+  prop_set *ps = ps_new(parent, "BranchMarks");
+  for (int b = 0; b < t->nbranch; b++) {
+    const track_branch *B = &t->br[b];
+    track v = track_branch_view(t, b);
+    /* its own edges lit, its bends chevroned, arrows on its road before them */
+    if (bd.lamp_spacing > 0) deco_lights(parent, &v, bd.lamp_spacing, bd.lamps, 0, 0, &st);
+    if (bd.chevrons) deco_corner_signs(parent, &v, 0.012f, &st);
+    if (bd.arrows) deco_corner_arrows(parent, &v, 0.012f, &st);
+    /* on the main road before the mouth: an arrow in the lane that leads in, bending its way */
+    if (bd.arrows) {
+      tsample m = track_at(t, B->s0 - 26.0f);
+      if (!(m.flags & (TF_GAP | TF_LOOP | TF_TUNNEL))) bend_arrow(c, &m, (float)B->side * m.hw * 0.55f, B->side < 0 ? 1.0f : -1.0f, 18.0f, 0.5f, &st);
+    }
+    /* the islands' noses paved in hazard stripes, from where the roads part until they are a lane apart */
+    if (bd.nose)
+      for (int end = 0; end < 2; end++) {
+        int dir = end ? -1 : 1, i = end ? B->first + B->n - 1 : B->first, hint = -1, made = 0;
+        t3_vec3 pe = { 0 }, pm0 = { 0 };
+        bool have = false;
+        for (int k = 0; k < B->n && made < 40; k++, i += dir) {
+          const tsample *q = &t->s[i];
+          if (q->flags & TF_GAP) break;
+          if (q->flags & TF_JOIN) continue;
+          t3_vec3 e = vadd(q->p, vmul(q->r, B->side < 0 ? q->hw : -q->hw));
+          track_loc l;
+          track_locate_main(t, e, hint, &l);
+          hint = l.i;
+          float hm = t->s[l.i].hw, g = fabsf(l.lat) - hm;
+          t3_vec3 m = track_point(t, l.s, (float)B->side * hm, 0);
+          if (g > 7.0f) break;
+          float y = fminf(e.y, m.y) - 0.03f;
+          e.y = m.y = y;
+          if (have) {
+            pm *pb = pmc_at(c, e);
+            pm_push(pb);
+            pm_layer(pb, PL_MAIN);
+            pcol col = ((made / 2) & 1) ? st.accent : rgb(0.06f, 0.06f, 0.07f);
+            /* both windings: it reads from above whichever side the branch is on (and from below, on a station) */
+            pm_quad(pb, pe, e, m, pm0, col);
+            pm_quad(pb, pm0, m, e, pe, col);
+            pm_pop(pb);
+          }
+          pe = e, pm0 = m, have = true, made++;
+        }
+      }
+    /* the island tips: a sign at the parting pointing in, markers along the island's nose at both ends */
+    for (int end = 0; end < 2; end++) {
+      t3_vec3 tip;
+      int i = island_tip(t, b, end, 1.6f, &tip);
+      if (i < 0) continue;
+      const tsample *q = &t->s[i];
+      t3_vec3 f = vnorm(V(q->f.x, 0, q->f.z));
+      if (end == 0 && bd.sign) {
+        pm *s = pmc_at(c, tip);
+        pm_push(s);
+        t3_vec3 face = V(-f.x, 0, -f.z), right = V(face.z, 0, -face.x);
+        pm_basis(s, V(tip.x, tip.y, tip.z), right, V(0, 1, 0), face);
+        pm_move(s, 0, 2.6f - 0.7f, 0);
+        sign_model(s, B->side < 0 ? SIGN_ARROW_L : SIGN_ARROW_R, 2.6f, &st);
+        pm_pop(s);
+      }
+      /* a short row of markers along the nose of the island, from its tip back between the two roads */
+      for (int k = 0; k < 5; k++) {
+        t3_vec3 p = vadd(tip, vmul(f, (end ? 1.0f : -1.0f) * (1.6f + 2.2f * (float)k)));
+        float ry, gm = road_gap(t, p.x, p.z, &ry);
+        if (gm < -0.2f) break; /* back on a road: the island has closed */
+        p.y = tip.y - 0.05f;
+        ps_add(ps, bd.tip, p, atan2f(f.x, f.z), bd.tip_scale * (k ? 0.9f : 1.15f), st.seed + (uint32_t)(b * 16 + end * 8 + k));
+      }
+    }
+  }
+  ps_shadows(ps, false);
+  ps_finish(ps);
+  pmc_finish(c, parent, "BranchSigns", true, -1);
 }

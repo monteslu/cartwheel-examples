@@ -45,7 +45,8 @@ enum {
   TF_ROUGH = 1u << 12,   /* dirt, sand, gravel: slower, bumpier */
   TF_FINISH = 1u << 13,  /* the start/finish line */
   TF_RAMP = 1u << 14,    /* a jump's take-off: the AI wants speed here */
-  TF_FORK_L = 1u << 15,  /* main road: a branch's mouth opens on the left here (the wall gives way to it) */
+  TF_FORK_L = 1u << 15,  /* the other road is right there on the left: on the main road a branch's mouth (the wall gives way
+                            to it), on a branch the main road it leaves or rejoins. Roadside dressing keeps off that side */
   TF_FORK_R = 1u << 16,
   TF_BRANCH = 1u << 17,  /* a sample of a branch (an alternate route), not of the main road */
   TF_JOIN = 1u << 18,    /* a branch sample still overlapping the main road: its road is drawn only beyond the main edge (cut) */

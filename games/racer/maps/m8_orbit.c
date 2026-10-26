@@ -887,6 +887,8 @@ static void build_deck(cw_node root, const track *t) {
       int blk = (i / 60) * 2 + (side > 0);
       float on = hf((uint32_t)blk * 40503u + 17u);
       if (on < 0.18f) continue;
+      uint32_t fork = side < 0 ? TF_FORK_L : TF_FORK_R; /* the spacewalk leaves here: no catwalk across its mouth */
+      if (((a->flags | e->flags) & fork) || branch_gap(t, tp(a, side * (hw + 3.0f), 0).x, tp(a, side * (hw + 3.0f), 0).z) < 1.0f) continue;
       float l0 = side * (hw + 0.9f), l1 = side * (hw + 4.2f), ly = -0.32f;
       pm *b = pmc_at(c, a->p);
       pm_push(b);
@@ -1768,6 +1770,7 @@ static void build_deck_props(cw_node root, const track *t, prop_set *ps) {
       const tsample *a = &t->s[i];
       float lat = side * (a->hw + 2.6f);
       t3_vec3 p = tp(a, lat, -0.3f);
+      if (branch_gap(t, p.x, p.z) < 2.0f) continue;
       float yaw = atan2f(a->f.x, a->f.z) + (hf(h ^ 1u) - 0.5f) * 0.5f;
       t3_quat q = t3_quat_from_axis_angle(V3(0, 1, 0), yaw);
       float roll = hf(h ^ 2u);
@@ -2150,6 +2153,45 @@ static void holo_at(cw_node root, const track *t, float s, int side, int kind, p
   holo_sign(root, p, yaw, w, h, lift, kind, col, 2.4f, true);
 }
 
+/* the spacewalk (the track's branch): a bare gantry, so it gets the keel lattice the main deck has under it and a
+ * glowing strip along each edge, magenta on the left and cyan on the right, that says where the drop is */
+static void build_spacewalk(cw_node root, const track *t) {
+  pmc *c = pmc_new(120, 31);
+  for (int b = 0; b < t->nbranch; b++) {
+    const track_branch *B = &t->br[b];
+    for (int i = B->first; i + 3 < B->first + B->n; i += 3) {
+      const tsample *a = &t->s[i], *e = &t->s[i + 3];
+      if ((a->flags | e->flags) & TF_GAP) continue;
+      pm *pb = pmc_at(c, a->p);
+      pm_push(pb);
+      /* the edge strips: dashes, two on and one off */
+      if ((i / 3) % 3 != 2)
+        for (int side = -1; side <= 1; side += 2) {
+          if ((a->flags | e->flags) & (side < 0 ? TF_FORK_L : TF_FORK_R)) continue;
+          /* on the slab's side face, under the kerb: seen from the road ahead and from across the void */
+          pm_layer(pb, PL_GLOW);
+          float l = side * (a->hw + 0.03f), le = side * (e->hw + 0.03f);
+          t3_vec3 A = tp(a, l, -0.18f), Bq = tp(a, l, -0.5f), C = tp(e, le, -0.5f), D = tp(e, le, -0.18f);
+          pcol gc = side > 0 ? K.cyan : K.magenta;
+          pm_quad(pb, A, Bq, C, D, glow(gc, 4.5f));
+          pm_quad(pb, D, C, Bq, A, glow(gc, 4.5f));
+        }
+      /* the keel: a beam under the middle and struts up to both edges */
+      if ((i / 3) % 2 == 0 && !(a->flags & TF_JOIN)) {
+        pm_layer(pb, PL_METAL);
+        t3_vec3 k0 = tp(a, 0, -3.2f), k1 = tp(e, 0, -3.2f);
+        pm_beam(pb, k0, k1, 0.26f, K.hull2);
+        for (int side = -1; side <= 1; side += 2) {
+          pm_beam(pb, tp(a, side * (a->hw - 0.6f), -0.9f), tp(e, side * (e->hw - 0.6f), -0.9f), 0.2f, dk(K.hull2, 0.85f));
+          pm_beam(pb, tp(a, side * (a->hw - 0.6f), -0.9f), k0, 0.12f, dk(K.hull2, 0.7f));
+        }
+      }
+      pm_pop(pb);
+    }
+  }
+  pmc_finish(c, root, "Spacewalk", true, TEX_METAL);
+}
+
 static void orbit_scenery(cw_node scene, const track *t, uint32_t seed) {
   (void)seed;
   memset(&SKY, 0, sizeof SKY);
@@ -2226,6 +2268,14 @@ static void orbit_scenery(cw_node scene, const track *t, uint32_t seed) {
   deco_jump_marks(root, t, &ds);
   ds.accent = K.cyan, ds.lamp = K.magenta;
   deco_banners(root, t, 60, t->length - 40, 210, &ds);
+  /* the spacewalk: its keel and edge strips, the sign on the parting, chevrons on its two bends */
+  build_spacewalk(root, t);
+  branch_dress bd = branch_dress_defaults();
+  bd.st = ds;
+  bd.st.accent = K.yellow, bd.st.lamp = K.cyan, bd.st.seed = 23;
+  bd.lamp_spacing = 0; /* posts would stand in space: the edge strips light it */
+  bd.tip = PK_BOLLARD;
+  deco_branches(root, t, &bd);
 }
 
 static void orbit_frame(float alpha, double time) {

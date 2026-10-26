@@ -280,6 +280,8 @@ float road_gap(const track *t, float x, float z, float *road_y);
 float road_gap_idx(const track *t, float x, float z, float *road_y, int *sample_index);
 /* the nearest road sample horizontally, for those that want more */
 int road_nearest(const track *t, float x, float z, float *dist2d);
+/* the same as road_gap for the branches (the shortcuts) alone: 1e9 on a track without them */
+float branch_gap(const track *t, float x, float z);
 
 /* ── dressing the track (dressing.c) ───────────────────────────────────────────────────────────────── */
 
@@ -319,6 +321,20 @@ enum { SIGN_ARROW_L, SIGN_ARROW_R, SIGN_CHEVRON_L, SIGN_CHEVRON_R, SIGN_WARN, SI
 void deco_sign(cw_node parent, const track *t, float s, int side, int kind, const dress_style *st);
 /* a string of cables between two points of the world, sagging, carried on nothing (power lines between pylons) */
 void deco_cables(cw_node parent, const t3_vec3 *pts, int n, float sag, float r, pcol col);
+/* The track's branches (shortcuts) signposted so they read at speed: a painted arrow in the lane that leads to each mouth,
+ * a sign on the island tip where it parts from the main road pointing in, a row of markers (tip, a prop kind) along both
+ * islands' noses, lamps along its edges, chevron boards on its bends and arrows on its road before them. */
+typedef struct branch_dress {
+  dress_style st;
+  lamp_style lamps;                /* along its edges (lamp_spacing 0: none) */
+  float lamp_spacing;
+  prop_kind tip;                   /* the island noses' markers (PK_BOLLARD, PK_TYRE_STACK, PK_CONE, PK_TORCH, ...) */
+  float tip_scale;
+  bool chevrons, arrows, sign;
+  bool nose;                       /* pave the islands' noses (between the parting roads) in hazard stripes */
+} branch_dress;
+branch_dress branch_dress_defaults(void);
+void deco_branches(cw_node parent, const track *t, const branch_dress *bd);
 
 /* ── ground and water (ground.c) ─────────────────────────────────────────────────────────────────────── */
 

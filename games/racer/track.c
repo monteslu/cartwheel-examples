@@ -800,11 +800,13 @@ static bool build_branch(track *t, const branch_spec *bs) {
         if (B->side < 0) m->flags = (m->flags & ~(uint32_t)TF_WALL_L) | TF_FORK_L | TF_OPEN;
         else m->flags = (m->flags & ~(uint32_t)TF_WALL_R) | TF_FORK_R | TF_OPEN;
       }
-    /* its own wall on the main road's side starts once it is clear of the main wall */
+    /* its own wall on the main road's side starts once it is clear of the main wall; until a little after, that side
+     * is marked (TF_FORK_*) so roadside dressing keeps off it */
     if (inner < hm + 0.55f + 0.4f) {
       q->flags &= ~(uint32_t)(B->side < 0 ? TF_WALL_R : TF_WALL_L);
       if (!(q->flags & (TF_WALL_L | TF_WALL_R))) q->flags |= TF_OPEN;
     }
+    if (inner < hm + 4.0f) q->flags |= B->side < 0 ? TF_FORK_R : TF_FORK_L;
     if (inner < hm) {
       /* where it overlaps the main road it lies in the main road's own surface, so the seam at the cut has no step: the
        * main road may lean (a banked turn's inside edge sinks) where the branch, left to itself, would not */

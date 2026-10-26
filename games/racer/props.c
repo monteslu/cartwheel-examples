@@ -973,6 +973,16 @@ float road_gap_idx(const track *t, float x, float z, float *road_y, int *idx) {
   return best;
 }
 float road_gap(const track *t, float x, float z, float *road_y) { return road_gap_idx(t, x, z, road_y, NULL); }
+float branch_gap(const track *t, float x, float z) {
+  float best = 1e9f;
+  for (int i = t->n; i < t->nall; i++) {
+    const tsample *s = &t->s[i];
+    float ex = s->p.x - x, ez = s->p.z - z;
+    float g = sqrtf(ex * ex + ez * ez) - sample_reach(s);
+    if (g < best) best = g;
+  }
+  return best;
+}
 int road_nearest(const track *t, float x, float z, float *dist2d) {
   road_index_build(t);
   float best = 1e18f;
