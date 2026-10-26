@@ -2,8 +2,9 @@
  *
  *   no item      the nearest box that is there (a short way, not behind a wall it would have to go round)
  *   an item      the nearest kart worth hitting, ahead first; fire when the shot is lined up and clear
- *   always       three feelers (sim_ray) steer it off walls and cover, it swerves round mines and oil, and a kart
- *                that has not moved for a moment backs out the way it came, turning
+ *   always       a steering field of nine rays (sim_ray) picks the open heading nearest the goal, wary of mines, oil
+ *                and other karts; it brakes when the way ends too soon, and a kart pinned or nosed into a corner
+ *                backs out briefly with the nose swinging to the open side, then drives on
  *
  * Everything it reads is the simulation and a seeded stream of its own, so a battle repeats. */
 #include <math.h>
@@ -40,36 +41,23 @@ static bool clear_line(const sim *s, t3_vec3 a, t3_vec3 b) {
   return !sim_ray(s, from, v3sub(to, from), &fr, &n) || fabsf(n.y) > 0.6f;
 }
 
-/* a feeler: how much of `len` metres along the kart's heading turned by `ang` is free of walls (1 = all) */
-static float feel(const sim *s, const kart *k, float ang, float len) {
-  float sn, cs;
-  cw_sincos(ang, &sn, &cs);
-  t3_vec3 f = kart_fwd(k), r = kart_right(k);
-  f.y = 0, r.y = 0;
-  t3_vec3 dir = v3norm(v3add(v3mul(f, cs), v3mul(r, sn)));
-  t3_vec3 from = v3add(k->p, (t3_vec3){ 0, 0.15f, 0 });
-  float fr = 1;
-  t3_vec3 n;
-  if (!sim_ray(s, from, v3mul(dir, len), &fr, &n)) return 1;
-  if (n.y > 0.6f) return 1; /* a ramp or a deck to drive up */
-  return fr;
-}
-
-static int pick_box(const sim *s, int me) {
+static int pick_box(const sim *s, int me, const ai_mem *m) {
   const kart *k = &s->k[me];
   int best = -1;
   float bs = 1e9f;
   for (int b = 0; b < s->nbox; b++) {
     const itembox *x = &s->box[b];
     if (x->cool > 0) continue;
+    if (m->lane_ticks > 0 && (int)m->lane_want == b) continue; /* it just got stuck going for this one */
     float d = flat_dist(x->p, k->p), a = fabsf(bearing(k, x->p));
-    float score = d + a * 9.0f + (fabsf(x->p.y - k->p.y) > 2.0f ? 18.0f : 0);
+    float score = d + a * 16.0f + (fabsf(x->p.y - k->p.y) > 2.0f ? 18.0f : 0);
     if (!clear_line(s, k->p, x->p)) score += 40;
     /* another kart is nearer to it and heading there: leave it */
     for (int j = 0; j < MAXK; j++) {
       if (j == me || !s->k[j].on || s->k[j].out) continue;
       if (flat_dist(s->k[j].p, x->p) < d * 0.5f) score += 15;
     }
+    if (b == m->b_box) score *= 0.6f; /* stay with the box it is going for: flipping between two is how a driver dithers */
     if (score < bs) bs = score, best = b;
   }
   return best;
@@ -83,7 +71,7 @@ static int pick_target(const sim *s, int me, ai_mem *m) {
     const kart *o = &s->k[j];
     if (j == me || !o->on || o->out || o->respawn_ticks > 0) continue;
     float d = flat_dist(o->p, k->p), a = fabsf(bearing(k, o->p));
-    float score = d + a * 14.0f;
+    float score = d + a * 20.0f;
     if (j == m->b_target) score -= 12; /* keep after the one it is chasing */
     if (o->balloons == 1) score -= 6;   /* one more pop finishes it */
     if (score < bs) bs = score, best = j;
@@ -148,14 +136,14 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
   if (--m->b_think <= 0) {
     m->b_think = 20 + (int)(rnd(m) % 20u);
     m->b_target = offensive ? pick_target(s, me, m) : -1;
-    m->b_box = (!armed && k->item_wait == 0) ? pick_box(s, me) : -1;
+    m->b_box = (!armed && k->item_wait == 0) ? pick_box(s, me, m) : -1;
     if (m->b_target < 0 && m->b_box < 0) {
       /* nothing to do: roam towards the far side, or after the nearest kart */
       m->b_target = pick_target(s, me, m);
       if (m->b_target < 0 || armed) {
         const arena_rt *a = s->arena;
         int sp = a && a->nspawn ? (int)(rnd(m) % (uint32_t)a->nspawn) : 0;
-        m->b_goal = a && a->nspawn ? (t3_vec3){ a->spawn[sp][0] * 0.6f, 0, (a->spawn[sp][1] - ARENA_CZ) * 0.6f + ARENA_CZ } : (t3_vec3){ 0, 0, ARENA_CZ };
+        if (flat_dist(k->p, m->b_goal) < 12.0f || m->b_goal.z == 0) m->b_goal = a && a->nspawn ? (t3_vec3){ a->spawn[sp][0] * 0.6f, 0, (a->spawn[sp][1] - ARENA_CZ) * 0.6f + ARENA_CZ } : (t3_vec3){ 0, 0, ARENA_CZ };
         if (!armed) m->b_target = -1;
       }
     }
@@ -186,80 +174,114 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
     else m->b_goal = a && a->nspawn ? (t3_vec3){ a->spawn[sp][0] * 0.55f, 0, (a->spawn[sp][1] - ARENA_CZ) * 0.55f + ARENA_CZ } : (t3_vec3){ 0, 0, ARENA_CZ }, m->b_roam = 120, m->b_box = -1;
     m->b_frust = 0, m->b_best_d = 0;
   }
-  /* mines and oil in the way: aim to the side of them */
-  for (int h = 0; h < MAXHZ; h++) {
-    const hazard *z = &s->hz[h];
-    if (z->kind != HZ_MINE && z->kind != HZ_OIL) continue;
-    float zd = flat_dist(z->p, k->p);
-    if (zd > 16 || zd > dist) continue;
-    float za = bearing(k, z->p);
-    if (fabsf(za - ang) < 0.35f) ang += (za > ang ? -1.0f : 1.0f) * (0.5f - fabsf(za - ang));
+  /* the steering field: nine headings fanned round the kart's own. Each scores how nearly it heads for the goal, how far
+   * it is clear of walls and cover (rays into the static world; ramps and decks are floor), and whether a mine, oil or
+   * another kart lies along it; the best one is steered for, with a little loyalty to the last choice so it does not
+   * dither. A concave corner never wins: its rays are short long before the kart gets there. */
+  float spd = k->speed, look = clampf(9.0f + spd * 0.7f, 10.0f, 28.0f);
+  t3_vec3 fw = kart_fwd(k), rt = kart_right(k);
+  fw.y = 0, rt.y = 0;
+  fw = v3norm(fw), rt = v3norm(rt);
+  static const float FAN[9] = { -1.75f, -1.2f, -0.75f, -0.38f, 0, 0.38f, 0.75f, 1.2f, 1.75f };
+  float clear[9], best = -1e9f, best_a = 0;
+  int best_c = 4;
+  t3_vec3 from = v3add(k->p, (t3_vec3){ 0, 0.15f, 0 });
+  for (int c = 0; c < 9; c++) {
+    float a = FAN[c], sn, cs;
+    cw_sincos(a, &sn, &cs);
+    t3_vec3 dir = v3add(v3mul(fw, cs), v3mul(rt, sn));
+    float fr = 1;
+    t3_vec3 n;
+    clear[c] = sim_ray(s, from, v3mul(dir, look), &fr, &n) && n.y < 0.6f ? fr : 1.0f;
+    float free_m = clear[c] * look;
+    float score = cw_cos(a - ang) * 2.0f + clampf(free_m / 12.0f, 0, 1) * 1.6f - (free_m < 4.0f ? 2.0f : 0);
+    /* the goal itself is nearer than the wall that way: the wall does not matter */
+    if (free_m >= dist && fabsf(a - ang) < 0.4f) score += 0.8f;
+    for (int h = 0; h < MAXHZ; h++) {
+      const hazard *z = &s->hz[h];
+      if (z->kind != HZ_MINE && z->kind != HZ_OIL) continue;
+      t3_vec3 d = v3sub(z->p, k->p);
+      float along = d.x * dir.x + d.z * dir.z, side = fabsf(d.x * dir.z - d.z * dir.x);
+      if (along > 0 && along < fminf(free_m, 18.0f) && side < 2.4f) score -= 1.6f;
+    }
+    for (int j = 0; j < MAXK; j++) {
+      const kart *o = &s->k[j];
+      if (j == me || j == m->b_target || !o->on || o->out) continue;
+      t3_vec3 d = v3sub(o->p, k->p);
+      float along = d.x * dir.x + d.z * dir.z, side = fabsf(d.x * dir.z - d.z * dir.x);
+      if (along > 0 && along < 9.0f && side < 1.8f) score -= 0.7f;
+    }
+    score -= fabsf(a - m->lane) * 0.22f;
+    if (score > best) best = score, best_a = a, best_c = c;
   }
-  /* the feelers */
-  float spd = k->speed, len = 6.0f + clampf(spd, 0, 40) * 0.45f;
-  float fc = feel(s, k, 0, len), fl = feel(s, k, -0.5f, len * 0.8f), fr = feel(s, k, 0.5f, len * 0.8f);
-  m->b_aim = goal, m->b_feel[0] = fl, m->b_feel[1] = fc, m->b_feel[2] = fr;
-  float steer = clampf(ang * 2.0f, -1, 1);
-  if (fc < 1.0f || fl < 0.6f || fr < 0.6f) {
-    float push = (1.0f - fc) * 1.6f;
-    float side = fr > fl ? 1.0f : fl > fr ? -1.0f : (m->b_side ? (float)m->b_side : 1.0f);
-    if (fc < 1.0f) m->b_side = side > 0 ? 1 : -1;
-    steer = clampf(steer + side * push + (fl < 0.6f ? (0.6f - fl) * 1.5f : 0) - (fr < 0.6f ? (0.6f - fr) * 1.5f : 0), -1, 1);
-  }
-  m->steer_smooth += (steer - m->steer_smooth) * 0.4f;
+  m->lane = best_a;
+  float fc = clear[4], ahead_m = fminf(clear[3], fminf(clear[4], clear[5])) * look;
+  m->b_aim = goal, m->b_feel[0] = clear[2], m->b_feel[1] = fc, m->b_feel[2] = clear[6];
+  /* from a crawl full lock scrubs the speed away: wind the lock on as it gets going, unless a wall leaves no room for a wider turn */
+  float lock = ahead_m < 7.0f ? 1.0f : 0.55f + 0.45f * clampf(spd / 12.0f, 0, 1);
+  float steer = clampf(best_a * 1.8f, -lock, lock);
+  m->steer_smooth += (steer - m->steer_smooth) * 0.5f;
   in.steer = (int8_t)(clampf(m->steer_smooth, -1, 1) * 127);
   in.thr = 127;
-  /* a tight turn: off the gas, the skilled drift through it (a drift boost is a ram waiting to happen) */
-  if (fabsf(ang) > 1.4f && spd > 14) in.thr = 0;
-  if (m->skill >= 1 && fabsf(ang) > 0.55f && fabsf(ang) < 1.6f && spd > 17 && fc > 0.7f) in.btn |= KB_DRIFT;
-  /* close to the goal but off to the side: slow right down so it turns tight instead of circling it */
-  if (m->b_box >= 0 && m->b_roam == 0 && dist < 11 && fabsf(ang) > 0.7f) in.thr = spd > 7 ? -127 : 80;
-  /* something solid close ahead for this speed: brake while it steers round it */
-  if (fc < 1.0f && fc * len < spd * 0.42f && spd > 8) in.thr = -127, in.btn &= ~KB_DRIFT;
-  /* stuck on something: back out, turned the other way, then try again */
-  float moved = flat_dist(k->p, m->b_last_p);
-  m->b_last_p = k->p;
-  if (moved < 0.03f && k->spin_ticks == 0 && k->respawn_ticks == 0) m->b_slow++;
-  else if (m->b_slow > 0) m->b_slow -= 2;
-  if (m->b_slow < 0) m->b_slow = 0;
-  /* a wall close ahead and the goal off to the side: back and turn (the steering turns the nose the same way in reverse) */
-  bool boxed = fc < 1.0f && fc * len < 4.5f && fabsf(ang) > 1.0f && spd < 9;
+  /* a hard turn at speed: lift; the skilled drift through it (a drift boost is a ram waiting to happen) */
+  if (fabsf(best_a) > 1.3f && spd > 22) in.thr = 0;
+  if (m->skill >= 1 && fabsf(best_a) > 0.45f && fabsf(best_a) < 1.3f && spd > 17 && fc > 0.6f) in.btn |= KB_DRIFT;
+  /* close to a box but off to the side: slow right down so it turns tight instead of circling it */
+  if (m->b_box >= 0 && m->b_roam == 0 && dist < 7 && fabsf(ang) > 1.2f && spd > 14) in.thr = 0;
+  /* the way it is going ends sooner than it can turn: brake */
+  if (clear[best_c] * look < spd * 0.35f && spd > 12) in.thr = -127, in.btn &= ~KB_DRIFT;
+  /* stuck (pinned on something, or nose into a wall with nowhere to turn): a short committed back-out, the nose swinging to
+   * the open side (the steering turns the nose the same way in reverse), then a moment driving on before it may again */
+  /* stuck: it has not got 1.2 m from where it last was for most of a second (pinned, or rocking on an edge) */
+  if (flat_dist(k->p, m->b_last_p) > 1.2f || m->b_reverse > 0 || k->spin_ticks > 0 || k->respawn_ticks > 0) m->b_last_p = k->p, m->b_slow = 0;
+  else m->b_slow++;
   if (m->b_commit > 0) m->b_commit--;
-  if ((m->b_slow > 35 || (fc < 0.25f && spd < 5) || boxed) && m->b_commit == 0 && m->b_reverse == 0) {
-    m->b_reverse = 75;
-    m->b_slow = 0;
-    m->b_side = ang > 0 ? 1 : -1;
-    m->b_rev_p = k->p;
+  if (m->lane_ticks > 0) m->lane_ticks--;
+  /* nose to a wall: if there is room to the side it means to turn to, it turns there going forward; only boxed in does it back out */
+  float side_m = (best_a > 0 ? fminf(clear[6], clear[7]) : fminf(clear[1], clear[2])) * look;
+  bool walled = spd < 4 && fabsf(best_a) > 0.5f && (ahead_m < 1.4f || (ahead_m < 2.4f && side_m < 3.5f));
+  /* another kart nose to nose with it, both crawling: one of them has to give way */
+  for (int j = 0; j < MAXK && !walled; j++) {
+    const kart *o = &s->k[j];
+    if (j == me || !o->on || o->out || spd > 3) continue;
+    t3_vec3 d = v3sub(o->p, k->p);
+    float dd = d.x * d.x + d.z * d.z, along = d.x * fw.x + d.z * fw.z;
+    walled = dd < 3.4f * 3.4f && along > 0.7f * sqrtf(dd) && m->b_slow > 20;
   }
+  if ((m->b_slow > 50 || walled) && (m->b_commit == 0 || m->b_slow > 70) && m->b_reverse == 0) {
+    /* a length of its own (two karts stuck on each other do not mirror each other for ever) */
+    m->b_reverse = 60 + (int)(rnd(m) % 16u);
+    m->b_slow = 0;
+    m->b_side = best_a > 0.05f ? 1 : best_a < -0.05f ? -1 : (rnd(m) & 1 ? 1 : -1);
+    m->b_rev_p = k->p;
+    if (m->b_box >= 0) m->lane_want = (float)m->b_box, m->lane_ticks = 180, m->b_box = -1, m->b_think = 0;
+  }
+  if (m->b_reverse > 0 && k->spin_ticks > 0) m->b_reverse = 0; /* a spin takes the wheel: start afresh after it */
   if (m->b_reverse > 0) {
-    /* back out until it has come away three and a half metres (or a second has gone), the nose swinging to the goal, then drive on a while */
     m->b_reverse--;
     in.thr = -127;
-    in.steer = (int8_t)(m->b_side * 90);
+    in.steer = (int8_t)(m->b_side * 127);
     in.btn &= ~KB_DRIFT;
-    /* something behind it (a wall, a kart): stop backing */
     bool behind = false;
     {
-      t3_vec3 back = kart_fwd(k);
-      back.y = 0;
-      back = v3mul(v3norm(back), -3.2f);
+      t3_vec3 back = v3mul(fw, -2.6f);
       float bf = 1;
       t3_vec3 bn;
-      if (sim_ray(s, v3add(k->p, (t3_vec3){ 0, 0.15f, 0 }), back, &bf, &bn) && bn.y < 0.6f) behind = true;
+      if (sim_ray(s, from, back, &bf, &bn) && bn.y < 0.6f) behind = true;
       for (int j = 0; j < MAXK && !behind; j++) {
         const kart *o = &s->k[j];
         if (j == me || !o->on || o->parked) continue;
         t3_vec3 d = v3sub(o->p, k->p);
-        behind = v3dot(d, d) < 4.0f * 4.0f && v3dot(d, kart_fwd(k)) < -0.5f;
+        behind = v3dot(d, d) < 3.5f * 3.5f && v3dot(d, fw) < -0.5f;
       }
     }
-    if (flat_dist(k->p, m->b_rev_p) > 3.5f || m->b_reverse == 0 || (behind && m->b_reverse < 68) || (m->b_slow > 24 && m->b_reverse < 50)) {
-      m->b_reverse = 0, m->b_commit = 45, in.thr = 0;
-      /* and then the open way that heads most nearly where it wants to go */
-      m->b_goal = pick_detour(s, k, goal), m->b_roam = 70, m->b_best_d = 0;
-    }
+    /* until the nose has come round to the goal (or there is room ahead to turn in), a second at most */
+    float back_m = flat_dist(k->p, m->b_rev_p);
+    bool round = back_m > 1.2f && (fabsf(ang) < 0.8f || ahead_m > 9.0f);
+    if (round || back_m > 6.0f || m->b_reverse == 0 || (behind && m->b_reverse < 54)) m->b_reverse = 0, m->b_commit = 30, in.thr = 127;
   }
 
+  m->b_thr = in.thr;
   /* a Shockwave is coming: hop it */
   if (m->skill >= 1 && k->shock_warn > 0 && k->shock_warn <= 9 + 2 * (2 - m->skill)) in.btn |= KB_DRIFT;
   /* items */

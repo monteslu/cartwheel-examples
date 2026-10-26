@@ -1571,7 +1571,18 @@ static void draw_pause(float W, float H, float s) {
   slab(b, 18 * s, rgba(0.1f, 0.07f, 0.09f, 0.95f), s);
   para(cw_rect_make(b.x + 6 * s, b.y + b.h - 9 * s, b.w - 12 * s, 6 * s), 0, MUSTARD);
   tx_o(U.f_title, "PAUSED", b.x + b.w * 0.5f + 8 * s, b.y + 32 * s, 44 * s, MUSTARD, (txopt){ .align = CW_ALIGN_CENTER });
-  if (game_views() > 1) {
+  if (game_sim()->battle) {
+    /* a battle: the arena, the clock and who is still in, in place of the race's line */
+    const sim *S = game_sim();
+    char p[128];
+    int left = (S->phase == PH_RACE ? S->battle_left : S->battle_limit) / TICK_HZ;
+    snprintf(p, sizeof p, "Battle in %s   %d:%02d left   %d of %d still in", S->md->name, left / 60, left % 60, S->alive, S->nkarts);
+    tx_fit(U.f_hud, p, W * 0.5f, b.y + b.h + 24 * s, 20 * s, W * 0.9f, CREAM, CW_ALIGN_CENTER);
+    if (game_views() > 1) {
+      snprintf(p, sizeof p, "Player %d paused", U.pauser + 1);
+      tx(U.f_hud, p, W * 0.5f, b.y + b.h + 50 * s, 18 * s, DIM, CW_ALIGN_CENTER);
+    }
+  } else if (game_views() > 1) {
     char p[32];
     snprintf(p, sizeof p, "Player %d paused", U.pauser + 1);
     tx(U.f_hud, p, W * 0.5f, b.y + b.h + 24 * s, 20 * s, CREAM, CW_ALIGN_CENTER);

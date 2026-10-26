@@ -941,6 +941,14 @@ static void dev_screen(void) {
     U.setup.humans = n;
     if (getenv("RACER_UI_MAP")) U.bt.arena = atoi(getenv("RACER_UI_MAP")) % NARENAS;
     goto_mode(M_ARENA);
+  } else if (!strcmp(d, "bpause")) {
+    /* a battle paused (RACER_UI_MAP picks the arena) */
+    race_setup rs = { .map = getenv("RACER_UI_MAP") ? atoi(getenv("RACER_UI_MAP")) % NARENAS : 0, .laps = 1, .humans = n, .cpu_skill = 3, .items = true, .mode = RM_BATTLE };
+    for (int i = 0; i < MAXV; i++) rs.vehicle[i] = U.veh[i], rs.colour[i] = U.col[i];
+    ui_enter_race(&rs);
+    U.fade = 0;
+    U.fade_dir = 0;
+    goto_mode(M_PAUSE);
   }
   else if (!strcmp(d, "options")) U.from = M_TITLE, goto_mode(M_OPTIONS);
   else if (!strcmp(d, "controls")) U.from = M_TITLE, goto_mode(M_CONTROLS);

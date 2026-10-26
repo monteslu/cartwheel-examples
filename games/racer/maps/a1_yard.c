@@ -121,7 +121,7 @@ static const arena_def ARENA = {
   .spawns = SPAWNS, .nspawns = sizeof SPAWNS / sizeof SPAWNS[0],
   .boxes = BOXES, .nboxes = sizeof BOXES / sizeof BOXES[0],
   .look = {
-    [AL_FLOOR] = { TEX_ROAD_SALT, { 1.0f, 0.9f, 0.84f }, 2.05f, 9.0f, 0.85f, 0 },
+    [AL_FLOOR] = { TEX_GROUND_SALT, { 1.0f, 0.9f, 0.84f }, 2.05f, 9.0f, 0.85f, 0 },
     [AL_WALL] = { TEX_WALL_RUST, { 0.62f, 0.33f, 0.22f }, 1.6f, 4.0f, 0.9f, 0 },
     [AL_COVER] = { TEX_WALL_RUST, { 0.6f, 0.6f, 0.6f }, 1.5f, 3.0f, 0.8f, 0 },
     [AL_DECK] = { TEX_METAL, { 0.55f, 0.56f, 0.6f }, 1.5f, 4.0f, 0.7f, 0 },
@@ -160,7 +160,7 @@ static void yard_scenery(cw_node scene, const track *t, uint32_t seed) {
   GO.cx = 0, GO.cz = ARENA_CZ;
   GO.half = 1100.0f;
   GO.height = yard_ground;
-  GO.tex = TEX_ROAD_SALT;
+  GO.tex = TEX_GROUND_SALT;
   GO.tex_repeat = 9.0f;
   GO.tint = pc_mul(hex(0xfff0ea), 2.4f);
   GO.tint2 = pc_mul(hex(0xf0c2bc), 2.2f);

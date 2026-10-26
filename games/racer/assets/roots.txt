@@ -17,8 +17,9 @@ fonts/Fredoka-OFL.txt
 fonts/Fredoka-Bold.ttf
 fonts/Oswald-OFL.txt
 fonts/Oswald-VF.ttf
-# audio (tools/make-audio.mjs, tools/make-music.mjs)
+# audio (tools/make-audio.mjs, tools/make-music.mjs, tools/make-battle-audio.mjs)
 audio/back.ogg
+audio/balloon_pop.ogg
 audio/boost_item.ogg
 audio/boost_pad.ogg
 audio/bump.ogg
@@ -38,6 +39,7 @@ audio/finish.ogg
 audio/go.ogg
 audio/item_get.ogg
 audio/item_use.ogg
+audio/knockout.ogg
 audio/land_hard.ogg
 audio/land_soft.ogg
 audio/lap.ogg

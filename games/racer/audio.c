@@ -45,6 +45,7 @@ enum {
   S_MISSILE_LAUNCH, S_EXPLOSION, S_MINE_ARM, S_OIL, S_SHOCK, S_SHIELD_ON, S_SHIELD_POP, S_SPIN, S_FALL, S_RESPAWN, S_DROP, S_SPLASH,
   S_ENGINE0, S_ENGINE1, S_ENGINE2, S_ENGINE3, S_ENGINE4, S_ENGINE5, S_TURBO,
   S_ROAD, S_DIRT, S_ICE, S_METAL, S_GLASS, S_WOOD, S_WIND, S_WATER, S_SLIDE, S_SKID, S_MISSILE,
+  S_POP, S_KO, /* battle: a balloon popped, a kart knocked out (tools/make-battle-audio.mjs) */
   S_N
 };
 
@@ -66,6 +67,7 @@ static const snd_def SND[S_N] = {
   [S_SHIELD_POP] = { "audio/shield_pop.ogg", 2, 34, B_SFX, 8 }, [S_SPIN] = { "audio/spin.ogg", 3, 28, B_SFX, 8 },
   [S_FALL] = { "audio/fall.ogg", 2, 28, B_SFX, 20 }, [S_RESPAWN] = { "audio/respawn.ogg", 2, 26, B_SFX, 10 },
   [S_DROP] = { "audio/drop.ogg", 2, 18, B_SFX, 30 }, [S_SPLASH] = { "audio/splash.ogg", 3, 16, B_SFX, 6 },
+  [S_POP] = { "audio/balloon_pop.ogg", 3, 30, B_SFX, 4 }, [S_KO] = { "audio/knockout.ogg", 1, 40, B_SFX, 30 },
   [S_ENGINE0] = { "audio/engine_0.wav", 8, 8, B_ENG, 0 }, [S_ENGINE1] = { "audio/engine_1.wav", 8, 8, B_ENG, 0 },
   [S_ENGINE2] = { "audio/engine_2.wav", 8, 8, B_ENG, 0 }, [S_ENGINE3] = { "audio/engine_3.wav", 8, 8, B_ENG, 0 },
   [S_ENGINE4] = { "audio/engine_4.wav", 8, 8, B_ENG, 0 }, [S_ENGINE5] = { "audio/engine_5.wav", 8, 8, B_ENG, 0 },
@@ -842,6 +844,8 @@ void audio_events(const sim *s) {
       if (ov >= 0 && !A.attract) play2d(S_SHOCK, 0.5f * view_gain(), 1.6f, view_pan(ov)), play2d(S_CHIME, 0.7f * view_gain(), 1.5f, view_pan(ov));
       break;
     case EV_SHIELD: kart_sfx(S_SHIELD_POP, e->a, e->at, 0.9f, 1.0f); duck_event(e->at, e->a, 0.25f); break;
+    case EV_POP: kart_sfx(S_POP, e->a, e->at, 1.0f, 0.95f + 0.05f * e->k); break;
+    case EV_OUT: global_sfx(S_KO, 0.9f, 1.0f); break;
     case EV_OVERTAKE:
       if (ov >= 0 && !A.attract) play2d(S_OVERTAKE, 0.6f * view_gain(), 1.0f, view_pan(ov));
       break;

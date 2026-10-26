@@ -286,6 +286,7 @@ typedef struct ai_mem {
   t3_vec3 b_rev_p;    /* where the backing out began */
   t3_vec3 b_aim;      /* where it steered this tick (the trace) */
   float b_feel[3];    /* its feelers this tick, left, centre, right (the trace) */
+  int b_thr;          /* the throttle it chose this tick (the trace) */
   t3_vec3 b_goal, b_last_p;
   int8_t take[4];     /* each branch (shortcut) on the way: 0 not decided yet, 1 taking it, -1 staying on the main road */
 } ai_mem;

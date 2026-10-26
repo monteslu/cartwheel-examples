@@ -401,7 +401,7 @@ static void hud_battle_view(const hv *g, int nviews) {
   hud_b_clock(g);
   const arena_rt *a = arena_current();
   if (a) {
-    float ms = (g->compact ? 150 : g->medium ? 150 : 180) * g->s;
+    float ms = (g->compact || g->medium ? 205 : 180) * g->s; /* a split view has no table: the map can be bigger */
     cw_rect mr = cw_rect_make(g->x + 14 * g->s, g->y + g->h - ms - 14 * g->s, ms, ms);
     if (U.touch_on) mr = cw_rect_make(g->x + 14 * g->s, g->y + 104 * g->s, 128 * g->s, 128 * g->s);
     if (!(nviews == 3)) {
@@ -683,7 +683,7 @@ static void draw_battle_results(float W, float H, float s) {
   }
   float gx = W * 0.025f;
   cw_rect tab = por ? cw_rect_make(gx, 130 * s + (1 - panel) * 200 * s, W - 2 * gx, 8 * 32 * s + 50 * s)
-                    : cw_rect_make(gx - (1 - panel) * 500 * s, 124 * s, W * 0.62f, H - 124 * s - 100 * s);
+                    : cw_rect_make(gx - (1 - panel) * 500 * s, 124 * s, W * 0.56f, H - 124 * s - 100 * s);
   slab(tab, 0, rgba(0.09f, 0.065f, 0.08f, 0.92f * panel), s);
   float rowh = por ? 32 * s : fminf(36 * s, (tab.h - 50 * s) / 8.0f);
   float cx_name = tab.x + 60 * s, cx_bal = tab.x + tab.w * 0.52f, cx_stat = tab.x + tab.w * 0.74f, cx_pts = tab.x + tab.w - 22 * s;
@@ -716,21 +716,38 @@ static void draw_battle_results(float W, float H, float s) {
     snprintf(b, sizeof b, "%d", r->points);
     tx(U.f_title, b, cx_pts, cy, rowh * 0.5f, alpha(MUSTARD, ra), CW_ALIGN_RIGHT);
   }
-  /* the winner's kart, big, with the confetti */
+  /* the podium: the top three on their blocks, the balloons each kept tied on behind, confetti over it all */
   if (!por) {
-    cw_rect pod = cw_rect_make(W * 0.66f + (1 - panel) * 400 * s, 124 * s, W * 0.31f, H - 124 * s - 110 * s);
+    cw_rect pod = cw_rect_make(W * 0.6f + (1 - panel) * 400 * s, 124 * s, W * 0.37f, H - 124 * s - 110 * s);
+    float baseY = pod.y + pod.h - 6 * s;
+    static const int ord[3] = { 1, 0, 2 };
+    static const float hgt[3] = { 80, 118, 56 };
+    float bw = pod.w / 3 - 6 * s;
     draw_confetti(cw_rect_make(pod.x, pod.y - 40 * s, pod.w, pod.h + 40 * s), s, U.time);
-    float u = pod.w / 5.0f, hop = fabsf(cw_sin(U.time * 4)) * 8 * s;
-    float gy = pod.y + pod.h * 0.72f;
-    cw_r2d_round_rect(cw_rect_make(pod.x + pod.w * 0.1f, gy, pod.w * 0.8f, 16 * s), 8 * s, 6, rgba(0, 0, 0, 0.35f));
-    draw_kart_side(pod.x + pod.w * 0.5f, gy - hop, u, w->veh, w->colour, 0.8f, U.time * 0.6f);
-    /* the balloons it kept, on strings from the back of the kart */
-    for (int bi = 0; bi < w->tricks; bi++) {
-      cw_vec2 c = cw_v2(pod.x + pod.w * 0.5f - u * 1.3f + ((float)bi - (float)(w->tricks - 1) * 0.5f) * u * 0.5f, gy - u * 2.9f - hop + 5 * s * cw_sin(U.time * 2 + (float)bi) - (bi == 1 ? u * 0.2f : 0));
-      cw_r2d_line(cw_v2(c.x, c.y + u * 0.3f), cw_v2(pod.x + pod.w * 0.5f - u * 1.3f, gy - u * 1.2f - hop), 1.5f * s, alpha(CREAM, 0.8f));
-      balloon_icon(c, u * 0.22f, kart_col(w->colour), 1, 0, false);
+    for (int c = 0; c < 3 && c < U.res_n; c++) {
+      int pl = ord[c];
+      const result_row *r = &U.res[pl];
+      float bx = pod.x + (float)c * (bw + 9 * s);
+      float bh2 = hgt[c] * s * ease_out(((float)t - 110 - (float)c * 6) / 20.0f);
+      cw_rect blk = cw_rect_make(bx, baseY - bh2, bw, bh2);
+      if (bh2 > 1) {
+        slab(blk, 0, shade(PLACE_COL[pl], 0.9f), s);
+        char nb[16];
+        snprintf(nb, sizeof nb, "%d", pl + 1);
+        tx_o(U.f_title, nb, bx + bw * 0.5f, blk.y + fminf(bh2 * 0.5f, 34 * s), 40 * s, INK, (txopt){ .align = CW_ALIGN_CENTER, .outline = 0.01f, .no_shadow = true });
+      }
+      float u = bw / 4.2f, hop = pl == 0 ? fabsf(cw_sin(U.time * 4)) * 8 * s : 0;
+      float gy = baseY - bh2 - hop, kx = bx + bw * 0.5f;
+      draw_kart_side(kx, gy, u, r->veh, r->colour, pl == 0 ? 0.8f : 0.2f, U.time * 0.6f);
+      for (int bi = 0; bi < r->tricks; bi++) {
+        cw_vec2 bc = cw_v2(kx - u * 1.2f + ((float)bi - (float)(r->tricks - 1) * 0.5f) * u * 0.62f, gy - u * 3.0f + 4 * s * cw_sin(U.time * 2 + (float)(bi + c)) - (bi == 1 ? u * 0.25f : 0));
+        cw_r2d_line(cw_v2(bc.x, bc.y + u * 0.3f), cw_v2(kx - u * 1.2f, gy - u * 1.2f), 1.2f * s, alpha(CREAM, 0.8f));
+        balloon_icon(bc, u * 0.27f, kart_col(r->colour), 1, 0, false);
+      }
+      char rn[32];
+      kart_name(S, r->kart, rn, sizeof rn, true);
+      tx_fit(U.f_hud, rn, kx, gy - u * 4.1f - 4 * s, 15 * s, bw + 4 * s, pl == 0 ? MUSTARD : CREAM, CW_ALIGN_CENTER);
     }
-    tx_fit(U.f_title, wn, pod.x + pod.w * 0.5f, gy + 44 * s, 24 * s, pod.w, MUSTARD, CW_ALIGN_CENTER);
   }
   static const char *const BL[3] = { "AGAIN", "NEXT ARENA", "MENU" };
   for (int i = 0; i < 3; i++) draw_button(res_button_n(i, 3, W, H), BL[i], U.sel == i && t > 100, true, s * 0.8f, clamp01(((float)t - 120 - (float)i * 4) / 14.0f));
