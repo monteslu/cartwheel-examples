@@ -14,7 +14,7 @@ enum { MEDAL_NONE, MEDAL_BRONZE, MEDAL_SILVER, MEDAL_GOLD, MEDAL_AUTHOR, MEDAL_K
 static const char *const MEDAL_NAME[MEDAL_KINDS] = { "NO MEDAL", "BRONZE", "SILVER", "GOLD", "AUTHOR" };
 
 /* the reference lap of each map from the grid at the standard class, in centiseconds (tools/trial_ref.sh prints these) */
-static const uint32_t TRIAL_REF_CS[NMAPS] = { 7913, 8558, 9022, 8647, 8033, 9152, 8167, 8215 };
+static const uint32_t TRIAL_REF_CS[NMAPS] = { 7913, 8590, 9307, 8647, 8438, 9152, 8185, 7937 };
 /* a medal's time as a share of the reference: you earn the medal by being at least that quick */
 static const int MEDAL_PCT[MEDAL_KINDS] = { 0, 135, 117, 105, 100 };
 
