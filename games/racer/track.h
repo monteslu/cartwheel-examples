@@ -243,6 +243,7 @@ typedef struct track_mesh_opts {
   float curb_w;      /* a raised kerb strip at the road's edge, metres (0 none) */
   float tile_v;      /* metres of road per texture repeat along its length */
   float tunnel_clear;/* tunnel roof height above the road centre */
+  float wall_raise;  /* the collision walls only: metres added to low and medium walls, but not in a loop */
 } track_mesh_opts;
 
 /* The visual geometry, chunked along the track so the views cull it. kinds:

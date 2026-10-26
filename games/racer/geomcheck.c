@@ -28,7 +28,9 @@ static void hit1(const char *name, const track *t, t3_vec3 p, bool main_only) {
   if (l.i < 0) return;
   const tsample *a = &t->s[l.i];
   if (a->flags & TF_GAP) return;
-  if (fabsf(l.lat) > a->hw - 0.5f || l.height < 0.3f || l.height > 2.2f) return;
+  /* a collision wall is invisible where it is not drawn: anything of it more than 0.15 m inside a lane counts */
+  float edge = strcmp(name, "(collision wall)") ? 0.5f : 0.15f;
+  if (fabsf(l.lat) > a->hw - edge || l.height < 0.3f || l.height > 2.2f) return;
   struct rep *r = NULL;
   for (int i = 0; i < nrep; i++)
     if (!strcmp(R[i].name, name) && fabsf(R[i].s1 - l.ms) < 40) r = &R[i];

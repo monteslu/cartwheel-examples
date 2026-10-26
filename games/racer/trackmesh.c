@@ -91,6 +91,7 @@ static int ring(int kind, const tsample *s, const track_mesh_opts *o, rp *out, i
     {
       /* the wall class of the sample picks the height; the flags say which sides */
       float H = o->wall_h[s->walls < 4 ? s->walls : 3];
+      if (H > 0 && s->walls < 3 && !(f & TF_LOOP)) H += o->wall_raise;
       if (H <= 0) return 0;
       bool first = true;
       if (f & TF_WALL_L) {
@@ -112,6 +113,7 @@ static int ring(int kind, const tsample *s, const track_mesh_opts *o, rp *out, i
     if (!(f & (TF_WALL_L | TF_WALL_R))) return 0;
     {
       float H = o->wall_h[s->walls < 4 ? s->walls : 3];
+      if (H > 0 && s->walls < 3 && !(f & TF_LOOP)) H += o->wall_raise;
       if (H <= 0) return 0;
       if (f & TF_WALL_L) {
         pt(out, &n, -hw, H, 0, 1, 0, true);
@@ -395,8 +397,7 @@ void track_phys_build(track_phys *road, track_phys *walls, const track *t, const
     /* the walls the karts hit stand taller than the ones drawn: a low barrier struck at a mild angle sends the kart back
      * onto the road instead of letting it ride up and over */
     track_mesh_opts wo = *o;
-    for (int c = 1; c < 3; c++)
-      if (wo.wall_h[c] > 0) wo.wall_h[c] += 1.2f;
+    wo.wall_raise = 1.2f;
     sweep_phys(&w, &v, TM_WALL, &wo);
     sweep_phys(&w, &v, TM_WALLTOP, &wo);
     sweep_phys(&w, &v, TM_TUNNEL, o);
