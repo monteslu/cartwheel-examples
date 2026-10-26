@@ -45,6 +45,11 @@ enum {
   TF_ROUGH = 1u << 12,   /* dirt, sand, gravel: slower, bumpier */
   TF_FINISH = 1u << 13,  /* the start/finish line */
   TF_RAMP = 1u << 14,    /* a jump's take-off: the AI wants speed here */
+  TF_FORK_L = 1u << 15,  /* main road: a branch's mouth opens on the left here (the wall gives way to it) */
+  TF_FORK_R = 1u << 16,
+  TF_BRANCH = 1u << 17,  /* a sample of a branch (an alternate route), not of the main road */
+  TF_JOIN = 1u << 18,    /* a branch sample still overlapping the main road: its road is drawn only beyond the main edge (cut) */
+  TF_SLOW = 1u << 19,    /* deep sand, mud, loose snow: drags the speed down */
 };
 
 /* road surface kinds (the material the road mesh wears and the tyres feel) */
@@ -60,6 +65,10 @@ typedef struct tsample {
   uint8_t surf;
   uint8_t walls;   /* wall height class 0 none, 1 low, 2 high, 3 tall */
   uint16_t seg;    /* index of the piece that made it */
+  float cut;       /* TF_JOIN: where the main road's edge crosses this sample, metres to its right (the branch's road is
+                      drawn on the far side of it only) */
+  float ms;        /* a branch sample: the main-road metres past the mouth it stands for (where it runs beside the main
+                      road, the main road's own; between, spread evenly) */
 } tsample;
 
 /* ── the piece list ─────────────────────────────────────────────────── */
@@ -119,6 +128,25 @@ typedef struct piece {
 #define ASLOPE(len, pitch) PC(P_MOVE, .a = (len), .b = 0, .c = (pitch), .d = KEEP, .e = KEEP, .adj = true)
 #define END() PC(P_END)
 
+/* A branch: an alternate route that leaves the main road and rejoins it (a shortcut, a risk line). It is a piece list
+ * walked like the main road's, starting from the main road's pose at s0 with its centre lat0 to the right of the main
+ * centre line; its ADJ pieces are solved so it ends at s1, lat1, heading along the road (mark at least four, as for a
+ * circuit). Where it overlaps the main road its surface is clipped to the main road's edge and the main road's wall
+ * gives way on that side (TF_FORK_*), so the mouth is a gap in the barrier. Progress on a branch maps to the main road's
+ * distance linearly, so laps, places, checkpoints and wrong-way all hold; a fall goes back to the main road before it.
+ * Checkpoints and item rows inside a branch are ignored. */
+typedef struct branch_spec {
+  const char *name;
+  float s0, lat0;          /* where it leaves: main-road metres, and its centre's offset to the right */
+  float s1, lat1;          /* where it rejoins */
+  const piece *pieces;
+  int npieces;
+  float hw0;               /* half width at the mouth */
+  uint8_t walls_l, walls_r;/* wall classes at the mouth (pieces may change them) */
+  float ai_speed;          /* the slowest a CPU driver takes it at (a jump's design speed); 0: any speed */
+  float ai_take[3];        /* the chance a rookie, pro, ace takes it on a lap (0..1) */
+} branch_spec;
+
 typedef struct track_spec {
   const char *name;
   const piece *pieces;
@@ -126,6 +154,8 @@ typedef struct track_spec {
   float hw0;       /* half width at the start */
   bool circuit;    /* closes on itself (laps) */
   float start_len; /* the straight the grid sits on is the first piece; unused */
+  const branch_spec *branches;
+  int nbranches;
 } track_spec;
 
 /* ── the built track ─────────────────────────────────────────────────── */
@@ -140,7 +170,22 @@ typedef struct track {
   int nitem_rows, item_row_at[48];
   int ngaps, gap_from[24], gap_to[24];  /* sample ranges of the jumps */
   int nloops, loop_from[16], loop_to[16];
+  /* branches: their samples follow the main road's in s[] (s[n .. nall)); a branch sample's .s is metres along the
+   * branch from its mouth. The main road's own queries (track_at, the n samples) never see them. */
+  int nall;
+  int nbranch;
+  struct track_branch {
+    int first, n;            /* its samples: s[first .. first + n) */
+    float s0, s1;            /* main-road metres at the mouth and the rejoin */
+    float span;              /* main-road metres it stands for (s1 - s0, wrapped) */
+    float length;            /* its own length */
+    int side;                /* -1 it leaves to the left of the main road, +1 to the right */
+    float ai_speed, ai_take[3];
+    t3_vec3 lo, hi;          /* bounds (for the locate) */
+    int ngaps, gap_from[2], gap_to[2]; /* its jumps (global sample indices) */
+  } br[4];
 } track;
+typedef struct track_branch track_branch;
 
 /* Builds the path from a spec (no meshes). False and a log line when the
  * spec is empty or the closing solve fails. */
@@ -153,16 +198,34 @@ tsample track_at(const track *t, float s);
 
 /* where a world point is against the track */
 typedef struct track_loc {
-  int i;           /* nearest sample (not a gap sample unless nothing else is near) */
+  int i;           /* nearest sample (not a gap sample unless nothing else is near); on a branch an index past n */
   float frac;      /* 0..1 towards sample i+1 */
-  float s;         /* metres along the track */
+  float s;         /* metres along the path it is on (the main road, or the branch from its mouth) */
+  float ms;        /* metres along the main road (on a branch: mapped from its mouth to its rejoin); the race's order */
+  int br;          /* -1 on the main road, else the branch it is on */
   float lat;       /* metres to the right of the centre line */
   float height;    /* metres above the road plane along its up */
   float dist;      /* straight distance to the centre line point */
   bool on_road;    /* within the road's width and a little above/below it, not in a gap */
 } track_loc;
-/* hint: a sample index to search near (the last answer); -1 searches the whole track */
+/* hint: a sample index to search near (the last answer); -1 searches the whole track. Branches are searched too when
+ * the point is near one: the answer is the path whose road the point is on (the nearer centre when on both). */
 void track_locate(const track *t, t3_vec3 p, int hint, track_loc *out);
+/* the same against the main road alone, or branch b alone */
+void track_locate_main(const track *t, t3_vec3 p, int hint, track_loc *out);
+void track_locate_branch(const track *t, int b, t3_vec3 p, track_loc *out);
+
+/* the sample `ahead` metres along the path a location is on (negative: behind). Off a branch's ends it carries on
+ * along the main road (before the mouth, after the rejoin). */
+tsample track_at_loc(const track *t, const track_loc *l, float ahead);
+/* a branch's sample at metres bs from its mouth (past its ends: the main road's) */
+tsample track_branch_at(const track *t, int b, float bs);
+/* main-road metres for metres bs along branch b */
+float track_branch_ms(const track *t, int b, float bs);
+/* the sample after i on its own path (wraps on a circuit's main road, stops at a branch's end) */
+int track_next(const track *t, int i);
+/* a view of branch b as a track of its own (shares the samples; free nothing) */
+track track_branch_view(const track *t, int b);
 
 /* the world point at metres s along the track, lat to the right, height above the road */
 t3_vec3 track_point(const track *t, float s, float lat, float height);

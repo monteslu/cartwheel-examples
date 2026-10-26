@@ -60,7 +60,7 @@ typedef struct rig {
 static struct {
   int32_t ticks, phase, views, loaded;
   int32_t draws, tris;
-  int32_t place[MAXK], lap[MAXK], prog[MAXK], falls[MAXK], speed[MAXK], tricks[MAXK], hits[MAXK], spd_max[MAXK], finished[MAXK], best_lap[MAXK], finish_tick[MAXK];
+  int32_t place[MAXK], lap[MAXK], prog[MAXK], falls[MAXK], cuts[MAXK], speed[MAXK], tricks[MAXK], hits[MAXK], spd_max[MAXK], finished[MAXK], best_lap[MAXK], finish_tick[MAXK];
   int32_t balloons[MAXK], points[MAXK], out[MAXK], battle_left, battle_end, battle_alive;
   int spect[CW_MAX_VIEWS]; /* battle: the kart a view watches once its own is out (-1: none yet) */
   uint32_t hash;
@@ -407,7 +407,14 @@ static void rig_tick(int v) {
   t3_vec3 e, at, upv = { 0, 1, 0 };
   static int dev_top = -1;
   if (dev_top < 0) dev_top = getenv("RACER_CAM") && !strcmp(getenv("RACER_CAM"), "top");
-  if (dev_top && v == 0) {
+  static int dev_eye = -1;
+  static t3_vec3 eye_at[2];
+  if (dev_eye < 0) /* dev aid: RACER_EYE=x,y,z,tx,ty,tz holds the camera there looking at the target (no HUD) */
+    dev_eye = getenv("RACER_EYE") && sscanf(getenv("RACER_EYE"), "%f,%f,%f,%f,%f,%f", &eye_at[0].x, &eye_at[0].y, &eye_at[0].z, &eye_at[1].x, &eye_at[1].y, &eye_at[1].z) == 6;
+  if (dev_eye && v == 0) {
+    e = eye_at[0], at = eye_at[1];
+    r->snap = true;
+  } else if (dev_top && v == 0) {
     const track *t = s->track;
     float minx = 1e9f, maxx = -1e9f, minz = 1e9f, maxz = -1e9f;
     for (int i = 0; i < t->n; i += 8) {
@@ -435,7 +442,7 @@ static void rig_tick(int v) {
     r->snap = true;
   } else if (G.cam_mode == 1) {
     /* a demo: a camera flying along the track a little ahead of the leader, to one side and above it */
-    float sd = k->loc.s + 26.0f;
+    float sd = k->loc.ms + 26.0f;
     float side = 7.0f + 4.0f * cw_sin(G.cam_t * 0.31f);
     tsample m = track_at(s->track, sd);
     t3_vec3 base = v3add(m.p, v3add(v3mul(m.r, side), v3mul(m.u, 4.0f + 2.0f * cw_sin(G.cam_t * 0.5f))));
@@ -448,7 +455,7 @@ static void rig_tick(int v) {
     /* the results: round the winner */
     float a = G.cam_t * 0.35f;
     const kart *w = &s->k[s->order[0]];
-    tsample m = track_at(s->track, w->loc.s);
+    tsample m = track_at_loc(s->track, &w->loc, 0);
     e = v3add(w->p, v3add(v3mul(m.r, 7.5f * cw_sin(a)), v3add(v3mul(m.f, 7.5f * cw_cos(a)), v3mul(m.u, 2.6f))));
     at = v3add(w->p, v3mul(m.u, 0.8f));
     r->live = false;
@@ -458,7 +465,7 @@ static void rig_tick(int v) {
     /* the camera's own up and forward follow the road's and the kart's, smoothed: a loop turns the view with the road */
     t3_vec3 tsup = up;
     if (k->loc.on_road || k->grounded) {
-      tsample m = track_at(s->track, k->loc.s);
+      tsample m = track_at_loc(s->track, &k->loc, 0);
       tsup = v3norm(v3add(v3mul(m.u, 0.7f), v3mul(up, 0.3f)));
     }
     float spd = v3len(k->v);
@@ -555,8 +562,8 @@ static void trace(void) {
     if (G.S.tick < from || G.S.tick >= from + 220) return;
     const kart *k = &G.S.k[atoi(tk)];
     const cw_vehicle3d *c = sim_car(&G.S, atoi(tk));
-    fprintf(tr, "t%d s=%.1f lat=%.2f h=%.2f spd=%.1f vy=%.1f %s i=%d pitch=%.1f falls=%d spin=%d st=%d yaw=%.2f lv=%.1f ct=%d c=%.2f/%.2f/%.2f/%.2f up.y=%.2f p=(%.1f %.1f %.1f)\n", G.S.tick,
-            k->loc.s, k->loc.lat, k->loc.height, k->speed, k->v.y, k->grounded ? "G" : "air", k->loc.i, kart_fwd(k).y, k->falls, k->spin_ticks,
+    fprintf(tr, "t%d br=%d ms=%.1f s=%.1f lat=%.2f h=%.2f spd=%.1f vy=%.1f %s i=%d pitch=%.1f falls=%d spin=%d st=%d yaw=%.2f lv=%.1f ct=%d c=%.2f/%.2f/%.2f/%.2f up.y=%.2f p=(%.1f %.1f %.1f)\n", G.S.tick,
+            k->loc.br, k->loc.ms, k->loc.s, k->loc.lat, k->loc.height, k->speed, k->v.y, k->grounded ? "G" : "air", k->loc.i, kart_fwd(k).y, k->falls, k->spin_ticks,
             (int)(k->steer * 100), v3dot(k->w, kart_up(k)), v3dot(k->v, kart_right(k)), c->contacts, c->wheel[0].compression, c->wheel[1].compression,
             c->wheel[2].compression, c->wheel[3].compression, kart_up(k).y, k->p.x, k->p.y, k->p.z);
     return;
@@ -630,8 +637,13 @@ static void fixed(void *u, double dt) {
           int n = atoi(at + 1);
           sd = G.S.track->s[G.S.track->loop_from[n]].s - 30;
           sscanf(strchr(at, ':') + 1, "%f", &sp);
+        } else if (*at == 'B') { /* B<n>:metres:speed: on branch n (a shortcut), that far from its mouth */
+          int n = atoi(at + 1);
+          sscanf(strchr(at, ':') + 1, "%f:%f", &sd, &sp);
+          sim_put_branch(&G.S, tk, n, sd, sp);
+          at_done = 1;
         } else sscanf(at, "%f:%f", &sd, &sp);
-        sim_put(&G.S, tk, sd, 0, sp);
+        if (!at_done) sim_put(&G.S, tk, sd, 0, sp);
         at_done = 1;
       }
     }
@@ -662,6 +674,7 @@ static void fixed(void *u, double dt) {
       G.lap[i] = k->lap;
       G.prog[i] = (int32_t)(k->prog * 10);
       G.falls[i] = k->falls;
+      G.cuts[i] = k->cuts;
       G.speed[i] = (int32_t)(k->speed * 10);
       G.tricks[i] = k->tricks;
       G.hits[i] = k->hits_taken;
@@ -785,7 +798,7 @@ static void render(void *u, double alpha) {
   }
   cw_r2d_begin(&(cw_r2d_pass_desc){ .clear = false });
   cw_vec2 cs = cw_r2d_canvas_size();
-  if (!getenv("RACER_STUDIO")) ui_render(cs.x, cs.y); /* models agent: the studio view has no HUD over the kart */
+  if (!getenv("RACER_STUDIO") && !getenv("RACER_EYE")) ui_render(cs.x, cs.y); /* models agent: the studio view has no HUD over the kart */
   cw_quality_menu_draw(&(cw_quality_menu_style){ .font = ui_menu_font() /* ui agent */, .accent = (cw_color){ 1.0f, 0.80f, 0.15f, 1 } });
   cw_r2d_end();
 }
@@ -815,6 +828,7 @@ static void init(void *u) {
   cw_debug_field("karts.lap", G.lap, CW_DBG_I32, MAXK);
   cw_debug_field("karts.prog", G.prog, CW_DBG_I32, MAXK);
   cw_debug_field("karts.falls", G.falls, CW_DBG_I32, MAXK);
+  cw_debug_field("karts.cuts", G.cuts, CW_DBG_I32, MAXK); /* shortcuts taken (branches driven to their end) */
   cw_debug_field("karts.speed", G.speed, CW_DBG_I32, MAXK);
   cw_debug_field("karts.tricks", G.tricks, CW_DBG_I32, MAXK);
   cw_debug_field("render.draws", &G.draws, CW_DBG_I32, 1);

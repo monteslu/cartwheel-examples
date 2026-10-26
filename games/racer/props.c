@@ -914,28 +914,28 @@ static void road_index_reset(void) {
 }
 
 static void road_index_build(const track *t) {
-  if (RI.t == t && RI.n == t->n && RI.start) return;
+  if (RI.t == t && RI.n == t->nall && RI.start) return;
   free(RI.start), free(RI.items);
   memset(&RI, 0, sizeof RI);
   float x0 = 1e9f, x1 = -1e9f, z0 = 1e9f, z1 = -1e9f;
-  for (int i = 0; i < t->n; i++) {
+  for (int i = 0; i < t->nall; i++) {
     x0 = fminf(x0, t->s[i].p.x), x1 = fmaxf(x1, t->s[i].p.x);
     z0 = fminf(z0, t->s[i].p.z), z1 = fmaxf(z1, t->s[i].p.z);
   }
-  RI.t = t, RI.n = t->n;
+  RI.t = t, RI.n = t->nall;
   RI.x0 = x0 - RC, RI.z0 = z0 - RC;
   RI.w = (int)((x1 - RI.x0) / RC) + 2, RI.h = (int)((z1 - RI.z0) / RC) + 2;
   int cells = RI.w * RI.h;
   RI.start = calloc((size_t)cells + 1, sizeof(int));
-  RI.items = malloc(sizeof(int) * (size_t)t->n);
+  RI.items = malloc(sizeof(int) * (size_t)t->nall);
   int *cnt = calloc((size_t)cells, sizeof(int));
-  for (int i = 0; i < t->n; i++) {
+  for (int i = 0; i < t->nall; i++) {
     int cx = (int)((t->s[i].p.x - RI.x0) / RC), cz = (int)((t->s[i].p.z - RI.z0) / RC);
     cnt[cz * RI.w + cx]++;
   }
   for (int c = 0; c < cells; c++) RI.start[c + 1] = RI.start[c] + cnt[c];
   memset(cnt, 0, sizeof(int) * (size_t)cells);
-  for (int i = 0; i < t->n; i++) {
+  for (int i = 0; i < t->nall; i++) {
     int cx = (int)((t->s[i].p.x - RI.x0) / RC), cz = (int)((t->s[i].p.z - RI.z0) / RC);
     int c = cz * RI.w + cx;
     RI.items[RI.start[c] + cnt[c]++] = i;

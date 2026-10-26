@@ -141,16 +141,16 @@ bool ghost_load(const ghost_saved *g, const track *t) {
     hint = loc.i;
     if (i == 0) {
       /* the grid is behind the line: the first pose counts as a little before zero */
-      run = t->circuit && loc.s > L * 0.5f ? loc.s - L : loc.s;
+      run = t->circuit && loc.ms > L * 0.5f ? loc.ms - L : loc.ms;
     } else {
-      float ds = loc.s - prev_s;
+      float ds = loc.ms - prev_s;
       if (t->circuit) {
         if (ds > L * 0.5f) ds -= L;
         if (ds < -L * 0.5f) ds += L;
       }
       if (fabsf(ds) < 60.0f) run += ds;
     }
-    prev_s = loc.s;
+    prev_s = loc.ms;
     P.prog[i] = i && run < P.prog[i - 1] ? P.prog[i - 1] : run;
   }
   P.n = g->n, P.veh = g->veh, P.colour = g->colour, P.time_cs = g->time_cs;

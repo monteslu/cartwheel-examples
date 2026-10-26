@@ -20,11 +20,17 @@ void assist_steer(const sim *s, int me, kin *in) {
   const track *t = s->track;
   const tsample *ts = &t->s[k->loc.i];
   if (ts->flags & (TF_LOOP | TF_GAP | TF_RAMP)) return;
-  tsample m = track_at(t, k->loc.s);
+  tsample m = track_at_loc(t, &k->loc, 0);
   float vf = v3dot(k->v, m.f), vl = v3dot(k->v, m.r); /* along the road, and towards its right edge */
   if (vf < 4.0f) return;
   const float margin = 1.5f, horizon = 0.85f;
   float room_r = m.hw - margin - k->loc.lat, room_l = m.hw - margin + k->loc.lat;
+  /* an edge with a branch's mouth on it (here or just ahead) is road, not a wall: no pull away from it */
+  uint32_t open = ts->flags;
+  if (k->loc.br < 0)
+    for (int d = 6; d <= 30; d += 6) open |= t->s[(k->loc.i + d) % t->n].flags;
+  if (open & TF_FORK_R) room_r = 1e3f;
+  if (open & TF_FORK_L) room_l = 1e3f;
   float push = 0; /* + steers right, - left */
   if (vl > 0.4f) {
     float tt = room_r > 0 ? room_r / vl : 0;
@@ -35,8 +41,8 @@ void assist_steer(const sim *s, int me, kin *in) {
   }
   /* well outside the middle third and still moving outward: a light extra pull */
   float lat_frac = k->loc.lat / (m.hw > 1 ? m.hw : 1);
-  if (lat_frac > 0.7f && vl > 0) push -= 0.25f * (lat_frac - 0.7f) / 0.3f;
-  if (lat_frac < -0.7f && vl < 0) push += 0.25f * (-lat_frac - 0.7f) / 0.3f;
+  if (lat_frac > 0.7f && vl > 0 && !(open & TF_FORK_R)) push -= 0.25f * (lat_frac - 0.7f) / 0.3f;
+  if (lat_frac < -0.7f && vl < 0 && !(open & TF_FORK_L)) push += 0.25f * (-lat_frac - 0.7f) / 0.3f;
   push = clampf(push, -0.7f, 0.7f);
   float want = (float)in->steer / 127.0f;
   /* a player already steering the right way keeps their own input */

@@ -54,11 +54,21 @@ static int ring(int kind, const tsample *s, const track_mesh_opts *o, rp *out, i
   uint32_t f = s->flags;
   float hw = s->hw;
   if (f & TF_GAP) return 0;
+  /* a branch where it still overlaps the main road: only the part beyond the main road's edge (cut) is its own; the
+   * side of it towards the main road is clipped there (to nothing at the very mouth), and it has no kerbs or belly */
+  float lo = -hw, hi = hw;
+  if (f & TF_JOIN) {
+    /* TF_FORK_R on a branch sample: the main road lies to its right */
+    float c = s->cut;
+    if (f & TF_FORK_R) hi = c + 0.05f < hw ? (c + 0.05f > -hw ? c + 0.05f : -hw) : hw;
+    else lo = c - 0.05f > -hw ? (c - 0.05f < hw ? c - 0.05f : hw) : -hw;
+    if (kind == TM_KERB || kind == TM_UNDER) return 0;
+  }
   switch (kind) {
   case TM_ROAD:
     *mask = 3;
-    pt(out, &n, -hw, 0, 0, 1, 0, false);
-    pt(out, &n, hw, 0, 0, 1, 1, false);
+    pt(out, &n, lo, 0, 0, 1, (lo + hw) / (2 * hw), false);
+    pt(out, &n, hi, 0, 0, 1, (hi + hw) / (2 * hw), false);
     return n;
   case TM_KERB:
     if (o->curb_w <= 0) return 0;
@@ -261,9 +271,9 @@ static void sweep_visual(mbuf *b, const track *t, int kind, int i0, int i1, cons
   }
 }
 
-void track_geo_build(track_geo *g, const track *t, const track_mesh_opts *o) {
-  memset(g, 0, sizeof *g);
-  int cap = 0;
+/* the chunks of one path (the main road, or a branch's view); `base` is its first sample's index in the whole track */
+static void geo_build_path(track_geo *g, int *capp, const track *t, const track_mesh_opts *o, int base) {
+  int cap = *capp;
   for (int i0 = 0; i0 < t->n; i0 += CHUNK) {
     int i1 = i0 + CHUNK < t->n ? i0 + CHUNK : t->n;
     /* a chunk overlaps the next by one sample so no seam opens (a circuit's last chunk joins the first) */
@@ -286,8 +296,8 @@ void track_geo_build(track_geo *g, const track *t, const track_mesh_opts *o) {
           track_chunk *ch = &g->c[g->n++];
           ch->kind = kind;
           ch->surf = surf;
-          ch->first = run;
-          ch->last = end;
+          ch->first = run + base;
+          ch->last = end + base;
           ch->centre = mul(add(c, d), 0.5f);
           t3_vec3 e = sub(d, c);
           ch->radius = sqrtf(dot(e, e)) * 0.5f + 30.0f;
@@ -297,6 +307,17 @@ void track_geo_build(track_geo *g, const track *t, const track_mesh_opts *o) {
         if (kind != TM_ROAD && kind != TM_KERB && kind != TM_UNDER) break;
       }
     }
+  }
+  *capp = cap;
+}
+
+void track_geo_build(track_geo *g, const track *t, const track_mesh_opts *o) {
+  memset(g, 0, sizeof *g);
+  int cap = 0;
+  geo_build_path(g, &cap, t, o, 0);
+  for (int b = 0; b < t->nbranch; b++) {
+    track v = track_branch_view(t, b);
+    geo_build_path(g, &cap, &v, o, t->br[b].first);
   }
 }
 
@@ -341,6 +362,7 @@ static void ptri(pbuf *b, int a, int c, int d, t3_vec3 face) {
 /* sweeps `kind` for the whole track into b with a welded vertex per profile point per sample */
 static void sweep_phys(pbuf *b, const track *t, int kind, const track_mesh_opts *o) {
   rp ra[MAX_RP], rb[MAX_RP];
+  if (t->n < 2) return;
   int *vi = malloc(sizeof(int) * (size_t)t->n * MAX_RP);
   for (int i = 0; i < t->n * MAX_RP; i++) vi[i] = -1;
   for (int i = 0; i < t->n; i++) {
@@ -367,11 +389,14 @@ static void sweep_phys(pbuf *b, const track *t, int kind, const track_mesh_opts 
 
 void track_phys_build(track_phys *road, track_phys *walls, const track *t, const track_mesh_opts *o) {
   pbuf r = { 0 }, w = { 0 };
-  sweep_phys(&r, t, TM_ROAD, o);
-  sweep_phys(&w, t, TM_WALL, o);
-  sweep_phys(&w, t, TM_WALLTOP, o);
-  sweep_phys(&w, t, TM_TUNNEL, o);
-  sweep_phys(&w, t, TM_PLATE, o);
+  for (int b = -1; b < t->nbranch; b++) {
+    track v = b < 0 ? *t : track_branch_view(t, b);
+    sweep_phys(&r, &v, TM_ROAD, o);
+    sweep_phys(&w, &v, TM_WALL, o);
+    sweep_phys(&w, &v, TM_WALLTOP, o);
+    sweep_phys(&w, &v, TM_TUNNEL, o);
+    sweep_phys(&w, &v, TM_PLATE, o);
+  }
   *road = (track_phys){ r.v, r.idx, r.nv, r.nt };
   *walls = (track_phys){ w.v, w.idx, w.nv, w.nt };
 }

@@ -154,6 +154,8 @@ typedef struct kart {
   uint8_t last_btn;
   /* stats */
   int hits_given, hits_taken, boosts, tricks, falls, drift_boosts;
+  int cuts;             /* shortcuts taken: branches driven from the mouth back onto the main road */
+  int cut_br;           /* 1 + the branch it was last on (0 none), for counting */
   float top_speed_seen;
   /* battle (sim_battle.inc): balloons left, points (a balloon popped), out of the round and when */
   int balloons, points, pops_taken;
@@ -241,6 +243,7 @@ void sim_set_class(sim *s, int cls);
 void sim_restart(sim *s, uint32_t seed, int skip_ticks); /* skip_ticks > 0 joins the countdown that far in (60: the "2" and the "1" only) */
 void sim_step(sim *s, const kin in[MAXK]);
 void sim_put(sim *s, int i, float s_dist, float lat, float speed);
+void sim_put_branch(sim *s, int i, int b, float bs, float speed); /* dev aid: on branch b, bs metres from its mouth */
 void sim_use(sim *s, int i, int item); /* dev aid: kart i uses this item now */
 /* battle: the round's length in ticks (call after sim_init; 0 keeps the default three minutes) */
 void sim_set_battle_time(sim *s, int ticks);
@@ -284,6 +287,7 @@ typedef struct ai_mem {
   t3_vec3 b_aim;      /* where it steered this tick (the trace) */
   float b_feel[3];    /* its feelers this tick, left, centre, right (the trace) */
   t3_vec3 b_goal, b_last_p;
+  int8_t take[4];     /* each branch (shortcut) on the way: 0 not decided yet, 1 taking it, -1 staying on the main road */
 } ai_mem;
 void ai_reset(ai_mem *m, int me, int skill, uint32_t seed);
 kin ai_think(const sim *s, int me, ai_mem *m);

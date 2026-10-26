@@ -281,9 +281,10 @@ static void kart_reset_state(kart *k) {
 }
 
 /* sets a kart standing on the road at track distance s, lat metres to the right, facing along the road */
-static void kart_place(sim *s, int i, float sdist, float lat, float speed) {
+static void kart_place_m(sim *s, int i, tsample m, float lat, float speed);
+static void kart_place(sim *s, int i, float sdist, float lat, float speed) { kart_place_m(s, i, track_at(s->track, sdist), lat, speed); }
+static void kart_place_m(sim *s, int i, tsample m, float lat, float speed) {
   kart *k = &s->k[i];
-  tsample m = track_at(s->track, sdist);
   t3_vec3 pos = v3add(v3add(m.p, v3mul(m.r, lat)), v3mul(m.u, RIDE + 0.15f));
   t3_quat q = q_from_frame(m.r, m.u, m.f);
   cw_vehicle3d_reset(&PH.car[i]);
@@ -301,7 +302,7 @@ static void kart_place(sim *s, int i, float sdist, float lat, float speed) {
   k->hint = -1;
   track_locate(s->track, pos, -1, &k->loc);
   k->hint = k->loc.i;
-  PH.prev_s[i] = k->loc.s;
+  PH.prev_s[i] = k->loc.ms;
 }
 
 void sim_place_on_grid(sim *s) {
@@ -321,7 +322,7 @@ void sim_place_on_grid(sim *s) {
     k->prog = -back;
     k->lap = 0;
     k->last_safe_s = sd;
-    PH.prev_s[i] = k->loc.s;
+    PH.prev_s[i] = k->loc.ms;
     col ^= 1;
     row += col == 0;
   }
@@ -413,6 +414,14 @@ void sim_put(sim *s, int i, float sd, float lat, float speed) {
   s->k[i].last_safe_s = sd;
 }
 
+/* dev aid: the same on branch b, bs metres from its mouth */
+void sim_put_branch(sim *s, int i, int b, float bs, float speed) {
+  if (b < 0 || b >= s->track->nbranch) return;
+  kart_place_m(s, i, track_branch_at(s->track, b, bs), 0, speed);
+  s->k[i].prog = s->k[i].loc.ms;
+  s->k[i].last_safe_s = s->track->br[b].s0 - 10.0f;
+}
+
 static void use_item(sim *s, int i);
 /* dev aid: kart i uses an item now, whatever it held */
 void sim_use(sim *s, int i, int item) {
@@ -482,10 +491,11 @@ static void hazards_step(sim *s) {
     if (z->kind == HZ_MISSILE || z->kind == HZ_HOMING) {
       if (z->kind == HZ_HOMING && z->target >= 0 && s->k[z->target].on) {
         const kart *tk = &s->k[z->target];
-        float dl = tk->loc.lat - z->lat;
+        /* (a mark on a branch is off the missile's road: it holds its lane and keeps after it) */
+        float dl = tk->loc.br < 0 ? tk->loc.lat - z->lat : 0;
         z->lat += clampf(dl, -14 * DT, 14 * DT);
         /* it closes on its mark: a touch faster when behind it */
-        float ds = tk->loc.s - z->s;
+        float ds = tk->loc.ms - z->s;
         if (t->circuit) {
           if (ds > t->length * 0.5f) ds -= t->length;
           if (ds < -t->length * 0.5f) ds += t->length;
@@ -602,6 +612,13 @@ static void use_item(sim *s, int i) {
     k->item_count = 0;
     return;
   }
+  /* hazards live on the main road: from a branch they start at the nearest point of it */
+  track_loc il = k->loc;
+  if (il.br >= 0) {
+    track_locate_main(s->track, k->p, k->loc.i, &il);
+    float hw = s->track->s[il.i].hw - 1.0f;
+    il.lat = clampf(il.lat, -hw, hw);
+  }
   switch (item) {
   case IT_TURBO: start_boost(s, i, BOOST_TURBO, 1.25f * vd->boost, 1); break;
   case IT_TURBO3:
@@ -609,12 +626,12 @@ static void use_item(sim *s, int i) {
     if (--k->item_count > 0) return;
     break;
   case IT_MISSILE: {
-    hazard *z = hz_add(s, HZ_MISSILE, i, k->loc.s + 2.5f, k->loc.lat, clampf(k->loc.height + 0.5f, 0.5f, 2.0f));
+    hazard *z = hz_add(s, HZ_MISSILE, i, il.s + 2.5f, il.lat, clampf(k->loc.height + 0.5f, 0.5f, 2.0f));
     if (z) z->speed = maxf(70.0f, k->speed + 38.0f);
     break;
   }
   case IT_HOMING: {
-    hazard *z = hz_add(s, HZ_HOMING, i, k->loc.s + 2.5f, k->loc.lat, clampf(k->loc.height + 0.5f, 0.5f, 2.0f));
+    hazard *z = hz_add(s, HZ_HOMING, i, il.s + 2.5f, il.lat, clampf(k->loc.height + 0.5f, 0.5f, 2.0f));
     if (z) {
       z->speed = maxf(60.0f, k->speed + 30.0f);
       z->target = kart_ahead(s, i);
@@ -622,8 +639,8 @@ static void use_item(sim *s, int i) {
     }
     break;
   }
-  case IT_OIL: hz_add(s, HZ_OIL, i, k->loc.s - 3.0f, k->loc.lat, 0.1f); break;
-  case IT_MINE: hz_add(s, HZ_MINE, i, k->loc.s - 3.0f, k->loc.lat, 0.5f); break;
+  case IT_OIL: hz_add(s, HZ_OIL, i, il.s - 3.0f, il.lat, 0.1f); break;
+  case IT_MINE: hz_add(s, HZ_MINE, i, il.s - 3.0f, il.lat, 0.5f); break;
   case IT_SHIELD: k->shield_ticks = 8 * TICK_HZ; break;
   case IT_SHOCK:
     for (int j = 0; j < MAXK; j++) {
@@ -826,10 +843,10 @@ static void kart_control(sim *s, int i, kin in) {
 
   /* track gravity: the road's own down near the road, the world's elsewhere */
   const tsample *ts = &t->s[k->loc.i];
-  tsample m = track_at(t, k->loc.s);
+  tsample m = track_at_loc(t, &k->loc, 0);
   float h = k->loc.height;
   float lat_over = absf(k->loc.lat) - m.hw;
-  bool gap = (ts->flags & TF_GAP) != 0 || (t->s[(k->loc.i + 1) % t->n].flags & TF_GAP) != 0;
+  bool gap = (ts->flags & TF_GAP) != 0 || (t->s[track_next(t, k->loc.i)].flags & TF_GAP) != 0;
   float attach = 0;
   if (!gap && lat_over < 2.5f && h > -1.0f && !s->battle) {
     float reach = (ts->flags & TF_LOOP) ? 2.3f : 3.0f;
@@ -940,6 +957,8 @@ static void kart_control(sim *s, int i, kin in) {
     if (touching && k->speed > 8) cw_body3d_apply_force(b, v3mul(f, -k->speed * 0.55f * mass), NULL);
     if (touching && (s->tick & 7) == 0) event(s, EV_WATER, i, 0, k->p, clampf(k->speed / 40.0f, 0, 1));
   }
+  /* deep sand, mud, loose snow: the speed bleeds away (a boost pushes through it) */
+  if ((ts->flags & TF_SLOW) && touching && k->speed > 12 && k->boost_ticks <= 0) cw_body3d_apply_force(b, v3mul(f, -(k->speed - 12) * 0.5f * mass), NULL);
   drive(s, i, thr, st, true);
 
   /* the road's boost strips */
@@ -1030,13 +1049,22 @@ static void progress(sim *s, int i) {
   float L = t->length;
   track_locate(t, k->p, k->hint, &k->loc);
   k->hint = k->loc.i;
-  float ds = k->loc.s - PH.prev_s[i];
+  float ds = k->loc.ms - PH.prev_s[i];
   if (t->circuit) {
     if (ds > L * 0.5f) ds -= L;
     if (ds < -L * 0.5f) ds += L;
   }
   if (absf(ds) < 40.0f) k->prog += ds; /* a jump can move it forty metres in a tick; more is a re-locate */
-  PH.prev_s[i] = k->loc.s;
+  PH.prev_s[i] = k->loc.ms;
+  /* a shortcut counts when the kart comes off a branch back onto the main road at its far end */
+  if (k->loc.br >= 0 && !(t->s[k->loc.i].flags & TF_JOIN)) k->cut_br = k->loc.br + 1;
+  else if (k->loc.br < 0 && k->cut_br) {
+    const track_branch *B = &t->br[k->cut_br - 1];
+    float d = k->loc.ms - B->s0; /* how far along the stretch it stands for the kart came back */
+    if (t->circuit) d = d < -L * 0.5f ? d + L : d > L * 0.5f ? d - L : d;
+    if (d > B->span * 0.6f && d < B->span + 30.0f) k->cuts++;
+    k->cut_br = 0;
+  }
   if (!k->finished && k->prog >= (float)s->laps * L - 0.5f && s->phase == PH_RACE) {
     k->finished = true;
     k->finish_tick = s->race_ticks;
@@ -1055,7 +1083,7 @@ static void progress(sim *s, int i) {
     if (lap_now > 1) event(s, EV_LAP, i, lap_now, k->p, secs);
   }
   /* a safe place to come back to */
-  if (k->grounded && k->loc.on_road && absf(k->loc.lat) < t->s[k->loc.i].hw - 0.5f && !(t->s[k->loc.i].flags & (TF_GAP | TF_RAMP))) {
+  if (k->grounded && k->loc.br < 0 && k->loc.on_road && absf(k->loc.lat) < t->s[k->loc.i].hw - 0.5f && !(t->s[k->loc.i].flags & (TF_GAP | TF_RAMP))) {
     if (++k->safe_hold >= 24) {
       k->last_safe_s = k->loc.s;
       k->safe_hold = 0;
@@ -1291,7 +1319,7 @@ void sim_step(sim *s, const kin in_raw[MAXK]) {
     else if (k->stuck_ticks > 0) k->stuck_ticks--;
     if (k->respawn_ticks <= 0 && (lost || k->stuck_ticks > 150 || k->stall_ticks > 210 || k->reset_hold > 55) && !k->finished) {
       if (lost) event(s, EV_FALL, i, 0, k->p, 0);
-      if (getenv("RACER_FALLLOG")) cw_info("respawn kart %d s=%.0f spd=%.0f lost=%d (dist %.1f hw %.1f height %.1f) stuck=%d stall=%d reset=%d", i, k->loc.s, k->speed, lost, k->loc.dist, ts->hw, k->loc.height, k->stuck_ticks, k->stall_ticks, k->reset_hold);
+      if (getenv("RACER_FALLLOG")) cw_info("respawn kart %d br=%d s=%.0f spd=%.0f lost=%d (dist %.1f hw %.1f height %.1f) stuck=%d stall=%d reset=%d", i, k->loc.br, k->loc.s, k->speed, lost, k->loc.dist, ts->hw, k->loc.height, k->stuck_ticks, k->stall_ticks, k->reset_hold);
       respawn(s, i);
     }
   }

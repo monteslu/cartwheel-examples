@@ -64,7 +64,25 @@ static const piece SPEC[] = {
   END(),
 };
 
-#define MAP_SPEC (&(track_spec){ .name = "orbit", .pieces = SPEC, .npieces = sizeof SPEC / sizeof SPEC[0], .hw0 = 9, .circuit = true })
+/* The spacewalk: a bare maintenance gantry straight across the mouth of the first hairpin. It saves about a hundred
+ * metres, but it is narrow, has no walls, and its two bends are tight: miss one and the kart drifts off into space. */
+static const piece SPACEWALK[] = {
+  SURFACE(SURF_METAL),
+  MOVE(8, 6, KEEP, 0, KEEP),
+  ATURN(80, 56),
+  ASTRAIGHT(20),
+  BOOST(20),
+  STRAIGHT(20),
+  ASTRAIGHT(70),
+  ATURN(80, 56),
+  ASTRAIGHT(8),
+  END(),
+};
+static const branch_spec BRANCHES[] = {
+  { .name = "spacewalk", .s0 = 984, .lat0 = -4.6f, .s1 = 1296, .lat1 = -4.6f, .pieces = SPACEWALK, .npieces = sizeof SPACEWALK / sizeof SPACEWALK[0],
+    .hw0 = 3.4f, .walls_l = 0, .walls_r = 0, .ai_take = { 0.08f, 0.4f, 0.85f } },
+};
+#define MAP_SPEC (&(track_spec){ .name = "orbit", .pieces = SPEC, .npieces = sizeof SPEC / sizeof SPEC[0], .hw0 = 8, .circuit = true, .branches = BRANCHES, .nbranches = 1 })
 
 /* the textures and the sky use the engine's deterministic maths so every host paints the same picture */
 #define sinf(x) cw_sin(x)
@@ -2248,7 +2266,7 @@ const map_def map_orbit = {
   .name = "Wreck Orbit",
   .blurb = "A broken station in orbit: loops and corkscrews round the ring.",
   .scene = "scenes/orbit.cwscene",
-  .spec = &(track_spec){ .name = "orbit", .pieces = SPEC, .npieces = sizeof SPEC / sizeof SPEC[0], .hw0 = 8, .circuit = true },
+  .spec = MAP_SPEC,
   .mesh = { .wall_h = { 0, 0.9f, 1.6f, 3.2f }, .curb_w = 0.9f, .tile_v = 8.0f, .tunnel_clear = 8.0f },
   .look = { .road = { 0.85f, 0.9f, 1.0f }, .kerb_a = { 0.05f, 0.85f, 1.0f }, .kerb_b = { 0.95f, 0.2f, 0.8f }, .wall = { 0.55f, 0.6f, 0.7f },
             .wall_top = { 0.8f, 0.85f, 0.95f }, .road_tex = TEX_ROAD_TECH, .wall_tex = TEX_WALL_TECH, .road_rough = 0.7f,

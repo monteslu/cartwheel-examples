@@ -10,6 +10,7 @@ float cw_sin(float x) { return sinf(x); }
 float cw_cos(float x) { return cosf(x); }
 void cw_sincos(float x, float *s, float *c) { *s = sinf(x), *c = cosf(x); }
 float cw_atan2(float y, float x) { return atan2f(y, x); }
+float cw_asin(float x) { return asinf(x); } /* a map may route asinf here */
 #include "../track.h"
 #include MAPFILE
 
@@ -71,6 +72,24 @@ int main(int argc, char **argv) {
       if (d < mind) mind = d, mi = i, mj = j;
     }
   printf("closest approach of distant parts: %.1f m (at s=%.0f and s=%.0f)\n", mind, t.s[mi].s, t.s[mj].s);
+  if (getenv("TRACKTEST_PIECES"))
+    for (int i = 0; i < t.n; i++)
+      if (i == 0 || t.s[i].seg != t.s[i - 1].seg)
+        printf("  piece %d from s=%.0f (%.0f, %.1f, %.0f) heading %.0f bank %.0f hw %.1f\n", t.s[i].seg, t.s[i].s, t.s[i].p.x, t.s[i].p.y, t.s[i].p.z, atan2f(t.s[i].f.x, t.s[i].f.z) * 57.2958f, t.s[i].bank * 57.2958f, t.s[i].hw);
+  for (int b = 0; b < t.nbranch; b++) {
+    const track_branch *B = &t.br[b];
+    int join = 0;
+    for (int i = B->first; i < B->first + B->n; i++) join += (t.s[i].flags & TF_JOIN) != 0;
+    printf("branch %d: %.0f m for %.0f m of road (s %.0f..%.0f) side %d, %d samples overlap the road, %d jumps\n", b, B->length, B->span, B->s0, B->s1, B->side, join, B->ngaps);
+    for (int k = 0; k <= 8; k++) {
+      const tsample *a = &t.s[B->first + (B->n - 1) * k / 8];
+      printf("  at %.0f m: (%.1f, %.1f, %.1f) heading %.0f hw %.1f flags %x\n", a->s, a->p.x, a->p.y, a->p.z, atan2f(a->f.x, a->f.z) * 57.2958f, a->hw, a->flags);
+    }
+    for (int g = 0; g < B->ngaps; g++) {
+      const tsample *a = &t.s[B->gap_from[g]], *e = &t.s[B->gap_to[g]];
+      printf("  jump at %.0f: %.1f m long, drop %.1f m, lands pitch %.1f deg\n", a->s, e->s - a->s, a->p.y - e->p.y, asinf(e->f.y) * 57.2958f);
+    }
+  }
   /* rasters: a top view coloured by height, and a side profile */
   if (getenv("TRACKTEST_DUMP")) {
     int a = atoi(getenv("TRACKTEST_DUMP")), b = a + 12;
@@ -86,13 +105,17 @@ int main(int argc, char **argv) {
     unsigned char *img = calloc((size_t)w * h, 3);
     for (int i = 0; i < w * h; i++) img[i * 3] = 20, img[i * 3 + 1] = 24, img[i * 3 + 2] = 31;
     for (int pass = 0; pass < 2; pass++)
-      for (int i = 0; i < t.n; i++) {
+      for (int i = 0; i < (pass ? t.n : t.nall); i++) {
         const tsample *a = &t.s[i];
         float hgt = (a->p.y - miny) / (maxy - miny + 1e-3f);
         int r = (int)(60 + 195 * hgt), g = (int)(210 - 140 * hgt), bl = (int)(255 - 215 * hgt);
         if (a->flags & TF_GAP) r = 255, g = 60, bl = 60;
         else if (a->flags & TF_LOOP) r = 255, g = 220, bl = 40;
         if (a->flags & TF_TUNNEL) r = g = bl = 150;
+        /* branches green (orange where they still overlap the main road), the main road's open mouths magenta */
+        if ((a->flags & TF_BRANCH) && !(a->flags & TF_GAP)) r = 90, g = 255, bl = 120;
+        if (a->flags & TF_JOIN) r = 255, g = 150, bl = 40;
+        if (!(a->flags & TF_BRANCH) && (a->flags & (TF_FORK_L | TF_FORK_R))) r = 255, g = 60, bl = 255;
         float cx = (a->p.x - minx + 40) * sc, cy = (a->p.z - minz + 40) * sc, rad = a->hw * sc * (pass ? 0.25f : 1.0f);
         if (pass) r = g = bl = 255 * (i == 0 ? 1 : 0.1f);
         if (pass && !(a->flags & (TF_CHECK | TF_ITEMS | TF_FINISH))) continue;

@@ -183,7 +183,7 @@ static void hud_tick(void) {
     /* wrong way: the kart faces against the road for a second */
     bool wrong = false;
     if (S->phase == PH_RACE && !S->battle && !k->finished && k->grounded && k->loc.on_road && k->speed > 2.5f && !(S->track->s[k->loc.i].flags & (TF_LOOP | TF_GAP))) {
-      tsample m = track_at(S->track, k->loc.s);
+      tsample m = track_at_loc(S->track, &k->loc, 0);
       wrong = v3dot(kart_fwd(k), m.f) < -0.15f;
     }
     if (wrong) {

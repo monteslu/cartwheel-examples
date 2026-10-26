@@ -68,7 +68,8 @@ typedef struct walker {
   float boost_left, water_left;
   uint32_t pending;       /* one-shot flags for the next sample */
   int seg;
-  track *t;
+  track *t;              /* the main road's walk records its checkpoints, item rows, jumps and loops here */
+  track_branch *br;      /* a branch's walk records its jumps here (and nothing else) */
 } walker;
 
 static void emit(walker *w, t3_vec3 f_override, bool use_override, uint32_t extra) {
@@ -252,6 +253,10 @@ static void do_jump(walker *w, const piece *pc) {
     w->t->gap_from[w->t->ngaps] = start;
     w->t->gap_to[w->t->ngaps++] = w->n;
   }
+  if (w->br && w->br->ngaps < 2) {
+    w->br->gap_from[w->br->ngaps] = start;
+    w->br->gap_to[w->br->ngaps++] = w->n;
+  }
 }
 
 static void walk_pieces(walker *w, const piece *p, int np) {
@@ -286,20 +291,32 @@ static void walk_pieces(walker *w, const piece *p, int np) {
   }
 }
 
-static void walker_init(walker *w, tsample *out, int cap, const track_spec *spec, track *t) {
+/* where a walk begins: the main road at the origin heading +z, a branch at its mouth */
+typedef struct walk_start {
+  pose ps;
+  uint8_t wl, wr;
+} walk_start;
+
+static void walker_init(walker *w, tsample *out, int cap, const walk_start *st, track *t) {
   memset(w, 0, sizeof *w);
   w->out = out;
   w->cap = cap;
   w->t = t;
-  w->ps.hw = spec->hw0;
-  w->wl = w->wr = 2;
+  w->ps = st->ps;
+  w->wl = st->wl, w->wr = st->wr;
   w->surf = SURF_ROAD;
 }
 
+static walk_start main_start(const track_spec *spec) {
+  walk_start st = { .wl = 2, .wr = 2 };
+  st.ps.hw = spec->hw0;
+  return st;
+}
+
 /* the pose after all pieces, and the sample count */
-static pose end_pose(const piece *p, int np, const track_spec *spec) {
+static pose end_pose(const piece *p, int np, const walk_start *st) {
   walker w;
-  walker_init(&w, NULL, 0, spec, NULL);
+  walker_init(&w, NULL, 0, st, NULL);
   walk_pieces(&w, p, np);
   return w.ps;
 }
@@ -317,13 +334,19 @@ static float *var_ref(piece *p, const var *v) {
   return v->which == 'a' ? &p[v->piece].a : v->which == 'b' ? &p[v->piece].b : &p[v->piece].c;
 }
 
-/* 4 residuals: x, y, z of the end against the origin, and the heading */
-static void residual(piece *p, int np, const track_spec *spec, float r[4]) {
-  pose e = end_pose(p, np, spec);
-  r[0] = e.p.x;
-  r[1] = e.p.y;
-  r[2] = e.p.z;
-  r[3] = wrap_pi(e.psi) * 20.0f; /* radians weigh as 20 m: a degree is about a third of a metre */
+/* where a walk must end: a point and a heading (the origin and 0 for a circuit, the rejoin for a branch) */
+typedef struct walk_goal {
+  t3_vec3 p;
+  float psi;
+} walk_goal;
+
+/* 4 residuals: x, y, z of the end against the goal, and the heading */
+static void residual(piece *p, int np, const walk_start *st, const walk_goal *g, float r[4]) {
+  pose e = end_pose(p, np, st);
+  r[0] = e.p.x - g->p.x;
+  r[1] = e.p.y - g->p.y;
+  r[2] = e.p.z - g->p.z;
+  r[3] = wrap_pi(e.psi - g->psi) * 20.0f; /* radians weigh as 20 m: a degree is about a third of a metre */
 }
 
 static bool solve4(float A[4][4], float b[4], float x[4]) {
@@ -356,7 +379,7 @@ static bool solve4(float A[4][4], float b[4], float x[4]) {
   return true;
 }
 
-static bool close_circuit(piece *p, int np, const track_spec *spec, float *err_out) {
+static bool close_walk(piece *p, int np, const char *name, const walk_start *st, const walk_goal *g, float *err_out) {
   var vars[48];
   int nv = 0;
   for (int i = 0; i < np && nv < 45; i++) {
@@ -370,11 +393,11 @@ static bool close_circuit(piece *p, int np, const track_spec *spec, float *err_o
     if (p[i].kind == P_MOVE && p[i].c < KEEP) vars[nv++] = (var){ i, 'c', 0.3f, p[i].c - 12.0f, p[i].c + 12.0f };
   }
   if (nv < 4) {
-    cw_error("track %s: the closing solve needs at least four adjustable values (ADJ), got %d", spec->name, nv);
+    cw_error("track %s: the closing solve needs at least four adjustable values (ADJ), got %d", name, nv);
     return false;
   }
   float r[4];
-  residual(p, np, spec, r);
+  residual(p, np, st, g, r);
   for (int it = 0; it < 80; it++) {
     float e = sqrtf(r[0] * r[0] + r[1] * r[1] + r[2] * r[2] + r[3] * r[3]);
     if (e < 0.02f) break;
@@ -385,7 +408,7 @@ static bool close_circuit(piece *p, int np, const track_spec *spec, float *err_o
       float h = vars[k].which == 'a' ? 0.05f : 0.002f, keep = *ref;
       *ref = keep + h;
       float r2[4];
-      residual(p, np, spec, r2);
+      residual(p, np, st, g, r2);
       *ref = keep;
       for (int i = 0; i < 4; i++) J[i][k] = (r2[i] - r[i]) / h;
     }
@@ -400,7 +423,7 @@ static bool close_circuit(piece *p, int np, const track_spec *spec, float *err_o
     for (int i = 0; i < 4; i++) rhs[i] = -r[i];
     float y[4];
     if (!solve4(A, rhs, y)) {
-      cw_error("track %s: the closing solve is singular (the adjustable pieces cannot move the end where it must go)", spec->name);
+      cw_error("track %s: the closing solve is singular (the adjustable pieces cannot move the end where it must go)", name);
       return false;
     }
     float damp = e > 50 ? 0.5f : 1.0f;
@@ -412,7 +435,7 @@ static bool close_circuit(piece *p, int np, const track_spec *spec, float *err_o
       if (*ref < vars[k].lo) *ref = vars[k].lo;
       if (*ref > vars[k].hi) *ref = vars[k].hi;
     }
-    residual(p, np, spec, r);
+    residual(p, np, st, g, r);
     if (track_debug) cw_info("closing solve %d: error %.2f", it, sqrtf(r[0] * r[0] + r[1] * r[1] + r[2] * r[2] + r[3] * r[3]));
   }
   if (track_debug)
@@ -420,13 +443,15 @@ static bool close_circuit(piece *p, int np, const track_spec *spec, float *err_o
   float e = sqrtf(r[0] * r[0] + r[1] * r[1] + r[2] * r[2]);
   *err_out = e;
   if (e > 0.5f || fabsf(r[3] / 20.0f) > 1.0f * DEG) {
-    cw_error("track %s: the circuit does not close: %.2f m off, heading %.2f deg", spec->name, e, r[3] / 20.0f / DEG);
+    cw_error("track %s: the closing solve misses: %.2f m off, heading %.2f deg", name, e, r[3] / 20.0f / DEG);
     return false;
   }
   return true;
 }
 
 /* ── build ──────────────────────────────────────────────────────────── */
+
+static bool build_branch(track *t, const branch_spec *bs);
 
 bool track_build(track *t, const track_spec *spec) {
   memset(t, 0, sizeof *t);
@@ -435,14 +460,16 @@ bool track_build(track *t, const track_spec *spec) {
   int np = spec->npieces < MAX_PIECES ? spec->npieces : MAX_PIECES;
   memcpy(p, spec->pieces, sizeof(piece) * (size_t)np);
   t->circuit = spec->circuit;
+  walk_start st0 = main_start(spec);
   if (spec->circuit) {
     float err = 0;
-    if (!close_circuit(p, np, spec, &err)) return false;
+    walk_goal home = { { 0, 0, 0 }, 0 };
+    if (!close_walk(p, np, spec->name, &st0, &home, &err)) return false;
     t->closure_error = err;
   }
-  t->s = malloc(sizeof(tsample) * MAX_SAMPLES);
+  t->s = calloc(MAX_SAMPLES, sizeof(tsample));
   walker w;
-  walker_init(&w, t->s, MAX_SAMPLES, spec, t);
+  walker_init(&w, t->s, MAX_SAMPLES, &st0, t);
   /* the finish line is the first sample */
   w.pending = TF_FINISH | TF_CHECK;
   t->check_at[t->nchecks++] = 0;
@@ -476,6 +503,13 @@ bool track_build(track *t, const track_spec *spec) {
       t->s[i].p = add(t->s[i].p, mul(miss, k));
     }
   }
+  t->nall = t->n;
+  for (int b = 0; b < spec->nbranches && t->nbranch < 4; b++)
+    if (!build_branch(t, &spec->branches[b])) {
+      free(t->s);
+      t->s = NULL;
+      return false;
+    }
   return true;
 }
 
@@ -532,7 +566,7 @@ tsample track_at(const track *t, float s) {
   return blend(&t->s[i], &t->s[j], k);
 }
 
-void track_locate(const track *t, t3_vec3 p, int hint, track_loc *o) {
+static void locate_in(const track *t, t3_vec3 p, int hint, track_loc *o) {
   int best = -1;
   float bd = 1e30f;
   if (hint >= 0) {
@@ -586,4 +620,276 @@ float track_curvature(const track *t, float s, float span) {
   /* the change of the forward vector's heading seen from above */
   float ha = cw_atan2(a.f.x, a.f.z), hb = cw_atan2(b.f.x, b.f.z);
   return wrap_pi(hb - ha) / span;
+}
+
+/* ── branches ───────────────────────────────────────────────────────── */
+
+track track_branch_view(const track *t, int b) {
+  track v;
+  memset(&v, 0, sizeof v);
+  const track_branch *B = &t->br[b];
+  v.s = t->s + B->first;
+  v.n = B->n;
+  v.nall = B->n;
+  v.length = B->length;
+  v.circuit = false;
+  return v;
+}
+
+static float wrap_s(const track *t, float s) {
+  if (!t->circuit) return s;
+  s = fmodf(s, t->length);
+  return s < 0 ? s + t->length : s;
+}
+
+float track_branch_ms(const track *t, int b, float bs) {
+  const track_branch *B = &t->br[b];
+  if (bs <= 0) return wrap_s(t, B->s0 + bs);
+  if (bs >= B->length) return wrap_s(t, B->s1 + (bs - B->length));
+  track v = track_branch_view(t, b);
+  int i = find_s(&v, bs), j = i + 1 < v.n ? i + 1 : i;
+  float span = v.s[j].s - v.s[i].s, k = span > 1e-4f ? (bs - v.s[i].s) / span : 0;
+  k = k < 0 ? 0 : k > 1 ? 1 : k;
+  return wrap_s(t, B->s0 + v.s[i].ms + (v.s[j].ms - v.s[i].ms) * k);
+}
+
+tsample track_branch_at(const track *t, int b, float bs) {
+  const track_branch *B = &t->br[b];
+  if (bs < 0) return track_at(t, B->s0 + bs);
+  if (bs > B->length) return track_at(t, B->s1 + (bs - B->length));
+  track v = track_branch_view(t, b);
+  return track_at(&v, bs);
+}
+
+tsample track_at_loc(const track *t, const track_loc *l, float ahead) {
+  if (l->br >= 0 && l->br < t->nbranch) return track_branch_at(t, l->br, l->s + ahead);
+  return track_at(t, l->s + ahead);
+}
+
+static int branch_of(const track *t, int i) {
+  for (int b = 0; b < t->nbranch; b++)
+    if (i >= t->br[b].first && i < t->br[b].first + t->br[b].n) return b;
+  return -1;
+}
+
+int track_next(const track *t, int i) {
+  if (i < t->n) return wrap_i(t, i + 1);
+  int b = branch_of(t, i);
+  if (b < 0) return i;
+  return i + 1 < t->br[b].first + t->br[b].n ? i + 1 : i;
+}
+
+void track_locate_main(const track *t, t3_vec3 p, int hint, track_loc *o) {
+  if (hint >= t->n) {
+    int b = branch_of(t, hint);
+    hint = b >= 0 ? find_s(t, track_branch_ms(t, b, t->s[hint].s)) : -1;
+  }
+  locate_in(t, p, hint, o);
+  o->ms = o->s;
+  o->br = -1;
+}
+
+void track_locate_branch(const track *t, int b, t3_vec3 p, track_loc *o) {
+  track v = track_branch_view(t, b);
+  locate_in(&v, p, -1, o);
+  o->i += t->br[b].first;
+  o->br = b;
+  o->ms = track_branch_ms(t, b, o->s);
+}
+
+/* how well a location fits its path: a share of the half width when on the road, else far worse and by distance */
+static float loc_score(const track *t, const track_loc *l) {
+  float hw = t->s[l->i].hw;
+  return l->on_road ? fabsf(l->lat) / (hw > 0.5f ? hw : 0.5f) : 10.0f + l->dist;
+}
+
+void track_locate(const track *t, t3_vec3 p, int hint, track_loc *o) {
+  int hb = hint >= t->n ? branch_of(t, hint) : -1;
+  track_locate_main(t, p, hint, o);
+  if (!t->nbranch) return;
+  float best = loc_score(t, o) - (hb < 0 && hint >= 0 ? 0.12f : 0.0f);
+  for (int b = 0; b < t->nbranch; b++) {
+    const track_branch *B = &t->br[b];
+    if (p.x < B->lo.x || p.y < B->lo.y || p.z < B->lo.z || p.x > B->hi.x || p.y > B->hi.y || p.z > B->hi.z) continue;
+    track v = track_branch_view(t, b);
+    track_loc l;
+    locate_in(&v, p, hb == b ? hint - B->first : -1, &l);
+    l.i += B->first;
+    l.br = b;
+    l.ms = track_branch_ms(t, b, l.s);
+    /* where it still overlaps the main road only its own side of the main edge is its road */
+    const tsample *q = &t->s[l.i];
+    if ((q->flags & TF_JOIN) && l.on_road) l.on_road = B->side < 0 ? l.lat < q->cut + 0.3f : l.lat > q->cut - 0.3f;
+    float sc = loc_score(t, &l) - (hb == b ? 0.12f : 0.0f);
+    if (sc < best) best = sc, *o = l;
+  }
+}
+
+/* Builds branch bs after the main road's samples: the walk from the mouth, the solve onto the rejoin, then where it
+ * overlaps the main road (TF_JOIN, clipped) and where the main road's wall gives way to it (TF_FORK_*). */
+static bool build_branch(track *t, const branch_spec *bs) {
+  if (!bs->npieces || !t->n) return false;
+  piece p[MAX_PIECES];
+  int np = bs->npieces < MAX_PIECES ? bs->npieces : MAX_PIECES;
+  memcpy(p, bs->pieces, sizeof(piece) * (size_t)np);
+  const char *name = bs->name ? bs->name : "branch";
+  tsample a = track_at(t, bs->s0), e = track_at(t, bs->s1);
+  walk_start st = { .wl = bs->walls_l, .wr = bs->walls_r };
+  st.ps.p = add(a.p, mul(a.r, bs->lat0));
+  st.ps.psi = cw_atan2(a.f.x, a.f.z);
+  st.ps.theta = cw_atan2(a.f.y, sqrtf(a.f.x * a.f.x + a.f.z * a.f.z));
+  st.ps.phi = a.bank;
+  st.ps.hw = bs->hw0;
+  walk_goal goal = { add(e.p, mul(e.r, bs->lat1)), cw_atan2(e.f.x, e.f.z) };
+  /* the heading goal is the start's heading plus the turn between: the walk's heading is not wrapped */
+  goal.psi = st.ps.psi + wrap_pi(goal.psi - st.ps.psi);
+  float err = 0;
+  if (!close_walk(p, np, name, &st, &goal, &err)) return false;
+  track_branch *B = &t->br[t->nbranch];
+  memset(B, 0, sizeof *B);
+  B->first = t->nall;
+  walker w;
+  walker_init(&w, t->s + t->nall, MAX_SAMPLES - t->nall, &st, NULL);
+  w.br = B;
+  walk_pieces(&w, p, np);
+  if (t->nall + w.n >= MAX_SAMPLES) {
+    cw_error("track %s: more than %d samples with branch %s", name, MAX_SAMPLES, name);
+    return false;
+  }
+  B->n = w.n;
+  B->length = w.s;
+  B->s0 = wrap_s(t, bs->s0);
+  B->s1 = wrap_s(t, bs->s1);
+  B->span = B->s1 - B->s0;
+  if (t->circuit && B->span < 0) B->span += t->length;
+  B->ai_speed = bs->ai_speed;
+  for (int k = 0; k < 3; k++) B->ai_take[k] = bs->ai_take[k];
+  for (int g = 0; g < B->ngaps; g++) B->gap_from[g] += B->first, B->gap_to[g] += B->first;
+  tsample *S = t->s + B->first;
+  /* snap the end onto the rejoin exactly, spread over its last 40 samples */
+  t3_vec3 miss = sub(goal.p, w.ps.p);
+  int k0 = B->n > 40 ? B->n - 40 : 0;
+  for (int i = k0; i < B->n; i++) S[i].p = add(S[i].p, mul(miss, (float)(i - k0 + 1) / (float)(B->n - k0)));
+  for (int i = 0; i < B->n; i++) {
+    S[i].flags = (S[i].flags & ~(uint32_t)(TF_CHECK | TF_ITEMS | TF_FINISH)) | TF_BRANCH;
+    S[i].cut = 0;
+  }
+  for (int g = 0; g < B->ngaps; g++)
+    for (int i = B->gap_from[g] - 60; i < B->gap_from[g]; i++)
+      if (i >= B->first) t->s[i].flags |= TF_RAMP;
+  /* which side of the main road it lies: its middle */
+  track_loc lm;
+  locate_in(t, S[B->n / 2].p, -1, &lm);
+  B->side = lm.lat < 0 ? -1 : 1;
+  /* the mouth and the rejoin: against the main road sample by sample */
+  int hint = -1;
+  t3_vec3 *own = malloc(sizeof(t3_vec3) * (size_t)B->n), *ofs = calloc((size_t)B->n, sizeof(t3_vec3));
+  for (int i = 0; i < B->n; i++) own[i] = S[i].p;
+  for (int i = 0; i < B->n; i++) {
+    tsample *q = &S[i];
+    track_loc l;
+    locate_in(t, q->p, hint, &l);
+    hint = l.i;
+    if (fabsf(l.height) > 3.0f) continue; /* above or below it (a jump, a ledge): no meeting here */
+    float hm = t->s[l.i].hw;
+    float inner = fabsf(l.lat) - q->hw; /* the main centre to the branch's near edge */
+    /* the main road's wall gives way where the branch's road reaches across its edge; it comes back where they part */
+    if (inner < hm + 0.3f)
+      for (int d = -1; d <= 1; d++) {
+        tsample *m = &t->s[wrap_i(t, l.i + d)];
+        if (B->side < 0) m->flags = (m->flags & ~(uint32_t)TF_WALL_L) | TF_FORK_L | TF_OPEN;
+        else m->flags = (m->flags & ~(uint32_t)TF_WALL_R) | TF_FORK_R | TF_OPEN;
+      }
+    /* its own wall on the main road's side starts once it is clear of the main wall */
+    if (inner < hm + 0.55f + 0.4f) {
+      q->flags &= ~(uint32_t)(B->side < 0 ? TF_WALL_R : TF_WALL_L);
+      if (!(q->flags & (TF_WALL_L | TF_WALL_R))) q->flags |= TF_OPEN;
+    }
+    if (inner < hm) {
+      /* where it overlaps the main road it lies in the main road's own surface, so the seam at the cut has no step: the
+       * main road may lean (a banked turn's inside edge sinks) where the branch, left to itself, would not */
+      tsample m = track_at(t, l.s);
+      t3_vec3 on = track_point(t, l.s, l.lat, 0);
+      t3_vec3 f = norm(sub(q->f, mul(m.u, dot(q->f, m.u))));
+      t3_vec3 r = norm(cross(f, m.u));
+      q->p = on, q->f = f, q->r = r, q->u = cross(r, f), q->bank = m.bank;
+      t3_vec3 edge = track_point(t, l.s, (float)B->side * hm, 0);
+      q->cut = dot(sub(edge, q->p), q->r);
+      q->flags |= TF_JOIN | (B->side < 0 ? TF_FORK_R : TF_FORK_L); /* on a branch sample: the side the main road is on */
+      ofs[i] = sub(on, own[i]);
+      float d = l.s - B->s0;
+      if (t->circuit) d = d > t->length * 0.5f ? d - t->length : d < -t->length * 0.5f ? d + t->length : d;
+      q->ms = d;
+    }
+  }
+  /* the main-road metres each sample stands for: its own beside the main road, spread evenly between */
+  {
+    int a = -1, b = B->n;
+    while (a + 1 < B->n && (S[a + 1].flags & TF_JOIN)) a++;
+    while (b - 1 > a && (S[b - 1].flags & TF_JOIN)) b--;
+    float ma = a >= 0 ? S[a].ms : 0, sa = a >= 0 ? S[a].s : 0;
+    float mb = b < B->n ? S[b].ms : B->span, sb = b < B->n ? S[b].s : B->length;
+    for (int i = a + 1; i < b; i++) S[i].ms = sb > sa ? ma + (mb - ma) * (S[i].s - sa) / (sb - sa) : ma;
+    for (int i = 0; i < B->n; i++) {
+      if (S[i].ms < 0) S[i].ms = 0;
+      if (S[i].ms > B->span) S[i].ms = B->span;
+      if (i && S[i].ms < S[i - 1].ms) S[i].ms = S[i - 1].ms;
+    }
+  }
+  /* Between the overlaps it carries the shift the main road's surface gave its ends (a banked turn's sunken inside
+   * edge, say), eased from one end's to the other's over its whole free length, so it never dips and climbs back; its
+   * lean eases from the main road's back to its own over 25 m past each overlap. */
+  {
+    int a = -1, b = B->n;
+    while (a + 1 < B->n && (S[a + 1].flags & TF_JOIN)) a++;
+    while (b - 1 > a && (S[b - 1].flags & TF_JOIN)) b--;
+    t3_vec3 oa = a >= 0 ? ofs[a] : v3_(0, 0, 0), ob = b < B->n ? ofs[b] : v3_(0, 0, 0);
+    /* the height shift leaves each overlap at the slope it had there (a cubic over the free length), so the road bends
+     * gently out of the main road's lean instead of kinking */
+    float da = 0, db = 0;
+    if (a >= 3) da = (ofs[a].y - ofs[a - 3].y) / fmaxf(S[a].s - S[a - 3].s, 0.5f);
+    if (b + 3 < B->n) db = (ofs[b + 3].y - ofs[b].y) / fmaxf(S[b + 3].s - S[b].s, 0.5f);
+    float s_a = a >= 0 ? S[a].s : 0, s_b = b < B->n ? S[b].s : B->length, L = fmaxf(s_b - s_a, 1.0f);
+    for (int i = a + 1; i < b; i++) {
+      float x = (S[i].s - s_a) / L, k = smooth(x);
+      t3_vec3 o = add(mul(oa, 1 - k), mul(ob, k));
+      float x2 = x * x, x3 = x2 * x;
+      o.y = (2 * x3 - 3 * x2 + 1) * oa.y + (x3 - 2 * x2 + x) * L * da + (-2 * x3 + 3 * x2) * ob.y + (x3 - x2) * L * db;
+      S[i].p = add(S[i].p, o);
+    }
+    const float span = 25.0f;
+    for (int end = 0; end < 2; end++) {
+      int last = end ? b : a, dir = end ? -1 : 1;
+      if (last < 0 || last >= B->n) continue;
+      for (int k = 1, j = last + dir; k <= (int)span && j > a && j < b; k++, j += dir) {
+        float w = 1.0f - smooth((float)k / span);
+        tsample *q = &S[j];
+        t3_vec3 u = norm(add(mul(q->u, 1 - w), mul(S[last].u, w)));
+        t3_vec3 r = norm(cross(q->f, u));
+        q->r = r, q->u = cross(r, q->f);
+        q->bank = q->bank * (1 - w) + S[last].bank * w;
+      }
+    }
+  }
+  free(ofs);
+  free(own);
+  /* the frames follow the shifted path: forward along it, up kept as square to it as it was */
+  for (int i = 1; i + 1 < B->n; i++) {
+    tsample *q = &S[i];
+    if ((q->flags | S[i - 1].flags | S[i + 1].flags) & (TF_GAP | TF_LOOP)) continue;
+    t3_vec3 f = norm(sub(S[i + 1].p, S[i - 1].p));
+    t3_vec3 u = norm(sub(q->u, mul(f, dot(q->u, f))));
+    q->f = f, q->r = norm(cross(f, u)), q->u = cross(q->r, f);
+  }
+  t3_vec3 lo = S[0].p, hi = S[0].p;
+  for (int i = 0; i < B->n; i++) {
+    float r = S[i].hw + 6.0f;
+    lo = v3_(fminf(lo.x, S[i].p.x - r), fminf(lo.y, S[i].p.y - 12), fminf(lo.z, S[i].p.z - r));
+    hi = v3_(fmaxf(hi.x, S[i].p.x + r), fmaxf(hi.y, S[i].p.y + 14), fmaxf(hi.z, S[i].p.z + r));
+  }
+  B->lo = lo, B->hi = hi;
+  t->nall += B->n;
+  t->nbranch++;
+  cw_info("track %s: branch %s %.0f m for %.0f m of road (s %.0f to %.0f), side %d, solve %.2f m", t->circuit ? "circuit" : "course", name, B->length, B->span, B->s0, B->s1, B->side, err);
+  return true;
 }

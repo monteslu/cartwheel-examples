@@ -252,7 +252,7 @@ static void kart_frame(const sim *s, int i, t3_vec3 *up, t3_vec3 *fwd) {
   *up = kart_up(k);
   *fwd = kart_fwd(k);
   if (k->loc.on_road) {
-    tsample m = track_at(s->track, k->loc.s);
+    tsample m = track_at_loc(s->track, &k->loc, 0);
     *up = m.u;
     *fwd = m.f;
   }
@@ -844,7 +844,7 @@ static void kart_tick(const sim *s, int i) {
     f->skid_last[w] = wp;
     f->skid_on[w] = true;
     /* the road under the wheel */
-    tsample m = track_at(tr, k->loc.s - vd->len * 0.72f);
+    tsample m = track_at_loc(tr, &k->loc, -vd->len * 0.72f);
     t3_vec3 rel = v3sub(wp, m.p);
     t3_vec3 on = v3add(v3sub(wp, v3mul(m.u, v3dot(rel, m.u))), v3mul(m.u, 0.03f));
     t3_vec3 dir = k->v;

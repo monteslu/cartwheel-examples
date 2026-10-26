@@ -67,6 +67,7 @@ static const piece SPEC[] = {
   STRAIGHT(60),
   END(),
 };
+#define MAP_SPEC (&(track_spec){ .name = "salt", .pieces = SPEC, .npieces = sizeof SPEC / sizeof SPEC[0], .hw0 = 11, .circuit = true })
 
 /* ── small helpers ──────────────────────────────────────────────────────────────────────────────────── */
 

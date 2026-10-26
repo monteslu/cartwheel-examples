@@ -570,7 +570,7 @@ void audio_tick(const sim *s, const t3_vec3 *eye, int neyes) {
     kstate *e = &A.ks[i];
     owned[i] = true;
     float pan = view_pan(v), g = view_gain() * (A.attract ? 0.55f : 1.0f);
-    tsample ts = track_at(s->track, k->loc.s);
+    tsample ts = track_at_loc(s->track, &k->loc, 0);
     bool in_tunnel = (ts.flags & TF_TUNNEL) && k->loc.on_road;
     if (in_tunnel) tunnel_in += 1.0f / (float)neyes;
     float tun = 1.0f + 0.25f * A.tunnel;
