@@ -63,7 +63,7 @@ const LINES = [
   { id: 'direct_hit', say: ['Direct hit!', 'Boom! Got them!', 'Bullseye!'] },
   { id: 'got_hit', say: ['Ouch!', 'That will leave a dent!'] },
   { id: 'shield_up', say: ['Shield up!', 'Shields up! Bring it on!'] },
-  { id: 'shield_saved', say: ['The shield holds!'] },
+  { id: 'shield_saved', say: ['The shield holds!', 'Blocked it!'] }, /* a shield, or an item held out back stopping a missile */
   /* big moments */
   { id: 'huge_air', say: ['Big, big air!', 'Look at that hang time!'] },
   { id: 'perfect_landing', say: ['Perfect landing!', 'Stuck the landing!'] },
@@ -97,6 +97,15 @@ const LINES = [
   { id: 'map_orbit', say: ['Welcome to the Wreck Orbit! No air, no brakes, no problem!', 'Wreck Orbit! One small lap for a racer!'] },
   /* colour, when the race has been quiet a while */
   { id: 'chatter', say: ['Scrap and glory, folks!', 'Nobody brakes in this league!', 'The crowd is going wild!', 'Somebody\'s gonna need a new bumper!', 'Pedal down, folks!', 'What a day for racing!'] },
+  /* a close pass (EV_NEARMISS) */
+  { id: 'close_call', say: ['What a close call!', 'Inches to spare!', 'Squeezed right through!'] },
+  /* battle */
+  { id: 'pop', say: ['Got a balloon!', 'Pop! Got one!', 'There goes a balloon!'] },
+  { id: 'last_balloon', say: ['Last balloon!', 'One balloon left! Careful!'] },
+  { id: 'knocked_out', say: ['Knocked out!', 'You\'re out of the round!'] },
+  { id: 'rival_out', say: ['Another one down!', 'One less rival!'] },
+  { id: 'battle_win', say: ['Last kart standing!', 'Battle champion!'] },
+  { id: 'battle_over', say: ['That\'s the battle!', 'Battle over!'] },
 ];
 const MAX_VARIANTS = 6;
 
@@ -226,6 +235,8 @@ mkdirSync(OUT, { recursive: true });
 mkdirSync(TMP, { recursive: true });
 const todo = only ? LINES.filter((l) => only.has(l.id)) : LINES;
 if (!only) for (const f of readdirSync(OUT)) if (f.endsWith('.ogg')) rmSync(join(OUT, f));
+/* a partial run clears the old takes of the lines it remakes (a line that went from one take to two renames its file) */
+else for (const f of readdirSync(OUT)) if (todo.some((l) => new RegExp(`^${l.id}(_\\d+)?\\.ogg$`).test(f))) rmSync(join(OUT, f));
 const spoken = await speakAll(todo);
 const report = [];
 for (const line of todo)

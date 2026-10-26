@@ -20,7 +20,7 @@ assets/fonts/):
     Copyright 2016 The Oswald Project Authors (https://github.com/googlefonts/OswaldFont).
     SIL Open Font License 1.1 (assets/fonts/Oswald-OFL.txt).
 
-The announcer (assets/audio/voice/, 93 Ogg files): the lines were written for
+The announcer (assets/audio/voice/, 110 Ogg files): the lines were written for
 the game and spoken by a text-to-speech model run locally by
 tools/make-voice.mjs, which then gives them their stadium sound (its own
 filters, compressor, limiter, echoes and reverb). Nothing was recorded.

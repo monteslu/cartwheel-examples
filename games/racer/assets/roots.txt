@@ -139,7 +139,8 @@ audio/voice/got_hit_1.ogg
 audio/voice/got_hit_2.ogg
 audio/voice/shield_up_1.ogg
 audio/voice/shield_up_2.ogg
-audio/voice/shield_saved.ogg
+audio/voice/shield_saved_1.ogg
+audio/voice/shield_saved_2.ogg
 audio/voice/huge_air_1.ogg
 audio/voice/huge_air_2.ogg
 audio/voice/perfect_landing_1.ogg
@@ -189,4 +190,20 @@ audio/voice/chatter_3.ogg
 audio/voice/chatter_4.ogg
 audio/voice/chatter_5.ogg
 audio/voice/chatter_6.ogg
+audio/voice/close_call_1.ogg
+audio/voice/close_call_2.ogg
+audio/voice/close_call_3.ogg
+audio/voice/pop_1.ogg
+audio/voice/pop_2.ogg
+audio/voice/pop_3.ogg
+audio/voice/last_balloon_1.ogg
+audio/voice/last_balloon_2.ogg
+audio/voice/knocked_out_1.ogg
+audio/voice/knocked_out_2.ogg
+audio/voice/rival_out_1.ogg
+audio/voice/rival_out_2.ogg
+audio/voice/battle_win_1.ogg
+audio/voice/battle_win_2.ogg
+audio/voice/battle_over_1.ogg
+audio/voice/battle_over_2.ogg
 # end voice

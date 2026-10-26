@@ -54,6 +54,13 @@ enum {
   VL_MAP_TEMPLE,
   VL_MAP_ORBIT,
   VL_CHATTER,
+  VL_CLOSE_CALL,
+  VL_POP,
+  VL_LAST_BALLOON,
+  VL_KNOCKED_OUT,
+  VL_RIVAL_OUT,
+  VL_BATTLE_WIN,
+  VL_BATTLE_OVER,
   VL_N
 };
 
@@ -88,7 +95,7 @@ static const voice_line VOICE_LINES[VL_N] = {
   [VL_DIRECT_HIT] = { "direct_hit", 3, { "audio/voice/direct_hit_1.ogg", "audio/voice/direct_hit_2.ogg", "audio/voice/direct_hit_3.ogg" }, { "Direct hit!", "Boom! Got them!", "Bullseye!" }, { 732, 812, 622 } },
   [VL_GOT_HIT] = { "got_hit", 2, { "audio/voice/got_hit_1.ogg", "audio/voice/got_hit_2.ogg" }, { "Ouch!", "That will leave a dent!" }, { 482, 932 } },
   [VL_SHIELD_UP] = { "shield_up", 2, { "audio/voice/shield_up_1.ogg", "audio/voice/shield_up_2.ogg" }, { "Shield up!", "Shields up! Bring it on!" }, { 652, 1132 } },
-  [VL_SHIELD_SAVED] = { "shield_saved", 1, { "audio/voice/shield_saved.ogg" }, { "The shield holds!" }, { 892 } },
+  [VL_SHIELD_SAVED] = { "shield_saved", 2, { "audio/voice/shield_saved_1.ogg", "audio/voice/shield_saved_2.ogg" }, { "The shield holds!", "Blocked it!" }, { 892, 652 } },
   [VL_HUGE_AIR] = { "huge_air", 2, { "audio/voice/huge_air_1.ogg", "audio/voice/huge_air_2.ogg" }, { "Big, big air!", "Look at that hang time!" }, { 802, 1022 } },
   [VL_PERFECT_LANDING] = { "perfect_landing", 2, { "audio/voice/perfect_landing_1.ogg", "audio/voice/perfect_landing_2.ogg" }, { "Perfect landing!", "Stuck the landing!" }, { 862, 912 } },
   [VL_DRIFT_MAX] = { "drift_max", 2, { "audio/voice/drift_max_1.ogg", "audio/voice/drift_max_2.ogg" }, { "Maximum drift boost!", "Purple sparks! Full send!" }, { 1202, 1392 } },
@@ -116,6 +123,13 @@ static const voice_line VOICE_LINES[VL_N] = {
   [VL_MAP_TEMPLE] = { "map_temple", 2, { "audio/voice/map_temple_1.ogg", "audio/voice/map_temple_2.ogg" }, { "Welcome to the Overgrowth Temple! Watch for the vines!", "Overgrowth Temple! Ancient stones, brand new scrapes!" }, { 2822, 2792 } },
   [VL_MAP_ORBIT] = { "map_orbit", 2, { "audio/voice/map_orbit_1.ogg", "audio/voice/map_orbit_2.ogg" }, { "Welcome to the Wreck Orbit! No air, no brakes, no problem!", "Wreck Orbit! One small lap for a racer!" }, { 3202, 2032 } },
   [VL_CHATTER] = { "chatter", 6, { "audio/voice/chatter_1.ogg", "audio/voice/chatter_2.ogg", "audio/voice/chatter_3.ogg", "audio/voice/chatter_4.ogg", "audio/voice/chatter_5.ogg", "audio/voice/chatter_6.ogg" }, { "Scrap and glory, folks!", "Nobody brakes in this league!", "The crowd is going wild!", "Somebody's gonna need a new bumper!", "Pedal down, folks!", "What a day for racing!" }, { 1212, 1302, 1172, 1622, 1022, 1052 } },
+  [VL_CLOSE_CALL] = { "close_call", 3, { "audio/voice/close_call_1.ogg", "audio/voice/close_call_2.ogg", "audio/voice/close_call_3.ogg" }, { "What a close call!", "Inches to spare!", "Squeezed right through!" }, { 882, 912, 1032 } },
+  [VL_POP] = { "pop", 3, { "audio/voice/pop_1.ogg", "audio/voice/pop_2.ogg", "audio/voice/pop_3.ogg" }, { "Got a balloon!", "Pop! Got one!", "There goes a balloon!" }, { 702, 862, 972 } },
+  [VL_LAST_BALLOON] = { "last_balloon", 2, { "audio/voice/last_balloon_1.ogg", "audio/voice/last_balloon_2.ogg" }, { "Last balloon!", "One balloon left! Careful!" }, { 752, 1282 } },
+  [VL_KNOCKED_OUT] = { "knocked_out", 2, { "audio/voice/knocked_out_1.ogg", "audio/voice/knocked_out_2.ogg" }, { "Knocked out!", "You're out of the round!" }, { 712, 882 } },
+  [VL_RIVAL_OUT] = { "rival_out", 2, { "audio/voice/rival_out_1.ogg", "audio/voice/rival_out_2.ogg" }, { "Another one down!", "One less rival!" }, { 962, 872 } },
+  [VL_BATTLE_WIN] = { "battle_win", 2, { "audio/voice/battle_win_1.ogg", "audio/voice/battle_win_2.ogg" }, { "Last kart standing!", "Battle champion!" }, { 1032, 892 } },
+  [VL_BATTLE_OVER] = { "battle_over", 2, { "audio/voice/battle_over_1.ogg", "audio/voice/battle_over_2.ogg" }, { "That's the battle!", "Battle over!" }, { 792, 732 } },
 };
 
 #endif
