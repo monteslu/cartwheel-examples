@@ -133,7 +133,8 @@ typedef struct kart {
   int trick_ticks;      /* a trick in the air */
   int shock_warn, shock_by;   /* a Shockwave is coming: ticks to go, and whose; a hop over it dodges it */
   int draft_ticks, draft_cool;
-  int pass_cool;        /* ticks before another close pass can pay */ /* time spent in the slipstream of a kart ahead; a pause after the boost it pays */
+  int pass_cool;        /* ticks before another close pass can pay */
+  bool trailing;        /* an oil can or a mine held out behind (the item button held): it stops a missile from behind */ /* time spent in the slipstream of a kart ahead; a pause after the boost it pays */
   bool trick_done;
   int bump_ticks;
   int respawn_ticks;    /* flickering back in */

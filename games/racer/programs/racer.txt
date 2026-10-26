@@ -58,7 +58,6 @@ physical+trans+shadow+senv+l1001+xcluster
 physical+instbig+senv+icol+sheen+l0301+xcsm
 physical+shadow+senv+ds+l1301+s100
 physical+senv+cc+l1001+xcluster
-physical+senv+l1001+xcluster
 basic+trans+instbig+ds
 physical+vcol+instbig+shadow+senv+l1001+xcluster
 physical+vcol+instbig+shadow+senv+ds+l1001+xcluster
@@ -138,3 +137,6 @@ physical+vcol+trans+l1001+xcluster
 physical+trans+l1001+xcluster
 physical+vcol+trans+senv+l3001+xcluster
 physical+trans+senv+l3001+xcluster
+physical+l1001+xcluster
+physical+senv+l3001+xcluster
+basic+instbig

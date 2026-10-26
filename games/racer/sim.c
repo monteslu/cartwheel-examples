@@ -431,6 +431,7 @@ static void spin_kart(sim *s, int i, int kind, int by) {
   }
   if (k->spin_ticks > 20 && kind != SPIN_BOOM) return;
   k->spin_kind = kind;
+  if (k->trailing) k->trailing = false, k->item = IT_NONE, k->item_count = 0; /* a hit knocks the held item away */
   k->spin_ticks = kind == SPIN_OIL ? OIL_SPIN : kind == SPIN_BOOM ? BOOM_SPIN : kind == SPIN_SHOCK ? SHOCK_SPIN : HIT_SPIN;
   k->spin_dir = (rnd(s) & 1) ? 1.0f : -1.0f;
   k->drifting = false;
@@ -498,6 +499,14 @@ static void hazards_step(sim *s) {
         }
         z->kind = HZ_NONE;
       } else {
+        /* a missile from behind meets the item held out back first */
+        if (k->trailing && v3dot(v3sub(z->p, k->p), kart_fwd(k)) < 0) {
+          k->trailing = false;
+          k->item = IT_NONE, k->item_count = 0;
+          event(s, EV_SHIELD, i, z->owner, z->p, 1);
+          z->kind = HZ_NONE;
+          break;
+        }
         event(s, EV_HIT, i, z->owner, z->p, (float)z->kind);
         spin_kart(s, i, SPIN_HIT, z->owner);
         z->kind = HZ_NONE;
@@ -957,7 +966,20 @@ static void kart_control(sim *s, int i, kin in) {
     k->item_count = k->item == IT_TURBO3 ? 3 : 1;
   }
   if (k->item_cool > 0) k->item_cool--;
-  if (pressed_item) use_item(s, i);
+  {
+    /* oil and mines can be held out behind while the button is held, as a shield against a missile from behind; letting go
+     * drops it */
+    bool holdable = k->item == IT_OIL || k->item == IT_MINE;
+    if (pressed_item && holdable && !k->trailing) {
+      k->trailing = true;
+      if (getenv("RACER_FALLLOG")) cw_info("trailing kart %d item %d tick %d", i, k->item, s->tick);
+    }
+    else if (pressed_item) use_item(s, i);
+    if (k->trailing && (!holdable || !(in.btn & KB_ITEM))) {
+      k->trailing = false;
+      if (holdable) use_item(s, i);
+    }
+  }
 
   if (k->boost_ticks > 0) k->boost_ticks--;
   if (k->shield_ticks > 0) k->shield_ticks--;

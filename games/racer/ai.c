@@ -99,6 +99,17 @@ kin ai_think(const sim *s, int me, ai_mem *m) {
     in.thr = -127;
     in.steer = (int8_t)(-in.steer);
   }
+  /* the skilled hold an oil can or a mine out behind as a shield, and let it go when a kart closes in behind */
+  if ((k->item == IT_OIL || k->item == IT_MINE) && k->item_wait == 0 && m->skill >= 1 && s->phase == PH_RACE) {
+    bool close = false;
+    for (int j = 0; j < MAXK && !close; j++) {
+      if (j == me || !s->k[j].on) continue;
+      float ds = k->loc.s - s->k[j].loc.s;
+      close = ds > 3 && ds < 12;
+    }
+    if (!close || !k->trailing) in.btn |= KB_ITEM;
+    return in;
+  }
   /* items */
   if (k->item != IT_NONE && k->item_wait == 0) {
     bool use = false;

@@ -5,6 +5,7 @@
  * from pools built up front, so nothing is allocated while racing. Every pose is a function of the simulation
  * (tick, box cooldowns, hazard ages), placed each frame between the last two ticks. */
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "cartwheel/math.h"
@@ -29,6 +30,7 @@ static struct {
   t3_object *miss[MAXHZ], *homing[MAXHZ], *oil[MAXHZ], *mine[MAXHZ], *mine_light[MAXHZ];
   t3_object *miss_flame[MAXHZ][2], *homing_flame[MAXHZ][2];
   t3_object *reticle[MAXK];
+  t3_object *held_mine[MAXK], *held_oil[MAXK]; /* an item held out behind a kart */
   t3_material *reticle_mat;
   fxrec fx[NFX];
   t3_object *fx_obj[NFX], *fx_ball[NFX], *fx_ring[NFX], *fx_ring2[NFX];
@@ -285,6 +287,33 @@ void items_build(cw_node scene, const sim *s) {
     I.mine_light[h] = &lm->base;
     I.mine[h] = m;
   }
+  {
+    /* held out behind a kart: the mine itself, or a squat oil drum */
+    /* the drum wears the mine's material (vertex colours), so it needs no program states of its own */
+    t3_geometry *dg = keep(t3_cylinder_geometry_new(0.26f, 0.26f, 0.52f, 14, 1, false));
+    {
+      int nv = dg->attributes[T3_ATTR_POSITION] ? dg->attributes[T3_ATTR_POSITION]->count : 0;
+      float *col = malloc(sizeof(float) * 3 * (size_t)(nv > 0 ? nv : 1));
+      const float *pos = dg->attributes[T3_ATTR_POSITION]->array;
+      for (int v = 0; v < nv; v++) {
+        /* dark steel with two painted hoops */
+        float y = pos[v * 3 + 1], hoop = fabsf(fabsf(y) - 0.16f) < 0.04f ? 1.0f : 0.0f;
+        col[v * 3] = 0.16f + 0.7f * hoop, col[v * 3 + 1] = 0.13f + 0.45f * hoop, col[v * 3 + 2] = 0.17f + 0.05f * hoop;
+      }
+      t3_attribute *a = t3_attribute_new(T3_FLOAT32, col, nv, 3);
+      t3_geometry_set_attribute(dg, T3_ATTR_COLOR, a);
+      t3_release(a);
+      free(col);
+    }
+    for (int k = 0; k < MAXK; k++) {
+      I.held_mine[k] = group_in(I.root);
+      add_geo(I.held_mine[k], ng, mn, true);
+      I.held_mine[k]->visible = false;
+      I.held_oil[k] = group_in(I.root);
+      add_geo(I.held_oil[k], dg, mn, true);
+      I.held_oil[k]->visible = false;
+    }
+  }
   t3_release(mm), t3_release(mn), t3_release(om);
   /* the lock-on reticles, one per kart that could be marked */
   I.reticle_mat = additive(1.0f, 0.18f, 0.1f, 0.9f);
@@ -449,6 +478,20 @@ void items_frame(const sim *s, float alpha) {
       bool armed = z->age > 45;
       float rate = armed ? 1.6f : 7.0f;
       I.mine_light[h]->visible = fmodf(t * rate + (float)h * 0.37f, 1.0f) < 0.45f;
+    }
+  }
+  for (int k = 0; k < MAXK; k++) {
+    const kart *kk = &s->k[k];
+    bool hold = kk->on && kk->trailing;
+    I.held_mine[k]->visible = hold && kk->item == IT_MINE;
+    I.held_oil[k]->visible = hold && kk->item == IT_OIL;
+    if (hold) {
+      t3_vec3 kp = v3sub(kk->p, v3mul(kk->v, (1.0f - alpha) / (float)TICK_HZ));
+      t3_vec3 f = kart_fwd(kk), u = kart_up(kk);
+      t3_vec3 p = v3add(v3sub(kp, v3mul(f, VEH[kk->veh].len * 0.5f + 1.35f)), v3mul(u, 0.35f + 0.05f * sinf(t * 9.0f)));
+      t3_object *o = kk->item == IT_MINE ? I.held_mine[k] : I.held_oil[k];
+      t3_object_set_position(o, p.x, p.y, p.z);
+      t3_object_set_quaternion(o, from_to(v3(0, 1, 0), u));
     }
   }
   for (int k = 0; k < MAXK; k++) {
