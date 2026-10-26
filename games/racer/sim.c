@@ -339,6 +339,7 @@ void sim_init(sim *s, const track *t, const map_def *map, int map_index, int lap
   s->md = map;
   s->laps = laps < 1 ? 1 : laps > MAX_LAPS ? MAX_LAPS : laps;
   if (!t->circuit) s->laps = 1;
+  s->class_top = s->class_acc = 1.0f;
   for (int i = 0; i < MAXK; i++) {
     s->k[i].on = on[i];
     s->k[i].veh = veh[i] % NVEH;
@@ -355,6 +356,38 @@ void sim_init(sim *s, const track *t, const map_def *map, int map_index, int lap
 void sim_free(sim *s) {
   (void)s;
   phys_free();
+}
+
+/* the speed classes: top speed and acceleration of every kart, as a share of the vehicle's own */
+static const float CLASS_TOP[3] = { 1.0f, 1.16f, 1.32f };
+static const float CLASS_ACC[3] = { 1.0f, 1.22f, 1.45f };
+void sim_set_class(sim *s, int cls) {
+  cls = cls < 0 ? 0 : cls > 2 ? 2 : cls;
+  s->speed_class = cls;
+  s->class_top = CLASS_TOP[cls];
+  s->class_acc = CLASS_ACC[cls];
+}
+
+void sim_restart(sim *s, uint32_t seed, int skip_ticks) {
+  for (int i = 0; i < MAXK; i++) {
+    kart *k = &s->k[i];
+    kart keep = { .on = k->on, .human = k->human, .veh = k->veh, .colour = k->colour, .place = i + 1 };
+    *k = keep;
+    PH.v0[i] = (t3_vec3){ 0, 0, 0 };
+  }
+  memset(s->hz, 0, sizeof s->hz);
+  for (int b = 0; b < s->nbox; b++) s->box[b].cool = 0;
+  s->tick = 0;
+  s->rng = seed * 2654435761u + 0x1234567u;
+  s->phase_ticks = 0;
+  s->race_ticks = 0;
+  s->finished_count = 0;
+  s->ev_n = 0;
+  s->hash = 0;
+  sim_place_on_grid(s);
+  s->phase = PH_GRID;
+  if (skip_ticks > 0) s->phase = PH_COUNT, s->phase_ticks = skip_ticks;
+  for (int i = 0; i < MAXK; i++) s->order[i] = i;
 }
 
 /* dev aid: stand kart i on the road at s metres, lat to the right, already moving at speed */
@@ -613,7 +646,7 @@ static void drive(sim *s, int i, float thr, float st, bool grounded_front) {
   const vehicle_def *vd = &VEH[k->veh];
   cw_vehicle3d *c = &PH.car[i];
   float spd = k->speed;
-  float top = vd->top * (k->boost_ticks > 0 ? 1.0f + 0.42f * k->boost_k : 1.0f);
+  float top = vd->top * s->class_top * (k->boost_ticks > 0 ? 1.0f + 0.42f * k->boost_k : 1.0f);
   /* the CPU karts hold the pack together: a kart far behind the leading human gets up to 7% more, one far ahead 4% less */
   float rb = 0, accel_k = 1;
   if (!k->human) {
@@ -635,7 +668,7 @@ static void drive(sim *s, int i, float thr, float st, bool grounded_front) {
   if (k->draft_cool > 0) k->draft_cool--;
   {
     bool towed = false;
-    if (s->phase == PH_RACE && k->grounded && spd > vd->top * 0.6f) {
+    if (s->phase == PH_RACE && k->grounded && spd > vd->top * s->class_top * 0.6f) {
       t3_vec3 fw = kart_fwd(k), rt = kart_right(k);
       for (int j = 0; j < MAXK && !towed; j++) {
         if (j == i || !s->k[j].on || s->k[j].spin_ticks > 0) continue;
@@ -661,7 +694,7 @@ static void drive(sim *s, int i, float thr, float st, bool grounded_front) {
     if (spd < -0.5f) brake = 40;
     else {
       float f = 1.0f - clampf(spd / top, 0, 1);
-      acc = thr * vd->accel * accel_k * (0.12f + 0.88f * f * (2.0f - f));
+      acc = thr * vd->accel * s->class_acc * accel_k * (0.12f + 0.88f * f * (2.0f - f));
       if (spd > top) acc = -(spd - top) * 2.0f;
     }
   } else if (thr < -0.05f) {
@@ -1125,8 +1158,8 @@ void sim_step(sim *s, const kin in_raw[MAXK]) {
     k->v = cw_body3d_velocity(PH.body[i]);
     k->w = cw_body3d_angular_velocity(PH.body[i]);
     float sp = v3len(k->v);
-    if (sp > MAX_SPEED) {
-      k->v = v3mul(k->v, MAX_SPEED / sp);
+    if (sp > MAX_SPEED * s->class_top) {
+      k->v = v3mul(k->v, MAX_SPEED * s->class_top / sp);
       cw_body3d_set_velocity(PH.body[i], k->v);
     }
     k->top_speed_seen = maxf(k->top_speed_seen, sp);

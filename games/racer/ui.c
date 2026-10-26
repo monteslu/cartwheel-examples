@@ -15,7 +15,13 @@
  *   RACER_RES=WxH        window size (a portrait window for example: 540x960)
  *   RACER_PLAYERS=n      humans for join / vehicle / race (1..4)
  *   RACER_UI_MAP=n      the map of a pause / results dev screen
- *   RACER_UI_FAKE=1      with RACER_UI=results: fill the sim with a finished race so the table can be looked at */
+ *   RACER_UI_FAKE=1      with RACER_UI=results: fill the sim with a finished race so the table can be looked at
+ *   RACER_UI=trial|trialres|cup|standings|cupend|assist   the time trial's map select, a finished trial's results (RACER_UI_MEDAL=0..4
+ *                        picks the medal, RACER_UI_RECORD=1 a new record), the cup select, the standings between two races, the
+ *                        trophy screen (RACER_UI_CUP=0|1, RACER_UI_PLACE=1..8 where the human finished) and the assists page
+ *
+ * Modes (ui_modes.inc): RACE, TIME TRIAL (ghost, medals) and CUP (four races, points, trophies, unlocks); speed class and
+ * assists are in the race setup (map select, cup select) and the options page. The save data is version 2 (see save_data). */
 #include <math.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -64,9 +70,9 @@ static float ease_io(float t) { t = clamp01(t); return t * t * (3 - 2 * t); }
 
 /* ── state ──────────────────────────────────────────────────────────── */
 
-enum { M_TITLE, M_JOIN, M_VEHICLE, M_MAP, M_OPTIONS, M_CONTROLS, M_RACE, M_PAUSE, M_RESULTS, M_MODES };
+enum { M_TITLE, M_JOIN, M_VEHICLE, M_MAP, M_OPTIONS, M_CONTROLS, M_RACE, M_PAUSE, M_RESULTS, M_MODES, M_CUP, M_STANDINGS, M_CUPEND };
 /* what waits behind a fade to black */
-enum { PD_NONE, PD_START_RACE, PD_TO_MENU, PD_ATTRACT, PD_RESTART, PD_NEXT_MAP };
+enum { PD_NONE, PD_START_RACE, PD_TO_MENU, PD_ATTRACT, PD_RESTART, PD_NEXT_MAP, PD_CUP_NEXT };
 enum { DEV_MOUSE, DEV_PAD, DEV_KEYS, DEV_TOUCH };
 #define ATTRACT_SECS 40
 #define N_COLOURS 8
@@ -96,10 +102,12 @@ typedef struct result_row {
 } result_row;
 
 #define SAVE_MAGIC 0x52435231u /* 'RCR1' */
-#define SAVE_VERSION 1
+#define SAVE_VERSION 2
+#define SAVE_V1_SIZE 76        /* the bytes a version 1 save held */
+#define NCUPS 2
 typedef struct save_data {
   uint32_t magic;
-  uint16_t version, size;
+  uint16_t version, size;      /* size: version 1 held the byte count; the ghosts took the block past 65535, so version 2 holds it in 4 byte units */
   uint32_t checksum;
   uint8_t gfx[4];              /* the graphics settings (cw_quality_saved, little-endian) */
   uint8_t music, sfx;          /* 0..10 */
@@ -108,7 +116,14 @@ typedef struct save_data {
   uint8_t pad[4];
   uint32_t best_lap_cs[NMAPS]; /* centiseconds, 0 = none yet */
   uint32_t races, wins;
+  /* version 2: everything above is a version 1 save, which loads with these empty */
+  uint8_t speed_class, assist, ghost_on, cup_pick; /* the setup last used: class, assists (1 steering, 2 auto accelerate), the ghost shown, the cup picked */
+  uint8_t cup_best[NCUPS];     /* the best trophy of each cup: 0 none, 1 bronze, 2 silver, 3 gold (cup 2 is open once cup 1 has one) */
+  uint8_t pad2[2];
+  uint32_t trial_cs[NMAPS];    /* the best time trial per map, centiseconds, 0 = none yet */
+  ghost_saved ghost[NMAPS];    /* the run behind it: 24 KB a map at most */
 } save_data;
+_Static_assert(offsetof(save_data, wins) + 4 == SAVE_V1_SIZE, "a version 1 save was 76 bytes");
 static save_data SAVE;
 
 static struct {
@@ -137,7 +152,28 @@ static struct {
   int psel[MAXV];                  /* the highlighted control in a vehicle panel (0 vehicle, 1 colour, 2 ready) */
   /* map select */
   int map, laps, skill, items;
-  int mapfocus;                    /* 0 grid, 1 laps, 2 skill, 3 items, 4 start */
+  int mapfocus;                    /* 0 the grid of maps, 1.. the option rows, then the start button */
+  int gmode;                       /* RM_*: what the menus are setting up (race, time trial, cup) */
+  int cls, assist, ghost_on;       /* speed class, assists (bits: 1 steering, 2 auto accelerate), the ghost shown in a trial */
+  int auto_runs;                   /* dev/gates: trial runs the bot still retries by itself */
+  struct trial_state {
+    bool on, record, had_ghost, new_medal;
+    int map, medal, prev_medal;
+    uint32_t cs, best_cs, prev_best_cs, ghost_cs;
+    int gap_cs, runs;
+  } tr;
+  struct cup_state {
+    bool on, unlocked_now;
+    int cup, race;                 /* which cup, the race it is on (0..3) */
+    int humans, counted, n, best;  /* humans in the cup, the race whose points are in, karts in the standings, the best trophy won */
+    int laps, nraces;              /* 0: the usual (3 laps, four races); a dev run or a gate shortens them */
+    int pts[MAXK], race_pts[MAXK], last_place[MAXK];
+    int order[MAXK];               /* the standings, first first */
+    int trophy[MAXV];              /* each human's result */
+    int final_place[MAXV];
+  } cup;
+  int cup_sel, cup_focus;
+  bool auto_cup;                   /* dev/gates: a cup that clicks through its own results and standings (the bot drives) */
   /* options */
   int opt_sel, cfrom, rec_dummy, shake;
   /* pause / results */
@@ -376,18 +412,21 @@ static float lscale(float W, float H) { return is_portrait(W, H) ? fminf(W / 540
 
 /* ── the save ───────────────────────────────────────────────────────── */
 
-static uint32_t sum_of(void) {
+static uint32_t sum_n(size_t total, uint32_t tag) {
   const uint8_t *b = (const uint8_t *)&SAVE + offsetof(save_data, gfx);
   uint32_t h = 2166136261u;
-  for (size_t i = 0; i < sizeof SAVE - offsetof(save_data, gfx); i++) h = (h ^ b[i]) * 16777619u;
-  return h ^ (SAVE.version | (uint32_t)SAVE.size << 16);
+  for (size_t i = 0; i < total - offsetof(save_data, gfx); i++) h = (h ^ b[i]) * 16777619u;
+  return h ^ tag;
 }
+static uint32_t sum_of(void) { return sum_n(sizeof SAVE, SAVE.version | (uint32_t)SAVE.size << 16); }
+static uint16_t save_size_field(void) { return (uint16_t)(sizeof SAVE / 4); }
 static uint32_t gfx_saved(void) { return SAVE.gfx[0] | (uint32_t)SAVE.gfx[1] << 8 | (uint32_t)SAVE.gfx[2] << 16 | (uint32_t)SAVE.gfx[3] << 24; }
 static void save_write(void) {
   uint32_t q = cw_quality_saved();
   if (q)
     for (int i = 0; i < 4; i++) SAVE.gfx[i] = (uint8_t)(q >> (8 * i));
   SAVE.laps = (uint8_t)U.laps, SAVE.skill = (uint8_t)U.skill, SAVE.items = (uint8_t)U.items, SAVE.map = (uint8_t)U.map;
+  SAVE.speed_class = (uint8_t)U.cls, SAVE.assist = (uint8_t)U.assist, SAVE.ghost_on = (uint8_t)U.ghost_on, SAVE.cup_pick = (uint8_t)U.cup_sel;
   for (int i = 0; i < MAXV; i++) SAVE.veh[i] = (uint8_t)U.veh[i], SAVE.col[i] = (uint8_t)U.col[i];
   SAVE.checksum = sum_of();
   cw_save_commit();
@@ -396,16 +435,38 @@ static void save_reset(void) {
   memset(&SAVE, 0, sizeof SAVE);
   SAVE.magic = SAVE_MAGIC;
   SAVE.version = SAVE_VERSION;
-  SAVE.size = (uint16_t)sizeof SAVE;
+  SAVE.size = save_size_field();
   SAVE.music = 8, SAVE.sfx = 10;
   SAVE.laps = 3, SAVE.skill = 3, SAVE.items = 1;
+  SAVE.ghost_on = 1;
   for (int i = 0; i < MAXV; i++) SAVE.veh[i] = (uint8_t)((i * 2 + i / 3) % NVEH), SAVE.col[i] = (uint8_t)i;
   SAVE.checksum = sum_of();
 }
+static int save_migrated; /* debug: the save loaded was a version 1 and was carried over */
 static void save_check(void) {
-  if (SAVE.magic != SAVE_MAGIC || SAVE.version != SAVE_VERSION || SAVE.size != sizeof SAVE || SAVE.checksum != sum_of()) {
+  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 1 && SAVE.size == SAVE_V1_SIZE && SAVE.checksum == sum_n(SAVE_V1_SIZE, 1u | (uint32_t)SAVE_V1_SIZE << 16)) {
+    /* a version 1 save: everything it held stays (best laps, settings, the last race's choices); the new fields start empty */
+    memset((uint8_t *)&SAVE + SAVE_V1_SIZE, 0, sizeof SAVE - SAVE_V1_SIZE);
+    SAVE.version = SAVE_VERSION;
+    SAVE.size = save_size_field();
+    SAVE.ghost_on = 1;
+    SAVE.checksum = sum_of();
+    save_migrated = 1;
+    cw_info("racer: save data carried over from version 1");
+  }
+  if (SAVE.magic != SAVE_MAGIC || SAVE.version != SAVE_VERSION || SAVE.size != save_size_field() || SAVE.checksum != sum_of()) {
     if (SAVE.magic) cw_warn("racer: save data rejected (magic %08x version %u), starting fresh", SAVE.magic, SAVE.version);
     save_reset();
+  }
+  if (SAVE.speed_class >= CLASS_COUNT) SAVE.speed_class = 0;
+  if (SAVE.assist > 3) SAVE.assist = 0;
+  if (SAVE.ghost_on > 1) SAVE.ghost_on = 1;
+  if (SAVE.cup_pick >= NCUPS) SAVE.cup_pick = 0;
+  for (int c = 0; c < NCUPS; c++)
+    if (SAVE.cup_best[c] > 3) SAVE.cup_best[c] = 0;
+  for (int m = 0; m < NMAPS; m++) {
+    ghost_saved *g = &SAVE.ghost[m];
+    if (g->n > GH_MAX || (g->n == 0) != (g->time_cs == 0)) memset(g, 0, sizeof *g);
   }
   if (SAVE.music > 10) SAVE.music = 10;
   if (SAVE.sfx > 10) SAVE.sfx = 10;
@@ -441,6 +502,20 @@ static void apply_volumes(void) {
 static const char *const COLOUR_NAME[N_COLOURS] = { "Red", "Blue", "Yellow", "Green", "Purple", "Orange", "Cyan", "White" };
 static const char *const CPU_NAME[MAXK] = { "Rusty", "Sprocket", "Grit", "Nova", "Dusty", "Cinder", "Bolt", "Mags" };
 static const char *const SKILL_NAME[4] = { "Rookie", "Pro", "Ace", "Mixed" };
+
+/* the cups: four races each, the second opens when the first is won a trophy in. The maps are grouped wide and plain first, then the
+ * tight, steep and strange ones. */
+#define CUP_RACES 4
+typedef struct cup_def {
+  const char *name, *blurb;
+  int map[CUP_RACES];
+} cup_def;
+static const cup_def CUPS[NCUPS] = {
+  { "SCRAP CUP", "Wide open roads to learn the league on: salt flats, a refinery, a dam and a drowned city.", { 0, 3, 4, 1 } },
+  { "WRECKER CUP", "Coaster loops, ice, a narrow temple and a broken station in orbit. Not for the careless.", { 2, 5, 6, 7 } },
+};
+static int cup_nraces(void);
+static const char *const TROPHY_NAME[4] = { "NO TROPHY", "BRONZE TROPHY", "SILVER TROPHY", "GOLD TROPHY" };
 
 static cw_color kart_col(int colour) {
   const float *c = KART_RGB[colour & 7];
@@ -585,9 +660,28 @@ static void scr_draw(float W, float H);
 static void start_attract(int map);
 static void goto_mode(int m);
 static void begin_pending(int what);
+/* ui_modes.inc: the time trial, the cups, the assists */
+static void trial_retry(void);
+static void trial_results_build(void);
+static void cup_results_add(void);
+static race_setup cup_race_setup(void);
+static const ghost_saved *trial_ghost_for(int map);
+static int trial_medal_of(int map, uint32_t cs);
+static void draw_medal(cw_vec2 c, float r, int tier, float s, float t);
+static void trial_detail(float x, float y, float ybot, float w, int map, float s);
+static void assist_tag(cw_rect row, float s);
+static void cup_open_standings(void);
+static void tick_cup(float W, float H);
+static void draw_cup(float W, float H, float s);
+static void tick_standings(float W, float H);
+static void draw_standings(float W, float H, float s);
+static void tick_cupend(float W, float H);
+static void draw_cupend(float W, float H, float s);
+static bool cup_unlocked(int cup);
 
 #include "ui_hud.inc"
 #include "ui_screens.inc"
+#include "ui_modes.inc"
 
 /* ── the screen flow ────────────────────────────────────────────────── */
 
@@ -619,6 +713,8 @@ void ui_init(void) {
   cw_quality_restore(gfx_saved()); /* the player's graphics settings if they chose any; else Auto */
   cw_quality_auto(true, 0);
   U.laps = SAVE.laps, U.skill = SAVE.skill, U.items = SAVE.items, U.map = SAVE.map;
+  U.cls = SAVE.speed_class, U.assist = SAVE.assist, U.ghost_on = SAVE.ghost_on, U.cup_sel = SAVE.cup_pick;
+  U.gmode = RM_RACE;
   for (int i = 0; i < MAXV; i++) U.veh[i] = SAVE.veh[i], U.col[i] = SAVE.col[i];
   apply_volumes();
   const char *pl = getenv("RACER_PLAYERS");
@@ -641,6 +737,19 @@ void ui_init(void) {
   cw_debug_i32("ui.mode", &U.mode);
   cw_debug_i32("ui.device", &U.device); /* 0 mouse, 1 pad, 2 keys, 3 touch */
   cw_debug_i32("ui.pending", &U.pending);
+  cw_debug_field("save.version", &SAVE.version, CW_DBG_U16, 1);
+  cw_debug_i32("save.migrated", &save_migrated);
+  cw_debug_field("save.races", &SAVE.races, CW_DBG_U32, 1);
+  cw_debug_field("save.best_lap0", &SAVE.best_lap_cs[0], CW_DBG_U32, 1);
+  cw_debug_field("save.trial_cs", SAVE.trial_cs, CW_DBG_U32, NMAPS);
+  cw_debug_i32("trial.runs", &U.tr.runs);
+  cw_debug_i32("trial.medal", &U.tr.medal);
+  cw_debug_i32("trial.gap_cs", &U.tr.gap_cs);
+  cw_debug_u32("trial.last_cs", &U.tr.cs);
+  cw_debug_u32("trial.best_cs", &U.tr.best_cs);
+  cw_debug_i32("cup.race", &U.cup.race);
+  cw_debug_field("cup.pts", U.cup.pts, CW_DBG_I32, MAXK);
+  cw_debug_i32("cup.best", &U.cup.best);
   U.mode = M_TITLE;
   U.attract_map = 0;
   U.t_stick = U.t_gas = U.t_brake = U.t_drift = U.t_item = U.t_trick = -1;
@@ -657,6 +766,8 @@ static void goto_mode(int m) {
 
 static void start_attract(int map) {
   race_setup rs = { .map = map, .laps = 3, .humans = 0, .cpu_skill = 3, .items = true, .attract = true };
+  U.tr.on = false;
+  U.cup.on = false;
   game_start_race(&rs);
   game_set_camera(1);
   U.attract_on = game_loaded();
@@ -674,6 +785,9 @@ void ui_enter_race(const race_setup *rs) {
   goto_mode(M_RACE);
   hud_reset();
   U.saved_this_race = false;
+  U.tr.on = rs->mode == RM_TRIAL && !rs->attract && game_is_trial();
+  U.tr.map = rs->map;
+  U.tr.runs = 0;
   for (int m = 0; m < NMAPS; m++) U.rec_at_start[m] = (int)SAVE.best_lap_cs[m];
   U.fade = 1;
   U.fade_dir = -1;
@@ -684,7 +798,9 @@ bool ui_race_runs(void) {
   switch (U.mode) {
   case M_PAUSE: return false;
   case M_RACE: return true;
-  case M_RESULTS: return U.res_ticks < 15 * 60; /* the winner's lap of honour, then the scene holds still */
+  case M_RESULTS: return U.tr.on || U.res_ticks < 15 * 60; /* the winner's lap of honour, then the scene holds still (a trial's kart cruises on) */
+  case M_STANDINGS:
+  case M_CUPEND: return U.mt < 30 * 60;
   default: return game_loaded() && U.attract_on;
   }
 }
@@ -719,10 +835,18 @@ static void run_pending(void) {
     race_setup rs = U.last;
     rs.map = (rs.map + 1) % NMAPS;
     U.map = rs.map;
+    if (rs.mode == RM_TRIAL) rs.ghost = trial_ghost_for(rs.map);
+    ui_enter_race(&rs);
+    break;
+  }
+  case PD_CUP_NEXT: {
+    race_setup rs = cup_race_setup();
     ui_enter_race(&rs);
     break;
   }
   case PD_TO_MENU:
+    U.cup.on = false;
+    U.tr.on = false;
     game_end_race();
     restore_pads();
     goto_mode(M_TITLE);
@@ -768,7 +892,72 @@ static void dev_screen(void) {
   } else if (!strcmp(d, "map")) goto_mode(M_MAP);
   else if (!strcmp(d, "options")) U.from = M_TITLE, goto_mode(M_OPTIONS);
   else if (!strcmp(d, "controls")) U.from = M_TITLE, goto_mode(M_CONTROLS);
-  else if (!strcmp(d, "pause") || !strcmp(d, "results")) {
+  else if (!strcmp(d, "trial")) {
+    U.gmode = RM_TRIAL;
+    U.setup.humans = 1;
+    if (getenv("RACER_UI_MAP")) U.map = atoi(getenv("RACER_UI_MAP")) % NMAPS;
+    goto_mode(M_MAP);
+    /* the medals of a few maps, so the cards show them */
+    SAVE.trial_cs[0] = medal_time(0, MEDAL_GOLD) - 10, SAVE.trial_cs[1] = medal_time(1, MEDAL_SILVER) - 10, SAVE.trial_cs[2] = medal_time(2, MEDAL_AUTHOR) - 10;
+    SAVE.trial_cs[3] = medal_time(3, MEDAL_BRONZE) - 10, SAVE.trial_cs[4] = medal_time(4, MEDAL_BRONZE) + 500;
+  } else if (!strcmp(d, "cup")) {
+    U.gmode = RM_CUP;
+    U.setup.humans = n;
+    if (getenv("RACER_UI_CUP")) U.cup_sel = atoi(getenv("RACER_UI_CUP")) % NCUPS;
+    if (getenv("RACER_UI_UNLOCK")) SAVE.cup_best[0] = (uint8_t)atoi(getenv("RACER_UI_UNLOCK"));
+    goto_mode(M_CUP);
+  } else if (!strcmp(d, "assist")) {
+    U.from = M_TITLE;
+    U.opt_sel = OI_ASSIST_STEER;
+    goto_mode(M_OPTIONS);
+  } else if (!strcmp(d, "trialres")) {
+    int map = getenv("RACER_UI_MAP") ? atoi(getenv("RACER_UI_MAP")) % NMAPS : 0;
+    race_setup rs = { .map = map, .laps = 1, .humans = 1, .cpu_skill = 3, .mode = RM_TRIAL };
+    for (int i = 0; i < MAXV; i++) rs.vehicle[i] = U.veh[i], rs.colour[i] = U.col[i];
+    ui_enter_race(&rs);
+    U.fade = 0;
+    U.fade_dir = 0;
+    int tier = getenv("RACER_UI_MEDAL") ? atoi(getenv("RACER_UI_MEDAL")) : 3;
+    uint32_t cs = tier >= MEDAL_BRONZE ? medal_time(map, tier) - 20 : medal_time(map, MEDAL_BRONZE) + 900;
+    sim *S = (sim *)game_sim();
+    S->k[0].finished = true;
+    S->k[0].finish_tick = (int)(cs * TICK_HZ / 100);
+    S->phase = PH_DONE;
+    bool rec = !getenv("RACER_UI_RECORD") || atoi(getenv("RACER_UI_RECORD"));
+    SAVE.trial_cs[map] = rec ? 0 : cs - 137;
+    trial_results_build();
+    if (getenv("RACER_UI_GHOST")) U.tr.had_ghost = true, U.tr.ghost_cs = (uint32_t)((int)cs - atoi(getenv("RACER_UI_GHOST"))), U.tr.gap_cs = atoi(getenv("RACER_UI_GHOST"));
+    U.res_ticks = 200;
+  } else if (!strcmp(d, "standings") || !strcmp(d, "cupend")) {
+    memset(&U.cup, 0, sizeof U.cup);
+    U.cup.on = true;
+    U.cup.cup = getenv("RACER_UI_CUP") ? atoi(getenv("RACER_UI_CUP")) % NCUPS : 0;
+    U.cup.race = !strcmp(d, "cupend") ? CUP_RACES - 1 : getenv("RACER_UI_RACE") ? atoi(getenv("RACER_UI_RACE")) : 1;
+    U.cup.humans = n;
+    U.cup.counted = U.cup.race;
+    int want = getenv("RACER_UI_PLACE") ? CW_CLAMP(atoi(getenv("RACER_UI_PLACE")), 1, 8) : 2;
+    /* kart 0 ends where asked; the others take the other places in kart order */
+    int rank_of[MAXK], r = 1;
+    for (int i = 0; i < MAXK; i++) {
+      if (i == 0) rank_of[i] = want;
+      else {
+        if (r == want) r++;
+        rank_of[i] = r++;
+      }
+    }
+    for (int i = 0; i < MAXK; i++) {
+      U.cup.pts[i] = 90 - 10 * rank_of[i] + (i * 3) % 4;
+      U.cup.race_pts[i] = POINTS[(rank_of[i] + (i % 3)) % MAXK];
+      U.cup.last_place[i] = rank_of[i];
+    }
+    for (int i = 0; i < MAXV; i++) U.col[i] = U.col[i] & 7;
+    if (!strcmp(d, "cupend")) {
+      if (getenv("RACER_UI_UNLOCK_NOW")) SAVE.cup_best[0] = 0;
+      cup_finish();
+      U.res_ticks = 200;
+    } else cup_open_standings();
+    U.mt = 120;
+  } else if (!strcmp(d, "pause") || !strcmp(d, "results")) {
     race_setup rs = { .map = getenv("RACER_UI_MAP") ? atoi(getenv("RACER_UI_MAP")) % NMAPS : 0, .laps = getenv("RACER_LAPS") ? atoi(getenv("RACER_LAPS")) : 1,
                       .humans = n, .cpu_skill = 3, .items = true };
     for (int i = 0; i < MAXV; i++) rs.vehicle[i] = U.veh[i], rs.colour[i] = U.col[i];

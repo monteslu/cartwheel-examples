@@ -196,6 +196,8 @@ typedef struct sim {
   int order[MAXK];         /* kart indices, first place first */
   int finished_count;
   int race_ticks;          /* ticks since the lights went out */
+  int speed_class;         /* 0 Standard, 1 Fast, 2 Blazing (sim_set_class) */
+  float class_top, class_acc; /* every kart's top speed and acceleration scale for the class (1 = Standard) */
   uint32_t hash;
   int ev_n;
   struct sim_event { int kind, a, b; t3_vec3 at; float k; } ev[96];
@@ -204,6 +206,12 @@ typedef struct sim {
 /* sim.c */
 void sim_init(sim *s, const track *t, const map_def *map, int map_index, int laps, const bool on[MAXK], const int veh[MAXK], uint32_t seed);
 void sim_free(sim *s);
+/* the speed class (race_setup): Standard, Fast or Blazing scale every kart's top speed and acceleration. Call it after
+ * sim_init; sim_restart keeps it. The tables are in sim.c. */
+void sim_set_class(sim *s, int cls);
+/* start the same race over without rebuilding the world: every kart back on the grid, the clock, hazards, boxes and
+ * the random stream as sim_init left them (the time trial's instant retry). The karts, map and class stay. */
+void sim_restart(sim *s, uint32_t seed, int skip_ticks); /* skip_ticks > 0 joins the countdown that far in (60: the "2" and the "1" only) */
 void sim_step(sim *s, const kin in[MAXK]);
 void sim_put(sim *s, int i, float s_dist, float lat, float speed);
 void sim_use(sim *s, int i, int item); /* dev aid: kart i uses this item now */
@@ -239,6 +247,9 @@ typedef struct ai_mem {
 } ai_mem;
 void ai_reset(ai_mem *m, int me, int skill, uint32_t seed);
 kin ai_think(const sim *s, int me, ai_mem *m);
+
+/* assist.c: the humans' steering assist (main.c human_in only; never the CPU drivers) */
+void assist_steer(const sim *s, int me, kin *in);
 
 /* ── maps ───────────────────────────────────────────────────────────── */
 

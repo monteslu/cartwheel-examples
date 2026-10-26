@@ -12,6 +12,12 @@
 
 #include "cartwheel/render2d.h"
 #include "game.h"
+#include "ghost.h"
+
+/* what a race is: a normal race, a time trial (one kart, no items, a ghost to race), a race of a cup */
+enum { RM_RACE, RM_TRIAL, RM_CUP };
+/* speed classes (sim_set_class) */
+enum { CLASS_STANDARD, CLASS_FAST, CLASS_BLAZING, CLASS_COUNT };
 
 typedef struct race_setup {
   int map;          /* 0..NMAPS-1 */
@@ -22,11 +28,23 @@ typedef struct race_setup {
   int colour[MAXV]; /* each human's paint (0..7) */
   bool items;       /* item boxes on */
   bool attract;     /* a demo race behind the menus: the camera flies the track */
+  int mode;         /* RM_* */
+  int speed_class;  /* CLASS_*: every kart's top speed and acceleration (the time trial is always Standard) */
+  bool assist_steer;/* the humans' steering assist: a gentle pull back towards the road when a wall or the edge is close */
+  bool assist_gas;  /* the humans' auto-accelerate: the throttle is held unless the brake is pressed */
+  const ghost_saved *ghost; /* a time trial: the run to race (NULL: none). Must stay valid for the race (the save data does) */
 } race_setup;
 
 /* ── provided by main.c ─────────────────────────────────────────────── */
 void game_start_race(const race_setup *rs);
 void game_end_race(void);                    /* unload the race (back to a bare front end) */
+bool game_is_trial(void);                    /* the race loaded is a time trial */
+/* a time trial's instant retry: the same race over from the grid, no menu and no reload (a short countdown) */
+void game_retry(void);
+/* the time trial's recording of this run (the kart's pose along the run) into dst; false when it is not whole */
+bool game_commit_ghost(ghost_saved *dst, uint32_t time_cs);
+/* show this ghost from now on (NULL: none), e.g. the run that was just a record */
+void game_set_ghost(const ghost_saved *g);
 bool game_loaded(void);                      /* a race is loaded */
 const sim *game_sim(void);
 int game_views(void);                        /* views on screen: 1..MAXV */
@@ -45,6 +63,12 @@ void ui_race_over(void);                     /* main: the race has ended (everyo
 void ui_render(float W, float H);            /* 2D over the 3D frame */
 void ui_enter_race(const race_setup *rs);    /* dev aids and tests: start this race now, as if chosen from the menus */
 void ui_shutdown(void);
+/* the save data's ghost for a map's time trial (NULL when there is none yet) */
+const ghost_saved *ui_trial_ghost(int map);
+/* dev aid and gates: the next n trial runs retry by themselves a moment after the results appear (with the bot driving) */
+void ui_set_auto_runs(int n);
+/* dev aid and gates: start a cup that runs by itself (the bot drives): cup, humans, laps per race, races (0: the usual) */
+void ui_debug_cup(int cup, int humans, int laps, int races);
 
 /* The save data (cw_app_desc.save / save_size): best laps, the last race's choices, the
  * graphics and volume settings, in a versioned and checksummed layout. main.c hands these

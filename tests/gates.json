@@ -5337,5 +5337,145 @@
       "race.phase": 2
     },
     "note": "racer: fourteen races loaded one after another in one process (every map, twice for the water and tunnel maps): the last must run. Catches state a map leaves behind in its own statics, the scenery's handles into a freed scene and heap that never comes back (carts have a fixed memory)."
+  },
+  {
+    "name": "racer-trial",
+    "app": "racer",
+    "frames": 12000,
+    "startCmds": [
+      "bot 1",
+      "trial 0 1"
+    ],
+    "maxGt16": 0.08,
+    "fields": [
+      "race.loaded",
+      "race.phase",
+      "ticks",
+      "sim.hash",
+      "karts.prog",
+      "karts.finished",
+      "karts.speed",
+      "trial.runs",
+      "trial.last_cs",
+      "trial.best_cs",
+      "trial.medal",
+      "trial.gap_cs",
+      "ghost.rec_n",
+      "ghost.rec_hash",
+      "ghost.play_hash",
+      "save.trial_cs"
+    ],
+    "expect": {
+      "race.loaded": 1
+    },
+    "note": "racer time trial on map 0: the bot drives one lap from the grid (a new record: the ghost is recorded into the save data), the results retry by themselves (sim_restart: no reload) and the second run races that ghost. The first run's time, the recorded poses' hash, the decoded ghost's hash and the sim hash after 12000 frames must match on every host; the retry's shortened countdown and the ghost's replay are render side and must not move the sim."
+  },
+  {
+    "name": "racer-cup",
+    "app": "racer",
+    "frames": 19000,
+    "startCmds": [
+      "bot 1",
+      "cup 0 1 1 2"
+    ],
+    "maxGt16": 0.08,
+    "fields": [
+      "race.loaded",
+      "race.phase",
+      "ticks",
+      "sim.hash",
+      "ui.mode",
+      "cup.race",
+      "cup.pts",
+      "cup.best",
+      "karts.finished",
+      "save.races"
+    ],
+    "expect": {
+      "race.loaded": 1,
+      "ui.mode": 12
+    },
+    "note": "racer cup, shortened for the gate (1 lap, 2 races of the Scrap Cup, a bot for the human, results and standings clicked through by themselves): the points, the order, the trophy and the end on the trophy screen (ui.mode 12) must match on every host."
+  },
+  {
+    "name": "racer-assist",
+    "app": "racer",
+    "frames": 1500,
+    "startCmds": [
+      "race 0 1 1 0 3"
+    ],
+    "input": "racer-assist.json",
+    "controlInput": "racer-assist-control.json",
+    "maxGt16": 0.08,
+    "fields": [
+      "race.loaded",
+      "race.phase",
+      "ticks",
+      "sim.hash",
+      "karts.place",
+      "karts.lap",
+      "karts.prog",
+      "karts.falls",
+      "karts.speed",
+      "karts.hits",
+      "karts.tricks",
+      "karts.finished"
+    ],
+    "expect": {
+      "race.loaded": 1,
+      "race.phase": 2
+    },
+    "note": "racer assists: one human with the steering assist and auto-accelerate on, steering by an input script (pad axis) towards the walls: the throttle is held by the assist, the pull back to the road corrects the steering, and the simulation hash must match on every host. The control is the same race without the steering.",
+    "webgpu": {
+      "vsGl": 0.3,
+      "maxGt16": 0.08,
+      "hosts": [
+        "native",
+        "romdev"
+      ],
+      "note": "The dual cart on romdev against native WebGPU."
+    }
+  },
+  {
+    "name": "racer-class",
+    "app": "racer",
+    "frames": 3000,
+    "startCmds": [
+      "race 0 0 1 2"
+    ],
+    "maxGt16": 0.08,
+    "fields": [
+      "race.loaded",
+      "race.phase",
+      "ticks",
+      "sim.hash",
+      "karts.place",
+      "karts.lap",
+      "karts.prog",
+      "karts.falls",
+      "karts.speed",
+      "karts.hits",
+      "karts.tricks",
+      "karts.finished"
+    ],
+    "expect": {
+      "race.loaded": 1,
+      "race.phase": 2
+    },
+    "note": "racer speed class: eight CPU karts on map 0 at the Blazing class (top speed and acceleration scaled in the simulation) for 3000 frames: places, progress, falls and the simulation hash must match on every host.",
+    "webgpu": {
+      "vsGl": 0.3,
+      "maxGt16": 0.08,
+      "hosts": [
+        "native",
+        "romdev"
+      ],
+      "note": "The dual cart on romdev against native WebGPU."
+    }
+  },
+  {
+    "name": "racer-save-migration",
+    "script": "tests/racer-save-migration.mjs",
+    "note": "racer's save data: a version 1 save (76 bytes) loads under version 2 with its settings, best laps and counters kept and the new fields (trial times, ghosts, cup trophies, assists) empty; a damaged one and an empty one start fresh. Runs the game's own save loader."
   }
 ]

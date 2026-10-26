@@ -9,7 +9,19 @@
  *   RACER_CAM=top        a fixed look from above the track (the map's overview)
  *   RACER_VIEW=n         the camera follows kart n (an all-CPU run follows the leader otherwise)
  *   RACER_TRACE=file     log every half second what each kart is doing
- *   RACER_TEST_STEER=x   kart 0 holds steering x at full throttle (a handling test) */
+ *   RACER_TEST_STEER=x   kart 0 holds steering x at full throttle (a handling test)
+ *   RACER_BOT=1|keys     the human karts are driven by the CPU driver (see human_in); the debug command `bot 0|1|2` does the same
+ *                        for hosts without an environment (2: keyboard-style steering)
+ *   RACER_MODE=trial     with RACER_MAP: a time trial (one kart, no items, the map's ghost); RACER_RUNS=n has the bot drive n
+ *                        runs in a row, each retried by itself (a deterministic ghost record and replay)
+ *   RACER_CLASS=0|1|2    speed class (Standard, Fast, Blazing) for a dev race; RACER_ASSIST=1|2|3 steering (1) and auto
+ *                        accelerate (2) assists for the humans
+ *
+ * Time trial (ghost.c, ui_trial.inc): the race has one kart and no item boxes. game_retry() puts the same race back on the
+ * grid without a reload (sim_restart: a short countdown). The human kart's pose is recorded every third tick (ghost_rec_*);
+ * ui.c keeps the best run in the save data and passes it back in race_setup.ghost, which game_start_race loads and draws
+ * as a translucent kart (render only: not a body in the sim). Debug commands: `trial <map> [runs]`, `bot <0|1|2>`;
+ * debug fields trial.*, ghost.* are in the gates. Assists (assist.c) and auto accelerate are applied in human_in. */
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -54,6 +66,11 @@ static struct {
   rig rig[CW_MAX_VIEWS];
   bool auto_all;
   race_setup setup;
+  bool trial, assist_steer, assist_gas;
+  int bot;            /* 0 hands, 1 the CPU driver, 2 the CPU driver with keyboard-style steering */
+  uint32_t seed;
+  int32_t ghost_rec_n;
+  uint32_t ghost_rec_hash, ghost_play_hash;
   cw_action a_fwd, a_back, a_left, a_right, a_pup, a_pdn, a_drift, a_item, a_trick, a_look, a_reset;
 } G;
 
@@ -124,6 +141,8 @@ void game_view_rect(int v, float W, float H, float *x, float *y, float *w, float
 static void unload(void) {
   if (G.have_track) {
     audio_race_stop();
+    ghost_gfx_reset();
+    ghost_unload();
     fx_reset();
     items_reset();
     sim_free(&G.S);
@@ -137,6 +156,33 @@ static void unload(void) {
 }
 
 void game_end_race(void) { unload(); }
+bool game_is_trial(void) { return G.have_track && G.trial; }
+bool game_commit_ghost(ghost_saved *dst, uint32_t time_cs) { return G.trial && ghost_rec_commit(dst, time_cs); }
+
+static float steer_smooth[CW_MAX_VIEWS];
+
+void game_set_ghost(const ghost_saved *g) {
+  if (!G.have_track || !G.trial) return;
+  ghost_gfx_reset();
+  ghost_unload();
+  if (g && ghost_load(g, &G.trk)) ghost_gfx_build(G.scene);
+}
+
+void game_retry(void) {
+  if (!G.have_track || !G.trial) return;
+  sim_restart(&G.S, G.seed, 60);
+  memset(steer_smooth, 0, sizeof steer_smooth);
+  for (int i = 0; i < MAXK; i++) ai_reset(&G.ai[i], i, 2, 100u + (uint32_t)i);
+  ghost_rec_start(&G.S.k[0]);
+  world_tick(&G.S);
+  ghost_gfx_tick(&G.S);
+  for (int i = 0; i < MAXK; i++)
+    if (G.S.k[i].on && cw_node_valid(kartgfx_node(i))) cw_node3d_snapshot(kartgfx_node(i));
+  audio_race_start(&G.S, G.S.md);
+  game_set_camera(0);
+  for (int v = 0; v < CW_MAX_VIEWS; v++) G.rig[v].snap = true;
+  G.phase = G.S.phase;
+}
 
 static void views_setup(void) {
   int n = 0;
@@ -214,12 +260,15 @@ void game_start_race(const race_setup *rs) {
   bool on[MAXK];
   int veh[MAXK];
   memset(G.human, 0, sizeof G.human);
+  G.trial = rs->mode == RM_TRIAL && !rs->attract;
+  G.assist_steer = rs->assist_steer, G.assist_gas = rs->assist_gas;
   for (int i = 0; i < MAXK; i++) {
-    on[i] = true;
+    on[i] = !G.trial || i == 0; /* a time trial has one kart */
     veh[i] = (i * 5 + 1) % NVEH;
     G.human_of[i] = -1;
   }
   int humans = G.auto_all ? 0 : rs->humans > MAXV ? MAXV : rs->humans;
+  if (G.trial) humans = G.auto_all ? 0 : 1;
   for (int i = 0; i < humans; i++) {
     G.human[i] = true;
     G.human_of[i] = i;
@@ -227,7 +276,11 @@ void game_start_race(const race_setup *rs) {
   }
   /* models agent, dev aid: RACER_STUDIO=<vehicle 0..5> makes kart 0 that vehicle (RACER_COLOUR=n paints it) and the camera orbits it */
   if (getenv("RACER_STUDIO") && !humans) veh[0] = atoi(getenv("RACER_STUDIO")) % NVEH;
-  sim_init(&G.S, &G.trk, md, map, rs->laps > 0 ? rs->laps : md->laps, on, veh, 7u + (uint32_t)(map + 1) * 101u);
+  G.seed = 7u + (uint32_t)(map + 1) * 101u;
+  sim_init(&G.S, &G.trk, md, map, G.trial ? 1 : rs->laps > 0 ? rs->laps : md->laps, on, veh, G.seed);
+  sim_set_class(&G.S, G.trial ? CLASS_STANDARD : rs->speed_class);
+  /* the item boxes option (and the time trial) leaves the road without boxes; nothing is built for them */
+  if (!rs->items || G.trial) G.S.nbox = 0;
   for (int i = 0; i < MAXK; i++) {
     G.S.k[i].human = G.human[i];
     G.S.k[i].colour = i < humans ? rs->colour[i] & 7 : (i + 3) & 7;
@@ -237,6 +290,8 @@ void game_start_race(const race_setup *rs) {
   if (getenv("RACER_STUDIO") && getenv("RACER_COLOUR") && !humans) G.S.k[0].colour = atoi(getenv("RACER_COLOUR")) & 7;
   for (int v = 0; v < CW_MAX_VIEWS; v++) G.pl[v] = v;
   world_build(G.scene, &G.S, md);
+  if (G.trial && rs->ghost && ghost_load(rs->ghost, &G.trk)) ghost_gfx_build(G.scene);
+  if (G.trial) ghost_rec_start(&G.S.k[0]);
   items_build(G.scene, &G.S);
   fx_init(G.scene, &G.S, md);
   views_setup();
@@ -251,19 +306,16 @@ void game_start_race(const race_setup *rs) {
 
 static int8_t q127(float v) { return (int8_t)(cw_clampf(v, -1, 1) * 127.0f); }
 
-static float steer_smooth[CW_MAX_VIEWS];
 static kin human_in(int kart) {
   int p = G.pl[G.human_of[kart]];
   kin in = { 0 };
   {
     /* dev aid: RACER_BOT=1 drives the human karts with the CPU driver through the human path (a whole split-screen race without hands) */
-    static int bot = -1;
-    if (bot < 0) bot = getenv("RACER_BOT") != NULL;
-    if (bot) {
+    if (G.bot) {
       kin b = ai_think(&G.S, kart, &G.ai[kart]);
       /* the CPU driver never tricks: the bot taps the button once it has been airborne a while */
       if (G.S.k[kart].air_ticks > 14 && G.S.k[kart].air_ticks < 18) b.btn |= KB_TRICK;
-      if (!strcmp(getenv("RACER_BOT"), "keys")) {
+      if (G.bot == 2) {
         /* RACER_BOT=keys: a keyboard driver, steering all or nothing through the same easing as a held key */
         float want = fabsf(b.steer) < 20 ? 0.0f : (b.steer > 0 ? 1.0f : -1.0f), *ss = &steer_smooth[G.human_of[kart]];
         *ss += (want - *ss) * (fabsf(want) > fabsf(*ss) ? 0.28f : 0.40f);
@@ -274,6 +326,14 @@ static kin human_in(int kart) {
     }
   }
   in.thr = q127(cw_action_strength(p, G.a_fwd) - cw_action_strength(p, G.a_back));
+  if (G.assist_gas) {
+    /* auto accelerate: the throttle is held unless the brake is pressed. Before the lights it stays the player's own (a
+     * held throttle would flood the engine), but the rocket start's moment is given: it costs no speed to use the assist */
+    const sim *S = &G.S;
+    float br = cw_action_strength(p, G.a_back);
+    if (S->phase == PH_RACE) in.thr = br > 0.05f ? q127(-br) : 127;
+    else if (S->phase == PH_COUNT && S->phase_ticks >= 166 && br < 0.05f) in.thr = 127;
+  }
   /* a key is all or nothing: ease it in and out so a tap is a nudge and a hold a full lock */
   float raw = cw_input_axis(p, G.a_left, G.a_right), *ss = &steer_smooth[G.human_of[kart]];
   *ss += (raw - *ss) * (fabsf(raw) > fabsf(*ss) ? 0.28f : 0.40f);
@@ -284,6 +344,7 @@ static kin human_in(int kart) {
   if (cw_action_pressed(p, G.a_trick)) in.btn |= KB_TRICK;
   if (cw_action_pressed(p, G.a_reset)) in.btn |= KB_RESET;
   if (cw_action_pressed(p, G.a_look)) in.btn |= KB_BACK;
+  if (G.assist_steer) assist_steer(&G.S, kart, &in);
   return in;
 }
 
@@ -463,6 +524,11 @@ static void fixed(void *u, double dt) {
   audio_pause(G.have_track && !ui_race_runs());
   if (G.have_track && ui_race_runs()) {
     kin in[MAXK] = { { 0 } };
+    /* the bot starts every run from the same driving state, at the same moment of the countdown (a retry joins it at 60 of 180), so
+     * runs repeat; the CPU karts are left as they were */
+    if (G.bot && G.S.phase == PH_COUNT && G.S.phase_ticks == 100)
+      for (int i = 0; i < MAXK; i++)
+        if (G.S.k[i].on && G.human[i]) ai_reset(&G.ai[i], i, 2, 100u + (uint32_t)i);
     for (int i = 0; i < MAXK; i++) {
       if (!G.S.k[i].on) continue;
       if (G.human[i] && !G.S.k[i].finished) in[i] = human_in(i);
@@ -494,6 +560,11 @@ static void fixed(void *u, double dt) {
       }
     }
     sim_step(&G.S, in);
+    if (G.trial) {
+      if (G.S.phase == PH_RACE && !G.S.k[0].finished) ghost_rec_tick(&G.S.k[0], G.S.race_ticks);
+      ghost_gfx_tick(&G.S);
+      G.ghost_rec_n = ghost_rec_count(), G.ghost_rec_hash = ghost_rec_hash(), G.ghost_play_hash = ghost_play_hash();
+    }
     world_tick(&G.S);
     items_tick(&G.S);
     fx_events(&G.S);
@@ -548,18 +619,49 @@ static void fixed(void *u, double dt) {
     race_setup rs = { .map = dm < 0 ? -1 : dm % NMAPS, .laps = getenv("RACER_LAPS") ? atoi(getenv("RACER_LAPS")) : 0,
                       .humans = getenv("RACER_PLAYERS") ? CW_CLAMP(atoi(getenv("RACER_PLAYERS")), 1, MAXV) : 1, .cpu_skill = 3, .items = true };
     for (int i = 0; i < MAXV; i++) rs.vehicle[i] = i * 2 % NVEH, rs.colour[i] = i;
+    if (getenv("RACER_CLASS")) rs.speed_class = CW_CLAMP(atoi(getenv("RACER_CLASS")), 0, CLASS_COUNT - 1);
+    if (getenv("RACER_ASSIST")) rs.assist_steer = (atoi(getenv("RACER_ASSIST")) & 1) != 0, rs.assist_gas = (atoi(getenv("RACER_ASSIST")) & 2) != 0;
+    if (getenv("RACER_MODE") && !strcmp(getenv("RACER_MODE"), "trial") && dm >= 0) {
+      rs.mode = RM_TRIAL, rs.items = false, rs.humans = 1;
+      rs.ghost = ui_trial_ghost(rs.map);
+      if (getenv("RACER_RUNS")) ui_set_auto_runs(atoi(getenv("RACER_RUNS")));
+    }
     ui_enter_race(&rs);
   }
 }
 
-/* a debug command for hosts that cannot set environment variables (carts): race <map -1..7> [humans] [laps] */
+/* a debug command for hosts that cannot set environment variables (carts): race <map -1..7> [humans] [laps] [class] [assists] */
 static void cmd_race(int argc, const char **argv, cw_reply *r) {
   int dm = argc > 1 ? atoi(argv[1]) : 0;
   race_setup rs = { .map = dm < 0 ? -1 : dm % NMAPS, .humans = argc > 2 ? CW_CLAMP(atoi(argv[2]), 0, MAXV) : 0, .laps = argc > 3 ? atoi(argv[3]) : 0,
                     .cpu_skill = 3, .items = true };
   for (int i = 0; i < MAXV; i++) rs.vehicle[i] = i * 2 % NVEH, rs.colour[i] = i;
+  if (argc > 4) rs.speed_class = CW_CLAMP(atoi(argv[4]), 0, CLASS_COUNT - 1);
+  if (argc > 5) rs.assist_steer = (atoi(argv[5]) & 1) != 0, rs.assist_gas = (atoi(argv[5]) & 2) != 0;
   ui_enter_race(&rs);
   if (r) cw_reply_printf(r, "{\"race\":%d}", dm);
+}
+
+/* trial <map 0..7> [runs]: a time trial now; with the bot on (`bot 1`) runs drives that many runs, retrying after each */
+static void cmd_trial(int argc, const char **argv, cw_reply *r) {
+  int dm = argc > 1 ? CW_CLAMP(atoi(argv[1]), 0, NMAPS - 1) : 0;
+  race_setup rs = { .map = dm, .humans = 1, .laps = 1, .cpu_skill = 3, .mode = RM_TRIAL };
+  for (int i = 0; i < MAXV; i++) rs.vehicle[i] = i * 2 % NVEH, rs.colour[i] = i;
+  rs.ghost = ui_trial_ghost(dm);
+  ui_set_auto_runs(argc > 2 ? atoi(argv[2]) : 0);
+  ui_enter_race(&rs);
+  if (r) cw_reply_printf(r, "{\"trial\":%d}", dm);
+}
+
+/* cup <cup 0..1> [humans] [laps] [races]: a cup now, clicking through its own results and standings (use with `bot 1`) */
+static void cmd_cup(int argc, const char **argv, cw_reply *r) {
+  ui_debug_cup(argc > 1 ? atoi(argv[1]) : 0, argc > 2 ? atoi(argv[2]) : 1, argc > 3 ? atoi(argv[3]) : 0, argc > 4 ? atoi(argv[4]) : 0);
+  if (r) cw_reply_printf(r, "{\"cup\":1}");
+}
+
+static void cmd_bot(int argc, const char **argv, cw_reply *r) {
+  G.bot = argc > 1 ? CW_CLAMP(atoi(argv[1]), 0, 2) : 1;
+  if (r) cw_reply_printf(r, "{\"bot\":%d}", G.bot);
 }
 
 static void update(void *u, double dt) {
@@ -627,7 +729,14 @@ static void init(void *u) {
   cw_debug_field("karts.best_lap", G.best_lap, CW_DBG_I32, MAXK);
   cw_debug_field("karts.finish_tick", G.finish_tick, CW_DBG_I32, MAXK);
   cw_debug_u32("sim.hash", &G.hash);
-  cw_debug_command("race", "race <map -1..7> [humans] [laps]: start a race now", cmd_race);
+  cw_debug_command("race", "race <map -1..7> [humans] [laps] [class] [assists]: start a race now", cmd_race);
+  cw_debug_command("trial", "trial <map 0..7> [runs]: start a time trial now (the bot drives <runs> runs when it is on)", cmd_trial);
+  cw_debug_command("cup", "cup <0..1> [humans] [laps] [races]: a cup now, clicking through its own results (with `bot 1`)", cmd_cup);
+  cw_debug_command("bot", "bot <0|1|2>: the human karts driven by the CPU driver (2: keyboard-style steering)", cmd_bot);
+  cw_debug_field("ghost.rec_n", &G.ghost_rec_n, CW_DBG_I32, 1);
+  cw_debug_u32("ghost.rec_hash", &G.ghost_rec_hash);
+  cw_debug_u32("ghost.play_hash", &G.ghost_play_hash);
+  if (getenv("RACER_BOT")) G.bot = !strcmp(getenv("RACER_BOT"), "keys") ? 2 : 1;
 #ifdef RACER_AUTOPILOT
   G.auto_all = true;
 #endif

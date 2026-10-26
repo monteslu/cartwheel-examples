@@ -247,20 +247,25 @@ static void draw_logo(float cx, float cy, float size, float s, float appear) {
 
 /* ── layouts ────────────────────────────────────────────────────────── */
 
-static cw_rect list_rect(int i, float W, float H, float top_frac) {
+static cw_rect list_rect_n(int i, int n, float W, float H, float top_frac) {
   float s = lscale(W, H), bw = 340 * s, bh = 50 * s, gap = 11 * s;
+  if (n > 5) bh = 40 * s, gap = 7 * s; /* six entries: tighter, to stay clear of the hint line */
+  else if (n > 4) bh = 44 * s, gap = 9 * s;
   return cw_rect_make((W - bw) * 0.5f, H * top_frac + (float)i * (bh + gap), bw, bh);
 }
+static cw_rect list_rect(int i, float W, float H, float top_frac) { return list_rect_n(i, 4, W, H, top_frac); }
 static int title_count(void) {
 #ifdef __wasm__
-  return 3;
+  return 5;
 #else
-  return 4;
+  return 6;
 #endif
 }
-static const char *const TITLE_ITEMS[4] = { "RACE", "SPLIT SCREEN", "OPTIONS", "QUIT" };
+enum { TI_RACE, TI_TRIAL, TI_CUP, TI_SPLIT, TI_OPTIONS, TI_QUIT };
+static const char *const TITLE_ITEMS[6] = { "RACE", "TIME TRIAL", "CUP", "SPLIT SCREEN", "OPTIONS", "QUIT" };
 static const char *const PAUSE_ITEMS[5] = { "RESUME", "RESTART RACE", "GRAPHICS", "CONTROLS", "QUIT TO MENU" };
-static const char *const OPT_ITEMS[5] = { "GRAPHICS", "MUSIC", "EFFECTS", "CONTROLS", "BACK" };
+static const char *const OPTPAGE_ITEMS[7] = { "GRAPHICS", "MUSIC", "EFFECTS", "STEERING ASSIST", "AUTO-ACCELERATE", "CONTROLS", "BACK" };
+enum { OI_GFX, OI_MUSIC, OI_SFX, OI_ASSIST_STEER, OI_ASSIST_GAS, OI_CONTROLS, OI_BACK, OI_COUNT };
 
 /* the vehicle panel of one player */
 typedef struct vlay {
@@ -327,42 +332,91 @@ static cw_rect vpanel_rect(int i, int n, float W, float H) {
   return cw_rect_make(x0 + (float)(i % 2) * (w * 0.5f), y0 + (float)(i / 2) * (h * 0.5f), w * 0.5f - g, h * 0.5f - g);
 }
 
+/* ── the options of a race setup ────────────────────────────────────── */
+
+/* the rows the setup offers depend on what is being set up: a race, a time trial (no CPU karts, no boxes, always the
+ * standard class) or a cup (its own laps and boxes) */
+enum { OPT_LAPS, OPT_CPU, OPT_ITEMS, OPT_CLASS, OPT_ASSIST, OPT_GHOST, OPT_KINDS };
+#define MAX_OPT_ROWS 5
+static const char *const OPT_LABEL[OPT_KINDS] = { "LAPS", "CPU DRIVERS", "ITEM BOXES", "SPEED CLASS", "ASSISTS", "GHOST" };
+static const char *const CLASS_NAME[CLASS_COUNT] = { "Standard", "Fast", "Blazing" };
+static const char *const ASSIST_NAME[4] = { "Off", "Steering", "Auto gas", "Both" };
+static int option_rows(int rows[MAX_OPT_ROWS]) {
+  if (U.gmode == RM_TRIAL) {
+    rows[0] = OPT_GHOST, rows[1] = OPT_ASSIST;
+    return 2;
+  }
+  if (U.gmode == RM_CUP) {
+    rows[0] = OPT_CPU, rows[1] = OPT_CLASS, rows[2] = OPT_ASSIST;
+    return 3;
+  }
+  rows[0] = OPT_LAPS, rows[1] = OPT_CPU, rows[2] = OPT_ITEMS, rows[3] = OPT_CLASS, rows[4] = OPT_ASSIST;
+  return 5;
+}
+static void opt_text(int opt, char *b, size_t n) {
+  switch (opt) {
+  case OPT_LAPS: snprintf(b, n, "%d", U.laps); break;
+  case OPT_CPU: snprintf(b, n, "%s", SKILL_NAME[U.skill]); break;
+  case OPT_ITEMS: snprintf(b, n, "%s", U.items ? "ON" : "OFF"); break;
+  case OPT_CLASS: snprintf(b, n, "%s", CLASS_NAME[U.cls]); break;
+  case OPT_ASSIST: snprintf(b, n, "%s", ASSIST_NAME[U.assist & 3]); break;
+  default: snprintf(b, n, "%s", U.ghost_on ? "ON" : "OFF"); break;
+  }
+}
+static void opt_bump(int opt, int dir) {
+  switch (opt) {
+  case OPT_LAPS: U.laps = CW_CLAMP(U.laps + dir, 1, MAX_LAPS); break;
+  case OPT_CPU: U.skill = (U.skill + dir + 4) % 4; break;
+  case OPT_ITEMS: U.items = !U.items; break;
+  case OPT_CLASS: U.cls = (U.cls + dir + CLASS_COUNT) % CLASS_COUNT; break;
+  case OPT_ASSIST: U.assist = (U.assist + dir + 4) & 3; break;
+  default: U.ghost_on = !U.ghost_on; break;
+  }
+  sfx_move();
+}
+
 typedef struct maplay {
   float s;
   bool portrait;
-  int cols;
+  int cols, nrows;
   cw_rect card[NMAPS];
-  cw_rect detail, big, optrow[3], start, back;
+  cw_rect detail, big, optrow[MAX_OPT_ROWS], start, back;
 } maplay;
 
 static void map_layout(float W, float H, maplay *m) {
   float s = lscale(W, H);
   m->s = s;
   m->portrait = is_portrait(W, H);
+  int rows[MAX_OPT_ROWS];
+  int nr = option_rows(rows);
+  m->nrows = nr;
   float gx = W * 0.03f, gw = W * 0.94f, gap = 10 * s;
   if (!m->portrait) {
     m->cols = 4;
-    float cw = (gw - 3 * gap) / 4, ch = 98 * s, y0 = 90 * s;
+    float cw = (gw - 3 * gap) / 4, ch = 80 * s, y0 = 88 * s;
     for (int i = 0; i < NMAPS; i++) m->card[i] = cw_rect_make(gx + (float)(i % 4) * (cw + gap), y0 + (float)(i / 4) * (ch + gap), cw, ch);
-    float by = y0 + 2 * ch + gap + 10 * s, bh = H - by - 64 * s;
+    float by = y0 + 2 * ch + gap + 8 * s, bh = H - by - 64 * s;
     m->detail = cw_rect_make(gx, by, gw * 0.56f, bh);
     float bs = fminf(bh - 12 * s, gw * 0.56f * 0.42f);
     m->big = cw_rect_make(gx + 8 * s, by + 6 * s, bs, bs);
     float ox = gx + gw * 0.56f + gap, ow = gw * 0.44f - gap;
-    float rh = fmaxf(fminf(40 * s, (bh - 50 * s) / 3 - 5 * s), 22 * s);
-    for (int i = 0; i < 3; i++) m->optrow[i] = cw_rect_make(ox, by + (float)i * (rh + 5 * s), ow, rh);
-    m->start = cw_rect_make(ox, by + 3 * (rh + 5 * s) + 2 * s, ow, fmaxf(fminf(50 * s, by + bh - (by + 3 * (rh + 5 * s) + 2 * s)), 30 * s));
+    float sh = 38 * s, rg = 4 * s;
+    float rh = fminf(40 * s, (bh - sh - rg * (float)(nr + 1)) / (float)nr);
+    for (int i = 0; i < nr; i++) m->optrow[i] = cw_rect_make(ox, by + (float)i * (rh + rg), ow, rh);
+    float sy = by + (float)nr * (rh + rg) + rg;
+    m->start = cw_rect_make(ox, sy, ow, fmaxf(fminf(50 * s, by + bh - sy), 28 * s));
   } else {
     m->cols = 2;
-    float cw = (gw - gap) / 2, ch = 92 * s, y0 = 96 * s;
+    float cw = (gw - gap) / 2, ch = 76 * s, y0 = 92 * s;
     for (int i = 0; i < NMAPS; i++) m->card[i] = cw_rect_make(gx + (float)(i % 2) * (cw + gap), y0 + (float)(i / 2) * (ch + gap), cw, ch);
     float by = y0 + 4 * (ch + gap) + 4 * s;
     float bh = H - by - 70 * s;
-    m->detail = cw_rect_make(gx, by, gw, bh * 0.52f);
-    m->big = cw_rect_make(gx + 8 * s, by + 6 * s, bh * 0.52f - 12 * s, bh * 0.52f - 12 * s);
-    float oy = by + bh * 0.52f + 8 * s, rh = fminf(42 * s, (bh * 0.48f - 60 * s) / 3 - 4 * s);
-    for (int i = 0; i < 3; i++) m->optrow[i] = cw_rect_make(gx, oy + (float)i * (rh + 4 * s), gw, rh);
-    m->start = cw_rect_make(gx, oy + 3 * (rh + 4 * s) + 2 * s, gw, 48 * s);
+    m->detail = cw_rect_make(gx, by, gw, bh * 0.5f);
+    m->big = cw_rect_make(gx + 8 * s, by + 6 * s, bh * 0.5f - 12 * s, bh * 0.5f - 12 * s);
+    float oy = by + bh * 0.5f + 8 * s, rg = 4 * s;
+    float rh = fminf(42 * s, (bh * 0.5f - 8 * s - 44 * s - rg * (float)(nr + 1)) / (float)nr);
+    for (int i = 0; i < nr; i++) m->optrow[i] = cw_rect_make(gx, oy + (float)i * (rh + rg), gw, rh);
+    m->start = cw_rect_make(gx, oy + (float)nr * (rh + rg) + rg, gw, 44 * s);
   }
   m->back = cw_rect_make(W - 150 * s - gx, 22 * s, 150 * s, 40 * s);
 }
@@ -374,6 +428,7 @@ static cw_rect back_button_rect(float W, float H) {
 
 /* ── setup helpers ──────────────────────────────────────────────────── */
 
+static void draw_option_row_fwd(cw_rect r, const char *label, const char *value, bool sel, float s, float ap);
 static void restore_pads(void) {
   for (int p = 0; p < MAXV; p++) cw_input_assign(p, p, p == 0 ? (CW_DEVICE_KEYBOARD | CW_DEVICE_MOUSE | CW_DEVICE_TOUCH) : 0);
 }
@@ -415,7 +470,14 @@ static void enter_vehicle(int n) {
 
 static void start_race_from_menu(void) {
   race_setup rs = { .map = U.map, .laps = U.laps, .humans = U.setup.humans, .cpu_skill = U.skill, .items = U.items != 0 };
+  U.cup.on = false;
   for (int i = 0; i < MAXV; i++) rs.vehicle[i] = U.veh[i], rs.colour[i] = U.col[i];
+  rs.speed_class = U.cls, rs.assist_steer = (U.assist & 1) != 0, rs.assist_gas = (U.assist & 2) != 0;
+  if (U.gmode == RM_TRIAL) {
+    /* a time trial: you alone, one lap from the grid, no boxes, the standard class, and the map's best run as a ghost */
+    rs.mode = RM_TRIAL, rs.humans = 1, rs.laps = 1, rs.items = false, rs.speed_class = CLASS_STANDARD;
+    rs.ghost = trial_ghost_for(rs.map);
+  }
   U.setup = rs;
   save_write();
   sfx_ok();
@@ -428,6 +490,10 @@ static const int POINTS[MAXK] = { 10, 8, 6, 5, 4, 3, 2, 1 };
 
 static void results_build(void) {
   const sim *S = game_sim();
+  if (U.tr.on) {
+    trial_results_build();
+    return;
+  }
   U.res_n = 0;
   U.res_winner_human = 0;
   bool any_record = false;
@@ -452,7 +518,7 @@ static void results_build(void) {
     r->tricks = k->tricks;
     r->points = POINTS[i];
     if (k->human) {
-      if (S->map >= 0 && S->map < NMAPS && best > 0) {
+      if (S->map >= 0 && S->map < NMAPS && best > 0 && S->speed_class == CLASS_STANDARD) {
         uint32_t cs = (uint32_t)(best * 100 + 0.5f);
         uint32_t old = SAVE.best_lap_cs[S->map];
         if (old == 0 || cs < old) {
@@ -471,6 +537,7 @@ static void results_build(void) {
     save_write();
   }
   (void)any_record;
+  if (U.cup.on) cup_results_add();
   goto_mode(M_RESULTS);
   U.res_ticks = 0;
   game_set_camera(2);
@@ -526,8 +593,8 @@ static void tick_title(float W, float H) {
     return;
   }
   int n = title_count();
-  cw_rect rects[4];
-  for (int i = 0; i < n; i++) rects[i] = list_rect(i, W, H, is_portrait(W, H) ? 0.4f : 0.36f);
+  cw_rect rects[6];
+  for (int i = 0; i < n; i++) rects[i] = list_rect_n(i, n, W, H, is_portrait(W, H) ? 0.36f : 0.335f);
   if (N.back) {
     U.title_menu = 0;
     U.mt = 0;
@@ -545,28 +612,32 @@ static void tick_title(float W, float H) {
   if (N.ok || N.start) act = U.sel;
   if (act < 0 || U.mt < 14) return;
   switch (act) {
-  case 0:
+  case TI_RACE:
+  case TI_TRIAL:
+  case TI_CUP:
     restore_pads();
     memset(U.joined, 0, sizeof U.joined);
     U.joined[0] = true;
+    U.gmode = act == TI_TRIAL ? RM_TRIAL : act == TI_CUP ? RM_CUP : RM_RACE;
     sfx_ok();
     enter_vehicle(1);
     U.from = M_TITLE;
     break;
-  case 1:
+  case TI_SPLIT:
     restore_pads();
     memset(U.joined, 0, sizeof U.joined);
     U.joined[0] = true;
+    if (U.gmode == RM_TRIAL) U.gmode = RM_RACE;
     sfx_ok();
     goto_mode(M_JOIN);
     break;
-  case 2:
+  case TI_OPTIONS:
     U.from = M_TITLE;
     sfx_ok();
     U.opt_sel = 0;
     goto_mode(M_OPTIONS);
     break;
-  case 3: cw_quit(); break;
+  case TI_QUIT: cw_quit(); break;
   }
 }
 
@@ -589,7 +660,16 @@ static cw_rect join_continue(float W, float H) {
   return cw_rect_make(W * 0.5f - 190 * s, H - 150 * s, 380 * s, 58 * s);
 }
 
+/* the mode pill beside the continue button: a split screen race, or a cup */
+static cw_rect join_mode_rect(float W, float H) {
+  float s = lscale(W, H);
+  cw_rect c = join_continue(W, H);
+  if (is_portrait(W, H)) return cw_rect_make(c.x, c.y - 56 * s, c.w, 46 * s);
+  return cw_rect_make(c.x + c.w + 18 * s, c.y + 4 * s, fminf(W - (c.x + c.w + 18 * s) - W * 0.03f, 290 * s), 50 * s);
+}
+
 static void tick_join(float W, float H) {
+  if ((N.dx || (N.click && in_rect(N.m, join_mode_rect(W, H)))) && U.mt > 10) U.gmode = U.gmode == RM_CUP ? RM_RACE : RM_CUP, sfx_move();
   for (int p = 1; p < MAXV; p++) {
     if (!pad_present(p)) {
       U.joined[p] = false;
@@ -685,17 +765,12 @@ static void tick_vehicle(float W, float H) {
   if (all && U.mt > 24) {
     U.sel = 0;
     U.mapfocus = 0;
-    goto_mode(M_MAP);
+    U.cup_focus = 0;
+    goto_mode(U.gmode == RM_CUP ? M_CUP : M_MAP);
     sfx_ok();
   }
 }
 
-static void bump_option(int row, int dir) {
-  if (row == 0) U.laps = CW_CLAMP(U.laps + dir, 1, MAX_LAPS);
-  else if (row == 1) U.skill = (U.skill + dir + 4) % 4;
-  else U.items = !U.items;
-  sfx_move();
-}
 
 static void tick_map(float W, float H) {
   maplay m;
@@ -709,6 +784,9 @@ static void tick_map(float W, float H) {
   bool ok = cw_action_just_pressed(0, U.m_ok) && U.mt > 12;
   bool back = cw_action_just_pressed(0, U.a_back) && U.mt > 8;
   bool start = false;
+  int rows[MAX_OPT_ROWS];
+  int nr = option_rows(rows);
+  if (U.mapfocus > nr + 1) U.mapfocus = nr + 1;
   if (U.mapfocus == 0) {
     if (dx) U.map = (U.map + dx + NMAPS) % NMAPS, sfx_move();
     if (dy) {
@@ -721,13 +799,13 @@ static void tick_map(float W, float H) {
     if (dy) {
       int nf = U.mapfocus + dy;
       if (nf < 1) U.mapfocus = 0, U.map = CW_CLAMP(NMAPS - m.cols + (U.map % m.cols), 0, NMAPS - 1);
-      else U.mapfocus = CW_MIN(nf, 4);
+      else U.mapfocus = CW_MIN(nf, nr + 1);
       sfx_move();
     }
-    if (U.mapfocus >= 1 && U.mapfocus <= 3) {
-      if (dx) bump_option(U.mapfocus - 1, dx);
-      if (ok) bump_option(U.mapfocus - 1, 1);
-    } else if (U.mapfocus == 4 && ok) start = true;
+    if (U.mapfocus >= 1 && U.mapfocus <= nr) {
+      if (dx) opt_bump(rows[U.mapfocus - 1], dx);
+      if (ok) opt_bump(rows[U.mapfocus - 1], 1);
+    } else if (U.mapfocus == nr + 1 && ok) start = true;
   }
   /* the mouse */
   if (pointer_mode() && N.moved)
@@ -741,11 +819,11 @@ static void tick_map(float W, float H) {
         U.map = i;
         U.mapfocus = 0;
       }
-    for (int r = 0; r < 3; r++)
+    for (int r = 0; r < nr; r++)
       if (in_rect(N.m, m.optrow[r])) {
         U.mapfocus = r + 1;
         float t = (N.m.x - m.optrow[r].x) / m.optrow[r].w;
-        bump_option(r, t < 0.4f ? -1 : 1);
+        opt_bump(rows[r], t < 0.4f ? -1 : 1);
       }
     if (in_rect(N.m, m.start)) start = true;
     if (in_rect(N.m, back_button_rect(W, H))) back = true;
@@ -764,13 +842,13 @@ static void tick_map(float W, float H) {
 
 static cw_rect opt_panel(float W, float H) {
   float s = lscale(W, H);
-  float w = fminf(W * 0.92f, 620 * s), h = 5 * 62 * s + 40 * s;
-  return cw_rect_make((W - w) * 0.5f, H * 0.5f - h * 0.42f, w, h);
+  float w = fminf(W * 0.92f, 620 * s), h = (float)OI_COUNT * 46 * s + 24 * s;
+  return cw_rect_make((W - w) * 0.5f, fmaxf(98 * s, H * 0.5f - h * 0.5f), w, h);
 }
 static cw_rect opt_row(int i, float W, float H) {
   float s = lscale(W, H);
   cw_rect p = opt_panel(W, H);
-  return cw_rect_make(p.x + 18 * s, p.y + 20 * s + (float)i * 62 * s, p.w - 36 * s, 54 * s);
+  return cw_rect_make(p.x + 18 * s, p.y + 12 * s + (float)i * 46 * s, p.w - 36 * s, 40 * s);
 }
 /* the slider's track inside a row */
 static cw_rect opt_slider(cw_rect row, float s) { return cw_rect_make(row.x + row.w * 0.42f, row.y + row.h * 0.5f - 11 * s, row.w * 0.5f, 22 * s); }
@@ -781,30 +859,32 @@ static void tick_options(float W, float H) {
   int hy = (any_held(U.m_down) ? 1 : 0) - (any_held(U.m_up) ? 1 : 0);
   int dx, dy;
   nav_step(&U.nav, hx, hy, &dx, &dy);
-  if (dy) U.opt_sel = (U.opt_sel + dy + 5) % 5, sfx_move();
+  if (dy) U.opt_sel = (U.opt_sel + dy + OI_COUNT) % OI_COUNT, sfx_move();
   if (pointer_mode() && N.moved)
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < OI_COUNT; i++)
       if (in_rect(N.m, opt_row(i, W, H)) && U.opt_sel != i) U.opt_sel = i, sfx_move();
   bool act = false;
   int row = U.opt_sel;
   if (N.click)
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < OI_COUNT; i++)
       if (in_rect(N.m, opt_row(i, W, H))) row = i, U.opt_sel = i, act = true;
   if (N.ok && U.mt > 10) act = true;
   /* sliders: left / right, or a click or drag on the bar */
   bool changed = false;
-  if (U.opt_sel == 1 || U.opt_sel == 2) {
-    uint8_t *v = U.opt_sel == 1 ? &SAVE.music : &SAVE.sfx;
+  if (U.opt_sel == OI_ASSIST_STEER && (dx || (act && N.click))) U.assist ^= 1, sfx_move(), act = false, changed = true;
+  if (U.opt_sel == OI_ASSIST_GAS && (dx || (act && N.click))) U.assist ^= 2, sfx_move(), act = false, changed = true;
+  if (U.opt_sel == OI_MUSIC || U.opt_sel == OI_SFX) {
+    uint8_t *v = U.opt_sel == OI_MUSIC ? &SAVE.music : &SAVE.sfx;
     if (dx) {
       int nv = CW_CLAMP((int)*v + dx, 0, 10);
       if (nv != *v) *v = (uint8_t)nv, changed = true;
     }
   }
   if (N.down && pointer_mode())
-    for (int i = 1; i <= 2; i++) {
+    for (int i = OI_MUSIC; i <= OI_SFX; i++) {
       cw_rect sl = opt_slider(opt_row(i, W, H), s);
       if (in_rect(N.m, cw_rect_make(sl.x - 10 * s, sl.y - 8 * s, sl.w + 20 * s, sl.h + 16 * s)) && (N.click || U.opt_sel == i)) {
-        uint8_t *v = i == 1 ? &SAVE.music : &SAVE.sfx;
+        uint8_t *v = i == OI_MUSIC ? &SAVE.music : &SAVE.sfx;
         int nv = CW_CLAMP((int)((N.m.x - sl.x) / sl.w * 10 + 0.5f), 0, 10);
         if (nv != *v) *v = (uint8_t)nv, changed = true;
         U.opt_sel = i;
@@ -813,17 +893,22 @@ static void tick_options(float W, float H) {
     }
   if (changed) {
     apply_volumes();
-    if (U.ticks - U.rec_dummy > 6) sfx_move(), U.rec_dummy = U.ticks;
+    if (U.opt_sel == OI_ASSIST_STEER || U.opt_sel == OI_ASSIST_GAS) save_write();
+    else if (U.ticks - U.rec_dummy > 6) sfx_move(), U.rec_dummy = U.ticks;
   }
   if (act && U.mt > 8) {
-    if (row == 0) {
+    if (row == OI_GFX) {
       cw_quality_menu_open();
       sfx_ok();
-    } else if (row == 3) {
+    } else if (row == OI_ASSIST_STEER || row == OI_ASSIST_GAS) {
+      U.assist ^= row == OI_ASSIST_STEER ? 1 : 2;
+      sfx_move();
+      save_write();
+    } else if (row == OI_CONTROLS) {
       sfx_ok();
       U.cfrom = M_OPTIONS;
       goto_mode(M_CONTROLS);
-    } else if (row == 4) {
+    } else if (row == OI_BACK) {
       sfx_back();
       save_write();
       goto_mode(U.from);
@@ -846,7 +931,7 @@ static void tick_controls(float W, float H) {
     sfx_back();
     goto_mode(U.cfrom);
     if (U.cfrom == M_PAUSE) U.sel = 3;
-    if (U.cfrom == M_OPTIONS) U.opt_sel = 3;
+    if (U.cfrom == M_OPTIONS) U.opt_sel = OI_CONTROLS;
   }
 }
 
@@ -870,6 +955,8 @@ static void tick_race(float W, float H) {
     goto_mode(M_PAUSE);
     sfx_ok();
   }
+  /* a time trial: the item button is the retry, a tap restarts the run at once */
+  if (game_is_trial() && U.pending == PD_NONE && cw_action_just_pressed(0, U.a_item) && U.mt > 12) trial_retry();
 }
 
 static void tick_pause(float W, float H) {
@@ -896,7 +983,8 @@ static void tick_pause(float W, float H) {
   switch (act) {
   case 1:
     sfx_ok();
-    begin_pending(PD_RESTART);
+    if (game_is_trial()) trial_retry();
+    else begin_pending(PD_RESTART);
     break;
   case 2:
     sfx_ok();
@@ -915,42 +1003,59 @@ static void tick_pause(float W, float H) {
   }
 }
 
-static cw_rect res_button(int i, float W, float H) {
+/* the results buttons: n of them (3 for a race, 2 in a cup) */
+static cw_rect res_button_n(int i, int n, float W, float H) {
   float s = lscale(W, H);
   if (is_portrait(W, H)) {
     float bw = W * 0.8f, bh = 52 * s;
     return cw_rect_make((W - bw) * 0.5f, H - 190 * s + (float)i * (bh + 8 * s) - 10 * s, bw, bh);
   }
   float bw = 210 * s, bh = 52 * s, g = 12 * s;
-  float x0 = W * 0.97f - 3 * bw - 2 * g;
+  float x0 = W * 0.97f - (float)n * bw - (float)(n - 1) * g;
   return cw_rect_make(x0 + (float)i * (bw + g), H - bh - 30 * s, bw, bh);
 }
+static cw_rect res_button(int i, float W, float H) { return res_button_n(i, 3, W, H); }
+static int res_nbuttons(void) { return U.cup.on ? 2 : 3; }
 
+static void tick_trial_results(float W, float H);
 static void tick_results(float W, float H) {
   U.res_ticks++;
   if (U.pending != PD_NONE) return;
+  if (U.tr.on) {
+    tick_trial_results(W, H);
+    return;
+  }
   if (U.res_ticks < 110) {
     if ((N.ok || N.start || N.click) && U.res_ticks > 20) U.res_ticks = 110;
     return;
   }
+  int nb = res_nbuttons();
   int hx = (any_held(U.m_right) ? 1 : 0) - (any_held(U.m_left) ? 1 : 0);
   int dx, dy;
   nav_step(&U.nav, hx, 0, &dx, &dy);
-  if (dx) U.sel = (U.sel + dx + 3) % 3, sfx_move();
+  if (U.sel >= nb) U.sel = 0;
+  if (dx) U.sel = (U.sel + dx + nb) % nb, sfx_move();
   if (is_portrait(W, H)) {
     int hy = (any_held(U.m_down) ? 1 : 0) - (any_held(U.m_up) ? 1 : 0);
     int ddx, ddy;
     nav_step(&U.pnav[0], 0, hy, &ddx, &ddy);
-    if (ddy) U.sel = (U.sel + ddy + 3) % 3, sfx_move();
+    if (ddy) U.sel = (U.sel + ddy + nb) % nb, sfx_move();
   }
   int act = -1;
   if (pointer_mode() && N.moved)
-    for (int i = 0; i < 3; i++)
-      if (in_rect(N.m, res_button(i, W, H)) && U.sel != i) U.sel = i, sfx_move();
+    for (int i = 0; i < nb; i++)
+      if (in_rect(N.m, res_button_n(i, nb, W, H)) && U.sel != i) U.sel = i, sfx_move();
   if (N.click)
-    for (int i = 0; i < 3; i++)
-      if (in_rect(N.m, res_button(i, W, H))) U.sel = i, act = i;
+    for (int i = 0; i < nb; i++)
+      if (in_rect(N.m, res_button_n(i, nb, W, H))) U.sel = i, act = i;
   if (N.ok && U.res_ticks > 125) act = U.sel;
+  if (U.cup.on) {
+    /* a cup: on to the standings, or give it up */
+    if (U.auto_cup && U.res_ticks > 150) act = 0;
+    if (act == 0) sfx_ok(), cup_open_standings();
+    else if (act == 1) sfx_ok(), U.cup.on = false, begin_pending(PD_TO_MENU);
+    return;
+  }
   if (act == 0) sfx_ok(), begin_pending(PD_RESTART);
   else if (act == 1) sfx_ok(), begin_pending(PD_NEXT_MAP);
   else if (act == 2) sfx_ok(), begin_pending(PD_TO_MENU);
@@ -989,6 +1094,9 @@ static void scr_tick(void) {
   case M_RACE: tick_race(W, H); break;
   case M_PAUSE: tick_pause(W, H); break;
   case M_RESULTS: tick_results(W, H); break;
+  case M_CUP: tick_cup(W, H); break;
+  case M_STANDINGS: tick_standings(W, H); break;
+  case M_CUPEND: tick_cupend(W, H); break;
   }
 }
 
@@ -1026,7 +1134,7 @@ static void draw_title(float W, float H, float s) {
   int n = title_count();
   for (int i = 0; i < n; i++) {
     float ap = clamp01(((float)U.mt - (float)i * 4) / 18.0f);
-    draw_button(list_rect(i, W, H, por ? 0.4f : 0.36f), TITLE_ITEMS[i], U.sel == i, true, s, ap);
+    draw_button(list_rect_n(i, n, W, H, por ? 0.36f : 0.335f), TITLE_ITEMS[i], U.sel == i, true, s, ap);
   }
   hint_line(W, H, s, dev_hint("D-pad move   (A) choose   (B) back", "Arrows move   Enter choose   Esc back", "Click to choose", "Tap to choose"));
 }
@@ -1070,6 +1178,7 @@ static void draw_join(float W, float H, float s) {
   char b[128];
   snprintf(b, sizeof b, "%d player%s. Player 1 uses the keyboard or the first pad; the rest need a pad each.", n, n == 1 ? "" : "s");
   tx_fit(U.f_small, b, W * 0.5f, H - 78 * s, 18 * s, W * 0.92f, alpha(CREAM, 0.85f), CW_ALIGN_CENTER);
+  draw_option_row_fwd(join_mode_rect(W, H), "MODE", U.gmode == RM_CUP ? "CUP" : "RACE", false, s, clamp01((float)U.mt / 20.0f));
   cw_rect br = back_button_rect(W, H);
   draw_button(br, "BACK", false, true, s * 0.8f, 1);
 }
@@ -1202,11 +1311,17 @@ static void draw_map_card(const maplay *m, int i, float s) {
   cw_rect q = cw_rect_make(r.x - r.w * (pop - 1) * 0.5f, r.y - r.h * (pop - 1) * 0.5f, r.w * pop, r.h * pop);
   slab(q, 0, sel ? rgba(0.2f, 0.15f, 0.1f, 0.95f) : rgba(0.1f, 0.075f, 0.09f, 0.88f), s);
   cw_r2d_rect_lines(cw_rect_make(q.x + 3 * s, q.y + 3 * s, q.w - 6 * s, q.h - 6 * s), 3 * s, sel ? (U.mapfocus == 0 ? MUSTARD : alpha(MUSTARD, 0.55f)) : rgba(0.4f, 0.36f, 0.36f, 0.6f));
-  cw_rect mr = cw_rect_make(q.x + 8 * s, q.y + 8 * s, q.w - 16 * s, q.h - 36 * s);
+  cw_rect mr = cw_rect_make(q.x + 8 * s, q.y + 6 * s, q.w - 16 * s, q.h - 30 * s);
   if (U.mm[i].ok) mm_draw(&U.mm[i], mr, 6 * s, s, 2.6f * s + 0.5f, false);
   else tx(U.f_small, "...", mr.x + mr.w * 0.5f, mr.y + mr.h * 0.5f, 22 * s, DIM, CW_ALIGN_CENTER);
-  tx_fit(U.f_hud, MAPS[i]->name, q.x + q.w * 0.5f, q.y + q.h - 17 * s, 17 * s, q.w - 16 * s, sel ? MUSTARD : CREAM, CW_ALIGN_CENTER);
-  if (SAVE.best_lap_cs[i]) {
+  tx_fit(U.f_hud, MAPS[i]->name, q.x + q.w * 0.5f, q.y + q.h - 14 * s, 16 * s, q.w - 16 * s, sel ? MUSTARD : CREAM, CW_ALIGN_CENTER);
+  if (U.gmode == RM_TRIAL) {
+    /* the trial's medal for the map: a ring until one is won */
+    cw_vec2 c = cw_v2(q.x + q.w - 17 * s, q.y + 17 * s);
+    int md = trial_medal_of(i, SAVE.trial_cs[i]);
+    if (md > 0) draw_medal(c, 11 * s, md, s, U.time);
+    else cw_r2d_circle_lines(c, 8 * s, 2 * s, 14, alpha(DIM, 0.5f));
+  } else if (SAVE.best_lap_cs[i]) {
     cw_vec2 c = cw_v2(q.x + q.w - 14 * s, q.y + 14 * s);
     cw_r2d_circle(c, 7 * s, 12, INK);
     cw_r2d_circle(c, 5.5f * s, 12, MUSTARD);
@@ -1218,7 +1333,7 @@ static void draw_option_row(cw_rect r, const char *label, const char *value, boo
   r.x += (1 - ease_back(ap)) * 100 * s;
   slab(r, 10 * s, sel ? alpha(MUSTARD, 0.95f) : PANEL, s * 0.8f);
   cw_color tc = sel ? INK : CREAM;
-  tx_o(U.f_hud, label, r.x + 24 * s, r.y + r.h * 0.5f, fminf(r.h * 0.42f, 22 * s), tc, (txopt){ .align = CW_ALIGN_LEFT, .outline = sel ? 0.01f : 0, .no_shadow = sel });
+  tx_o(U.f_hud, label, r.x + 22 * s, r.y + r.h * 0.5f, fminf(r.h * 0.5f, 21 * s), tc, (txopt){ .align = CW_ALIGN_LEFT, .outline = sel ? 0.01f : 0, .no_shadow = sel });
   float sz = fminf(r.h * 0.5f, 24 * s);
   float vx = r.x + r.w * 0.66f;
   tx_o(U.f_title, value, vx, r.y + r.h * 0.5f, sz, tc, (txopt){ .align = CW_ALIGN_CENTER, .outline = sel ? 0.01f : 0, .no_shadow = sel });
@@ -1226,9 +1341,11 @@ static void draw_option_row(cw_rect r, const char *label, const char *value, boo
   arrow(cw_v2(r.x + r.w * 0.66f + fmaxf(tx_width(U.f_title, value, sz) * 0.5f + 20 * s, 46 * s), r.y + r.h * 0.5f), 8 * s, 1, sel ? INK : MUSTARD, s);
 }
 
+static void draw_option_row_fwd(cw_rect r, const char *label, const char *value, bool sel, float s, float ap) { draw_option_row(r, label, value, sel, s, ap); }
+
 static void draw_map(float W, float H, float s) {
   backdrop(W, H, s, 0.86f);
-  header(W, H, s, "CHOOSE A TRACK", NULL);
+  header(W, H, s, U.gmode == RM_TRIAL ? "TIME TRIAL" : "CHOOSE A TRACK", U.gmode == RM_TRIAL ? "One lap, you against your best" : NULL);
   maplay m;
   map_layout(W, H, &m);
   for (int i = 0; i < NMAPS; i++) draw_map_card(&m, i, s);
@@ -1254,7 +1371,7 @@ static void draw_map(float W, float H, float s) {
     tx(U.f_small, b, tx0, iy, 18 * s, CREAM, CW_ALIGN_LEFT);
     iy += 26 * s;
   }
-  if (mm->ok && iy < d.y + d.h - 18 * s) {
+  if (mm->ok && iy < d.y + d.h - 18 * s && U.gmode != RM_TRIAL) {
     float lx = tx0;
     for (int k = 0; k < 3; k++) {
       int cnt = k == 0 ? mm->njumps : k == 1 ? mm->nloops : mm->ntunnels;
@@ -1268,7 +1385,9 @@ static void draw_map(float W, float H, float s) {
     }
     iy += 26 * s;
   }
-  if (iy < d.y + d.h - 10 * s) {
+  if (U.gmode == RM_TRIAL) {
+    if (iy < d.y + d.h - 8 * s) trial_detail(tx0, iy, d.y + d.h, tw, U.map, s);
+  } else if (iy < d.y + d.h - 10 * s) {
     if (SAVE.best_lap_cs[U.map]) {
       char t[24];
       fmt_time(t, sizeof t, (float)SAVE.best_lap_cs[U.map] / 100.0f);
@@ -1278,16 +1397,18 @@ static void draw_map(float W, float H, float s) {
   }
   /* the legend of the outline, under the big map */
   /* the race options */
-  char v[3][24];
-  snprintf(v[0], sizeof v[0], "%d", U.laps);
-  snprintf(v[1], sizeof v[1], "%s", SKILL_NAME[U.skill]);
-  snprintf(v[2], sizeof v[2], "%s", U.items ? "ON" : "OFF");
-  static const char *const OL[3] = { "LAPS", "CPU DRIVERS", "ITEM BOXES" };
-  for (int r = 0; r < 3; r++) draw_option_row(m.optrow[r], OL[r], v[r], U.mapfocus == r + 1, s, clamp01(((float)U.mt - 14 - (float)r * 3) / 14.0f));
-  bool sf = U.mapfocus == 0 || U.mapfocus == 4;
-  draw_button(m.start, "START RACE", sf, true, s * 0.82f, clamp01(((float)U.mt - 22) / 14.0f));
+  int rows[MAX_OPT_ROWS];
+  int nr = option_rows(rows);
+  for (int r = 0; r < nr; r++) {
+    char v[24];
+    opt_text(rows[r], v, sizeof v);
+    draw_option_row(m.optrow[r], OPT_LABEL[rows[r]], v, U.mapfocus == r + 1, s, clamp01(((float)U.mt - 14 - (float)r * 3) / 14.0f));
+    if (rows[r] == OPT_ASSIST && (U.assist & 3) == 0 && SAVE.races < 3) assist_tag(m.optrow[r], s);
+  }
+  bool sf = U.mapfocus == 0 || U.mapfocus == nr + 1;
+  draw_button(m.start, U.gmode == RM_TRIAL ? "START TRIAL" : "START RACE", sf, true, s * 0.82f, clamp01(((float)U.mt - 22) / 14.0f));
   draw_button(back_button_rect(W, H), "BACK", false, true, s * 0.8f, 1);
-  hint_line(W, H, s, dev_hint("D-pad: choose   (A) race   down: options   (B) back", "Arrows choose   Enter: race   Down: options   Esc: back", "Click a track, again to race", "Tap a track, then START RACE"));
+  hint_line(W, H, s, dev_hint("D-pad: choose   (A) go   down: options   (B) back", "Arrows choose   Enter: go   Down: options   Esc: back", "Click a track, again to go", "Tap a track, then START"));
 }
 
 /* ── drawing: options and the controls page ─────────────────────────── */
@@ -1310,7 +1431,7 @@ static void draw_options(float W, float H, float s) {
   float ap = ease_out((float)U.mt / 14.0f);
   p.y += (1 - ap) * 40 * s;
   slab(p, 0, rgba(0.09f, 0.065f, 0.08f, 0.92f), s);
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < OI_COUNT; i++) {
     cw_rect r = opt_row(i, W, H);
     r.y += (1 - ap) * 40 * s;
     bool sel = U.opt_sel == i;
@@ -1319,25 +1440,36 @@ static void draw_options(float W, float H, float s) {
     slab(r, 10 * s, sel ? alpha(MUSTARD, 0.95f) : PANEL, s * 0.8f);
     cw_color tc = sel ? INK : CREAM;
     txopt o = { .align = CW_ALIGN_LEFT, .outline = sel ? 0.01f : 0, .no_shadow = sel };
-    tx_o(U.f_title, OPT_ITEMS[i], r.x + 24 * s, r.y + r.h * 0.5f, 22 * s, tc, o);
-    if (i == 0) {
+    tx_o(U.f_title, OPTPAGE_ITEMS[i], r.x + 24 * s, r.y + r.h * 0.5f, 20 * s, tc, o);
+    if (i == OI_ASSIST_STEER || i == OI_ASSIST_GAS) {
+      bool on = (U.assist & (i == OI_ASSIST_STEER ? 1 : 2)) != 0;
+      o.align = CW_ALIGN_RIGHT;
+      tx_o(U.f_title, on ? "ON" : "OFF", r.x + r.w - 24 * s, r.y + r.h * 0.5f, 20 * s, sel ? INK : (on ? LIME : DIM), o);
+    } else if (i == OI_GFX) {
       char b[64];
       snprintf(b, sizeof b, "%s  -  %s", cw_quality_label(), cw_render_res_label());
       o.align = CW_ALIGN_RIGHT;
       tx_o(U.f_hud, b, r.x + r.w - 40 * s, r.y + r.h * 0.5f, 20 * s, tc, o);
       tri(cw_v2(r.x + r.w - 22 * s, r.y + r.h * 0.5f), 9 * s, 0, sel ? INK : MUSTARD);
-    } else if (i == 1 || i == 2) {
-      int v = i == 1 ? SAVE.music : SAVE.sfx;
+    } else if (i == OI_MUSIC || i == OI_SFX) {
+      int v = i == OI_MUSIC ? SAVE.music : SAVE.sfx;
       draw_slider(opt_slider(r, s), v, s, sel);
       char b[16];
       snprintf(b, sizeof b, "%d", v);
       o.align = CW_ALIGN_RIGHT;
       tx_o(U.f_hud, b, r.x + r.w - 6 * s, r.y + r.h * 0.5f, 18 * s, tc, o);
-    } else if (i == 3) {
+    } else if (i == OI_CONTROLS) {
       tri(cw_v2(r.x + r.w - 22 * s, r.y + r.h * 0.5f), 9 * s, 0, sel ? INK : MUSTARD);
     }
   }
   hint_line(W, H, s, dev_hint("D-pad: move and adjust   (A) choose   (B) back", "Arrows: move and adjust   Enter: choose   Esc: back", "Click to choose, drag the bars", "Tap to choose, drag the bars"));
+  /* what an assist does, for the row picked */
+  if (U.opt_sel == OI_ASSIST_STEER || U.opt_sel == OI_ASSIST_GAS) {
+    const char *d = U.opt_sel == OI_ASSIST_STEER ? "A gentle pull back to the road when a wall is close. Costs no speed."
+                                                    : "The throttle stays down unless you brake. Costs no speed; the rocket start is still yours.";
+    cw_rect pp = opt_panel(W, H);
+    tx_fit(U.f_small, d, W * 0.5f, pp.y + pp.h + 16 * s, 17 * s, W * 0.92f, alpha(CREAM, 0.9f), CW_ALIGN_CENTER);
+  }
 }
 
 typedef struct ctl_row {
@@ -1420,7 +1552,8 @@ static void draw_pause(float W, float H, float s) {
     snprintf(p, sizeof p, "Player %d paused", U.pauser + 1);
     tx(U.f_hud, p, W * 0.5f, b.y + b.h + 24 * s, 20 * s, CREAM, CW_ALIGN_CENTER);
   }
-  for (int i = 0; i < 5; i++) draw_button(list_rect(i, W, H, is_portrait(W, H) ? 0.3f : 0.3f), PAUSE_ITEMS[i], U.sel == i, true, s, clamp01(((float)U.mt - (float)i * 3) / 14.0f));
+  for (int i = 0; i < 5; i++)
+    draw_button(list_rect(i, W, H, is_portrait(W, H) ? 0.3f : 0.3f), i == 1 && game_is_trial() ? "RETRY" : PAUSE_ITEMS[i], U.sel == i, true, s, clamp01(((float)U.mt - (float)i * 3) / 14.0f));
   hint_line(W, H, s, dev_hint("D-pad move   (A) choose   START resume", "Arrows move   Enter choose   Esc resume", "Click to choose", "Tap to choose"));
 }
 
@@ -1455,8 +1588,13 @@ static void draw_confetti(cw_rect area, float s, float t) {
   }
 }
 
+static void draw_trial_results(float W, float H, float s);
 static void draw_results(float W, float H, float s) {
   if (!game_loaded()) return;
+  if (U.tr.on) {
+    draw_trial_results(W, H, s);
+    return;
+  }
   bool por = is_portrait(W, H);
   int t = U.res_ticks;
   /* a clean look at the winner first, then the board */
@@ -1500,6 +1638,11 @@ static void draw_results(float W, float H, float s) {
       tx(U.f_small, "TRICKS", cx_tr, hy, hsz, DIM, CW_ALIGN_CENTER);
     }
     tx(U.f_small, "PTS", cx_pts, hy, hsz, DIM, CW_ALIGN_RIGHT);
+    if (U.cup.on) {
+      char cb[40];
+      snprintf(cb, sizeof cb, "%s  -  RACE %d OF %d", CUPS[U.cup.cup].name, U.cup.race + 1, cup_nraces());
+      tx(U.f_title, cb, tab.x + 24 * s, tab.y + tab.h - 40 * s, 13 * s, alpha(MUSTARD, pa), CW_ALIGN_LEFT);
+    }
     for (int i = 0; i < U.res_n; i++) {
       const result_row *r = &U.res[i];
       float ra = clamp01(((float)t - 100 - (float)i * 5) / 16.0f);
@@ -1585,7 +1728,10 @@ static void draw_results(float W, float H, float s) {
     }
     /* the buttons */
     static const char *const BL[3] = { "RACE AGAIN", "NEXT MAP", "MENU" };
-    for (int i = 0; i < 3; i++) draw_button(res_button(i, W, H), BL[i], U.sel == i && t > 110, true, s * 0.8f, clamp01(((float)t - 130 - (float)i * 4) / 14.0f));
+    static const char *const CL[2] = { "STANDINGS", "QUIT CUP" };
+    int nb = res_nbuttons();
+    for (int i = 0; i < nb; i++)
+      draw_button(res_button_n(i, nb, W, H), U.cup.on ? CL[i] : BL[i], U.sel == i && t > 110, true, s * 0.8f, clamp01(((float)t - 130 - (float)i * 4) / 14.0f));
   } else {
     tx(U.f_hud, dev_hint("(A) to see the results", "Enter to see the results", "Click to see the results", "Tap to see the results"), W * 0.5f, H - 50 * s, 22 * s, alpha(CREAM, 0.5f + 0.4f * cw_sin(U.time * 5)),
        CW_ALIGN_CENTER);
@@ -1603,6 +1749,9 @@ static void scr_draw(float W, float H) {
   case M_CONTROLS: draw_controls(W, H, s); break;
   case M_PAUSE: draw_pause(W, H, s); break;
   case M_RESULTS: draw_results(W, H, s); break;
+  case M_CUP: draw_cup(W, H, s); break;
+  case M_STANDINGS: draw_standings(W, H, s); break;
+  case M_CUPEND: draw_cupend(W, H, s); break;
   default: break;
   }
 }

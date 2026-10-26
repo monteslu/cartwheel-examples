@@ -293,6 +293,7 @@ typedef struct hv {
   const kart *k;
   const hudv *hs;
 } hv;
+static void hud_trial(const hv *g); /* ui_modes.inc: the time trial's panels */
 
 static float hpx(float design, float s, float minpx) { return fmaxf(design * s, minpx); }
 
@@ -492,6 +493,16 @@ static void hud_minimap(const hv *g, cw_rect r) {
       cw_r2d_circle(p, rad, 14, c);
       if (k->human) cw_r2d_circle_lines(p, rad, 1.6f * s + 0.4f, 14, CREAM);
     }
+  /* the time trial's ghost: a pale ring */
+  if (game_is_trial() && ghost_loaded()) {
+    t3_vec3 gp;
+    t3_quat gq;
+    if (ghost_pose(S->phase == PH_RACE ? (float)S->race_ticks : 0.0f, &gp, &gq)) {
+      cw_vec2 p = mm_pt(&f, gp.x, gp.z);
+      cw_r2d_circle(p, 4.4f * s + 1.2f, 14, INK);
+      cw_r2d_circle(p, 4.4f * s, 14, rgba(0.6f, 0.86f, 1.0f, 0.9f));
+    }
+  }
 }
 
 static void hud_standings(const hv *g, float x, float y, int rows_max) {
@@ -749,9 +760,10 @@ static void hud_view(int v, float W, float H, int nviews) {
   if (h->fall_t > 0) hud_edges(&g, CREAM, 0.55f * (1 - (float)h->fall_t / 40.0f), 0.2f);
   if (h->boost_t > 0) hud_edges(&g, TEAL, 0.3f * (1 - (float)h->boost_t / 20.0f), 0.1f);
   if (g.k->respawn_ticks > 0 && (g.k->respawn_ticks / 5) & 1) cw_r2d_rect(cw_rect_make(g.x, g.y, g.w, g.h), rgba(1, 1, 1, 0.06f));
-  hud_place(&g);
+  bool trial = game_is_trial();
+  if (trial) hud_trial(&g);
+  else hud_place(&g), hud_item(&g);
   hud_lap(&g);
-  hud_item(&g);
   if (U.touch_on) {
     float ms = 128 * g.s;
     hud_minimap(&g, cw_rect_make(g.x + 14 * g.s, g.y + 116 * g.s, ms, ms));
@@ -762,7 +774,7 @@ static void hud_view(int v, float W, float H, int nviews) {
     float ms = 118 * g.s * 1.1f;
     hud_minimap(&g, cw_rect_make(g.x + 12 * g.s, g.y + g.h - ms - 12 * g.s, ms, ms));
   }
-  if (U.touch_on) {
+  if (U.touch_on || trial) {
   } else if (!g.medium) hud_standings(&g, g.x + 14 * g.s, g.y + 116 * g.s, 8);
   else if (!g.compact) hud_standings(&g, g.x + 14 * g.s, g.y + 114 * g.s, 4);
   hud_speed(&g);
