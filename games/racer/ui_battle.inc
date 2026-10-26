@@ -62,7 +62,15 @@ static void arena_draw_map(const arena_def *d, cw_rect r, float pad, float s, co
         cw_r2d_circle(c, p->w * 0.5f * f.sc + 0.5f, 14, p->look == AL_FEATURE ? rgba(0.95f, 0.55f, 0.15f, 1) : rgba(0.09f, 0.08f, 0.1f, 1));
         continue;
       }
-      if (p->look == AL_DECK) {
+      if (p->kind == AP_MOUND) {
+        /* the slopes in the ramps' grey, the flat top as a deck inside them */
+        cw_r2d_polygon(q, 4, rgba(0.62f, 0.6f, 0.58f, 1));
+        arena_prim top = *p;
+        top.w = fmaxf(p->w - 2 * p->h * MOUND_RUN, 0.5f), top.d = fmaxf(p->d - 2 * p->h * MOUND_RUN, 0.5f);
+        arena_prim_corners(&f, &top, q);
+        cw_r2d_polygon(q, 4, rgba(0.78f, 0.74f, 0.66f, 1));
+        cw_r2d_polygon_lines(q, 4, 1.5f * s + 0.4f, rgba(0.95f, 0.8f, 0.2f, 0.9f));
+      } else if (p->look == AL_DECK) {
         float h = clamp01((p->y + p->h) / lv_max);
         cw_r2d_polygon(q, 4, mix(rgba(0.5f, 0.47f, 0.48f, 1), rgba(0.78f, 0.74f, 0.66f, 1), h));
         cw_r2d_polygon_lines(q, 4, 1.5f * s + 0.4f, rgba(0.95f, 0.8f, 0.2f, 0.9f));

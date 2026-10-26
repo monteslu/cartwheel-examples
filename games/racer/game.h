@@ -34,6 +34,7 @@
 #define MAX_LAPS 5
 #define NARENAS 2  /* battle arenas (ARENAS[]; separate from the race maps) */
 #define BALLOONS 3 /* a battle kart's balloons at the start */
+#define BATTLE_SPIN_K 0.45f /* a battle spin lasts this share of a race spin (the pop is the cost; sim_battle.inc, kartgfx.c) */
 
 /* ── vehicles ───────────────────────────────────────────────────────── */
 

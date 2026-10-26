@@ -149,7 +149,7 @@ static void battle_pop(sim *s, int i, int by) {
   k->balloons--;
   k->pops_taken++;
   k->ram_cool = POP_GRACE;
-  k->spin_ticks = k->spin_ticks * 11 / 20; /* a battle spin is shorter: losing the balloon is the cost, the long tumble only feeds the pile-up */
+  k->spin_ticks = (int)((float)k->spin_ticks * BATTLE_SPIN_K); /* a battle spin is shorter: losing the balloon is the cost, the long tumble only feeds the pile-up */
   if (by >= 0 && by < MAXK && by != i && s->k[by].on) s->k[by].points++;
   event(s, EV_POP, i, by == i ? -1 : by, k->p, (float)k->balloons);
   if (k->balloons == 0) {

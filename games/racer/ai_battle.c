@@ -239,19 +239,20 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
   m->b_aim = goal, m->b_feel[0] = clear[2], m->b_feel[1] = fc, m->b_feel[2] = clear[6];
   /* from a crawl full lock scrubs the speed away: wind the lock on as it gets going, unless a wall leaves no room for a wider turn */
   float lock = ahead_m < 7.0f ? 1.0f : 0.55f + 0.45f * clampf(spd / 12.0f, 0, 1);
-  float steer = clampf(best_a * 1.8f, -lock, lock);
+  if (spd > 18) lock = fminf(lock, 0.75f); /* fast: a wide arc keeps the grip; full lock only scrubs and spins */
+  float steer = clampf(best_a * (spd < 10 ? 1.2f : 1.8f), -lock, lock); /* gentler at a crawl, where the battle turn-in answers the stick quickly */
   m->steer_smooth += (steer - m->steer_smooth) * 0.5f;
   in.steer = (int8_t)(clampf(m->steer_smooth, -1, 1) * 127);
   in.thr = 127;
   /* a hard turn at speed: lift; the skilled drift through it (a drift boost is a ram waiting to happen) */
-  if (fabsf(best_a) > 1.3f && spd > 22) in.thr = 0, in.btn |= KB_DRIFT; /* lift and slide it round */
+  if (fabsf(best_a) > 1.3f && spd > 22) in.thr = 0; /* lift through a hard turn (a drift at full lock this fast spins it round) */
   if (m->skill >= 1 && fabsf(best_a) > 0.45f && fabsf(best_a) < 1.3f && spd > 17 && fc > 0.6f) in.btn |= KB_DRIFT;
   /* close to a box but off to the side: slow right down so it turns tight instead of circling it */
   if (m->b_box >= 0 && m->b_roam == 0 && dist < 7 && fabsf(ang) > 1.2f && spd > 14) in.thr = 0;
   /* the way it is going ends sooner than it can turn: brake */
   if (clear[best_c] * look < spd * 0.3f && spd > 14) in.thr = -127, in.btn &= ~KB_DRIFT;
   /* a wall straight ahead less than half a second off: brake and slide round (a crash costs far more than a brake) */
-  if (fc * look < spd * 0.4f && spd > 14 && fabsf(best_a) > 0.3f) in.thr = -127, in.btn |= KB_DRIFT;
+  if (fc * look < spd * 0.4f && spd > 14 && fabsf(best_a) > 0.3f) in.thr = -127, in.btn &= ~KB_DRIFT;
   /* stuck (pinned on something, or nose into a wall with nowhere to turn): a short committed back-out, the nose swinging to
    * the open side (the steering turns the nose the same way in reverse), then a moment driving on before it may again */
   /* stuck: it has not got 1.2 m from where it last was for most of a second (pinned, or rocking on an edge) */

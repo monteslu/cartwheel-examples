@@ -112,7 +112,7 @@ void kartgfx_tick(const sim *s) {
     float pitch_t = clampf_(-0.004f * a_f, -0.06f, 0.075f);
     float wob = 0;
     if (k->spin_ticks > 0) {
-      float ph = (float)k->spin_ticks / 70.0f;
+      float ph = (float)k->spin_ticks / (70.0f * (s->battle ? BATTLE_SPIN_K : 1.0f)); /* a battle spin is shorter (sim_battle.inc) */
       wob = sinf((float)s->tick * 0.55f) * 0.2f * clampf_(ph, 0, 1);
       if (k->spin_kind == SPIN_SHOCK) wob = sinf((float)s->tick * 2.3f) * 0.12f;
     }
@@ -152,7 +152,7 @@ void kartgfx_tick(const sim *s) {
     }
     float flip = 0, hop = 0;
     if (k->spin_ticks > 0 && k->spin_kind == SPIN_BOOM) {
-      float p = 1.0f - (float)k->spin_ticks / 85.0f;
+      float p = 1.0f - (float)k->spin_ticks / (85.0f * (s->battle ? BATTLE_SPIN_K : 1.0f));
       flip = 6.2831853f * ease(clampf_(p * 1.4f, 0, 1)) * (k->spin_dir < 0 ? -1.0f : 1.0f);
       hop = 0.55f * sinf(3.14159265f * clampf_(p * 1.4f, 0, 1));
     } else if (k->spin_ticks > 0 && k->spin_kind == SPIN_HIT) {

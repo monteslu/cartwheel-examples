@@ -39,8 +39,8 @@ static const arena_prim PRIMS[] = {
   /* cover on the deck: crates and the control booth */
   BOX(AL_COVER, -22, 52, 4, 6, 2.4f, 6, 15, OLIVE),
   BOX(AL_COVER, 22, 52, 4, 6, 2.4f, 6, -15, OXIDE),
-  BOX(AL_FEATURE, 0, 62, 4, 12, 3.6f, 7, 0, 0),
-  DECO(AL_GLOW, 0, 58.45f, 5.4f, 9, 1.0f, 0.1f, 0, AMBER),
+  BOX(AL_FEATURE, 0, 66.5f, 4, 12, 3.6f, 7, 0, 0),
+  DECO(AL_GLOW, 0, 62.95f, 5.4f, 9, 1.0f, 0.1f, 0, AMBER),
   BOX(AL_COVER, -44, 60, 4, 3, 2.2f, 8, 0, STEEL),
   BOX(AL_COVER, 44, 60, 4, 3, 2.2f, 8, 0, STEEL),
   /* the furnace, its burning top and the ring of neon */
@@ -58,13 +58,13 @@ static const arena_prim PRIMS[] = {
   /* tanks and pipe runs on the casting floor */
   POST(AL_COVER, -32, -44, 0, 7, 4.5f, STEEL),
   POST(AL_COVER, 32, -44, 0, 7, 4.5f, STEEL),
-  POST(AL_COVER, -30, 4, 0, 5, 3.5f, OXIDE),
-  POST(AL_COVER, 30, 4, 0, 5, 3.5f, OXIDE),
+  POST(AL_COVER, -22, -8, 0, 3.2f, 3.0f, OXIDE),
+  POST(AL_COVER, 22, -8, 0, 3.2f, 3.0f, OXIDE),
   BOX(AL_COVER, 0, -52, 0, 26, 1.3f, 1.8f, 0, OLIVE),
   BOX(AL_COVER, -44, -14, 0, 1.8f, 1.3f, 20, 0, OLIVE),
   BOX(AL_COVER, 44, -14, 0, 1.8f, 1.3f, 20, 0, OLIVE),
-  BOX(AL_COVER, -16, 14, 0, 8, 2.4f, 2.4f, 30, STEEL),
-  BOX(AL_COVER, 16, 14, 0, 8, 2.4f, 2.4f, -30, STEEL),
+  POST(AL_COVER, -20, 10, 0, 3.0f, 2.6f, STEEL),
+  POST(AL_COVER, 20, 10, 0, 3.0f, 2.6f, STEEL),
   /* kickers along the long walls, and lit lines along the casting floor */
   RAMP(AL_RAMP, -52, -36, 0, 7, 1.4f, 6, 0),
   RAMP(AL_RAMP, 52, -36, 0, 7, 1.4f, 6, 0),
@@ -78,10 +78,10 @@ static const float SPAWNS[][3] = {
 };
 
 static const float BOXES[][3] = {
-  { 9, -18, 0 }, { -9, -18, 0 }, { 0, -8, 0 }, { 0, -28, 0 },
+  { 15, -18, 0 }, { -15, -18, 0 }, { 0, -4, 0 }, { 0, -33, 0 },
   { -32, -32, 0 }, { 32, -32, 0 }, { -32, -58, 0 }, { 32, -58, 0 },
   { -42, 8, 0 }, { 42, 8, 0 }, { 0, 4, 0 },
-  { -30, 46, 4 }, { 30, 46, 4 }, { 0, 48, 4 }, { -50, 66, 4 }, { 50, 66, 4 },
+  { -30, 46, 4 }, { 30, 46, 4 }, { 0, 48, 4 }, { -38, 56, 4 }, { 38, 56, 4 },
 };
 
 static const arena_def ARENA = {

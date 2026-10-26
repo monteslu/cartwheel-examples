@@ -1,7 +1,8 @@
 /* battle arena: Crusher Yard. A scrapyard bowl on the salt flats at dawn: a square of salt crust inside rusted walls,
- * the crusher's deck in the middle (four ramps up, turned like a pinwheel so nobody drives straight through), its
- * press standing on top, L-shaped walls of shipping containers in the four quarters, double stacks at the middle of
- * each side, oil drums to dodge round and a kicker ramp along each wall. Outside: container stacks, a gantry crane,
+ * the crusher's mound in the middle (a flat top three metres up, every side a slope to drive, so there is no wall there
+ * to be pinned on) with the crusher's magnet head hanging over it, open L-shaped walls of shipping containers in the
+ * four quarters, double stacks at the middle of each side, oil drums piled in the corners and a kicker ramp along each
+ * wall. Outside: container stacks, a gantry crane,
  * flood lights, wrecks, and the mesas of the salt flats on the horizon. */
 #include <math.h>
 
@@ -43,31 +44,29 @@
 #define DARK 0x3a3330
 
 static const arena_prim PRIMS[] = {
-  /* the crusher's deck and its pinwheel of ramps */
-  BOX(AL_DECK, 0, 0, 0, 26, 3, 26, 0, 0),
-  RAMP(AL_RAMP, 6, 20, 0, 10, 3, 14, 180),
-  RAMP(AL_RAMP, -6, -20, 0, 10, 3, 14, 0),
-  RAMP(AL_RAMP, 20, -6, 0, 10, 3, 14, -90),
-  RAMP(AL_RAMP, -20, 6, 0, 10, 3, 14, 90),
-  /* hazard paint round the deck's edge */
-  DECO(AL_TRIM, 0, 12.6f, 3.0f, 26, 0.05f, 0.8f, 0, 0),
-  DECO(AL_TRIM, 0, -12.6f, 3.0f, 26, 0.05f, 0.8f, 0, 0),
-  DECO(AL_TRIM, 12.6f, 0, 3.0f, 0.8f, 0.05f, 24.4f, 0, 0),
-  DECO(AL_TRIM, -12.6f, 0, 3.0f, 0.8f, 0.05f, 24.4f, 0, 0),
-  /* the press: a column, a lit band and the head over it */
-  POST(AL_FEATURE, 0, 0, 3, 5, 6.5f, 0),
-  GLOWPOST(0, 0, 6.2f, 5.25f, 0.35f, 0xff9a3a),
-  DECO(AL_FEATURE, 0, 0, 9.5f, 9, 1.6f, 9, 0, 0),
-  DECO(AL_TRIM, 0, 0, 9.3f, 9.4f, 0.2f, 9.4f, 0, 0),
+  /* the crusher's mound: a flat top three metres up, every side a slope to drive (no walls to be pinned on) */
+  { AP_MOUND, AL_DECK, 0, 0, 0, 38, 3, 38, 0, false, 0 },
+  /* hazard paint round the top's edge */
+  DECO(AL_TRIM, 0, 9.6f, 3.0f, 20, 0.05f, 0.8f, 0, 0),
+  DECO(AL_TRIM, 0, -9.6f, 3.0f, 20, 0.05f, 0.8f, 0, 0),
+  DECO(AL_TRIM, 9.6f, 0, 3.0f, 0.8f, 0.05f, 18.4f, 0, 0),
+  DECO(AL_TRIM, -9.6f, 0, 3.0f, 0.8f, 0.05f, 18.4f, 0, 0),
+  /* the crusher: a magnet head hung from the yard crane on a cable, the ram under it with a lit band, all high over the top
+   * (nothing up there to drive into) */
+  { AP_POST, AL_FEATURE, 0, 0, 11.8f, 0.5f, 30.0f, 0.5f, 0, true, 0 },
+  { AP_POST, AL_FEATURE, 0, 0, 7.6f, 3.2f, 3.4f, 3.2f, 0, true, 0 },
+  GLOWPOST(0, 0, 7.4f, 3.45f, 0.35f, 0xff9a3a),
+  DECO(AL_FEATURE, 0, 0, 11.0f, 9, 1.6f, 9, 0, 0),
+  DECO(AL_TRIM, 0, 0, 10.8f, 9.4f, 0.2f, 9.4f, 0, 0),
   /* the quarters: L-shaped walls of containers */
-  BOX(AL_COVER, 30, 40, 0, 12, 2.6f, 2.5f, 0, TEAL),
-  BOX(AL_COVER, 40, 30, 0, 2.5f, 2.6f, 12, 0, ORNG),
-  BOX(AL_COVER, -30, 40, 0, 12, 2.6f, 2.5f, 0, RED),
-  BOX(AL_COVER, -40, 30, 0, 2.5f, 2.6f, 12, 0, BLUE),
-  BOX(AL_COVER, 30, -40, 0, 12, 2.6f, 2.5f, 0, BLUE),
-  BOX(AL_COVER, 40, -30, 0, 2.5f, 2.6f, 12, 0, MUST),
-  BOX(AL_COVER, -30, -40, 0, 12, 2.6f, 2.5f, 0, ORNG),
-  BOX(AL_COVER, -40, -30, 0, 2.5f, 2.6f, 12, 0, TEAL),
+  BOX(AL_COVER, 28, 40, 0, 10, 2.6f, 2.5f, 0, TEAL),
+  BOX(AL_COVER, 40, 28, 0, 2.5f, 2.6f, 10, 0, ORNG),
+  BOX(AL_COVER, -28, 40, 0, 10, 2.6f, 2.5f, 0, RED),
+  BOX(AL_COVER, -40, 28, 0, 2.5f, 2.6f, 10, 0, BLUE),
+  BOX(AL_COVER, 28, -40, 0, 10, 2.6f, 2.5f, 0, BLUE),
+  BOX(AL_COVER, 40, -28, 0, 2.5f, 2.6f, 10, 0, MUST),
+  BOX(AL_COVER, -28, -40, 0, 10, 2.6f, 2.5f, 0, ORNG),
+  BOX(AL_COVER, -40, -28, 0, 2.5f, 2.6f, 10, 0, TEAL),
   /* the middle of each side: two high */
   BOX(AL_COVER, 0, 47, 0, 12, 2.6f, 2.5f, 0, RED),
   BOX(AL_COVER, 0, 47, 2.6f, 12, 2.6f, 2.5f, 0, MUST),
@@ -77,22 +76,16 @@ static const arena_prim PRIMS[] = {
   BOX(AL_COVER, 47, 0, 2.6f, 2.5f, 2.6f, 12, 0, ORNG),
   BOX(AL_COVER, -47, 0, 0, 2.5f, 2.6f, 12, 0, MUST),
   BOX(AL_COVER, -47, 0, 2.6f, 2.5f, 2.6f, 12, 0, BLUE),
-  /* oil drums in threes */
-  POST(AL_COVER, 22, 52, 0, 1.5f, 1.2f, DARK),
-  POST(AL_COVER, 23.6f, 52.6f, 0, 1.5f, 1.2f, RED),
-  POST(AL_COVER, -22, -52, 0, 1.5f, 1.2f, DARK),
-  POST(AL_COVER, -23.6f, -52.6f, 0, 1.5f, 1.2f, BLUE),
-  POST(AL_COVER, 52, -22, 0, 1.5f, 1.2f, DARK),
-  POST(AL_COVER, 52.6f, -23.6f, 0, 1.5f, 1.2f, MUST),
-  POST(AL_COVER, -52, 22, 0, 1.5f, 1.2f, DARK),
-  POST(AL_COVER, -52.6f, 23.6f, 0, 1.5f, 1.2f, TEAL),
-  POST(AL_COVER, 18, 18, 0, 1.5f, 1.2f, RED),
-  POST(AL_COVER, -18, -18, 0, 1.5f, 1.2f, MUST),
+  /* oil drums piled into the corners, out of the lanes along the walls */
+  POST(AL_COVER, 61.5f, 61.5f, 0, 1.5f, 1.2f, DARK), POST(AL_COVER, 59.6f, 61.8f, 0, 1.5f, 1.2f, RED),
+  POST(AL_COVER, -61.5f, -61.5f, 0, 1.5f, 1.2f, DARK), POST(AL_COVER, -59.6f, -61.8f, 0, 1.5f, 1.2f, BLUE),
+  POST(AL_COVER, 61.5f, -61.5f, 0, 1.5f, 1.2f, DARK), POST(AL_COVER, 61.8f, -59.6f, 0, 1.5f, 1.2f, MUST),
+  POST(AL_COVER, -61.5f, 61.5f, 0, 1.5f, 1.2f, DARK), POST(AL_COVER, -61.8f, 59.6f, 0, 1.5f, 1.2f, TEAL),
   /* kickers along the walls, all running clockwise */
-  RAMP(AL_RAMP, -26, 57, 0, 7, 1.3f, 6, 90),
-  RAMP(AL_RAMP, 57, 26, 0, 7, 1.3f, 6, 180),
-  RAMP(AL_RAMP, 26, -57, 0, 7, 1.3f, 6, -90),
-  RAMP(AL_RAMP, -57, -26, 0, 7, 1.3f, 6, 0),
+  RAMP(AL_RAMP, -26, 52, 0, 7, 1.3f, 6, 90),
+  RAMP(AL_RAMP, 52, 26, 0, 7, 1.3f, 6, 180),
+  RAMP(AL_RAMP, 26, -52, 0, 7, 1.3f, 6, -90),
+  RAMP(AL_RAMP, -52, -26, 0, 7, 1.3f, 6, 0),
   /* paint on the floor: an octagon round the deck, a start pad under each spawn, hazard stripes along the foot of the walls */
   RINGSIDE(0), RINGSIDE(45), RINGSIDE(90), RINGSIDE(135), RINGSIDE(180), RINGSIDE(225), RINGSIDE(270), RINGSIDE(315),
   PAD(19.1f, 46.2f, 202.5f), PAD(-19.1f, -46.2f, 22.5f), PAD(46.2f, -19.1f, -67.5f), PAD(-46.2f, 19.1f, 112.5f),
@@ -109,10 +102,10 @@ static const float SPAWNS[][3] = {
 };
 
 static const float BOXES[][3] = {
-  { 7, 0, 3 }, { -7, 0, 3 }, { 0, 7, 3 }, { 0, -7, 3 },
+  { 6, 6, 3 }, { -6, 6, 3 }, { 6, -6, 3 }, { -6, -6, 3 },
   { 22, 22, 0 }, { -22, 22, 0 }, { 22, -22, 0 }, { -22, -22, 0 },
   { -3, 38, 0 }, { 3, 38, 0 }, { -3, -38, 0 }, { 3, -38, 0 }, { 38, -3, 0 }, { 38, 3, 0 }, { -38, 3, 0 }, { -38, -3, 0 },
-  { 51, 51, 0 }, { -51, 51, 0 }, { 51, -51, 0 }, { -51, -51, 0 },
+  { 44, 44, 0 }, { -44, 44, 0 }, { 44, -44, 0 }, { -44, -44, 0 },
 };
 
 static const arena_def ARENA = {
@@ -213,7 +206,7 @@ static void yard_scenery(cw_node scene, const track *t, uint32_t seed) {
 
 const map_def map_yard = {
   .name = "Crusher Yard",
-  .blurb = "A scrapyard bowl: the crusher's deck in the middle, container walls to hide behind.",
+  .blurb = "A scrapyard bowl: the crusher's mound in the middle, container walls to hide behind.",
   .scene = "scenes/salt.cwscene",
   .spec = &ARENA_TRACK,
   .mesh = { .wall_h = { 0, 0.9f, 1.6f, 3.2f }, .curb_w = 0, .tile_v = 8.0f, .tunnel_clear = 8.0f },

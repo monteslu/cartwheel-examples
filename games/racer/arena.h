@@ -25,6 +25,7 @@ enum {
   AP_BOX,  /* a block: centre x, z, base y, full sizes w (x) h d (z), yaw */
   AP_RAMP, /* a wedge rising from base y at its -z end to base y + h at its +z end (local axes, before the yaw) */
   AP_POST, /* a round column: w is the diameter */
+  AP_MOUND, /* a flat-topped mound: base w x d, top h up, every side a slope you drive (MOUND_RUN metres along per metre up) */
 };
 
 /* what a shape is dressed as (the arena's look table picks the texture and paint) */
@@ -40,6 +41,8 @@ enum {
   AL_PAINT,   /* flat paint on the floor: lines, pads (no texture, never solid) */
   AL_KINDS
 };
+
+#define MOUND_RUN 3.0f
 
 typedef struct arena_prim {
   int kind;           /* AP_* */

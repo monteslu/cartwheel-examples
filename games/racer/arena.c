@@ -89,6 +89,10 @@ float arena_level(const arena_rt *rt, float x, float z) {
     arena_prim_local(rt, i, (t3_vec3){ x, 0, z }, &lx, &lz);
     if (lx < -p->w * 0.5f || lx > p->w * 0.5f || lz < -p->d * 0.5f || lz > p->d * 0.5f) continue;
     float top = p->kind == AP_RAMP ? p->y + p->h * (lz / p->d + 0.5f) : p->y + p->h;
+    if (p->kind == AP_MOUND) {
+      float e = fminf(p->w * 0.5f - fabsf(lx), p->d * 0.5f - fabsf(lz));
+      top = p->y + fminf(p->h, e / MOUND_RUN);
+    }
     if (top > best) best = top;
   }
   return best;
@@ -112,6 +116,12 @@ void arena_phys_build(const arena_rt *rt, cw_body3d b, int track_layer, int wall
       t3_vec3 pts[6] = { to_world(rt, i, -hx, 0, -hz), to_world(rt, i, hx, 0, -hz), to_world(rt, i, -hx - e, 0, hz),
                          to_world(rt, i, hx + e, 0, hz), to_world(rt, i, -hx, p->h, hz), to_world(rt, i, hx, p->h, hz) };
       cw_shape3d_hull(b, &sd, pts, 6);
+    } else if (p->kind == AP_MOUND) {
+      float bx = p->w * 0.5f, bz = p->d * 0.5f, in = p->h * MOUND_RUN;
+      t3_vec3 pts[8] = { to_world(rt, i, -bx, 0, -bz), to_world(rt, i, bx, 0, -bz), to_world(rt, i, -bx, 0, bz), to_world(rt, i, bx, 0, bz),
+                         to_world(rt, i, -bx + in, p->h, -bz + in), to_world(rt, i, bx - in, p->h, -bz + in), to_world(rt, i, -bx + in, p->h, bz - in),
+                         to_world(rt, i, bx - in, p->h, bz - in) };
+      cw_shape3d_hull(b, &sd, pts, 8);
     } else {
       t3_vec3 pts[24];
       float r = p->w * 0.5f;
@@ -157,7 +167,19 @@ static void draw_prim(pm *b, const arena_prim *p, const arena_look *L, int i) {
       pm_tri(b, c, f, t, sc), pm_tri(b, c, t, f, sc);
     }
   }
-  else pm_cyl(b, p->w * 0.5f, p->w * 0.5f, p->h, p->w > 6 ? 20 : 12, lo, hi);
+  else if (p->kind == AP_MOUND) {
+    /* the top and four sloping sides (both windings, so neither depends on which way round a side was listed) */
+    float bx = p->w * 0.5f, bz = p->d * 0.5f, tx = bx - p->h * MOUND_RUN, tz = bz - p->h * MOUND_RUN, h = p->h;
+    t3_vec3 B[4] = { { -bx, 0, -bz }, { bx, 0, -bz }, { bx, 0, bz }, { -bx, 0, bz } }, T[4] = { { -tx, h, -tz }, { tx, h, -tz }, { tx, h, tz }, { -tx, h, tz } };
+    pcol slope = prim_col(p, L, 0.82f);
+    for (int k = 0; k < 4; k++) {
+      int n = (k + 1) & 3;
+      pm_quad(b, B[k], B[n], T[n], T[k], slope);
+      pm_quad(b, B[k], T[k], T[n], B[n], slope);
+    }
+    pm_quad(b, T[0], T[1], T[2], T[3], hi);
+    pm_quad(b, T[0], T[3], T[2], T[1], hi);
+  } else pm_cyl(b, p->w * 0.5f, p->w * 0.5f, p->h, p->w > 6 ? 20 : 12, lo, hi);
   (void)i;
   pm_pop(b);
 }
