@@ -195,10 +195,11 @@ static void g_road_dirt(float u, float v, texel *t) {
 
 /* cracked salt crust: raised plates ringed by dark seams, pink-grey tint on the plate rims, faint tyre
  * marks, a chalky dashed orange line. The sparkle is in the roughness. */
-static void g_road_salt(float u, float v, texel *t) {
+static void salt_crust(float u, float v, texel *t, bool road) {
   float d1, d2;
   uint32_t id;
-  cells2(u, v, 10, 5, 131, &d1, &d2, &id);
+  if (road) cells2(u, v, 10, 5, 131, &d1, &d2, &id);
+  else cells2(u, v, 6, 6, 131, &d1, &d2, &id);
   float gap = d2 - d1;
   float seam = 1 - sstep(0.0f, 0.1f, gap);
   float rim = 1 - sstep(0.1f, 0.35f, gap);
@@ -210,16 +211,19 @@ static void g_road_salt(float u, float v, texel *t) {
   mixc(t, 0.62f, 0.56f, 0.52f, seam * 0.5f);        /* the cracks */
   /* curled plate edges catch light */
   float streak = fbm2(u, v, 24, 3, 3, 134);
-  float tracks = clamp01(band(u, 0.3f, 0.05f, 0.08f) + band(u, 0.7f, 0.05f, 0.08f)) * sstep(0.35f, 0.65f, streak);
+  float tracks = road ? clamp01(band(u, 0.3f, 0.05f, 0.08f) + band(u, 0.7f, 0.05f, 0.08f)) * sstep(0.35f, 0.65f, streak) : 0;
   mixc(t, 0.62f, 0.58f, 0.52f, tracks * 0.45f * (1 - seam));
   float dash = sstep(0.06f, 0.09f, fractf(v)) * (1 - sstep(0.5f, 0.53f, fractf(v)));
   float chalk = (band(u, 0.5f, 0.007f, 0.004f) * dash + band(u, 0.075f, 0.008f, 0.004f) + band(u, 0.925f, 0.008f, 0.004f));
-  chalk = clamp01(chalk) * clamp01((rfbm(u, v, 24, 3, 135) - 0.3f) * 4);
+  chalk = road ? clamp01(chalk) * clamp01((rfbm(u, v, 24, 3, 135) - 0.3f) * 4) : 0;
   mixc(t, 0.95f, 0.5f, 0.2f, chalk * 0.9f);
   t->h = 0.7f - seam * 0.35f + 0.1f * (1 - rim) + 0.1f * n + 0.06f * fine;
   t->rough = (fine > 0.97f ? 0.25f : 0.6f + 0.2f * n) - tracks * 0.1f;
   t->ao = 0.92f + 0.08f * n - seam * 0.3f;
 }
+static void g_road_salt(float u, float v, texel *t) { salt_crust(u, v, t, true); }
+/* the same crust as ground: plates and cracks only (no lane paint, no tyre tracks), tiling both ways */
+static void g_ground_salt(float u, float v, texel *t) { salt_crust(u, v, t, false); }
 
 /* blue-white ice: deep blue pockets, long scratches, a polished racing line, frost at the edges */
 static void g_road_ice(float u, float v, texel *t) {
@@ -968,6 +972,7 @@ static const kind_info INFO[TEX_KINDS] = {
   [TEX_ARROWS] = { g_arrows, WL, 2.0f, "arrows" },
   [TEX_NOISE] = { g_noise, GR, 2.0f, "noise" },
   [TEX_TUNNEL] = { g_tunnel, RD, 2.5f, "tunnel" },
+  [TEX_GROUND_SALT] = { g_ground_salt, WL, 3.0f, "salt ground" },
 };
 
 /* ── building: a band of rows per call, finished by one call ────────── */

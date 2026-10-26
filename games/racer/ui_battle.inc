@@ -401,7 +401,7 @@ static void hud_battle_view(const hv *g, int nviews) {
   hud_b_clock(g);
   const arena_rt *a = arena_current();
   if (a) {
-    float ms = (g->compact ? 150 : g->medium ? 150 : 180) * g->s;
+    float ms = (g->compact || g->medium ? 205 : 180) * g->s; /* a split view has no table: the map can be bigger */
     cw_rect mr = cw_rect_make(g->x + 14 * g->s, g->y + g->h - ms - 14 * g->s, ms, ms);
     if (U.touch_on) mr = cw_rect_make(g->x + 14 * g->s, g->y + 104 * g->s, 128 * g->s, 128 * g->s);
     if (!(nviews == 3)) {

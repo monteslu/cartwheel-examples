@@ -50,6 +50,7 @@ enum {
   TEX_ARROWS,         /* boost chevrons, alpha-ish: bright arrows on dark */
   TEX_NOISE,          /* soft grey noise: a generic detail map */
   TEX_TUNNEL,         /* tunnel lining: ribbed concrete rings, a lamp strip along the crown (u runs round the arch, 8 m per repeat) */
+  TEX_GROUND_SALT,    /* the salt crust's plates and cracks with no road paint or tyre tracks (an arena floor), tiles freely */
   TEX_KINDS
 };
 
