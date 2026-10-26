@@ -365,14 +365,15 @@ static void draw_trophy(float cx, float gy, float u, int tier, float t) {
   cw_r2d_polygon_lines(stem, 4, 2.5f, INK);
   /* handles */
   for (int sd = -1; sd <= 1; sd += 2) {
-    cw_vec2 h[7];
-    for (int i = 0; i < 7; i++) {
-      float a = -CW_PI * 0.5f + (float)i * CW_PI / 6.0f;
-      h[i] = cw_v2(cx + (float)sd * (u * 0.62f + cw_cos(a) * u * 0.34f * (float)sd * (float)sd), gy - u * 1.42f + cw_sin(a) * u * 0.34f);
-      h[i].x = cx + (float)sd * (u * 0.66f + cw_cos(a) * u * 0.3f);
+    /* a loop from the rim's edge out and round to the bowl's side, both ends tucked inside the bowl */
+    cw_vec2 h[9];
+    for (int i = 0; i < 9; i++) {
+      float f = (float)i / 8.0f, bulge = cw_sin(f * CW_PI) * u * 0.42f;
+      float x = u * (0.70f + (0.40f - 0.70f) * f) + bulge, y = gy - u * (1.74f + (1.12f - 1.74f) * f);
+      h[i] = cw_v2(cx + (float)sd * x, y);
     }
-    cw_r2d_polyline(h, 7, u * 0.13f + 4, false, INK);
-    cw_r2d_polyline(h, 7, u * 0.13f, false, c);
+    cw_r2d_polyline(h, 9, u * 0.13f + 4, false, INK);
+    cw_r2d_polyline(h, 9, u * 0.13f, false, c);
   }
   /* the cup: a bowl with a lip */
   cw_vec2 cup[12];
