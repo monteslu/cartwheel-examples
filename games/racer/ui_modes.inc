@@ -349,52 +349,99 @@ static cw_color trophy_col(int tier) {
   }
 }
 
+/* polished metal across a round body: how bright a column is from its left edge (0) to its right (1). A dark rim each side, a hot
+ * highlight left of centre, the shadow side and a thin reflected light at the right edge, the way a lathed cup catches a room */
+static float metal_k(float s) {
+  static const float X[9] = { 0.0f, 0.08f, 0.2f, 0.3f, 0.42f, 0.6f, 0.78f, 0.9f, 1.0f };
+  static const float K[9] = { 0.32f, 0.62f, 1.05f, 1.75f, 1.05f, 0.62f, 0.48f, 0.92f, 0.36f };
+  if (s <= 0) return K[0];
+  for (int i = 1; i < 9; i++)
+    if (s <= X[i]) {
+      float f = (s - X[i - 1]) / (X[i] - X[i - 1]);
+      return K[i - 1] + (K[i] - K[i - 1]) * f;
+    }
+  return K[8];
+}
+static cw_color metal_col(cw_color c, float k) {
+  /* under 1 the metal's own colour darkens; over 1 it goes toward white (the highlight) */
+  return k <= 1 ? shade(c, k) : mix(c, rgba(1, 1, 1, 1), cw_clampf((k - 1) * 0.85f, 0, 0.9f));
+}
+/* a body of revolution seen from the side: rows of (height, half width) from top to bottom, shaded across like metal, and a glint
+ * sweeping over it with time */
+static void metal_body(float cx, const float *ys, const float *hw, int rows, cw_color c, float glint) {
+  enum { COLS = 16 };
+  cw_vertex2d v[12 * (COLS + 1)];
+  uint32_t idx[11 * COLS * 6];
+  if (rows > 12) rows = 12;
+  int nv = 0, ni = 0;
+  for (int r = 0; r < rows; r++)
+    for (int k = 0; k <= COLS; k++) {
+      float s = (float)k / COLS, x = cx + (s * 2 - 1) * hw[r];
+      float g = 1.0f - cw_clampf(fabsf(s + (float)r * 0.05f - glint) / 0.07f, 0, 1);
+      cw_color col = metal_col(c, metal_k(s) + 0.9f * g);
+      v[nv++] = (cw_vertex2d){ cw_v2(x, ys[r]), cw_v2(0, 0), col };
+    }
+  for (int r = 0; r + 1 < rows; r++)
+    for (int k = 0; k < COLS; k++) {
+      uint32_t i0 = (uint32_t)(r * (COLS + 1) + k), i1 = i0 + 1, i2 = i0 + COLS + 1, i3 = i2 + 1;
+      idx[ni++] = i0, idx[ni++] = i1, idx[ni++] = i3, idx[ni++] = i0, idx[ni++] = i3, idx[ni++] = i2;
+    }
+  cw_r2d_triangles((cw_texture){ 0 }, v, nv, idx, ni);
+}
+static void metal_outline(float cx, const float *ys, const float *hw, int rows, float w) {
+  cw_vec2 p[24];
+  int n = 0;
+  for (int r = 0; r < rows; r++) p[n++] = cw_v2(cx + hw[r], ys[r]);
+  for (int r = rows - 1; r >= 0; r--) p[n++] = cw_v2(cx - hw[r], ys[r]);
+  cw_r2d_polygon_lines(p, n, w, INK);
+}
+
 /* a trophy standing on gy, cx its middle, u half its height */
 static void draw_trophy(float cx, float gy, float u, int tier, float t) {
-  cw_color c = trophy_col(tier), dark = shade(c, 0.62f), lite = mix(c, rgba(1, 1, 1, 1), 0.45f);
-  /* base */
-  cw_rect b1 = cw_rect_make(cx - u * 0.62f, gy - u * 0.2f, u * 1.24f, u * 0.2f);
-  cw_rect b2 = cw_rect_make(cx - u * 0.44f, gy - u * 0.4f, u * 0.88f, u * 0.2f);
-  cw_r2d_rect(cw_rect_make(b1.x - 2, b1.y - 2, b1.w + 4, b1.h + 4), INK);
-  cw_r2d_rect(b1, dark);
-  cw_r2d_rect(cw_rect_make(b2.x - 2, b2.y - 2, b2.w + 4, b2.h + 4), INK);
-  cw_r2d_rect(b2, shade(c, 0.78f));
-  /* stem */
-  cw_vec2 stem[4] = { cw_v2(cx - u * 0.12f, gy - u * 0.4f), cw_v2(cx + u * 0.12f, gy - u * 0.4f), cw_v2(cx + u * 0.07f, gy - u * 0.74f), cw_v2(cx - u * 0.07f, gy - u * 0.74f) };
-  cw_r2d_polygon(stem, 4, dark);
-  cw_r2d_polygon_lines(stem, 4, 2.5f, INK);
-  /* handles */
+  cw_color c = trophy_col(tier);
+  /* the glint crosses every few seconds */
+  float ph = fmodf(t * 0.45f, 1.0f), glint = -0.3f + ph * 2.2f;
+  /* handles first, behind the bowl: a dark core, the metal, then a bright line along the lit side */
   for (int sd = -1; sd <= 1; sd += 2) {
-    /* a loop from the rim's edge out and round to the bowl's side, both ends tucked inside the bowl */
-    cw_vec2 h[9];
+    cw_vec2 h[9], hl[9];
     for (int i = 0; i < 9; i++) {
       float f = (float)i / 8.0f, bulge = cw_sin(f * CW_PI) * u * 0.42f;
       float x = u * (0.70f + (0.40f - 0.70f) * f) + bulge, y = gy - u * (1.74f + (1.12f - 1.74f) * f);
       h[i] = cw_v2(cx + (float)sd * x, y);
+      hl[i] = cw_v2(cx + (float)sd * (x - u * 0.03f), y - u * 0.035f);
     }
-    cw_r2d_polyline(h, 9, u * 0.13f + 4, false, INK);
-    cw_r2d_polyline(h, 9, u * 0.13f, false, c);
+    cw_r2d_polyline(h, 9, u * 0.15f + 4, false, INK);
+    cw_r2d_polyline(h, 9, u * 0.15f, false, shade(c, 0.72f));
+    cw_r2d_polyline(hl, 9, u * 0.045f, false, metal_col(c, sd < 0 ? 1.6f : 1.15f));
   }
-  /* the cup: a bowl with a lip */
-  cw_vec2 cup[12];
-  int n = 0;
-  cup[n++] = cw_v2(cx - u * 0.78f, gy - u * 1.9f);
-  cup[n++] = cw_v2(cx + u * 0.78f, gy - u * 1.9f);
-  cup[n++] = cw_v2(cx + u * 0.74f, gy - u * 1.5f);
-  cup[n++] = cw_v2(cx + u * 0.52f, gy - u * 1.18f);
-  cup[n++] = cw_v2(cx + u * 0.22f, gy - u * 0.9f);
-  cup[n++] = cw_v2(cx + u * 0.1f, gy - u * 0.74f);
-  cup[n++] = cw_v2(cx - u * 0.1f, gy - u * 0.74f);
-  cup[n++] = cw_v2(cx - u * 0.22f, gy - u * 0.9f);
-  cup[n++] = cw_v2(cx - u * 0.52f, gy - u * 1.18f);
-  cup[n++] = cw_v2(cx - u * 0.74f, gy - u * 1.5f);
-  cw_r2d_polygon(cup, n, c);
-  cw_vec2 shine[5] = { cw_v2(cx - u * 0.62f, gy - u * 1.8f), cw_v2(cx - u * 0.4f, gy - u * 1.8f), cw_v2(cx - u * 0.3f, gy - u * 1.35f), cw_v2(cx - u * 0.14f, gy - u * 1.05f), cw_v2(cx - u * 0.36f, gy - u * 1.25f) };
-  cw_r2d_polygon(shine, 5, alpha(lite, 0.7f));
-  cw_r2d_polygon_lines(cup, n, 3.0f, INK);
-  cw_r2d_rect(cw_rect_make(cx - u * 0.82f, gy - u * 1.98f, u * 1.64f, u * 0.14f), lite);
-  cw_r2d_rect_lines(cw_rect_make(cx - u * 0.82f, gy - u * 1.98f, u * 1.64f, u * 0.14f), 2.5f, INK);
-  /* a star on the bowl */
+  /* base: two plinth steps */
+  {
+    float y1[2] = { gy - u * 0.2f, gy }, w1[2] = { u * 0.62f, u * 0.62f };
+    float y2[2] = { gy - u * 0.4f, gy - u * 0.2f }, w2[2] = { u * 0.44f, u * 0.44f };
+    metal_outline(cx, y1, w1, 2, 4);
+    metal_body(cx, y1, w1, 2, shade(c, 0.8f), glint);
+    metal_outline(cx, y2, w2, 2, 4);
+    metal_body(cx, y2, w2, 2, c, glint);
+  }
+  /* stem with a collar */
+  {
+    float ys[4] = { gy - u * 0.78f, gy - u * 0.7f, gy - u * 0.56f, gy - u * 0.4f }, hw[4] = { u * 0.16f, u * 0.08f, u * 0.08f, u * 0.13f };
+    metal_outline(cx, ys, hw, 4, 3.5f);
+    metal_body(cx, ys, hw, 4, c, glint);
+  }
+  /* the bowl, lathed: flared lip, round belly, the neck */
+  float bys[10] = { gy - u * 1.9f, gy - u * 1.78f, gy - u * 1.6f, gy - u * 1.42f, gy - u * 1.26f, gy - u * 1.1f, gy - u * 0.98f, gy - u * 0.88f, gy - u * 0.8f, gy - u * 0.76f };
+  float bhw[10] = { u * 0.8f, u * 0.77f, u * 0.74f, u * 0.68f, u * 0.58f, u * 0.44f, u * 0.3f, u * 0.19f, u * 0.13f, u * 0.11f };
+  metal_outline(cx, bys, bhw, 10, 5);
+  metal_body(cx, bys, bhw, 10, c, glint);
+  /* the lip: a bright band, its inside dark (the cup is hollow) */
+  {
+    float ly[2] = { gy - u * 1.98f, gy - u * 1.86f }, lw[2] = { u * 0.84f, u * 0.84f };
+    metal_outline(cx, ly, lw, 2, 3.5f);
+    metal_body(cx, ly, lw, 2, mix(c, rgba(1, 1, 1, 1), 0.15f), glint);
+    cw_r2d_rect(cw_rect_make(cx - u * 0.66f, gy - u * 1.98f, u * 1.32f, u * 0.045f), alpha(shade(c, 0.35f), 0.9f));
+  }
+  /* a star on the bowl, a sparkle that pops on the highlight */
   if (tier > 0) {
     cw_vec2 sc = cw_v2(cx, gy - u * 1.46f), sp[10];
     float pulse = 1 + 0.06f * cw_sin(t * 6);
@@ -402,8 +449,22 @@ static void draw_trophy(float cx, float gy, float u, int tier, float t) {
       float a = -CW_PI * 0.5f + (float)i * CW_PI / 5.0f, rr = (i & 1 ? 0.13f : 0.3f) * u * pulse;
       sp[i] = cw_v2(sc.x + cw_cos(a) * rr, sc.y + cw_sin(a) * rr);
     }
-    cw_r2d_fan(sc, sp, 10, true, mix(c, rgba(1, 1, 1, 1), 0.7f));
+    cw_r2d_fan(sc, sp, 10, true, shade(c, 0.55f));
+    cw_vec2 sp2[10];
+    for (int i = 0; i < 10; i++) sp2[i] = cw_v2(sc.x + (sp[i].x - sc.x) * 0.8f - u * 0.015f, sc.y + (sp[i].y - sc.y) * 0.8f - u * 0.015f);
+    cw_r2d_fan(sc, sp2, 10, true, mix(c, rgba(1, 1, 1, 1), 0.55f));
     cw_r2d_polygon_lines(sp, 10, 1.6f, alpha(INK, 0.6f));
+  }
+  /* twinkles on the lit side of the lip and the belly */
+  for (int i = 0; i < 2; i++) {
+    float tw = cw_clampf(cw_sin(t * 2.3f + (float)i * 2.1f) * 1.6f - 0.6f, 0, 1);
+    if (tw <= 0) continue;
+    cw_vec2 p = i == 0 ? cw_v2(cx - u * 0.36f, gy - u * 1.82f) : cw_v2(cx - u * 0.3f, gy - u * 1.2f);
+    float r = u * (0.16f + 0.06f * (float)i) * tw;
+    cw_color w = rgba(1, 1, 0.94f, 0.95f * tw);
+    cw_r2d_line(cw_v2(p.x - r, p.y), cw_v2(p.x + r, p.y), 2.5f, w);
+    cw_r2d_line(cw_v2(p.x, p.y - r), cw_v2(p.x, p.y + r), 2.5f, w);
+    cw_r2d_circle(p, u * 0.03f, 8, w);
   }
 }
 
