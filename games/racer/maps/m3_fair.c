@@ -64,7 +64,28 @@ static const piece SPEC[] = {
   END(),
 };
 
-#define MAP_SPEC (&(track_spec){ .name = "fair", .pieces = SPEC, .npieces = sizeof SPEC / sizeof SPEC[0], .hw0 = 7.5f, .circuit = true })
+/* The boardwalk: a raised wooden walk straight across the first hairpin, between the big tops and the haunted house.
+ * Walled through its two bends, but the raised middle has no rails at all: a wobble up there is a fall. */
+static const piece BOARDWALK[] = {
+  SURFACE(SURF_WOOD),
+  MOVE(12, 5, KEEP, 0, KEEP),
+  ATURN(85, 62),
+  SLOPE(24, 18),
+  WALLS(0, 0),
+  SLOPE(24, 0),
+  ASTRAIGHT(60),
+  SLOPE(24, -18),
+  WALLS(1, 1),
+  ASLOPE(24, 0),
+  ATURN(85, 62),
+  ASTRAIGHT(6),
+  END(),
+};
+static const branch_spec BRANCHES[] = {
+  { .name = "boardwalk", .s0 = 840, .lat0 = -3.9f, .s1 = 1206, .lat1 = -3.9f, .pieces = BOARDWALK, .npieces = sizeof BOARDWALK / sizeof BOARDWALK[0],
+    .hw0 = 3.6f, .walls_l = 1, .walls_r = 1, .ai_take = { 0.1f, 0.4f, 0.85f } },
+};
+#define MAP_SPEC (&(track_spec){ .name = "fair", .pieces = SPEC, .npieces = sizeof SPEC / sizeof SPEC[0], .hw0 = 7.5f, .circuit = true, .branches = BRANCHES, .nbranches = 1 })
 
 /* ── where things are ──────────────────────────────────────────────────────────────────────────────
  * Everything is placed from the built track (its pieces are found by kind, never by index) so a change to the
@@ -1855,6 +1876,20 @@ static void fair_scenery(cw_node scene, const track *t, uint32_t seed) {
   dress_corkscrew(str, chase, t);
   dress_climb(t, str, chase);
   dress_helix(t, chase);
+  /* the boardwalk: trestles under its raised middle, runway bulbs down both edges, hay bales on the island noses and
+   * the sign at its mouth */
+  for (int b = 0; b < t->nbranch; b++) {
+    track v = track_branch_view(t, b);
+    deco_supports(root, &v, SUP_TRESTLE, fair_ground, NULL, 0, 1.2f, &st);
+    edge_bulbs(&v, chase, 0, v.length, 2.6f, 0.15f, 0.2f);
+  }
+  {
+    branch_dress bd = branch_dress_defaults();
+    bd.st = st;
+    bd.lamp_spacing = 0;
+    bd.tip = PK_HAY, bd.tip_scale = 1.2f;
+    deco_branches(root, t, &bd);
+  }
   {
     pmc *wire = pmc_new(150, 33);
     dress_jump(t, str, wire, chase);
@@ -1985,7 +2020,7 @@ const map_def map_fair = {
   .name = "Rustwheel Fairgrounds",
   .blurb = "The old park's coaster is the course: loops, corkscrews, a ferris wheel.",
   .scene = "scenes/fair.cwscene",
-  .spec = &(track_spec){ .name = "fair", .pieces = SPEC, .npieces = sizeof SPEC / sizeof SPEC[0], .hw0 = 7.5f, .circuit = true },
+  .spec = MAP_SPEC,
   .mesh = { .wall_h = { 0, 0.9f, 1.6f, 3.2f }, .curb_w = 0.9f, .tile_v = 8.0f, .tunnel_clear = 8.0f },
   .look = { .road = { 0.95f, 0.82f, 0.7f }, .kerb_a = { 0.86f, 0.22f, 0.18f }, .kerb_b = { 0.96f, 0.92f, 0.8f }, .wall = { 0.75f, 1.0f, 0.92f },
             .wall_top = { 0.96f, 0.9f, 0.76f }, .road_tex = TEX_ROAD_WOOD, .wall_tex = TEX_WALL_WOOD, .road_rough = 0.8f },

@@ -1311,7 +1311,8 @@ void sim_step(sim *s, const kin in_raw[MAXK]) {
     const track *t = s->track;
     const tsample *ts = &t->s[k->loc.i];
     bool lost = k->p.y < PH.min_y - 40.0f || (k->loc.dist > ts->hw * 2.5f + 14.0f) ||
-                (k->loc.height < -9.0f && !(ts->flags & TF_GAP));
+                (k->loc.height < -9.0f && !(ts->flags & TF_GAP)) ||
+                (k->loc.br >= 0 && k->loc.height < -4.5f && !(ts->flags & TF_GAP)); /* off a raised branch: gone before it reaches the ground */
     bool flipped = k->grounded == false && k->loc.on_road && v3dot(kart_up(k), ts->u) < -0.35f && !(ts->flags & TF_LOOP) && k->loc.height < 1.3f;
     if (s->phase == PH_RACE && !k->finished && k->respawn_ticks <= 0 && k->spin_ticks <= 0 && absf(k->speed) < 2.5f) k->stall_ticks++;
     else k->stall_ticks = 0;

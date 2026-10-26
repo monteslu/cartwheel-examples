@@ -66,7 +66,29 @@ static const piece SPEC[] = {
   STRAIGHT(40),
   END(),
 };
-#define MAP_SPEC (&(track_spec){ .name = "frost", .pieces = SPEC, .npieces = sizeof SPEC / sizeof SPEC[0], .hw0 = 9, .circuit = true })
+/* The ice chute: a frozen gully straight up through the middle hairpin of the climb. Its bends are packed snow, but
+ * the straight between them is bare ice with a boost strip on it: arrive at the second bend that fast on no grip and
+ * the snow bank stops you; brake on the ice and it is far quicker than the hairpin. */
+static const piece ICECHUTE[] = {
+  SURFACE(SURF_DIRT),
+  MOVE(10, -4, KEEP, 0, KEEP),
+  ATURN(-72, 66),
+  SURFACE(SURF_ICE),
+  ASTRAIGHT(14),
+  BOOST(18),
+  STRAIGHT(18),
+  ASLOPE(24, 5),
+  ASTRAIGHT(14),
+  SURFACE(SURF_DIRT),
+  ATURN(-72, 66),
+  ASTRAIGHT(6),
+  END(),
+};
+static const branch_spec BRANCHES[] = {
+  { .name = "ice chute", .s0 = 512, .lat0 = 4.6f, .s1 = 772, .lat1 = 4.6f, .pieces = ICECHUTE, .npieces = sizeof ICECHUTE / sizeof ICECHUTE[0],
+    .hw0 = 4.2f, .walls_l = 1, .walls_r = 1, .ai_take = { 0.1f, 0.4f, 0.85f } },
+};
+#define MAP_SPEC (&(track_spec){ .name = "frost", .pieces = SPEC, .npieces = sizeof SPEC / sizeof SPEC[0], .hw0 = 9, .circuit = true, .branches = BRANCHES, .nbranches = 1 })
 
 /* ── what the place is made of ─────────────────────────────────────────────────────────────────── */
 
@@ -1434,6 +1456,13 @@ static void build_dressing(cw_node root, const track *t) {
     ps_finish(pc);
   }
   deco_supports(root, t, SUP_ICE, ground_cb, NULL, 0, 2.5f, &st);
+  /* the ice chute: cold blue posts down its banks, ice spikes on the island noses, the sign at its mouth */
+  branch_dress bd = branch_dress_defaults();
+  bd.st = st;
+  bd.st.lamp = rgb(0.4f, 0.9f, 1.0f);
+  bd.lamps = LAMP_GLOW_POST, bd.lamp_spacing = 13;
+  bd.tip = PK_ICE_SPIKES, bd.tip_scale = 0.9f;
+  deco_branches(root, t, &bd);
 }
 
 /* ── the crevasse: a glowing gorge, a rope bridge each side, prayer flags ─────────────────────── */
@@ -2710,7 +2739,7 @@ const map_def map_frost = {
   .name = "Frostbite Pass",
   .blurb = "Ice, ice caves and the aurora: slippery and steep.",
   .scene = "scenes/frost.cwscene",
-  .spec = &(track_spec){ .name = "frost", .pieces = SPEC, .npieces = sizeof SPEC / sizeof SPEC[0], .hw0 = 9, .circuit = true },
+  .spec = MAP_SPEC,
   .mesh = { .wall_h = { 0, 0.9f, 1.6f, 3.2f }, .curb_w = 0.9f, .tile_v = 8.0f, .tunnel_clear = 8.0f },
   .look = { .road = { 0.62f, 0.72f, 0.95f }, .kerb_a = { 0.98f, 0.45f, 0.12f }, .kerb_b = { 0.95f, 0.97f, 1.0f }, .wall = { 0.6f, 0.82f, 1.0f },
             .wall_top = { 0.92f, 0.96f, 1.0f }, .road_tex = TEX_ROAD_DIRT, .wall_tex = TEX_WALL_ICE, .road_rough = 0.75f },

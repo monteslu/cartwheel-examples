@@ -169,9 +169,9 @@ void dress_start_line(cw_node parent, const track *t, const dress_style *in) {
 /* ── checkpoints ─────────────────────────────────────────────────────────────────────────────────── */
 
 /* an arch over the road: posts, an elliptical hoop of tube with a glowing inner ring, pennants */
-static void arch_at(pmc *c, const tsample *a, float height, const dress_style *st, bool pennants) {
-  float hw = a->hw, rx = hw + 1.4f;
-  pm *b = frame_at(c, a, 0, 0);
+static void arch_at(pmc *c, const tsample *a, float height, const dress_style *st, bool pennants, float lat_l, float lat_r) {
+  float rx = (lat_r - lat_l) * 0.5f;
+  pm *b = frame_at(c, a, (lat_l + lat_r) * 0.5f, 0);
   pm_layer(b, PL_METAL);
   pcol steel = st->main;
   const int n = 18;
@@ -214,7 +214,17 @@ void dress_checkpoints(cw_node parent, const track *t, const dress_style *in) {
   for (int i = 1; i < t->nchecks; i++) {
     const tsample *a = &t->s[t->check_at[i]];
     if (a->flags & (TF_TUNNEL | TF_GAP)) continue;
-    arch_at(c, a, fminf(7.0f, 4.5f + a->hw * 0.3f), &st, true);
+    /* a leg that would stand on a branch's mouth steps out past it: the arch spans both roads */
+    float lat[2] = { -(a->hw + 1.4f), a->hw + 1.4f };
+    for (int k = 0; k < 2; k++) {
+      int side = k ? 1 : -1;
+      for (int step = 0; step < 50 && t->nbranch; step++) {
+        t3_vec3 p = vadd(a->p, vmul(a->r, lat[k]));
+        if (branch_gap(t, p.x, p.z) > 1.0f) break;
+        lat[k] += side * 0.5f;
+      }
+    }
+    arch_at(c, a, fminf(7.0f, 4.5f + a->hw * 0.3f), &st, true, lat[0], lat[1]);
   }
   pmc_finish(c, parent, "Checkpoints", true, -1);
 }

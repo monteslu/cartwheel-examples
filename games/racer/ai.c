@@ -178,7 +178,8 @@ kin ai_think(const sim *s, int me, ai_mem *m) {
       float cv = fabsf(wrap_pi(heading_of(b.f) - heading_of(a.f))) / 14.0f;
       bool br = ((a.flags | b.flags) & TF_BRANCH) != 0;
       if (!br && cv > curv) curv = cv;
-      if (cv > 1e-4f) vroute = fminf(vroute, sqrtf((br ? 26.0f : 32.0f) / cv));
+      float g = !br ? 32.0f : ((a.flags | b.flags) & TF_DRIFTY) ? 14.0f : 26.0f; /* bare ice: far less */
+      if (cv > 1e-4f) vroute = fminf(vroute, sqrtf(g / cv));
     }
   }
   float vmax = routed ? vroute : curv > 1e-4f ? sqrtf(32.0f / curv) : 99;
