@@ -594,8 +594,8 @@ static void trace(void) {
     int ti = atoi(getenv("RACER_TRACE_KART")) & 7;
     const kart *k = &G.S.k[ti];
     const ai_mem *m = &G.ai[ti];
-    fprintf(tr, "t%d p=(%.1f %.1f %.1f) spd=%.1f fwd=(%.2f %.2f) aim=(%.1f %.1f %.1f) feel=%.2f/%.2f/%.2f rev=%d slow=%d frust=%d roam=%d box=%d tgt=%d btn=%d spin=%d\n", G.S.tick, k->p.x, k->p.z - 100, k->p.y, k->speed,
-            kart_fwd(k).x, kart_fwd(k).z, m->b_aim.x, m->b_aim.z - 100, m->b_aim.y, m->b_feel[0], m->b_feel[1], m->b_feel[2], m->b_reverse, m->b_slow, m->b_frust, m->b_roam, m->b_box, m->b_target, (int)G.S.k[ti].last_btn, k->spin_ticks);
+    fprintf(tr, "t%d p=(%.1f %.1f %.1f) spd=%.1f fwd=(%.2f %.2f) aim=(%.1f %.1f %.1f) feel=%.2f/%.2f/%.2f rev=%d slow=%d frust=%d roam=%d box=%d tgt=%d btn=%d spin=%d thr=%d\n", G.S.tick, k->p.x, k->p.z - 100, k->p.y, k->speed,
+            kart_fwd(k).x, kart_fwd(k).z, m->b_aim.x, m->b_aim.z - 100, m->b_aim.y, m->b_feel[0], m->b_feel[1], m->b_feel[2], m->b_reverse, m->b_slow, m->b_frust, m->b_roam, m->b_box, m->b_target, (int)G.S.k[ti].last_btn, k->spin_ticks, m->b_thr);
     return;
   }
   if (G.S.tick % 30) return;
@@ -605,7 +605,20 @@ static void trace(void) {
     for (int i = 0; i < MAXK; i++) {
       const kart *k = &G.S.k[i];
       if (!k->on) continue;
-      fprintf(tr, " | %.0f,%.0f,%.0f %.0f b%d p%d i%d%s%s", k->p.x, k->p.z - 100, k->p.y, k->speed, k->balloons, k->points, k->item, G.ai[i].b_reverse ? " R" : "", k->out ? " OUT" : "");
+      /* f= what is going on round it: S spinning, K another kart within 4 m, W a wall within a third of its feeler, G its aim
+       * within 8 m, then its throttle + 0 - */
+      char fl[8] = "", *fp = fl;
+      bool near_k = false;
+      for (int j = 0; j < MAXK; j++)
+        if (j != i && G.S.k[j].on && !G.S.k[j].out && v3len(v3sub(G.S.k[j].p, k->p)) < 4.0f) near_k = true;
+      if (k->spin_ticks > 0) *fp++ = 'S';
+      if (near_k) *fp++ = 'K';
+      if (G.ai[i].b_feel[1] < 0.33f) *fp++ = 'W';
+      if (v3len(v3sub(G.ai[i].b_aim, k->p)) < 8.0f) *fp++ = 'G';
+      *fp++ = G.ai[i].b_thr > 0 ? '+' : G.ai[i].b_thr < 0 ? '-' : '0';
+      *fp = 0;
+      fprintf(tr, " | %.0f,%.0f,%.0f %.0f b%d p%d i%d f=%s%s%s", k->p.x, k->p.z - 100, k->p.y, k->speed, k->balloons, k->points, k->item, fl, G.ai[i].b_reverse ? " R" : "",
+              k->out ? " OUT" : "");
     }
     fprintf(tr, "\n");
     fflush(tr);

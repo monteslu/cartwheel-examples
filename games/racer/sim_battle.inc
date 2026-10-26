@@ -440,7 +440,7 @@ static void battle_kart_after(sim *s, int i) {
   else k->stall_ticks = 0;
   if (flipped) k->stuck_ticks++;
   else if (k->stuck_ticks > 0) k->stuck_ticks--;
-  if (k->respawn_ticks <= 0 && (lost || k->stuck_ticks > 120 || k->stall_ticks > 300 || k->reset_hold > 55)) {
+  if (k->respawn_ticks <= 0 && (lost || k->stuck_ticks > 120 || k->stall_ticks > (k->human ? 300 : 170) || k->reset_hold > 55)) {
     if (lost) event(s, EV_FALL, i, 0, k->p, 0);
     battle_respawn(s, i);
   }
