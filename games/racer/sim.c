@@ -1162,6 +1162,26 @@ void sim_step(sim *s, const kin in_raw[MAXK]) {
       k->v = v3mul(k->v, MAX_SPEED * s->class_top / sp);
       cw_body3d_set_velocity(PH.body[i], k->v);
     }
+    /* a loop or corkscrew is built for the standard class's best (its own top and a boost): faster than that the road cannot hold
+     * the kart, so the speed class does not reach in there */
+    if (k->loc.i >= 0 && (s->track->s[k->loc.i].flags & TF_GAP) && k->grounded == false) {
+      /* in the air over a gap: the jump's landing is built for what the standard class can carry off its ramp */
+      static float gcap = -1;
+      if (gcap < 0) gcap = getenv("RACER_GAPCAP") ? (float)atof(getenv("RACER_GAPCAP")) : 50.0f;
+      if (sp > gcap) {
+        k->v = v3mul(k->v, gcap / sp);
+        cw_body3d_set_velocity(PH.body[i], k->v);
+      }
+    }
+    if (k->loc.i >= 0 && (s->track->s[k->loc.i].flags & TF_LOOP)) {
+      static float capv = -1;
+      if (capv < 0) capv = getenv("RACER_LOOPCAP") ? (float)atof(getenv("RACER_LOOPCAP")) : 40.0f;
+      float cap = capv;
+      if (sp > cap) {
+        k->v = v3mul(k->v, cap / sp);
+        cw_body3d_set_velocity(PH.body[i], k->v);
+      }
+    }
     k->top_speed_seen = maxf(k->top_speed_seen, sp);
     progress(s, i);
     /* falling off, flipped on its roof, or reset by hand */
@@ -1176,6 +1196,7 @@ void sim_step(sim *s, const kin in_raw[MAXK]) {
     else if (k->stuck_ticks > 0) k->stuck_ticks--;
     if (k->respawn_ticks <= 0 && (lost || k->stuck_ticks > 150 || k->stall_ticks > 210 || k->reset_hold > 55) && !k->finished) {
       if (lost) event(s, EV_FALL, i, 0, k->p, 0);
+      if (getenv("RACER_FALLLOG")) cw_info("respawn kart %d s=%.0f spd=%.0f lost=%d (dist %.1f hw %.1f height %.1f) stuck=%d stall=%d reset=%d", i, k->loc.s, k->speed, lost, k->loc.dist, ts->hw, k->loc.height, k->stuck_ticks, k->stall_ticks, k->reset_hold);
       respawn(s, i);
     }
   }
