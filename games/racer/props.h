@@ -332,6 +332,9 @@ typedef struct branch_dress {
   float tip_scale;
   bool chevrons, arrows, sign;
   bool nose;                       /* pave the islands' noses (between the parting roads) in hazard stripes */
+  float sign_size;                 /* the island sign's board (3.2) */
+  bool sign_foot;                  /* the island sign stands on a plinth on the deck (a raised or floating road: no post into the void) */
+  float approach;                  /* a bigger arrow board this many metres before the mouth on its side (70; 0 none) */
 } branch_dress;
 branch_dress branch_dress_defaults(void);
 void deco_branches(cw_node parent, const track *t, const branch_dress *bd);

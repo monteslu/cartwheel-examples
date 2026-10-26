@@ -2237,6 +2237,7 @@ static void orbit_scenery(cw_node scene, const track *t, uint32_t seed) {
   /* signs: warnings and chevrons ahead of each set piece */
   struct { float s; int side, kind; int col; } H[] = {
     { 40, 1, 4, 0 }, { 104, -1, 2, 1 }, { 130, 1, 0, 0 }, { 400, 1, 1, 1 }, { 590, -1, 3, 0 }, { 725, 1, 0, 1 }, { 1330, -1, 1, 0 }, { 1380, 1, 2, 1 },
+    { 925, -1, 0, 1 }, /* the spacewalk this way: on its side, before the hairpin */
     { 1600, 1, 0, 0 }, { 1815, -1, 3, 1 }, { 1940, 1, 0, 0 }, { 2150, -1, 2, 1 }, { 2360, 1, 1, 0 }, { 2800, 1, 4, 1 }, { 2960, -1, 0, 0 },
   };
   for (int i = 0; i < (int)(sizeof H / sizeof H[0]) && !off("holo"); i++) holo_at(root, t, H[i].s, H[i].side, H[i].kind, H[i].col ? K.magenta : K.cyan, 12.0f, 5.2f, 5.0f);
@@ -2274,6 +2275,8 @@ static void orbit_scenery(cw_node scene, const track *t, uint32_t seed) {
   bd.st = ds;
   bd.st.accent = K.yellow, bd.st.lamp = K.cyan, bd.st.seed = 23;
   bd.lamp_spacing = 0; /* posts would stand in space: the edge strips light it */
+  bd.sign_foot = true;  /* the sign stands on a plinth on the island deck, not on a post into space */
+  bd.approach = 0;      /* the holo signs do the approach */
   bd.tip = PK_BOLLARD;
   deco_branches(root, t, &bd);
 }

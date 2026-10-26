@@ -686,17 +686,19 @@ void deco_corner_arrows(cw_node parent, const track *t, float min_curv, const dr
 }
 
 /* a sign face: kind SIGN_*; local frame: x right across the board, y up, board faces +z, post below y = 0 */
-static void sign_model(pm *b, int kind, float sz, const dress_style *st) {
+static void sign_model(pm *b, int kind, float sz, const dress_style *st, float post) {
   pcol blk = rgb(0.05f, 0.05f, 0.06f), yel = st->accent, white = rgb(0.95f, 0.95f, 0.92f);
   pm_layer(b, PL_METAL);
-  pm_beam(b, V(0, -2.6f, 0), V(0, sz * 0.5f, -0.1f), 0.12f, rgb(0.35f, 0.36f, 0.4f));
+  pm_beam(b, V(0, -post, 0), V(0, sz * 0.5f, -0.1f), 0.12f, rgb(0.35f, 0.36f, 0.4f));
   pm_layer(b, PL_MAIN);
   float h = sz * 0.5f;
   bool wide = kind == SIGN_CHEVRON_L || kind == SIGN_CHEVRON_R;
   float w = wide ? sz * 0.9f : sz * 0.5f;
   pm_push(b);
   pm_move(b, 0, sz * 0.5f, 0);
-  pm_box_c(b, w * 2, h * 2, 0.12f, (kind == SIGN_WARN) ? yel : blk);
+  /* a galvanised board (its back reads as grey plate from behind, not a black hole) with the face painted on */
+  pm_box_c(b, w * 2, h * 2, 0.12f, (kind == SIGN_WARN) ? yel : rgb(0.52f, 0.54f, 0.58f));
+  if (kind != SIGN_WARN) pm_quad(b, V(-w, -h, 0.062f), V(w, -h, 0.062f), V(w, h, 0.062f), V(-w, h, 0.062f), blk);
   float z = 0.065f, d = 1.0f;
   /* drawn once for the right-hand versions; the left-hand ones mirror the symbol (the board itself is symmetric) */
   if (kind == SIGN_ARROW_L || kind == SIGN_CHEVRON_L) pm_scale(b, -1, 1, 1);
@@ -752,7 +754,7 @@ void deco_sign(cw_node parent, const track *t, float s, int side, int kind, cons
   t3_vec3 right = V(face.z, 0, -face.x);
   pm_basis(b, V(p.x, p.y, p.z), right, V(0, 1, 0), face);
   pm_move(b, 0, 2.6f - 0.7f, 0);
-  sign_model(b, kind, 2.6f, &st);
+  sign_model(b, kind, 2.6f, &st, 2.6f);
   pm_pop(b);
   pmc_finish(c, parent, "Sign", true, -1);
 }
@@ -784,7 +786,7 @@ int deco_corner_signs(cw_node parent, const track *t, float min_curv, const dres
       t3_vec3 right = V(face.z, 0, -face.x);
       pm_basis(b, p, right, V(0, 1, 0), face);
       pm_move(b, 0, 2.2f - 0.7f, 0);
-      sign_model(b, k == 0 ? SIGN_WARN : (dir[i] > 0 ? SIGN_CHEVRON_L : SIGN_CHEVRON_R), 2.5f, &st);
+      sign_model(b, k == 0 ? SIGN_WARN : (dir[i] > 0 ? SIGN_CHEVRON_L : SIGN_CHEVRON_R), 2.5f, &st, 2.6f);
       pm_pop(b);
       made++;
     }
@@ -852,6 +854,8 @@ branch_dress branch_dress_defaults(void) {
   d.arrows = true;
   d.sign = true;
   d.nose = true;
+  d.sign_size = 3.2f;
+  d.approach = 70;
   return d;
 }
 
@@ -891,6 +895,26 @@ void deco_branches(cw_node parent, const track *t, const branch_dress *in) {
     if (bd.chevrons) deco_corner_signs(parent, &v, 0.012f, &st);
     if (bd.arrows) deco_corner_arrows(parent, &v, 0.012f, &st);
     if (v.ngaps) deco_jump_marks(parent, &v, &st);
+    /* on the approach, well before the mouth: a big arrow board on the branch's side, seen from far up the road */
+    if (bd.approach > 0) {
+      float sa = B->s0 - bd.approach;
+      tsample a = track_at(t, sa);
+      float lat = (float)B->side * (a.hw + 2.4f + (a.walls ? 0.8f : 0.0f));
+      t3_vec3 p = track_point(t, sa, lat, 0);
+      if (!(a.flags & (TF_GAP | TF_LOOP | TF_TUNNEL)) && !keep_clear(t, &a, B->side, p, 1.5f)) {
+        float sz = bd.sign_size > 0 ? bd.sign_size * 1.25f : 3.4f;
+        pm *s = pmc_at(c, p);
+        pm_push(s);
+        t3_vec3 fw = vnorm(V(-a.f.x, 0, -a.f.z)), r = V(a.r.x, 0, a.r.z);
+        float tw = -(float)B->side * 0.3f;
+        t3_vec3 face = vnorm(V(fw.x + r.x * tw, 0, fw.z + r.z * tw)), right = V(face.z, 0, -face.x);
+        pm_basis(s, p, right, V(0, 1, 0), face);
+        float lift = 1.9f + (sz - 2.6f) * 0.5f;
+        pm_move(s, 0, lift, 0);
+        sign_model(s, B->side < 0 ? SIGN_ARROW_L : SIGN_ARROW_R, sz, &st, lift + 0.7f);
+        pm_pop(s);
+      }
+    }
     /* on the main road before the mouth: an arrow in the lane that leads in, bending its way */
     if (bd.arrows) {
       tsample m = track_at(t, B->s0 - 26.0f);
@@ -936,12 +960,23 @@ void deco_branches(cw_node parent, const track *t, const branch_dress *in) {
       const tsample *q = &t->s[i];
       t3_vec3 f = vnorm(V(q->f.x, 0, q->f.z));
       if (end == 0 && bd.sign) {
+        float sz = bd.sign_size > 0 ? bd.sign_size : 2.6f, lift = 1.9f + (sz - 2.6f) * 0.3f;
         pm *s = pmc_at(c, tip);
         pm_push(s);
         t3_vec3 face = V(-f.x, 0, -f.z), right = V(face.z, 0, -face.x);
         pm_basis(s, V(tip.x, tip.y, tip.z), right, V(0, 1, 0), face);
-        pm_move(s, 0, 2.6f - 0.7f, 0);
-        sign_model(s, B->side < 0 ? SIGN_ARROW_L : SIGN_ARROW_R, 2.6f, &st);
+        if (bd.sign_foot) {
+          /* standing on the island's deck: a squat plinth, the post stops on it */
+          pm_layer(s, PL_METAL);
+          pm_box(s, 1.3f, 0.45f, 1.3f, dk(st.main, 0.6f), st.main);
+          pm_layer(s, PL_GLOW);
+          pm_push(s);
+          pm_move(s, 0, 0.47f, 0);
+          pm_box(s, 1.1f, 0.06f, 1.1f, glow(st.accent, 2.0f), glow(st.accent, 2.0f));
+          pm_pop(s);
+        }
+        pm_move(s, 0, lift, 0);
+        sign_model(s, B->side < 0 ? SIGN_ARROW_L : SIGN_ARROW_R, sz, &st, bd.sign_foot ? lift - 0.4f : lift + 0.7f);
         pm_pop(s);
       }
       /* a short row of markers along the nose of the island, from its tip back between the two roads */

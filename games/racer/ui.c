@@ -636,8 +636,8 @@ static void mm_draw(const mmap_t *m, cw_rect r, float pad, float s, float width,
   for (int b = 0; b < m->nbr; b++) {
     cw_vec2 bp[40];
     for (int i = 0; i < m->nbp[b]; i++) bp[i] = mm_pt(&f, m->bx[b][i], m->bz[b][i]);
-    cw_r2d_polyline(bp, m->nbp[b], width * 0.75f + 3 * s, false, rgba(0.02f, 0.02f, 0.03f, 0.85f));
-    cw_r2d_polyline(bp, m->nbp[b], width * 0.7f, false, rgba(0.62f, 0.95f, 0.55f, 0.95f));
+    cw_r2d_polyline(bp, m->nbp[b], width + 4 * s, false, rgba(0.02f, 0.02f, 0.03f, 0.85f));
+    cw_r2d_polyline(bp, m->nbp[b], width * 0.9f, false, rgba(0.55f, 1.0f, 0.5f, 1.0f));
   }
   for (int i = 0; i < m->n; i++) pts[i] = mm_pt(&f, m->x[i], m->z[i]);
   cw_r2d_polyline(pts, m->n, width + 4 * s, true, rgba(0.02f, 0.02f, 0.03f, 0.9f));

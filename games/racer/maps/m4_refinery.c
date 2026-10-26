@@ -68,7 +68,7 @@ static const piece SPEC[] = {
   SLOPE(36, 20),
   SLOPE(22, 20),
   JUMP(0, 30),
-  SLOPE(80, 0),
+  SLOPE(125, 0), /* a long landing: a kart that hits the ramp boosted flies far */
   ITEMS(),
   ASTRAIGHT(40),
   ABANKED(180, 340, 20),
@@ -2218,6 +2218,8 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
     bd.st = st;
     bd.lamps = LAMP_GLOW_POST, bd.lamp_spacing = 14;
     bd.tip = PK_BARREL, bd.tip_scale = 1.1f;
+    bd.sign_size = 6.5f; /* first seen from the tunnel mouth: an overhead-sized board over the island */
+    bd.approach = 0;     /* the approach is in the tunnel */
     deco_branches(R.root, t, &bd);
   }
   start_stack();

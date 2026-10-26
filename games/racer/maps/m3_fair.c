@@ -1888,6 +1888,8 @@ static void fair_scenery(cw_node scene, const track *t, uint32_t seed) {
     bd.st = st;
     bd.lamp_spacing = 0;
     bd.tip = PK_HAY, bd.tip_scale = 1.2f;
+    bd.sign_size = 4.0f;
+    bd.approach = 32; /* after the corkscrew, before the checkpoint arch that hides the mouth */
     deco_branches(root, t, &bd);
   }
   {
