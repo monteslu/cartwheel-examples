@@ -570,6 +570,8 @@ static void fixed(void *u, double dt) {
     fx_events(&G.S);
     fx_tick(&G.S);
     audio_events(&G.S);
+    rumble_events(&G.S);
+    rumble_tick(&G.S);
     t3_vec3 eyes[CW_MAX_VIEWS];
     for (int v = 0; v < G.nviews; v++) eyes[v] = cw_node_valid(G.rig[v].cam) ? cw_node3d_global_position(G.rig[v].cam) : G.rig[v].cam_eye;
     audio_tick(&G.S, eyes, G.nviews);

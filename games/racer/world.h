@@ -77,6 +77,10 @@ cw_node fx_ambient_at(cw_node scene, int kind, t3_vec3 at, t3_vec3 extents, floa
 void audio_init(void);
 void audio_race_start(const sim *s, const map_def *map);
 void audio_race_stop(void);
+void rumble_events(const sim *s);     /* fixed tick: pad rumble for this tick's sim events (needs the engine's cw_input_rumble; else nothing) */
+void rumble_tick(const sim *s);       /* fixed tick: the rumbles that last (boost, drift, rough road) */
+void rumble_set_enabled(bool on);
+bool rumble_enabled(void);
 void audio_events(const sim *s);     /* fixed tick: this tick's sim events */
 void audio_tick(const sim *s, const t3_vec3 *eye, int neyes); /* fixed tick: engines follow the karts; one listener per view */
 void audio_ui(int sfx);              /* a menu sound: AUI_* */
