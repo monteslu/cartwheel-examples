@@ -1210,6 +1210,96 @@ static void tunnel_lights(int ti, float spacing, float base, uint32_t colour) {
   (void)t;
 }
 
+/* ── the shortcut signposted inside the tunnel ─────────────────────────────────────────────────────────────
+ * The run-in to the pipe-yard fork is all tunnel, so the motorway way: lit gantry boards hung from the roof over the
+ * lane that leads to it (an arrow bending off toward its side and SHORTCUT in block letters), one well back and one at
+ * the exit, and arrows on the floor drawing that lane across. All render only: the boards hang at 3.8 m and more, far
+ * above any kart, and nothing here is in the physics. */
+
+/* 3 x 5 block letters, rows top first, bit 2 the left column */
+static const uint8_t GLYPH[][5] = {
+  ['S' - 'A'] = { 7, 4, 7, 1, 7 }, ['H' - 'A'] = { 5, 5, 7, 5, 5 }, ['O' - 'A'] = { 7, 5, 5, 5, 7 }, ['R' - 'A'] = { 6, 5, 6, 5, 5 },
+  ['T' - 'A'] = { 7, 2, 2, 2, 2 }, ['C' - 'A'] = { 7, 4, 4, 4, 7 }, ['U' - 'A'] = { 5, 5, 5, 5, 7 },
+};
+
+/* a lit quad on a board facing -z (back down the road), both windings */
+static void face_quad(pm *b, float x0, float y0, float x1, float y1, float z, pcol c) {
+  pm_quad(b, V3(x0, y0, z), V3(x1, y0, z), V3(x1, y1, z), V3(x0, y1, z), c);
+  pm_quad(b, V3(x1, y0, z), V3(x0, y0, z), V3(x0, y1, z), V3(x1, y1, z), c);
+}
+
+/* a gantry board in the frame of road sample q, centred `lat` across, hung from the tunnel roof (roof: the arch) */
+static void fork_board(pmc *c, const tsample *q, float lat, int side, bool roof) {
+  const float W = 7.0f, H = 2.3f, y0 = 3.8f;
+  pm *b = frame_pm(c, q, lat, 0);
+  pcol board = rgb(0.03f, 0.22f, 0.12f), white = glow(rgb(1.0f, 1.0f, 0.95f), 2.6f), amber = glow(HAZARD, 3.2f);
+  /* the hangers: two rods up to the roof (or a portal beam) */
+  pm_layer(b, PL_METAL);
+  for (int k = -1; k <= 1; k += 2) {
+    float x = (float)k * W * 0.32f, la = lat + x, hw = q->hw;
+    float top = roof ? 1.6f + 6.4f * sqrtf(fmaxf(0.0f, 1.0f - (la / hw) * (la / hw))) : y0 + H + 1.2f;
+    pm_beam(b, V3(x, y0 + H, 0), V3(x, top + 0.2f, 0), 0.14f, STEEL_D);
+  }
+  /* the board, a lit rim, an arrow that bends off toward the shortcut's side, the word */
+  pm_layer(b, PL_MAIN);
+  pm_push(b), pm_move(b, 0, y0 + H * 0.5f, 0), pm_box_c(b, W, H, 0.2f, board), pm_pop(b);
+  pm_layer(b, PL_GLOW);
+  float z = -0.12f, l = -W * 0.5f, r = W * 0.5f, bo = y0, tp = y0 + H, e = 0.09f;
+  face_quad(b, l, tp - e, r, tp, z, white), face_quad(b, l, bo, r, bo + e, z, white);
+  face_quad(b, l, bo, l + e, tp, z, white), face_quad(b, r - e, bo, r, tp, z, white);
+  /* the arrow on the shortcut's end of the board: a shaft up, then a head leaning off to that side */
+  float s = (float)side, ax = s * (W * 0.5f - 0.95f);
+  face_quad(b, ax - 0.2f, bo + 0.22f, ax + 0.2f, bo + 1.15f, z, amber);
+  /* the head leans off toward the side: a wide triangle tipped over */
+  t3_vec3 tip = V3(ax + s * 0.6f, bo + 2.1f, z), h0 = V3(ax - 0.62f + s * 0.05f, bo + 1.0f, z), h1 = V3(ax + 0.62f + s * 0.4f, bo + 1.3f, z);
+  pm_tri(b, h0, h1, tip, amber), pm_tri(b, h1, h0, tip, amber);
+  /* SHORTCUT, block letters, read from the road: the board's local x runs to the road's right, so the word starts
+   * at its left as seen by an oncoming driver (who looks along +z: his left is -x) */
+  const char *word = "SHORTCUT";
+  float px = 0.13f, gw = 4 * px, x0 = (side < 0 ? l + 1.95f : l + 0.4f), yb = bo + (H - 5 * px) * 0.5f;
+  for (int ci = 0; word[ci]; ci++) {
+    const uint8_t *g = GLYPH[word[ci] - 'A'];
+    for (int row = 0; row < 5; row++)
+      for (int col = 0; col < 3; col++)
+        if (g[row] & (4 >> col)) {
+          float gx = x0 + (float)ci * gw + (float)col * px, gy = yb + (float)(4 - row) * px;
+          face_quad(b, gx, gy, gx + px * 0.92f, gy + px * 0.92f, z, white);
+        }
+  }
+  pm_pop(b);
+}
+
+static void fork_signs(void) {
+  const track *t = R.t;
+  if (!t->nbranch || R.ntun < 1) return;
+  const track_branch *B = &t->br[0];
+  int side = B->side;
+  pmc *c = pmc_new(60, 777u);
+  float lane = (float)side * 4.4f; /* the lane the branch leaves from */
+  float tun_end = (float)R.tun[0][1];
+  float at[2] = { B->s0 - 100.0f, fminf(B->s0 - 30.0f, tun_end - 8.0f) };
+  for (int k = 0; k < 2; k++) {
+    tsample q = track_at(t, at[k]);
+    if (q.flags & (TF_GAP | TF_LOOP)) continue;
+    fork_board(c, &q, lane, side, (q.flags & TF_TUNNEL) != 0);
+  }
+  /* floor arrows down the lane: straight, then leaning toward the mouth */
+  for (float s = B->s0 - 130.0f; s < B->s0 - 8.0f; s += 22.0f) {
+    tsample q = track_at(t, s);
+    if (q.flags & (TF_GAP | TF_LOOP)) continue;
+    float lean = s > B->s0 - 50.0f ? 0.45f : 0.0f;
+    pm *b = frame_pm(c, &q, lane, 0.05f);
+    pm_layer(b, PL_GLOW);
+    pcol col = glow(HAZARD, 1.4f);
+    /* the shaft along +z (the road's forward), the head ahead of it, leaning by `lean` toward the side */
+    float sx = (float)side * lean;
+    pm_quad(b, V3(-0.28f, 0, -3.0f), V3(-0.28f + sx, 0, 1.0f), V3(0.28f + sx, 0, 1.0f), V3(0.28f, 0, -3.0f), col);
+    pm_tri(b, V3(-1.0f + sx, 0, 1.0f), V3(sx * 2.2f, 0, 3.4f), V3(1.0f + sx, 0, 1.0f), col);
+    pm_pop(b);
+  }
+  pmc_finish(c, R.root, "ForkSigns", false, -1);
+}
+
 /* the first tunnel runs through a bank of storage tanks: spheres and drums stand shoulder to shoulder either side,
  * pipe bridges with drums on them cross over the roof, steam rises through them; inside, furnace slits glow */
 static void tunnel_tanks(int ti) {
@@ -2231,6 +2321,7 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
   lamp_new(road_pt(6, 0, 10.0f), 0xffb070, 420.0f, 70.0f, 1, 150.0f);
   for (int g2 = 0; g2 < R.ngap; g2++) pit_build(g2);
   if (R.ntun > 0) tunnel_tanks(0), tunnel_lights(0, NV > 1 ? 40.0f : 26.0f, 90.0f, 0xff9a50);
+  fork_signs();
   if (R.ntun > 1) tunnel_pipes(1), tunnel_lights(1, NV > 1 ? 38.0f : 25.0f, 90.0f, 0xff7040);
   slag_river();
   lightning_tower();
