@@ -244,9 +244,9 @@ void ghost_gfx_build(cw_node parent) {
     if (!m) continue;
     m->color = tint;
     m->emissive = tint;
-    m->emissive_intensity = i == S_DARK ? 0.25f : 0.55f;
+    m->emissive_intensity = i == S_DARK ? 0.45f : 1.1f;
     m->transparent = true;
-    m->opacity = i == S_DARK ? 0.55f : 0.42f;
+    m->opacity = i == S_DARK ? 0.62f : 0.55f;
     m->depth_write = true;
     m->clearcoat = 0;
     m->metalness = 0;
