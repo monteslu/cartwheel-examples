@@ -5011,7 +5011,7 @@
   {
     "name": "racer-drowned",
     "app": "racer",
-    "frames": 3000,
+    "frames": 2900,
     "startCmds": [
       "race 1 0 1"
     ],

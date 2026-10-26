@@ -725,6 +725,8 @@ static void init(void *u) {
   cw_debug_field("karts.tricks", G.tricks, CW_DBG_I32, MAXK);
   cw_debug_field("render.draws", &G.draws, CW_DBG_I32, 1);
   cw_debug_field("render.tris", &G.tris, CW_DBG_I32, 1);
+  cw_debug_f32_array("cam.eye", (float *)&G.rig[0].cam_eye, 3);
+  cw_debug_f32_array("cam.at", (float *)&G.rig[0].cam_at, 3);
   cw_debug_field("karts.hits", G.hits, CW_DBG_I32, MAXK);
   cw_debug_field("karts.top_speed", G.spd_max, CW_DBG_I32, MAXK);
   cw_debug_field("karts.finished", G.finished, CW_DBG_I32, MAXK);
