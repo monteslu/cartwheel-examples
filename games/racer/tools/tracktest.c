@@ -81,8 +81,9 @@ int main(int argc, char **argv) {
     int join = 0;
     for (int i = B->first; i < B->first + B->n; i++) join += (t.s[i].flags & TF_JOIN) != 0;
     printf("branch %d: %.0f m for %.0f m of road (s %.0f..%.0f) side %d, %d samples overlap the road, %d jumps\n", b, B->length, B->span, B->s0, B->s1, B->side, join, B->ngaps);
-    for (int k = 0; k <= 8; k++) {
-      const tsample *a = &t.s[B->first + (B->n - 1) * k / 8];
+    int steps = getenv("TRACKTEST_BRANCH") ? (B->n - 1) / 5 : 8;
+    for (int k = 0; k <= steps; k++) {
+      const tsample *a = &t.s[B->first + (B->n - 1) * k / steps];
       printf("  at %.0f m: (%.1f, %.1f, %.1f) heading %.0f hw %.1f flags %x\n", a->s, a->p.x, a->p.y, a->p.z, atan2f(a->f.x, a->f.z) * 57.2958f, a->hw, a->flags);
     }
     for (int g = 0; g < B->ngaps; g++) {

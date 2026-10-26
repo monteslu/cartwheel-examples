@@ -633,6 +633,8 @@ track track_branch_view(const track *t, int b) {
   v.nall = B->n;
   v.length = B->length;
   v.circuit = false;
+  v.ngaps = B->ngaps; /* its jumps in its own indices (for markings) */
+  for (int g = 0; g < B->ngaps; g++) v.gap_from[g] = B->gap_from[g] - B->first, v.gap_to[g] = B->gap_to[g] - B->first;
   return v;
 }
 
@@ -846,17 +848,19 @@ static bool build_branch(track *t, const branch_spec *bs) {
     while (a + 1 < B->n && (S[a + 1].flags & TF_JOIN)) a++;
     while (b - 1 > a && (S[b - 1].flags & TF_JOIN)) b--;
     t3_vec3 oa = a >= 0 ? ofs[a] : v3_(0, 0, 0), ob = b < B->n ? ofs[b] : v3_(0, 0, 0);
-    /* the height shift leaves each overlap at the slope it had there (a cubic over the free length), so the road bends
-     * gently out of the main road's lean instead of kinking */
+    /* the height shift leaves each overlap at the slope it had there and lets that slope die away over 60 m, so the
+     * road bends gently out of the main road's lean instead of kinking */
     float da = 0, db = 0;
     if (a >= 3) da = (ofs[a].y - ofs[a - 3].y) / fmaxf(S[a].s - S[a - 3].s, 0.5f);
     if (b + 3 < B->n) db = (ofs[b + 3].y - ofs[b].y) / fmaxf(S[b + 3].s - S[b].s, 0.5f);
     float s_a = a >= 0 ? S[a].s : 0, s_b = b < B->n ? S[b].s : B->length, L = fmaxf(s_b - s_a, 1.0f);
+    const float Lk = fminf(60.0f, L * 0.5f);
     for (int i = a + 1; i < b; i++) {
       float x = (S[i].s - s_a) / L, k = smooth(x);
       t3_vec3 o = add(mul(oa, 1 - k), mul(ob, k));
-      float x2 = x * x, x3 = x2 * x;
-      o.y = (2 * x3 - 3 * x2 + 1) * oa.y + (x3 - 2 * x2 + x) * L * da + (-2 * x3 + 3 * x2) * ob.y + (x3 - x2) * L * db;
+      float xa = S[i].s - s_a, xb = s_b - S[i].s;
+      if (xa < Lk) o.y += da * xa * (1 - xa / Lk) * (1 - xa / Lk);
+      if (xb < Lk) o.y -= db * xb * (1 - xb / Lk) * (1 - xb / Lk);
       S[i].p = add(S[i].p, o);
     }
     const float span = 25.0f;

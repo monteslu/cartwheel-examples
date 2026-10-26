@@ -66,6 +66,7 @@ static const piece SPEC[] = {
   STRAIGHT(40),
   END(),
 };
+#define MAP_SPEC (&(track_spec){ .name = "frost", .pieces = SPEC, .npieces = sizeof SPEC / sizeof SPEC[0], .hw0 = 9, .circuit = true })
 
 /* ── what the place is made of ─────────────────────────────────────────────────────────────────── */
 

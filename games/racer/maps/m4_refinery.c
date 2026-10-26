@@ -79,7 +79,30 @@ static const piece SPEC[] = {
   END(),
 };
 
-#define MAP_SPEC (&(track_spec){ .name = "refinery", .pieces = SPEC, .npieces = sizeof SPEC / sizeof SPEC[0], .hw0 = 9, .circuit = true })
+/* The pipe-yard jump: a haul road across the mouth of the first dirt hairpin. A boost strip, a dirt ramp and a jump
+ * over the sludge pit between two pipe racks, then a tight bend back. It saves a lot, but only at speed: hit the ramp
+ * slow and the kart drops into the pit. */
+static const piece PIPEYARD[] = {
+  SURFACE(SURF_DIRT),
+  MOVE(12, 6, KEEP, 0, KEEP),
+  ATURN(82, 70),
+  ASTRAIGHT(6),
+  BOOST(24),
+  STRAIGHT(20),
+  SLOPE(22, 13),
+  SLOPE(12, 13),
+  JUMP(0, 27),
+  ASLOPE(40, -3),
+  SLOPE(12, 0),
+  ATURN(82, 70),
+  ASTRAIGHT(6),
+  END(),
+};
+static const branch_spec BRANCHES[] = {
+  { .name = "pipe yard", .s0 = 748, .lat0 = -4.4f, .s1 = 1074, .lat1 = -4.4f, .pieces = PIPEYARD, .npieces = sizeof PIPEYARD / sizeof PIPEYARD[0],
+    .hw0 = 4.6f, .walls_l = 1, .walls_r = 1, .ai_speed = 26.0f, .ai_take = { 0.1f, 0.45f, 0.85f } },
+};
+#define MAP_SPEC (&(track_spec){ .name = "refinery", .pieces = SPEC, .npieces = sizeof SPEC / sizeof SPEC[0], .hw0 = 9, .circuit = true, .branches = BRANCHES, .nbranches = 1 })
 
 /* ── helpers ─────────────────────────────────────────────────────────────────────────────────────── */
 
@@ -165,7 +188,7 @@ static struct {
   t3_vec3 kp[MAXK];
   /* set pieces */
   int tun[4][2], ntun;               /* sample ranges of the tunnels */
-  int gap[MAXGAP][2], ngap;
+  int gap[MAXGAP][2], ngap, nmain; /* nmain: the main road's own (the rest are the branches') */
   t3_vec3 pit_c[MAXGAP];
   t3_vec3 pit_f[MAXGAP], pit_r[MAXGAP];
   float pit_floor[MAXGAP], pit_hl[MAXGAP], pit_hw[MAXGAP];
@@ -1768,7 +1791,7 @@ static void horizon_glow(void) {
 
 static void landing_targets(void) {
   const track *t = R.t;
-  for (int g = 0; g < R.ngap; g++) {
+  for (int g = 0; g < R.nmain; g++) {
     float s0 = (float)R.gap[g][1] + 16.0f;
     mb m = { 0 };
     pcol cc = hot(2.4f, 0.9f, 0.12f);
@@ -2146,6 +2169,20 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
     R.pit_floor[g2] = -9.0f;
     R.ngap++;
   }
+  /* the pipe-yard jump (the branch's gap) clears a lava pit of its own; the main road's set pieces (signs, landing
+   * targets) are for its own jumps only */
+  R.nmain = R.ngap;
+  for (int b = 0; b < t->nbranch; b++)
+    for (int g2 = 0; g2 < t->br[b].ngaps && R.ngap < MAXGAP; g2++) {
+      int a = t->br[b].gap_from[g2], e = t->br[b].gap_to[g2];
+      const tsample *c = &t->s[(a + e) / 2];
+      R.gap[R.ngap][0] = a, R.gap[R.ngap][1] = e;
+      R.pit_c[R.ngap] = c->p;
+      R.pit_f[R.ngap] = v3norm(V3(c->f.x, 0, c->f.z)), R.pit_r[R.ngap] = v3norm(V3(c->r.x, 0, c->r.z));
+      R.pit_hl[R.ngap] = (float)(e - a) * 0.5f + 3.0f, R.pit_hw[R.ngap] = c->hw + 6.0f;
+      R.pit_floor[R.ngap] = -9.0f;
+      R.ngap++;
+    }
   cw_info("refinery: %d tunnels, %d gaps", R.ntun, R.ngap);
   for (int i = 0; i < R.ntun; i++) cw_info("refinery: tunnel %d..%d", R.tun[i][0], R.tun[i][1]);
   for (int i = 0; i < R.ngap; i++) cw_info("refinery: gap %d..%d", R.gap[i][0], R.gap[i][1]);
@@ -2176,10 +2213,16 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
     if (NV == 1) deco_lights(R.root, t, 60, LAMP_GLOW_POST, 0, 0, &st);
     deco_corner_arrows(R.root, t, 0.012f, &st);
     deco_corner_signs(R.root, t, 0.012f, &st);
+    /* the pipe-yard jump: the lane arrow and the sign at its mouth, glow posts down its sides, drums on the islands */
+    branch_dress bd = branch_dress_defaults();
+    bd.st = st;
+    bd.lamps = LAMP_GLOW_POST, bd.lamp_spacing = 14;
+    bd.tip = PK_BARREL, bd.tip_scale = 1.1f;
+    deco_branches(R.root, t, &bd);
   }
   start_stack();
   for (int i = 0; i < R.ntun; i++) deco_sign(R.root, t, (float)R.tun[i][0] - 50.0f, i & 1 ? 1 : -1, SIGN_WARN, &st);
-  for (int g2 = 0; g2 < R.ngap; g2++) {
+  for (int g2 = 0; g2 < R.nmain; g2++) {
     deco_sign(R.root, t, (float)R.gap[g2][0] - 85.0f, -1, SIGN_WARN, &st);
     deco_sign(R.root, t, (float)R.gap[g2][0] - 85.0f, 1, SIGN_WARN, &st);
   }

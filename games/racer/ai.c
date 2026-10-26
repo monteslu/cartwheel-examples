@@ -111,6 +111,8 @@ kin ai_think(const sim *s, int me, ai_mem *m) {
   bool on_branch = k->loc.br >= 0;
   float rbs = 0;
   int rb = next_mouth(s, k, m, 200.0f, &rbs), mouth = rbs > -90.0f ? rb : -1;
+  /* a branch is narrow and its bends tight: a shorter look ahead holds its line instead of cutting across */
+  if (on_branch || (mouth >= 0 && rbs > -25.0f)) look = 6.5f + clampf(spd, 0, 60) * 0.36f;
   /* the line: a lane that drifts, pulled off the walls, away from the kart it is about to hit */
   m->lane_ticks--;
   if (m->lane_ticks <= 0) {

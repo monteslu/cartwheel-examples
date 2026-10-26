@@ -880,6 +880,7 @@ void deco_branches(cw_node parent, const track *t, const branch_dress *in) {
     if (bd.lamp_spacing > 0) deco_lights(parent, &v, bd.lamp_spacing, bd.lamps, 0, 0, &st);
     if (bd.chevrons) deco_corner_signs(parent, &v, 0.012f, &st);
     if (bd.arrows) deco_corner_arrows(parent, &v, 0.012f, &st);
+    if (v.ngaps) deco_jump_marks(parent, &v, &st);
     /* on the main road before the mouth: an arrow in the lane that leads in, bending its way */
     if (bd.arrows) {
       tsample m = track_at(t, B->s0 - 26.0f);

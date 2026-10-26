@@ -555,6 +555,20 @@ static void trace(void) {
     tr_checked = true;
     if (getenv("RACER_TRACE")) tr = fopen(getenv("RACER_TRACE"), "w");
   }
+  {
+    /* dev aid: RACER_SPLIT=a:b logs each kart's time from progress a to progress b (metres; a shortcut's worth) */
+    static float sa = -1, sb = -1, last[MAXK];
+    static int t0[MAXK];
+    if (sa < 0 && getenv("RACER_SPLIT")) sscanf(getenv("RACER_SPLIT"), "%f:%f", &sa, &sb);
+    if (sa >= 0)
+      for (int i = 0; i < MAXK; i++) {
+        const kart *k = &G.S.k[i];
+        if (!k->on) continue;
+        if (last[i] < sa && k->prog >= sa) t0[i] = G.S.tick;
+        if (last[i] < sb && k->prog >= sb && t0[i]) cw_info("split kart %d: %.2f s (shortcuts %d)", i, (float)(G.S.tick - t0[i]) / TICK_HZ, k->cuts), t0[i] = 0;
+        last[i] = k->prog;
+      }
+  }
   if (!tr) return;
   const char *tk = getenv("RACER_TRACE_KART");
   if (tk && !G.S.battle) {
