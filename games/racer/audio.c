@@ -10,6 +10,7 @@
  *   amb      tyre noise by surface, squeal, wind, water: only for the followed karts
  *   sfx      the one-shots (events); 3D when they happen to someone else
  *   ui       menu sounds, never ducked
+ *   voice    the announcer (announcer.c): one line at a time; the music, engines and ambience duck under it
  *   tunnel   a reverb that engines, ambience and sfx send into while a view is inside a tunnel
  * Split screen: each view has a listener (the camera's place, the followed kart's heading); a followed kart's own
  * sounds are 2D and panned toward its view's side of the screen so four players stay apart. */
@@ -151,11 +152,11 @@ static const float BUS_BASE[B_COUNT] = { [B_MUSIC] = 0.55f, [B_TUNNEL] = 1.0f, [
 static void apply_volumes(void) {
   if (!A.on) return;
   float quiet = A.paused ? 0.0f : 1.0f;
-  float mduck = 1.0f - 0.35f * A.duck;
+  float vd = announcer_duck(), mduck = (1.0f - 0.35f * A.duck) * (1.0f - 0.6f * vd);
   cw_bus_set_volume(A.bus[B_MUSIC], BUS_BASE[B_MUSIC] * A.user[0] * mduck * (A.paused && A.mus.track > 0 && A.mus.track < 9 ? 0.6f : 1.0f));
-  cw_bus_set_volume(A.bus[B_SFX], BUS_BASE[B_SFX] * A.user[1]);
-  cw_bus_set_volume(A.bus[B_ENG], BUS_BASE[B_ENG] * A.user[1] * (1.0f - 0.5f * A.duck) * quiet);
-  cw_bus_set_volume(A.bus[B_AMB], BUS_BASE[B_AMB] * A.user[1] * (1.0f - 0.4f * A.duck) * quiet);
+  cw_bus_set_volume(A.bus[B_SFX], BUS_BASE[B_SFX] * A.user[1] * (1.0f - 0.25f * vd));
+  cw_bus_set_volume(A.bus[B_ENG], BUS_BASE[B_ENG] * A.user[1] * (1.0f - 0.5f * A.duck) * (1.0f - 0.5f * vd) * quiet);
+  cw_bus_set_volume(A.bus[B_AMB], BUS_BASE[B_AMB] * A.user[1] * (1.0f - 0.4f * A.duck) * (1.0f - 0.5f * vd) * quiet);
   cw_bus_set_volume(A.bus[B_UI], BUS_BASE[B_UI] * A.user[1]);
 }
 
@@ -163,6 +164,7 @@ void audio_set_volume(int bus, float v) {
   if (!A.user_set) A.user[0] = A.user[1] = 1.0f;
   A.user_set = true;
   A.user[bus == ABUS_MUSIC ? 0 : 1] = clampf(v, 0, 1);
+  announcer_set_volume(A.user[1]); /* the voice follows the effects volume */
   apply_volumes();
 }
 
@@ -191,6 +193,8 @@ void audio_init(void) {
     A.snd[i] = cw_res_audio_sound(A.res[i], &(cw_sound_desc){ .mode = CW_SOUND_SAMPLE, .max_voices = SND[i].max_voices, .priority = SND[i].priority, .bus = A.bus[SND[i].bus] });
     if (CW_HANDLE_IS_NULL(A.snd[i])) cw_warn("racer audio: %s did not load%s", SND[i].file, loop ? " (a loop)" : "");
   }
+  announcer_init(CW_AUDIO_MASTER);
+  announcer_set_volume(A.user[1]);
   apply_volumes();
   cw_debug_i32("snd.eng_voices", &A.d_eng_voices);
   cw_debug_i32("snd.eng_mask", &A.d_eng_mask);
@@ -237,6 +241,7 @@ static void wav_write(void) {
 }
 
 void audio_shutdown(void) {
+  announcer_shutdown();
   wav_write();
   free(A.wav);
   A.wav = NULL;
@@ -420,6 +425,7 @@ void audio_race_start(const sim *s, const map_def *map) {
   if (getenv("RACER_AUDIO_AS_HUMAN")) A.humans = true; /* dev aid: an all-CPU run sounds like a real race (music, fanfares) */
   A.attract = !A.humans;
   A.nviews = 0;
+  announcer_race_start(s, A.humans);
   /* a demo race behind the menus leaves the menu music alone; a real race brings the map's own */
   if (A.humans) {
     audio_music(s->md && s->md->music ? s->md->music : s->map >= 0 && s->map < NMAPS ? s->map + 1 : 1); /* a battle arena names its own */
@@ -431,6 +437,7 @@ void audio_race_start(const sim *s, const map_def *map) {
 void audio_race_stop(void) {
   if (!A.on) return;
   kill_race_voices(0.25f);
+  announcer_race_stop();
   A.duck = 0;
   A.paused = false;
   A.nviews = 0;
@@ -443,6 +450,7 @@ void audio_pause(bool paused) {
   if (!A.on || paused == A.paused) return;
   A.paused = paused;
   A.d_paused = paused;
+  announcer_pause(paused);
   apply_volumes();
 }
 
@@ -637,6 +645,7 @@ void audio_tick(const sim *s, const t3_vec3 *eye, int neyes) {
     lslot_kill(&A.slide[v], 0.1f);
   }
   A.tunnel = lerpf(A.tunnel, tunnel_in, 0.08f);
+  announcer_tick(s);
 
   /* ── the other karts: the nearest few get a 3D engine, the rest a distant bed ── */
   int order[MAXK], nord = 0;
@@ -741,6 +750,7 @@ void audio_tick(const sim *s, const t3_vec3 *eye, int neyes) {
 
 void audio_events(const sim *s) {
   if (!A.on) return;
+  announcer_events(s);
   for (int n = 0; n < s->ev_n; n++) {
     const struct sim_event *e = &s->ev[n];
     const kart *ka = (e->a >= 0 && e->a < MAXK) ? &s->k[e->a] : NULL;
@@ -855,7 +865,7 @@ void audio_ui(int sfx) {
   case AUI_BACK: play2d(S_BACK, 0.8f, 1.0f, 0); break;
   case AUI_COUNT: global_sfx(S_COUNT, 0.8f, 1.0f); break;
   case AUI_GO: global_sfx(S_GO, 0.9f, 1.0f); break;
-  case AUI_WRONG_WAY: play2d(S_WRONG, 0.8f, 1.0f, 0); break;
+  case AUI_WRONG_WAY: play2d(S_WRONG, 0.8f, 1.0f, 0), announcer_wrong_way(); break;
   case AUI_FINAL_LAP: global_sfx(S_FINAL, 1.0f, 1.0f); break;
   default: break;
   }
