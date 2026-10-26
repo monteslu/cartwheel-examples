@@ -36,6 +36,7 @@ static const uint8_t BATTLE_W[IT_KINDS][BALLOONS] = {
 };
 
 static int roll_battle_item(sim *s, int i) {
+  if (s->item_set == 1) return (rnd(s) % 3u) ? IT_TURBO : IT_TURBO3; /* the turbos-only preset: a battle of turbo rams */
   int b = s->k[i].balloons - 1;
   b = b < 0 ? 0 : b >= BALLOONS ? BALLOONS - 1 : b;
   int total = 0;
