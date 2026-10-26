@@ -677,6 +677,23 @@ static void drive(sim *s, int i, float thr, float st, bool grounded_front) {
         towed = ahead > 3 && ahead < 18 && side < 2.0f && side > -2.0f && absf(v3dot(d, kart_up(k))) < 3;
       }
     }
+    /* a close pass: shaving past another kart at speed pays a little boost (once a pass, with a pause) */
+    if (k->pass_cool > 0) k->pass_cool--;
+    if (s->phase == PH_RACE && k->grounded && spd > vd->top * 0.55f && k->pass_cool == 0) {
+      t3_vec3 fw = kart_fwd(k), rt = kart_right(k);
+      for (int j = 0; j < MAXK; j++) {
+        if (j == i || !s->k[j].on || s->k[j].spin_ticks > 0) continue;
+        t3_vec3 d = v3sub(s->k[j].p, k->p);
+        float ahead = v3dot(d, fw), side = v3dot(d, rt), closing = spd - v3dot(s->k[j].v, fw);
+        if (ahead < -0.5f && ahead > -2.5f && absf(side) > 1.0f && absf(side) < 2.1f && closing > 4 && absf(v3dot(d, kart_up(k))) < 2) {
+          start_boost(s, i, 30, 0.7f * vd->boost, 6);
+          event(s, EV_NEARMISS, i, j, k->p, closing);
+          if (getenv("RACER_FALLLOG")) cw_info("nearmiss kart %d past %d closing %.1f", i, j, closing);
+          k->pass_cool = 90;
+          break;
+        }
+      }
+    }
     if (towed) {
       top *= 1.03f;
       if (++k->draft_ticks >= 100 && k->draft_cool == 0) {

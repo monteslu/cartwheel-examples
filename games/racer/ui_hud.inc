@@ -10,7 +10,7 @@
 /* the drift charge needed for the blue, orange and purple levels (the numbers in sim.c) */
 static const int DRIFT_LV[3] = { 4500, 9000, 14500 };
 
-enum { PU_TRICK, PU_BOOST, PU_DRIFT, PU_START, PU_HIT, PU_BLOCK, PU_BACK, PU_SPIN, PU_WARN, PU_KINDS };
+enum { PU_TRICK, PU_BOOST, PU_DRIFT, PU_START, PU_HIT, PU_BLOCK, PU_BACK, PU_SPIN, PU_WARN, PU_CLOSE, PU_KINDS };
 typedef struct popup {
   int kind, t;
 } popup;
@@ -59,7 +59,7 @@ static void pop_add(hudv *h, int kind) {
   h->pop[slot] = (popup){ kind, 1 };
 }
 
-static const char *const POP_TEXT[PU_KINDS] = { "TRICK!", "BOOST!", "DRIFT BOOST!", "GREAT START!", "HIT!", "BLOCKED!", "BACK ON TRACK", "SPIN OUT!", "SHOCKWAVE! HOP!" };
+static const char *const POP_TEXT[PU_KINDS] = { "TRICK!", "BOOST!", "DRIFT BOOST!", "GREAT START!", "HIT!", "BLOCKED!", "BACK ON TRACK", "SPIN OUT!", "SHOCKWAVE! HOP!", "CLOSE CALL!" };
 static cw_color pop_colour(int k) {
   switch (k) {
   case PU_TRICK: return MUSTARD;
@@ -70,6 +70,7 @@ static cw_color pop_colour(int k) {
   case PU_BLOCK: return SKY;
   case PU_SPIN: return PINK;
   case PU_WARN: return RED;
+  case PU_CLOSE: return LIME;
   default: return CREAM;
   }
 }
@@ -116,6 +117,9 @@ static void hud_event(int v, const struct sim_event *e, const sim *S) {
     break;
   case EV_WARN:
     if (e->a == me) pop_add(h, PU_WARN);
+    break;
+  case EV_NEARMISS:
+    if (e->a == me) pop_add(h, PU_CLOSE);
     break;
   case EV_FALL:
     if (e->a == me) h->fall_t = 1;

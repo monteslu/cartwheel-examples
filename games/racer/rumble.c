@@ -46,6 +46,7 @@ void rumble_events(const sim *s) {
     case EV_DRIFT_LEVEL: buzz(v, 0.05f, 0.25f + 0.1f * (float)(e->b & 3), 70); break;
     case EV_SHIELD: buzz(v, 0.5f, 0.6f, 160); break;
     case EV_WARN: buzz(v, 0.2f, 0.9f, 260); break;
+    case EV_NEARMISS: buzz(v, 0.0f, 0.45f, 90); break;
     case EV_BOOST: buzz(v, 0.45f, 0.25f, 150); break;
     default: break;
     }

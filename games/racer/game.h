@@ -132,7 +132,8 @@ typedef struct kart {
   int shield_ticks;
   int trick_ticks;      /* a trick in the air */
   int shock_warn, shock_by;   /* a Shockwave is coming: ticks to go, and whose; a hop over it dodges it */
-  int draft_ticks, draft_cool; /* time spent in the slipstream of a kart ahead; a pause after the boost it pays */
+  int draft_ticks, draft_cool;
+  int pass_cool;        /* ticks before another close pass can pay */ /* time spent in the slipstream of a kart ahead; a pause after the boost it pays */
   bool trick_done;
   int bump_ticks;
   int respawn_ticks;    /* flickering back in */
@@ -177,6 +178,7 @@ enum {
   EV_BOX,          /* a = kart took a box */
   EV_OVERTAKE,     /* a = kart passed b */
   EV_WATER,        /* a = kart in water, k = speed */
+  EV_NEARMISS,     /* a = kart that shaved past b at speed (a little boost) */
   EV_WARN          /* a = kart a Shockwave is coming for (hop to dodge it), b = attacker */
 };
 

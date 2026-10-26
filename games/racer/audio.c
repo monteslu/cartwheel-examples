@@ -827,6 +827,7 @@ void audio_events(const sim *s) {
       break;
     case EV_FALL: kart_sfx(S_FALL, e->a, e->at, 0.8f, 1.0f); break;
     case EV_RESPAWN: kart_sfx(S_RESPAWN, e->a, e->at, 0.7f, 1.0f); break;
+    case EV_NEARMISS: kart_sfx(S_BOOST_PAD, e->a, e->at, 0.45f, 1.45f); break;
     case EV_WARN:
       if (ov >= 0 && !A.attract) play2d(S_SHOCK, 0.5f * view_gain(), 1.6f, view_pan(ov)), play2d(S_CHIME, 0.7f * view_gain(), 1.5f, view_pan(ov));
       break;
