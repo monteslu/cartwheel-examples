@@ -149,7 +149,7 @@ static void battle_pop(sim *s, int i, int by) {
   k->balloons--;
   k->pops_taken++;
   k->ram_cool = POP_GRACE;
-  k->spin_ticks = k->spin_ticks * 7 / 10; /* a battle spin is shorter: losing the balloon is the cost, the long tumble only feeds the pile-up */
+  k->spin_ticks = k->spin_ticks * 11 / 20; /* a battle spin is shorter: losing the balloon is the cost, the long tumble only feeds the pile-up */
   if (by >= 0 && by < MAXK && by != i && s->k[by].on) s->k[by].points++;
   event(s, EV_POP, i, by == i ? -1 : by, k->p, (float)k->balloons);
   if (k->balloons == 0) {
@@ -456,6 +456,8 @@ static void battle_handling(sim *s, int i, float thr, float steer, bool grounded
   float spd = k->speed, m = VEH[k->veh].mass;
   t3_vec3 f = kart_fwd(k), up = kart_up(k);
   float low = 1.0f - clampf(absf(spd) / 17.0f, 0, 1);
+  /* only on something like level ground (a ramp is 12 degrees): a nose pushed up a wall gets no help climbing it */
+  if (up.y < 0.9f) low = 0;
   if (thr > 0.05f && spd > -0.5f) cw_body3d_apply_force(PH.body[i], v3mul(f, thr * 14.0f * low * m), NULL);
   else if (thr < -0.05f && spd < 0.5f) cw_body3d_apply_force(PH.body[i], v3mul(f, thr * 5.0f * low * m), NULL);
   float crawl = 1.0f - clampf(absf(spd) / 12.0f, 0, 1);

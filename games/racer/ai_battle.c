@@ -57,6 +57,12 @@ static int pick_box(const sim *s, int me, const ai_mem *m) {
       if (j == me || !s->k[j].on || s->k[j].out) continue;
       if (flat_dist(s->k[j].p, x->p) < d * 0.5f) score += 15;
     }
+    if (s->arena) {
+      /* a box tucked into a corner costs a stop to turn out again: worth it only if nothing better is near */
+      float ex = s->arena->half_x - fabsf(x->p.x), ez = s->arena->half_z - fabsf(x->p.z - ARENA_CZ);
+      if (ex < 16 && ez < 16) score += 25;
+      else if (ex < 10 || ez < 10) score += 10;
+    }
     if (b == m->b_box) score *= 0.6f; /* stay with the box it is going for: flipping between two is how a driver dithers */
     if (score < bs) bs = score, best = b;
   }
@@ -161,6 +167,11 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
     const kart *o = &s->k[m->b_target];
     float t = clampf(flat_dist(o->p, k->p) / 45.0f, 0, 0.8f);
     goal = v3add(o->p, v3mul(o->v, t));
+    /* right on top of it: do not try to turn round it (that is a circle at walking pace); carry on past and come again */
+    if (flat_dist(o->p, k->p) < 8.0f && fabsf(bearing(k, o->p)) > 0.6f) {
+      t3_vec3 fw = kart_fwd(k);
+      goal = v3add(k->p, (t3_vec3){ fw.x * 16.0f, 0, fw.z * 16.0f });
+    }
   }
   if (s->arena) {
     float my_lv = arena_level(s->arena, k->p.x, k->p.z), goal_lv = arena_level(s->arena, goal.x, goal.z);
@@ -196,6 +207,12 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
     float fr = 1;
     t3_vec3 n;
     clear[c] = sim_ray(s, from, v3mul(dir, look), &fr, &n) && n.y < 0.6f ? fr : 1.0f;
+    /* the kart is wider than a ray: two more down its flanks, so a heading that clips a post or a tank is not taken for clear */
+    t3_vec3 side = { dir.z * 0.85f, 0, -dir.x * 0.85f };
+    for (int fl2 = -1; fl2 <= 1; fl2 += 2) {
+      float f2 = 1;
+      if (sim_ray(s, v3add(from, v3mul(side, (float)fl2)), v3mul(dir, look), &f2, &n) && n.y < 0.6f && f2 < clear[c]) clear[c] = f2;
+    }
     float free_m = clear[c] * look;
     float score = cw_cos(a - ang) * 2.0f + clampf(free_m / 12.0f, 0, 1) * 1.6f - (free_m < 4.0f ? 2.0f : 0);
     /* the goal itself is nearer than the wall that way: the wall does not matter */
@@ -233,6 +250,8 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
   if (m->b_box >= 0 && m->b_roam == 0 && dist < 7 && fabsf(ang) > 1.2f && spd > 14) in.thr = 0;
   /* the way it is going ends sooner than it can turn: brake */
   if (clear[best_c] * look < spd * 0.3f && spd > 14) in.thr = -127, in.btn &= ~KB_DRIFT;
+  /* a wall straight ahead less than half a second off: brake and slide round (a crash costs far more than a brake) */
+  if (fc * look < spd * 0.4f && spd > 14 && fabsf(best_a) > 0.3f) in.thr = -127, in.btn |= KB_DRIFT;
   /* stuck (pinned on something, or nose into a wall with nowhere to turn): a short committed back-out, the nose swinging to
    * the open side (the steering turns the nose the same way in reverse), then a moment driving on before it may again */
   /* stuck: it has not got 1.2 m from where it last was for most of a second (pinned, or rocking on an edge) */
@@ -280,7 +299,7 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
     }
     /* until the nose has come round to the goal (or there is room ahead to turn in), a second at most */
     float back_m = flat_dist(k->p, m->b_rev_p);
-    bool round = back_m > 1.2f && (fabsf(ang) < 0.8f || ahead_m > 9.0f);
+    bool round = back_m > 0.5f && (fabsf(ang) < 0.8f || ahead_m > 9.0f);
     if (round || back_m > 6.0f || m->b_reverse == 0 || (behind && m->b_reverse < 54)) m->b_reverse = 0, m->b_commit = 30, in.thr = 127;
   }
 

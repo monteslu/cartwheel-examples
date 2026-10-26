@@ -598,16 +598,27 @@ static void trace(void) {
             kart_fwd(k).x, kart_fwd(k).z, m->b_aim.x, m->b_aim.z - 100, m->b_aim.y, m->b_feel[0], m->b_feel[1], m->b_feel[2], m->b_reverse, m->b_slow, m->b_frust, m->b_roam, m->b_box, m->b_target, (int)G.S.k[ti].last_btn, k->spin_ticks, m->b_thr);
     return;
   }
+  /* the last tick each kart was spinning, backing out or put back (for the causes below) */
+  static int last_spin[MAXK], last_rev[MAXK], last_back[MAXK];
+  for (int i = 0; i < MAXK && G.S.battle; i++) {
+    if (G.S.k[i].spin_ticks > 0) last_spin[i] = G.S.tick;
+    if (G.ai[i].b_reverse > 0) last_rev[i] = G.S.tick;
+    if (G.S.k[i].respawn_ticks > 0) last_back[i] = G.S.tick;
+  }
   if (G.S.tick % 30) return;
   if (G.S.battle) {
     /* a battle: where each kart is, its speed, balloons, points, item and whether its driver is backing out */
-    fprintf(tr, "%d left %d", G.S.tick, G.S.battle_left / TICK_HZ);
+    fprintf(tr, "%d left %d ph%d", G.S.tick, G.S.battle_left / TICK_HZ, G.S.phase);
     for (int i = 0; i < MAXK; i++) {
       const kart *k = &G.S.k[i];
       if (!k->on) continue;
       /* f= what is going on round it: S spinning, K another kart within 4 m, W a wall within a third of its feeler, G its aim
-       * within 8 m, then its throttle + 0 - */
-      char fl[8] = "", *fp = fl;
+       * within 8 m, H getting going after a spin (1.5 s), C after backing out (1 s), P the start or a put-back (2.5 s), then its
+       * throttle + 0 - */
+      char fl[12] = "", *fp = fl;
+      if (k->spin_ticks == 0 && G.S.tick - last_spin[i] < 90 && last_spin[i] > 0) *fp++ = 'H';
+      if (G.ai[i].b_reverse == 0 && G.S.tick - last_rev[i] < 60 && last_rev[i] > 0) *fp++ = 'C';
+      if (G.S.race_ticks < 150 || (last_back[i] > 0 && G.S.tick - last_back[i] < 150)) *fp++ = 'P';
       bool near_k = false;
       for (int j = 0; j < MAXK; j++)
         if (j != i && G.S.k[j].on && !G.S.k[j].out && v3len(v3sub(G.S.k[j].p, k->p)) < 4.0f) near_k = true;

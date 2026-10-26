@@ -13,7 +13,7 @@ static const piece ARENA_PIECES[] = {
 };
 const track_spec ARENA_TRACK = { .name = "arena", .pieces = ARENA_PIECES, .npieces = sizeof ARENA_PIECES / sizeof ARENA_PIECES[0], .hw0 = 95, .circuit = false };
 
-#define RAMP_SKIRT 0.7f /* how far a ramp's sides flare out at its high end, per metre of height */
+#define RAMP_SKIRT 2.5f /* how far a ramp's sides flare out at its high end, per metre of height */
 
 static arena_rt CUR;
 static bool CUR_ON;
