@@ -1785,7 +1785,17 @@ static void build_roadside(cw_node scene, const track *t) {
     p.y = a.p.y + 20.0f + rnd(&r) * 8.0f;
     {
       float w = 0.8f + rnd(&r) * 0.9f;
-      inst_add_c(rnd(&r) < 0.5f ? &D.crowns : &D.crowns2, p, t3_quat_from_axis_angle(V(0, 1, 0), rnd(&r) * 6.28f), V(w, 0.7f + rnd(&r) * 0.8f, w * (0.8f + 0.4f * rnd(&r))), (pcol){ 0.8f + 0.5f * rnd(&r), 0.9f + 0.2f * rnd(&r), 0.7f + 0.4f * rnd(&r) });
+      bool big = rnd(&r) >= 0.5f;
+      /* no crown where another stretch of road (a climb, a bridge) passes at canopy height: the chase camera would fly through the
+       * leaves */
+      float R = (big ? 12.0f : 9.0f) * w * 1.3f + 8.0f;
+      bool clear = true;
+      for (int i = 0; i < t->n && clear; i += 3) {
+        float dx = t->s[i].p.x - p.x, dz = t->s[i].p.z - p.z;
+        if (dx * dx + dz * dz < R * R && t->s[i].p.y + 6.0f > p.y - R * 0.6f) clear = false;
+      }
+      if (!clear) continue;
+      inst_add_c(big ? &D.crowns2 : &D.crowns, p, t3_quat_from_axis_angle(V(0, 1, 0), rnd(&r) * 6.28f), V(w, 0.7f + rnd(&r) * 0.8f, w * (0.8f + 0.4f * rnd(&r))), (pcol){ 0.8f + 0.5f * rnd(&r), 0.9f + 0.2f * rnd(&r), 0.7f + 0.4f * rnd(&r) });
     }
   }
 }
