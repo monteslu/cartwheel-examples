@@ -16,6 +16,11 @@
  *                        runs in a row, each retried by itself (a deterministic ghost record and replay)
  *   RACER_CLASS=0|1|2    speed class (Standard, Fast, Blazing) for a dev race; RACER_ASSIST=1|2|3 steering (1) and auto
  *                        accelerate (2) assists for the humans
+ *   RACER_TEST_AT=s:speed  kart 0 (RACER_TEST_KART=n another) on the road at s metres when the lights go out; L<n>:speed
+ *                        30 m before the n-th loop; B<n>:metres:speed on branch n (a shortcut), that far from its mouth
+ *   RACER_EYE=x,y,z,tx,ty,tz  a fixed camera there looking at the target, no HUD (a still of any part of a map)
+ *   RACER_SPLIT=a:b      log each kart's time from progress a to b (metres): what a shortcut is worth
+ *   RACER_AI_TAKE=0|1    every CPU driver stays out of (0) or takes (1) every shortcut; RACER_AILOG=1 logs their choices
  *   RACER_MODE=battle    with RACER_MAP=n: a battle in arena n (0 Crusher Yard, 1 Foundry Pit); RACER_KARTS=2..8 karts in it
  *                        (humans first, CPUs fill), RACER_BATTLE_TIME=secs the round's length (three minutes otherwise)
  *
