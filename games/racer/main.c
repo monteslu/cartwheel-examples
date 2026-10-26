@@ -308,6 +308,17 @@ void game_start_race(const race_setup *rs) {
     ai_reset(&G.ai[i], i, skill, 100u + (uint32_t)i);
   }
   if (getenv("RACER_STUDIO") && getenv("RACER_COLOUR") && !humans) G.S.k[0].colour = atoi(getenv("RACER_COLOUR")) & 7;
+  if (battle) {
+    /* a battle tells karts apart by their balloons: the CPU karts take the paints no human has */
+    bool used[8] = { false };
+    for (int i = 0; i < humans; i++) used[G.S.k[i].colour & 7] = true;
+    int c = 0;
+    for (int i = humans; i < MAXK; i++) {
+      while (c < 8 && used[c]) c++;
+      G.S.k[i].colour = c < 8 ? c : (i + 3) & 7;
+      if (c < 8) used[c] = true;
+    }
+  }
   for (int v = 0; v < CW_MAX_VIEWS; v++) G.pl[v] = v;
   world_build(G.scene, &G.S, md);
   if (G.trial && rs->ghost && ghost_load(rs->ghost, &G.trk)) ghost_gfx_build(G.scene);

@@ -665,10 +665,10 @@ static void draw_battle_results(float W, float H, float s) {
   int t = U.res_ticks;
   float head = ease_back((float)t / 20.0f), panel = ease_out(((float)t - 80) / 24.0f);
   const result_row *w = &U.res[0];
-  char nm[32], b[96];
-  kart_name(S, w->kart, nm, sizeof nm, true);
+  char nm[32], wn[32], b[96];
+  kart_name(S, w->kart, wn, sizeof wn, true);
   {
-    snprintf(b, sizeof b, U.res_winner_human == 1 ? "%s WINS THE BATTLE!" : "%s TAKES THE BATTLE", nm);
+    snprintf(b, sizeof b, U.res_winner_human == 1 ? "%s WINS THE BATTLE!" : "%s TAKES THE BATTLE", wn);
     float bw = fminf(W * 0.94f, tx_width(U.f_title, b, 42 * s) + 110 * s);
     float by = 22 * s - (1 - head) * 120 * s;
     cw_rect r = cw_rect_make(W * 0.5f - bw * 0.5f, by, bw, 70 * s);
@@ -726,9 +726,13 @@ static void draw_battle_results(float W, float H, float s) {
     float gy = pod.y + pod.h * 0.72f;
     cw_r2d_round_rect(cw_rect_make(pod.x + pod.w * 0.1f, gy, pod.w * 0.8f, 16 * s), 8 * s, 6, rgba(0, 0, 0, 0.35f));
     draw_kart_side(pod.x + pod.w * 0.5f, gy - hop, u, w->veh, w->colour, 0.8f, U.time * 0.6f);
-    for (int bi = 0; bi < w->tricks; bi++) balloon_icon(cw_v2(pod.x + pod.w * 0.5f + ((float)bi - (float)(w->tricks - 1) * 0.5f) * u * 0.9f, gy - u * 3.4f - hop + 6 * s * cw_sin(U.time * 2 + (float)bi)), u * 0.42f,
-                                                       kart_col(w->colour), 1, 0, false);
-    tx_fit(U.f_title, nm, pod.x + pod.w * 0.5f, gy + 44 * s, 24 * s, pod.w, MUSTARD, CW_ALIGN_CENTER);
+    /* the balloons it kept, on strings from the back of the kart */
+    for (int bi = 0; bi < w->tricks; bi++) {
+      cw_vec2 c = cw_v2(pod.x + pod.w * 0.5f - u * 1.3f + ((float)bi - (float)(w->tricks - 1) * 0.5f) * u * 0.62f, gy - u * 3.0f - hop + 5 * s * cw_sin(U.time * 2 + (float)bi));
+      cw_r2d_line(cw_v2(c.x, c.y + u * 0.3f), cw_v2(pod.x + pod.w * 0.5f - u * 1.3f, gy - u * 1.2f - hop), 1.5f * s, alpha(CREAM, 0.8f));
+      balloon_icon(c, u * 0.3f, kart_col(w->colour), 1, 0, false);
+    }
+    tx_fit(U.f_title, wn, pod.x + pod.w * 0.5f, gy + 44 * s, 24 * s, pod.w, MUSTARD, CW_ALIGN_CENTER);
   }
   static const char *const BL[3] = { "AGAIN", "NEXT ARENA", "MENU" };
   for (int i = 0; i < 3; i++) draw_button(res_button_n(i, 3, W, H), BL[i], U.sel == i && t > 100, true, s * 0.8f, clamp01(((float)t - 120 - (float)i * 4) / 14.0f));

@@ -5339,6 +5339,47 @@
     "note": "racer: fourteen races loaded one after another in one process (every map, twice for the water and tunnel maps): the last must run. Catches state a map leaves behind in its own statics, the scenery's handles into a freed scene and heap that never comes back (carts have a fixed memory)."
   },
   {
+    "name": "racer-battle",
+    "app": "racer",
+    "frames": 3000,
+    "startCmds": [
+      "bot 1",
+      "battle 0 2 40 6"
+    ],
+    "maxGt16": 0.08,
+    "fields": [
+      "race.loaded",
+      "race.phase",
+      "ticks",
+      "sim.hash",
+      "ui.mode",
+      "views",
+      "battle.left",
+      "battle.end",
+      "battle.alive",
+      "karts.balloons",
+      "karts.points",
+      "karts.out",
+      "karts.hits",
+      "karts.falls"
+    ],
+    "expect": {
+      "race.loaded": 1,
+      "race.phase": 3,
+      "ui.mode": 8
+    },
+    "webgpu": {
+      "vsGl": 0.3,
+      "maxGt16": 0.08,
+      "hosts": [
+        "native",
+        "romdev"
+      ],
+      "note": "The dual cart on romdev against native WebGPU."
+    },
+    "note": "racer battle in Crusher Yard, shortened for the gate (a 40 second round, six karts: two bot-driven humans in split screen and four CPUs): balloons, points, eliminations and the end of the round (the results screen, ui.mode 8) must match on every host. Missiles fly in the world here (floor-following, glancing off walls by ray casts into Box3D) and the CPU drivers feel the walls with rays, so this also proves those queries are deterministic."
+  },
+  {
     "name": "racer-trial",
     "app": "racer",
     "frames": 12000,

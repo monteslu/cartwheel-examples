@@ -422,7 +422,7 @@ void audio_race_start(const sim *s, const map_def *map) {
   A.nviews = 0;
   /* a demo race behind the menus leaves the menu music alone; a real race brings the map's own */
   if (A.humans) {
-    audio_music(s->map >= 0 && s->map < NMAPS ? s->map + 1 : 1);
+    audio_music(s->md && s->md->music ? s->md->music : s->map >= 0 && s->map < NMAPS ? s->map + 1 : 1); /* a battle arena names its own */
     A.mus.gain = 0.4f;
   }
   apply_volumes();
