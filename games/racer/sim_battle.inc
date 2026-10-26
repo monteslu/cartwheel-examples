@@ -260,6 +260,7 @@ static bool battle_use_item(sim *s, int i, int item) {
     z->f = f;
     z->life = item == IT_MINE ? 25 * TICK_HZ : 20 * TICK_HZ;
     battle_hz_place(s, z);
+    z->h = 0.1f; /* the puddle is drawn this far under z->p (along the flat frame), on whatever floor it lies on */
     return true;
   }
   case IT_SHOCK:
