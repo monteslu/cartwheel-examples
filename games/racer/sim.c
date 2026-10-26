@@ -826,6 +826,7 @@ static void kart_control(sim *s, int i, kin in) {
     k->trick_ticks = 0;
   } else if (!touching) {
     k->air_ticks++;
+    if (k->loc.height > k->air_peak) k->air_peak = k->loc.height;
   }
   k->grounded = grounded;
   if (k->shock_warn > 0) {
