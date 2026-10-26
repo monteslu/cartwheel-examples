@@ -129,6 +129,8 @@ static void trial_results_build(void) {
   U.res_ticks = 0;
   U.sel = 0;
   if (tr->record || tr->new_medal) audio_ui(AUI_GO);
+  if (tr->record) audio_announce(ANN_RECORD);
+  if (tr->new_medal) audio_announce(ANN_MEDAL_BRONZE + tr->medal - MEDAL_BRONZE);
 }
 
 static void tick_trial_results(float W, float H) {
@@ -557,6 +559,7 @@ static void cup_finish(void) {
   goto_mode(M_CUPEND);
   U.res_ticks = 0;
   if (best > 0) audio_ui(AUI_GO);
+  audio_announce(best == 3 ? ANN_CUP_WIN : best > 0 ? ANN_CUP_TROPHY : ANN_CUP_DONE);
 }
 
 /* ── the cup select ─────────────────────────────────────────────────── */

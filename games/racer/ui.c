@@ -122,7 +122,8 @@ typedef struct save_data {
   /* version 2: everything above is a version 1 save, which loads with these empty */
   uint8_t speed_class, assist, ghost_on, cup_pick; /* the setup last used: class, assists (1 steering, 2 auto accelerate), the ghost shown, the cup picked */
   uint8_t cup_best[NCUPS];     /* the best trophy of each cup: 0 none, 1 bronze, 2 silver, 3 gold (cup 2 is open once cup 1 has one) */
-  uint8_t pad2[2];
+  uint8_t voice_off;           /* the announcer: 0 on (what every older save holds in this byte), 1 off */
+  uint8_t pad2;
   uint32_t trial_cs[NMAPS];    /* the best time trial per map, centiseconds, 0 = none yet */
   ghost_saved ghost[NMAPS];    /* the run behind it: 24 KB a map at most */
 } save_data;
@@ -468,6 +469,7 @@ static void save_check(void) {
   if (SAVE.speed_class >= CLASS_COUNT) SAVE.speed_class = 0;
   if (SAVE.assist > 3) SAVE.assist = 0;
   if (SAVE.ghost_on > 1) SAVE.ghost_on = 1;
+  if (SAVE.voice_off > 1) SAVE.voice_off = 0;
   if (SAVE.cup_pick >= NCUPS) SAVE.cup_pick = 0;
   for (int c = 0; c < NCUPS; c++)
     if (SAVE.cup_best[c] > 3) SAVE.cup_best[c] = 0;
@@ -502,6 +504,7 @@ bool ui_dev_resolution(int *w, int *h) {
 static void apply_volumes(void) {
   audio_set_volume(ABUS_MUSIC, (float)SAVE.music / 10.0f);
   audio_set_volume(ABUS_SFX, (float)SAVE.sfx / 10.0f);
+  audio_set_announcer(SAVE.voice_off == 0);
 }
 
 /* ── names ──────────────────────────────────────────────────────────── */
