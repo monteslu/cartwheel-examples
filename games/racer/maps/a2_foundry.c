@@ -97,7 +97,8 @@ static const arena_def ARENA = {
     [AL_RAMP] = { TEX_WALL_HAZARD, { 0.95f, 0.95f, 0.95f }, 1.0f, 3.0f, 0.7f, 0 },
     [AL_TRIM] = { TEX_WALL_HAZARD, { 1, 1, 1 }, 1.2f, 2.0f, 0.8f, 0 },
     [AL_FEATURE] = { TEX_RUST, { 0.55f, 0.36f, 0.3f }, 1.3f, 3.0f, 0.8f, 0 },
-    [AL_GLOW] = { -1, { 0.3f, 0.9f, 1.0f }, 1, 1, 1, 4.0f },
+    [AL_GLOW] = { -1, { 0.3f, 0.9f, 1.0f }, 1, 1, 1, 0, 4.0f },
+    [AL_PAINT] = { -1, { 1, 1, 1 }, 1.0f, 1, 0.8f, 0 },
   },
 };
 

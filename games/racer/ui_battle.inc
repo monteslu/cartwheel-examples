@@ -284,10 +284,10 @@ static void hud_b_table(const hv *g, float x, float y, int rows_max) {
 
 /* "POP!" when you popped one */
 static void hud_b_stamps(const hv *g, const bhud *h) {
-  float s = g->s, cx = g->x + g->w * 0.5f, cy = g->y + g->h * 0.3f;
+  float s = g->s, cx = g->x + g->w * 0.5f, cy = g->y + g->h * (g->compact || g->medium ? 0.46f : 0.34f);
   if (h->pop_t > 0) {
     float t = (float)h->pop_t / 60.0f;
-    float sc = 0.4f + 0.6f * ease_back((float)h->pop_t / 9.0f);
+    float sc = (0.4f + 0.6f * ease_back((float)h->pop_t / 9.0f)) * (g->compact ? 0.8f : 1.0f);
     float a = t > 0.7f ? 1 - (t - 0.7f) / 0.3f : 1;
     float rot = 0.12f * cw_sin((float)h->pop_t * 0.5f) * (1 - t);
     /* a star burst behind the word */
@@ -325,8 +325,8 @@ static void hud_b_feed(const hv *g) {
     float in = ease_out((float)BF.feed[i].t / 12.0f);
     char b[64], n1[24], n2[24];
     int vi = BF.feed[i].victim, by = BF.feed[i].by;
-    if (by >= 0) snprintf(b, sizeof b, "%s IS OUT  -  %s", kart_name(S, vi, n1, sizeof n1, false), kart_name(S, by, n2, sizeof n2, false));
-    else snprintf(b, sizeof b, "%s IS OUT", kart_name(S, vi, n1, sizeof n1, false));
+    if (by >= 0) snprintf(b, sizeof b, "%s knocked out %s", kart_name(S, by, n2, sizeof n2, false), kart_name(S, vi, n1, sizeof n1, false));
+    else snprintf(b, sizeof b, "%s is out", kart_name(S, vi, n1, sizeof n1, false));
     float fs = hpx(17, s, 11), w = tx_width(U.f_hud, b, fs) + 40 * s;
     cw_rect r = cw_rect_make(cx - w * 0.5f, y + (float)shown * 28 * s - (1 - in) * 20 * s, w, 24 * s);
     para(r, 8 * s, rgba(0.1f, 0.06f, 0.08f, 0.85f * a));
@@ -339,10 +339,8 @@ static void hud_b_feed(const hv *g) {
 /* your kart is out: a big OUT, then who you are watching */
 static void hud_b_out(const hv *g, const bhud *h) {
   const sim *S = g->S;
-  int own = game_view_kart(g->v);
-  bool watching = own != g->kart || S->k[g->kart].out;
-  (void)own;
-  if (!S->k[g->kart].out && !watching) return;
+  int own = game_view_own_kart(g->v);
+  if (own < 0 || !S->k[own].out) return;
   float s = g->s, cx = g->x + g->w * 0.5f;
   int ot = h->out_t;
   if (ot > 0 && ot < 150) {
@@ -354,8 +352,8 @@ static void hud_b_out(const hv *g, const bhud *h) {
     else snprintf(b, sizeof b, "Your last balloon is gone");
     tx_o(U.f_hud, b, cx, g->y + g->h * 0.36f + 70 * s, hpx(22, s, 12), alpha(CREAM, a), (txopt){ .align = CW_ALIGN_CENTER });
   }
-  int wk = game_view_kart(g->v);
-  if (S->k[wk].out || S->phase == PH_DONE) return;
+  int wk = g->kart;
+  if (wk == own || S->k[wk].out || S->phase == PH_DONE) return;
   /* the spectator's tag at the bottom */
   char b[48], nm[24];
   snprintf(b, sizeof b, "WATCHING %s", kart_name(S, wk, nm, sizeof nm, true));
@@ -675,7 +673,7 @@ static void draw_battle_results(float W, float H, float s) {
     slab(r, 18 * s, rgba(0.1f, 0.07f, 0.09f, 0.94f), s);
     para(cw_rect_make(r.x + 6 * s, r.y + r.h - 9 * s, r.w - 12 * s, 6 * s), 0, kart_col(w->colour));
     tx_fit(U.f_title, b, r.x + r.w * 0.5f + 8 * s, r.y + 32 * s, 42 * s, r.w - 80 * s, PLACE_COL[0], CW_ALIGN_CENTER);
-    const char *why = S->battle_end == BE_LAST ? "Last one standing" : S->battle_end == BE_TIME ? "Most pops when time ran out" : "Every player was out";
+    const char *why = S->battle_end == BE_LAST ? "Last one standing" : S->battle_end == BE_TIME ? "Most pops when time ran out" : "Every player is out";
     tx(U.f_hud, why, W * 0.5f, r.y + r.h + 16 * s, 18 * s, alpha(CREAM, head), CW_ALIGN_CENTER);
   }
   if (panel <= 0) {
@@ -728,9 +726,9 @@ static void draw_battle_results(float W, float H, float s) {
     draw_kart_side(pod.x + pod.w * 0.5f, gy - hop, u, w->veh, w->colour, 0.8f, U.time * 0.6f);
     /* the balloons it kept, on strings from the back of the kart */
     for (int bi = 0; bi < w->tricks; bi++) {
-      cw_vec2 c = cw_v2(pod.x + pod.w * 0.5f - u * 1.3f + ((float)bi - (float)(w->tricks - 1) * 0.5f) * u * 0.62f, gy - u * 3.0f - hop + 5 * s * cw_sin(U.time * 2 + (float)bi));
+      cw_vec2 c = cw_v2(pod.x + pod.w * 0.5f - u * 1.3f + ((float)bi - (float)(w->tricks - 1) * 0.5f) * u * 0.5f, gy - u * 2.9f - hop + 5 * s * cw_sin(U.time * 2 + (float)bi) - (bi == 1 ? u * 0.2f : 0));
       cw_r2d_line(cw_v2(c.x, c.y + u * 0.3f), cw_v2(pod.x + pod.w * 0.5f - u * 1.3f, gy - u * 1.2f - hop), 1.5f * s, alpha(CREAM, 0.8f));
-      balloon_icon(c, u * 0.3f, kart_col(w->colour), 1, 0, false);
+      balloon_icon(c, u * 0.22f, kart_col(w->colour), 1, 0, false);
     }
     tx_fit(U.f_title, wn, pod.x + pod.w * 0.5f, gy + 44 * s, 24 * s, pod.w, MUSTARD, CW_ALIGN_CENTER);
   }

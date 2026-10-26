@@ -50,7 +50,7 @@ void balloons_build(cw_node scene, const sim *s) {
   B.s = s;
   if (!s->battle) return;
   B.str_mat = phys(lin(0.95f, 0.93f, 0.88f), 0.7f, 0);
-  t3_geometry *sg = t3_sphere_geometry_new(0.42f, 16, 12);
+  t3_geometry *sg = t3_sphere_geometry_new(0.36f, 16, 12);
   t3_geometry *kg = t3_cone_geometry_new(0.09f, 0.14f, 8, 1, false);
   t3_geometry *cg = t3_cylinder_geometry_new(0.012f, 0.012f, 1.0f, 4, 1, true);
   t3_geometry_translate(cg, 0, 0.5f, 0); /* the string grows up from its foot */
@@ -70,7 +70,7 @@ void balloons_build(cw_node scene, const sim *s) {
       t3_mesh *bm = t3_mesh_new(sg, m);
       bm->base.cast_shadow = true;
       t3_mesh *knot = t3_mesh_new(kg, m);
-      t3_object_set_position(&knot->base, 0, -0.47f, 0);
+      t3_object_set_position(&knot->base, 0, -0.41f, 0);
       t3_object_set_rotation(&knot->base, 3.14159f, 0, 0);
       t3_object_add(&bm->base, &knot->base);
       t3_release(knot);
@@ -132,7 +132,7 @@ void balloons_frame(const sim *s, float alpha) {
       t3_object_set_position(b->ball[j], top.x, top.y, top.z);
       t3_object_set_scale(b->ball[j], sc, sc * 1.12f, sc);
       /* the string from the tie point to the knot */
-      t3_vec3 knot = { top.x, top.y - 0.5f, top.z };
+      t3_vec3 knot = { top.x, top.y - 0.44f, top.z };
       float len = v3len(knot);
       t3_object_set_position(b->str[j], 0, 0, 0);
       t3_object_set_quaternion(b->str[j], from_to((t3_vec3){ 0, 1, 0 }, knot));

@@ -116,6 +116,8 @@ void game_set_camera(int mode) {
   for (int v = 0; v < CW_MAX_VIEWS; v++) G.rig[v].live = false;
 }
 
+int game_view_own_kart(int v) { return v >= 0 && v < G.nviews ? G.view_kart[v] : -1; }
+
 int game_view_kart(int v) {
   /* battle: a view whose kart is out watches another (spectate; camera_tick picks it) */
   if (v >= 0 && v < G.nviews && G.view_kart[v] >= 0 && G.S.battle && G.S.k[G.view_kart[v]].parked && G.spect[v] >= 0) return G.spect[v];

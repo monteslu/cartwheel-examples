@@ -54,6 +54,7 @@ bool game_loaded(void);                      /* a race is loaded */
 const sim *game_sim(void);
 int game_views(void);                        /* views on screen: 1..MAXV */
 int game_view_kart(int v);                   /* the kart view v follows */
+int game_view_own_kart(int v);               /* the kart view v belongs to (a battle: game_view_kart differs once it is out and the view watches another) */
 int game_view_player(int v);                 /* the input player (pad slot) behind view v */
 /* the rectangle of view v on a W x H canvas */
 void game_view_rect(int v, float W, float H, float *x, float *y, float *w, float *h);

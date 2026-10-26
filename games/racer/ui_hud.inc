@@ -107,10 +107,10 @@ static void hud_event(int v, const struct sim_event *e, const sim *S) {
     if (e->a == me) h->drift_flash_t = 1, h->drift_flash_lvl = e->b;
     break;
   case EV_HIT:
-    if (e->a == me) h->hit_t = 1, pop_add(h, PU_HIT);
+    if (e->a == me) h->hit_t = 1, S->battle ? (void)0 : pop_add(h, PU_HIT); /* a battle says POPPED instead */
     break;
   case EV_SPIN:
-    if (e->a == me) h->spin_t = 1, pop_add(h, PU_SPIN);
+    if (e->a == me) h->spin_t = 1, S->battle ? (void)0 : pop_add(h, PU_SPIN);
     break;
   case EV_SHIELD:
     if (e->a == me) h->shield_t = 1, pop_add(h, PU_BLOCK);

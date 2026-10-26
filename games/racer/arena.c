@@ -187,8 +187,8 @@ void arena_gfx_build(cw_node scene, const arena_rt *rt, uint32_t seed) {
       } else draw_prim(b, &q, L, i);
       count++;
     }
-    static const char *const NAME[AL_KINDS] = { "ArenaFloor", "ArenaWall", "ArenaCover", "ArenaDeck", "ArenaRamp", "ArenaTrim", "ArenaFeature", "ArenaGlow" };
-    if (count) pmc_finish(c, root, NAME[look], look != AL_FLOOR, L->tex);
+    static const char *const NAME[AL_KINDS] = { "ArenaFloor", "ArenaWall", "ArenaCover", "ArenaDeck", "ArenaRamp", "ArenaTrim", "ArenaFeature", "ArenaGlow", "ArenaPaint" };
+    if (count) pmc_finish(c, root, NAME[look], look != AL_FLOOR && look != AL_PAINT, L->tex);
     else pmc_finish(c, root, NAME[look], false, -1);
   }
 }

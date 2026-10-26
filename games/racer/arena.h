@@ -37,6 +37,7 @@ enum {
   AL_TRIM,    /* paint and edging: hazard stripes, kerbs */
   AL_FEATURE, /* the centrepiece and its parts */
   AL_GLOW,    /* lit strips (emissive) */
+  AL_PAINT,   /* flat paint on the floor: lines, pads (no texture, never solid) */
   AL_KINDS
 };
 

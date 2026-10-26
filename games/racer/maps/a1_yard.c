@@ -13,6 +13,27 @@
 #define RAMP(look, x, z, y, w, h, d, yaw) { AP_RAMP, look, x, z, y, w, h, d, yaw, false, 0 }
 #define POST(look, x, z, y, dia, h, col) { AP_POST, look, x, z, y, dia, h, dia, 0, false, col }
 #define GLOWPOST(x, z, y, dia, h, col) { AP_POST, AL_GLOW, x, z, y, dia, h, dia, 0, true, col }
+#define PAINT(x, z, y, w, d, yaw, col) { AP_BOX, AL_PAINT, x, z, y, w, 0.03f, d, yaw, true, col }
+/* one side of the painted octagon (apothem 30 m) at angle a degrees round the middle */
+#define RINGSIDE(a) PAINT(30.0f * SIN_##a, 30.0f * COS_##a, 0, 24.85f, 0.7f, a, 0xe8e2d6)
+/* a start pad: a cream border and a dark square on it */
+#define PAD(x, z, yaw) PAINT(x, z, 0, 5.4f, 5.4f, yaw, 0xe8e2d6), PAINT(x, z, 0.012f, 4.6f, 4.6f, yaw, 0x3a3236)
+#define SIN_0 0.0f
+#define COS_0 1.0f
+#define SIN_45 0.70711f
+#define COS_45 0.70711f
+#define SIN_90 1.0f
+#define COS_90 0.0f
+#define SIN_135 0.70711f
+#define COS_135 -0.70711f
+#define SIN_180 0.0f
+#define COS_180 -1.0f
+#define SIN_225 -0.70711f
+#define COS_225 -0.70711f
+#define SIN_270 -1.0f
+#define COS_270 0.0f
+#define SIN_315 -0.70711f
+#define COS_315 0.70711f
 
 #define TEAL 0x23a0a4
 #define ORNG 0xea5d1c
@@ -72,11 +93,14 @@ static const arena_prim PRIMS[] = {
   RAMP(AL_RAMP, 57, 26, 0, 7, 1.3f, 6, 180),
   RAMP(AL_RAMP, 26, -57, 0, 7, 1.3f, 6, -90),
   RAMP(AL_RAMP, -57, -26, 0, 7, 1.3f, 6, 0),
-  /* paint on the floor: a ring of dashes round the deck and a stripe to each side */
-  DECO(AL_TRIM, 0, 31, 0, 3, 0.03f, 0.5f, 0, 0),
-  DECO(AL_TRIM, 0, -31, 0, 3, 0.03f, 0.5f, 0, 0),
-  DECO(AL_TRIM, 31, 0, 0, 0.5f, 0.03f, 3, 0, 0),
-  DECO(AL_TRIM, -31, 0, 0, 0.5f, 0.03f, 3, 0, 0),
+  /* paint on the floor: an octagon round the deck, a start pad under each spawn, hazard stripes along the foot of the walls */
+  RINGSIDE(0), RINGSIDE(45), RINGSIDE(90), RINGSIDE(135), RINGSIDE(180), RINGSIDE(225), RINGSIDE(270), RINGSIDE(315),
+  PAD(19.1f, 46.2f, 202.5f), PAD(-19.1f, -46.2f, 22.5f), PAD(46.2f, -19.1f, -67.5f), PAD(-46.2f, 19.1f, 112.5f),
+  PAD(46.2f, 19.1f, 247.5f), PAD(-46.2f, -19.1f, 67.5f), PAD(-19.1f, 46.2f, 157.5f), PAD(19.1f, -46.2f, -22.5f),
+  DECO(AL_TRIM, 0, 63.4f, 0, 128, 0.04f, 1.2f, 0, 0),
+  DECO(AL_TRIM, 0, -63.4f, 0, 128, 0.04f, 1.2f, 0, 0),
+  DECO(AL_TRIM, 63.4f, 0, 0, 1.2f, 0.04f, 125.6f, 0, 0),
+  DECO(AL_TRIM, -63.4f, 0, 0, 1.2f, 0.04f, 125.6f, 0, 0),
 };
 
 static const float SPAWNS[][3] = {
@@ -97,14 +121,15 @@ static const arena_def ARENA = {
   .spawns = SPAWNS, .nspawns = sizeof SPAWNS / sizeof SPAWNS[0],
   .boxes = BOXES, .nboxes = sizeof BOXES / sizeof BOXES[0],
   .look = {
-    [AL_FLOOR] = { TEX_ROAD_SALT, { 1.0f, 0.93f, 0.9f }, 2.4f, 9.0f, 0.85f, 0 },
+    [AL_FLOOR] = { TEX_ROAD_SALT, { 1.0f, 0.9f, 0.84f }, 2.05f, 9.0f, 0.85f, 0 },
     [AL_WALL] = { TEX_WALL_RUST, { 0.62f, 0.33f, 0.22f }, 1.6f, 4.0f, 0.9f, 0 },
     [AL_COVER] = { TEX_WALL_RUST, { 0.6f, 0.6f, 0.6f }, 1.5f, 3.0f, 0.8f, 0 },
     [AL_DECK] = { TEX_METAL, { 0.55f, 0.56f, 0.6f }, 1.5f, 4.0f, 0.7f, 0 },
     [AL_RAMP] = { TEX_ROAD_METAL, { 0.85f, 0.85f, 0.88f }, 1.3f, 6.0f, 0.6f, 0 },
     [AL_TRIM] = { TEX_WALL_HAZARD, { 1, 1, 1 }, 1.2f, 2.0f, 0.8f, 0 },
     [AL_FEATURE] = { TEX_METAL, { 0.9f, 0.62f, 0.12f }, 1.4f, 3.0f, 0.6f, 0 },
-    [AL_GLOW] = { -1, { 1.0f, 0.6f, 0.2f }, 1, 1, 1, 3.5f },
+    [AL_GLOW] = { -1, { 1.0f, 0.6f, 0.2f }, 1, 1, 1, 0, 3.5f },
+    [AL_PAINT] = { -1, { 1, 1, 1 }, 1.0f, 1, 0.8f, 0 },
   },
 };
 
