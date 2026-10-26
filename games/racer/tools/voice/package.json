@@ -1,0 +1,9 @@
+{
+  "name": "racer-voice-tools",
+  "private": true,
+  "type": "module",
+  "description": "racer's announcer: the local text-to-speech that ../make-voice.mjs runs. A dev tool, never shipped.",
+  "dependencies": {
+    "kokoro-js": "1.2.1"
+  }
+}

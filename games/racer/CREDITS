@@ -3,7 +3,7 @@ Racer: credits
 Everything in this game was made for it: code, the karts, the props and eight
 worlds, the procedural textures, the colour grades and the synthesized sound
 and music (tools/make-audio.mjs, tools/make-music.mjs). The exceptions are the
-fonts below.
+fonts and the announcer's voice below.
 
 Fonts (from github.com/google/fonts; each licence ships beside its font in
 assets/fonts/):
@@ -19,3 +19,25 @@ assets/fonts/):
   Oswald (variable): small print.
     Copyright 2016 The Oswald Project Authors (https://github.com/googlefonts/OswaldFont).
     SIL Open Font License 1.1 (assets/fonts/Oswald-OFL.txt).
+
+The announcer (assets/audio/voice/, 93 Ogg files): the lines were written for
+the game and spoken by a text-to-speech model run locally by
+tools/make-voice.mjs, which then gives them their stadium sound (its own
+filters, compressor, limiter, echoes and reverb). Nothing was recorded.
+
+  Kokoro-82M v1.0, voice am_fenrir: the speech model and its voice pack.
+    Copyright hexgrad (https://huggingface.co/hexgrad/Kokoro-82M).
+    Apache License 2.0. Run from its ONNX build,
+    onnx-community/Kokoro-82M-v1.0-ONNX (Apache License 2.0).
+
+  kokoro-js 1.2.1 (https://github.com/hexgrad/kokoro, Apache License 2.0)
+  with Transformers.js 3.8.1 (Hugging Face, Apache License 2.0) and
+  onnxruntime-node 1.21.0 (Microsoft, MIT): the runner. Tools only; none of their code ships.
+
+  phonemizer 1.2.1 (npm, Apache License 2.0; eSpeak NG compiled to
+  WebAssembly, GPL-3.0): turns the words into phonemes for the model. A tool
+  only; none of its code ships.
+
+  Whisper base.en (OpenAI, MIT), run with Transformers.js: make-voice.mjs
+  --asr transcribes every file back to check that it says its words. A check
+  only; nothing of it ships.

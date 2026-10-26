@@ -265,8 +265,8 @@ static int title_count(void) {
 enum { TI_RACE, TI_TRIAL, TI_CUP, TI_BATTLE, TI_SPLIT, TI_OPTIONS, TI_QUIT };
 static const char *const TITLE_ITEMS[7] = { "RACE", "TIME TRIAL", "CUP", "BATTLE", "SPLIT SCREEN", "OPTIONS", "QUIT" };
 static const char *const PAUSE_ITEMS[5] = { "RESUME", "RESTART RACE", "GRAPHICS", "CONTROLS", "QUIT TO MENU" };
-static const char *const OPTPAGE_ITEMS[7] = { "GRAPHICS", "MUSIC", "EFFECTS", "STEERING ASSIST", "AUTO-ACCELERATE", "CONTROLS", "BACK" };
-enum { OI_GFX, OI_MUSIC, OI_SFX, OI_ASSIST_STEER, OI_ASSIST_GAS, OI_CONTROLS, OI_BACK, OI_COUNT };
+static const char *const OPTPAGE_ITEMS[8] = { "GRAPHICS", "MUSIC", "EFFECTS", "ANNOUNCER", "STEERING ASSIST", "AUTO-ACCELERATE", "CONTROLS", "BACK" };
+enum { OI_GFX, OI_MUSIC, OI_SFX, OI_VOICE, OI_ASSIST_STEER, OI_ASSIST_GAS, OI_CONTROLS, OI_BACK, OI_COUNT };
 
 /* the vehicle panel of one player */
 typedef struct vlay {
@@ -885,6 +885,7 @@ static void tick_options(float W, float H) {
   bool changed = false;
   if (U.opt_sel == OI_ASSIST_STEER && (dx || (act && N.click))) U.assist ^= 1, sfx_move(), act = false, changed = true;
   if (U.opt_sel == OI_ASSIST_GAS && (dx || (act && N.click))) U.assist ^= 2, sfx_move(), act = false, changed = true;
+  if (U.opt_sel == OI_VOICE && (dx || (act && N.click))) SAVE.voice_off ^= 1, sfx_move(), act = false, changed = true;
   if (U.opt_sel == OI_MUSIC || U.opt_sel == OI_SFX) {
     uint8_t *v = U.opt_sel == OI_MUSIC ? &SAVE.music : &SAVE.sfx;
     if (dx) {
@@ -905,7 +906,7 @@ static void tick_options(float W, float H) {
     }
   if (changed) {
     apply_volumes();
-    if (U.opt_sel == OI_ASSIST_STEER || U.opt_sel == OI_ASSIST_GAS) save_write();
+    if (U.opt_sel == OI_ASSIST_STEER || U.opt_sel == OI_ASSIST_GAS || U.opt_sel == OI_VOICE) save_write();
     else if (U.ticks - U.rec_dummy > 6) sfx_move(), U.rec_dummy = U.ticks;
   }
   if (act && U.mt > 8) {
@@ -914,6 +915,11 @@ static void tick_options(float W, float H) {
       sfx_ok();
     } else if (row == OI_ASSIST_STEER || row == OI_ASSIST_GAS) {
       U.assist ^= row == OI_ASSIST_STEER ? 1 : 2;
+      sfx_move();
+      save_write();
+    } else if (row == OI_VOICE) {
+      SAVE.voice_off ^= 1;
+      apply_volumes();
       sfx_move();
       save_write();
     } else if (row == OI_CONTROLS) {
@@ -1458,8 +1464,8 @@ static void draw_options(float W, float H, float s) {
     cw_color tc = sel ? INK : CREAM;
     txopt o = { .align = CW_ALIGN_LEFT, .outline = sel ? 0.01f : 0, .no_shadow = sel };
     tx_o(U.f_title, OPTPAGE_ITEMS[i], r.x + 24 * s, r.y + r.h * 0.5f, 20 * s, tc, o);
-    if (i == OI_ASSIST_STEER || i == OI_ASSIST_GAS) {
-      bool on = (U.assist & (i == OI_ASSIST_STEER ? 1 : 2)) != 0;
+    if (i == OI_ASSIST_STEER || i == OI_ASSIST_GAS || i == OI_VOICE) {
+      bool on = i == OI_VOICE ? SAVE.voice_off == 0 : (U.assist & (i == OI_ASSIST_STEER ? 1 : 2)) != 0;
       o.align = CW_ALIGN_RIGHT;
       tx_o(U.f_title, on ? "ON" : "OFF", r.x + r.w - 24 * s, r.y + r.h * 0.5f, 20 * s, sel ? INK : (on ? LIME : DIM), o);
     } else if (i == OI_GFX) {
@@ -1481,9 +1487,10 @@ static void draw_options(float W, float H, float s) {
   }
   hint_line(W, H, s, dev_hint("D-pad: move and adjust   (A) choose   (B) back", "Arrows: move and adjust   Enter: choose   Esc: back", "Click to choose, drag the bars", "Tap to choose, drag the bars"));
   /* what an assist does, for the row picked */
-  if (U.opt_sel == OI_ASSIST_STEER || U.opt_sel == OI_ASSIST_GAS) {
-    const char *d = U.opt_sel == OI_ASSIST_STEER ? "A gentle pull back to the road when a wall is close. Costs no speed."
-                                                    : "The throttle stays down unless you brake. Costs no speed; the rocket start is still yours.";
+  if (U.opt_sel == OI_ASSIST_STEER || U.opt_sel == OI_ASSIST_GAS || U.opt_sel == OI_VOICE) {
+    const char *d = U.opt_sel == OI_VOICE ? "The voice that calls the race: the countdown, your place, the hits, the big air."
+                    : U.opt_sel == OI_ASSIST_STEER ? "A gentle pull back to the road when a wall is close. Costs no speed."
+                                                   : "The throttle stays down unless you brake. Costs no speed; the rocket start is still yours.";
     cw_rect pp = opt_panel(W, H);
     tx_fit(U.f_small, d, W * 0.5f, pp.y + pp.h + 16 * s, 17 * s, W * 0.92f, alpha(CREAM, 0.9f), CW_ALIGN_CENTER);
   }

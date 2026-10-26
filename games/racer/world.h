@@ -92,6 +92,22 @@ void audio_pause(bool paused);       /* the race is paused: engines, tyres and w
 /* the player's volumes from the options screen (ui.c): v is 0..1; the audio module applies it to every sound on that bus */
 enum { ABUS_MUSIC, ABUS_SFX };
 void audio_set_volume(int bus, float v);
+/* the announcer (announcer.c): on or off (the options page; saved), and the calls the menus make after a race */
+void audio_set_announcer(bool on);
+bool audio_announcer(void);
+enum { ANN_RECORD, ANN_MEDAL_BRONZE, ANN_MEDAL_SILVER, ANN_MEDAL_GOLD, ANN_MEDAL_AUTHOR, ANN_CUP_WIN, ANN_CUP_TROPHY, ANN_CUP_DONE };
+void audio_announce(int what);
+/* announcer.c's side of audio.c (audio.c drives it on the fixed tick; parent is the bus it speaks into) */
+void announcer_init(int parent);
+void announcer_shutdown(void);
+void announcer_set_volume(float v);
+void announcer_race_start(const sim *s, bool humans);
+void announcer_race_stop(void);
+void announcer_pause(bool paused);
+void announcer_events(const sim *s);
+void announcer_tick(const sim *s);
+void announcer_wrong_way(void);
+float announcer_duck(void);       /* 0..1: how much it is speaking (the music and the engines make room) */
 
 /* items_gfx.c: what the hazards and boxes look like */
 void items_build(cw_node scene, const sim *s);

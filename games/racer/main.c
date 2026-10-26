@@ -23,6 +23,8 @@
  *   RACER_AI_TAKE=0|1    every CPU driver stays out of (0) or takes (1) every shortcut; RACER_AILOG=1 logs their choices
  *   RACER_MODE=battle    with RACER_MAP=n: a battle in arena n (0 Crusher Yard, 1 Foundry Pit); RACER_KARTS=2..8 karts in it
  *                        (humans first, CPUs fill), RACER_BATTLE_TIME=secs the round's length (three minutes otherwise)
+ *   RACER_VOICE_LOG=file the announcer (announcer.c) logs every line it says, drops or cuts, with the time (1: the
+ *                        engine log); tools/voice-log.mjs reads the logs back (pacing, overlaps)
  *
  * Battle (sim_battle.inc, ai_battle.c, arena.c, balloons.c, ui_battle.inc): race_setup.mode RM_BATTLE puts ARENAS[map] on
  * instead of a race map. The sim knows it by map_def.arena (sim.battle); the CPU drivers switch to ai_battle_think; a view whose
