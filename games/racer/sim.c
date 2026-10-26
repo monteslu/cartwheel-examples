@@ -886,7 +886,9 @@ static void kart_control(sim *s, int i, kin in) {
   bool gap = (ts->flags & TF_GAP) != 0 || (t->s[track_next(t, k->loc.i)].flags & TF_GAP) != 0;
   float attach = 0;
   if (!gap && lat_over < 2.5f && h > -1.0f && !s->battle) {
-    float reach = (ts->flags & TF_LOOP) ? 2.3f : 3.0f;
+    /* in a loop or corkscrew the road keeps its hold a long way out: a kart bounced off it upside down was dropped out
+     * of the tube (2.3 m was all it had) */
+    float reach = (ts->flags & TF_LOOP) ? 7.0f : 3.0f;
     attach = clampf((reach - h) / 0.9f, 0, 1);
     float al = v3dot(up, m.u);
     if (al < 0.0f && !(ts->flags & TF_LOOP)) attach *= 0.0f;
@@ -1069,6 +1071,21 @@ static void kart_control(sim *s, int i, kin in) {
     cw_body3d_set_angular_velocity(b, w);
   }
 
+  /* never on its side or its roof near the road (outside loops): a kart tipped past about 30 degrees from the road's up
+   * is turned back upright, hard, so a bump or a wall is a wobble and not a roll into the barrier */
+  if (!(ts->flags & TF_LOOP) && m.u.y > 0.8f && k->loc.height < 3.0f && k->spin_ticks <= 0 && k->trick_ticks <= 0) {
+    float c = v3dot(up, m.u);
+    if (c < 0.87f) {
+      t3_vec3 ax = v3cross(up, m.u);
+      float sa = v3len(ax);
+      if (sa > 1e-4f) {
+        t3_vec3 axn = v3mul(ax, 1.0f / sa);
+        float ang = cw_atan2(sa, c), want = ang * 7.0f, have = v3dot(k->w, axn);
+        k->w = v3add(k->w, v3mul(axn, (want - have) * 0.4f));
+        cw_body3d_set_angular_velocity(b, k->w);
+      }
+    }
+  }
   /* in the air: a small say in pitch and yaw, a landing assist, the trick */
   if (!touching) {
     t3_vec3 w = k->w;
