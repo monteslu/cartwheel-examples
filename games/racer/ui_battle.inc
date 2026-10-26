@@ -600,10 +600,14 @@ static void draw_arena(float W, float H, float s) {
   slab(d, 0, rgba(0.1f, 0.075f, 0.09f, 0.9f), s);
   tx_fit(U.f_title, md->name, d.x + 16 * s, d.y + 26 * s, 26 * s, d.w - 32 * s, MUSTARD, CW_ALIGN_LEFT);
   float bh = tx_para(U.f_hud, md->blurb, cw_rect_make(d.x + 16 * s, d.y + 46 * s, d.w - 32 * s, 60 * s), 16 * s, CREAM, CW_ALIGN_LEFT);
-  int ramps = 0, decks = 0;
-  for (int i = 0; i < ad->nprims; i++) ramps += ad->prims[i].kind == AP_RAMP && !ad->prims[i].ghost, decks += ad->prims[i].look == AL_DECK;
+  int ramps = 0, decks = 0, mounds = 0;
+  for (int i = 0; i < ad->nprims; i++) {
+    ramps += ad->prims[i].kind == AP_RAMP && !ad->prims[i].ghost;
+    mounds += ad->prims[i].kind == AP_MOUND && !ad->prims[i].ghost;
+    decks += ad->prims[i].look == AL_DECK;
+  }
   char b[96];
-  snprintf(b, sizeof b, "%.0f x %.0f m    %d ramps    %d item boxes", ad->half_x * 2, ad->half_z * 2, ramps, ad->nboxes);
+  snprintf(b, sizeof b, "%.0f x %.0f m    %d ramps%s    %d item boxes", ad->half_x * 2, ad->half_z * 2, ramps, mounds ? " and a mound" : "", ad->nboxes);
   if (d.y + 46 * s + bh + 14 * s < d.y + d.h) tx_fit(U.f_small, b, d.x + 16 * s, d.y + 46 * s + bh + 12 * s, 16 * s, d.w - 32 * s, DIM, CW_ALIGN_LEFT);
   (void)decks;
   for (int r = 0; r < BO_KINDS; r++) {
