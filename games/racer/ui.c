@@ -35,6 +35,7 @@
 #include "cartwheel/quality.h"
 #include "cartwheel/quality_menu.h"
 #include "cartwheel/render2d.h"
+#include "arena.h"
 #include "ui.h"
 #include "world.h"
 
@@ -70,7 +71,7 @@ static float ease_io(float t) { t = clamp01(t); return t * t * (3 - 2 * t); }
 
 /* ── state ──────────────────────────────────────────────────────────── */
 
-enum { M_TITLE, M_JOIN, M_VEHICLE, M_MAP, M_OPTIONS, M_CONTROLS, M_RACE, M_PAUSE, M_RESULTS, M_MODES, M_CUP, M_STANDINGS, M_CUPEND };
+enum { M_TITLE, M_JOIN, M_VEHICLE, M_MAP, M_OPTIONS, M_CONTROLS, M_RACE, M_PAUSE, M_RESULTS, M_MODES, M_CUP, M_STANDINGS, M_CUPEND, M_ARENA };
 /* what waits behind a fade to black */
 enum { PD_NONE, PD_START_RACE, PD_TO_MENU, PD_ATTRACT, PD_RESTART, PD_NEXT_MAP, PD_CUP_NEXT };
 enum { DEV_MOUSE, DEV_PAD, DEV_KEYS, DEV_TOUCH };
@@ -173,6 +174,10 @@ static struct {
     int final_place[MAXV];
   } cup;
   int cup_sel, cup_focus;
+  struct battle_setup {
+    int arena, karts, secs_i;      /* the arena, the karts in the round (2..8), the round's length (BATTLE_SECS index) */
+    int focus;                     /* the arena screen: 0 the arenas, 1.. the option rows, then START */
+  } bt;
   bool auto_cup;                   /* dev/gates: a cup that clicks through its own results and standings (the bot drives) */
   /* options */
   int opt_sel, cfrom, rec_dummy, shake;
@@ -678,10 +683,20 @@ static void draw_standings(float W, float H, float s);
 static void tick_cupend(float W, float H);
 static void draw_cupend(float W, float H, float s);
 static bool cup_unlocked(int cup);
+/* ui_battle.inc: battle mode's arena select, HUD and results */
+static void battle_hud_event(int v, const struct sim_event *e, const sim *S);
+static void battle_hud_tick(void);
+static void hud_battle_shared(float W, float H);
+static void tick_arena(float W, float H);
+static void draw_arena(float W, float H, float s);
+static void battle_results_build(void);
+static void tick_battle_results(float W, float H);
+static void draw_battle_results(float W, float H, float s);
 
 #include "ui_hud.inc"
 #include "ui_screens.inc"
 #include "ui_modes.inc"
+#include "ui_battle.inc"
 
 /* ── the screen flow ────────────────────────────────────────────────── */
 
@@ -716,6 +731,7 @@ void ui_init(void) {
   if (getenv("RACER_UI_ITEMS")) U.items = atoi(getenv("RACER_UI_ITEMS")) % 3; /* dev aid: the item-box setting the screens show */
   U.cls = SAVE.speed_class, U.assist = SAVE.assist, U.ghost_on = SAVE.ghost_on, U.cup_sel = SAVE.cup_pick;
   U.gmode = RM_RACE;
+  U.bt.karts = MAXK, U.bt.secs_i = 2;
   for (int i = 0; i < MAXV; i++) U.veh[i] = SAVE.veh[i], U.col[i] = SAVE.col[i];
   apply_volumes();
   const char *pl = getenv("RACER_PLAYERS");
@@ -834,6 +850,12 @@ static void run_pending(void) {
   }
   case PD_NEXT_MAP: {
     race_setup rs = U.last;
+    if (rs.mode == RM_BATTLE) {
+      rs.map = (rs.map + 1) % NARENAS;
+      U.bt.arena = rs.map;
+      ui_enter_race(&rs);
+      break;
+    }
     rs.map = (rs.map + 1) % NMAPS;
     U.map = rs.map;
     if (rs.mode == RM_TRIAL) rs.ghost = trial_ghost_for(rs.map);
@@ -891,6 +913,13 @@ static void dev_screen(void) {
     U.setup.humans = n;
     goto_mode(M_VEHICLE);
   } else if (!strcmp(d, "map")) goto_mode(M_MAP);
+  else if (!strcmp(d, "arena")) {
+    /* the battle's arena select (RACER_UI_MAP picks the arena) */
+    U.gmode = RM_BATTLE;
+    U.setup.humans = n;
+    if (getenv("RACER_UI_MAP")) U.bt.arena = atoi(getenv("RACER_UI_MAP")) % NARENAS;
+    goto_mode(M_ARENA);
+  }
   else if (!strcmp(d, "options")) U.from = M_TITLE, goto_mode(M_OPTIONS);
   else if (!strcmp(d, "controls")) U.from = M_TITLE, goto_mode(M_CONTROLS);
   else if (!strcmp(d, "trial")) {

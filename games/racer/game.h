@@ -32,6 +32,8 @@
 #define NMAPS 8
 #define NVEH 6
 #define MAX_LAPS 5
+#define NARENAS 2  /* battle arenas (ARENAS[]; separate from the race maps) */
+#define BALLOONS 3 /* a battle kart's balloons at the start */
 
 /* ── vehicles ───────────────────────────────────────────────────────── */
 
@@ -77,6 +79,7 @@ typedef struct hazard {
   int age;
   t3_vec3 p;      /* world position, set each tick */
   t3_vec3 f;      /* world heading (missiles) */
+  int bounces;    /* battle: walls a missile has glanced off */
 } hazard;
 #define MAXHZ 48
 
@@ -151,6 +154,11 @@ typedef struct kart {
   /* stats */
   int hits_given, hits_taken, boosts, tricks, falls, drift_boosts;
   float top_speed_seen;
+  /* battle (sim_battle.inc): balloons left, points (a balloon popped), out of the round and when */
+  int balloons, points, pops_taken;
+  bool out, parked;     /* out: no balloons left; parked: its last spin over, moved off the arena (no longer drawn) */
+  int out_tick;
+  int ram_cool;         /* ticks before a turbo ram can pop this kart again */
 } kart;
 
 /* ── the race ───────────────────────────────────────────────────────── */
@@ -179,8 +187,15 @@ enum {
   EV_OVERTAKE,     /* a = kart passed b */
   EV_WATER,        /* a = kart in water, k = speed */
   EV_NEARMISS,     /* a = kart that shaved past b at speed (a little boost) */
-  EV_WARN          /* a = kart a Shockwave is coming for (hop to dodge it), b = attacker */
+  EV_WARN,         /* a = kart a Shockwave is coming for (hop to dodge it), b = attacker */
+  EV_POP,          /* battle: a = victim lost a balloon, b = attacker (or -1 / itself), k = balloons left */
+  EV_OUT,          /* battle: a = victim is out of the round, b = attacker */
+  EV_RAM           /* battle: a = rammed b under a boost (the pop follows as EV_POP) */
 };
+
+/* battle: why the round ended (sim.battle_end) */
+enum { BE_NONE, BE_LAST, BE_TIME, BE_HUMANS };
+typedef struct arena_rt arena_rt;
 
 typedef struct sim {
   int tick;
@@ -201,6 +216,14 @@ typedef struct sim {
   int speed_class;         /* 0 Standard, 1 Fast, 2 Blazing (sim_set_class) */
   int item_set;            /* 0 every item, 1 turbos only (a party preset) */
   float class_top, class_acc; /* every kart's top speed and acceleration scale for the class (1 = Standard) */
+  /* battle (an arena map): no laps, balloons and points, a clock (sim_battle.inc) */
+  bool battle;
+  const arena_rt *arena;   /* the arena's world-space layout (arena.c) */
+  int battle_limit;        /* ticks the round lasts */
+  int battle_left;         /* ticks to go */
+  int battle_end;          /* BE_* */
+  int alive;               /* karts still in */
+  int humans_out_tick;
   uint32_t hash;
   int ev_n;
   struct sim_event { int kind, a, b; t3_vec3 at; float k; } ev[96];
@@ -218,6 +241,11 @@ void sim_restart(sim *s, uint32_t seed, int skip_ticks); /* skip_ticks > 0 joins
 void sim_step(sim *s, const kin in[MAXK]);
 void sim_put(sim *s, int i, float s_dist, float lat, float speed);
 void sim_use(sim *s, int i, int item); /* dev aid: kart i uses this item now */
+/* battle: the round's length in ticks (call after sim_init; 0 keeps the default three minutes) */
+void sim_set_battle_time(sim *s, int ticks);
+/* a ray against the static world (floor, walls, cover; never the karts): true on a hit, with how far along (0..1) and the normal.
+ * A query only: it changes nothing (the CPU drivers' feelers and line of sight) */
+bool sim_ray(const sim *s, t3_vec3 from, t3_vec3 delta, float *frac, t3_vec3 *normal);
 void sim_place_on_grid(sim *s); /* line the karts up behind the line */
 const track *sim_track(const sim *s);
 const cw_vehicle3d *sim_car(const sim *s, int i); /* the wheels' poses for the renderer */
@@ -247,9 +275,19 @@ typedef struct ai_mem {
   int item_wait;
   int stuck, unstick;
   float steer_smooth;
+  /* battle (ai_battle.c) */
+  int b_target, b_box, b_think, b_reverse, b_hold, b_slow, b_side, b_frust, b_roam;
+  float b_best_d;
+  int b_commit;       /* ticks it drives on after backing out before it may back out again */
+  t3_vec3 b_rev_p;    /* where the backing out began */
+  t3_vec3 b_aim;      /* where it steered this tick (the trace) */
+  float b_feel[3];    /* its feelers this tick, left, centre, right (the trace) */
+  t3_vec3 b_goal, b_last_p;
 } ai_mem;
 void ai_reset(ai_mem *m, int me, int skill, uint32_t seed);
 kin ai_think(const sim *s, int me, ai_mem *m);
+/* ai_battle.c: the CPU driver of a battle (roams to boxes, chases and fires, backs off walls) */
+kin ai_battle_think(const sim *s, int me, ai_mem *m);
 
 /* assist.c: the humans' steering assist (main.c human_in only; never the CPU drivers) */
 void assist_steer(const sim *s, int me, kin *in);
@@ -282,8 +320,11 @@ struct map_def {
   /* called each fixed tick and each frame for animated scenery (water, flames) */
   void (*scenery_tick)(const sim *s, int ticks);
   void (*scenery_frame)(float alpha, double time);
+  const struct arena_def *arena;     /* a battle arena (arena.h): its floor, walls, cover, spawns and boxes; NULL for a race map */
+  int music;                         /* the music track (audio_music) a battle arena plays; 0: the default */
 };
 extern const map_def *const MAPS[NMAPS];
+extern const map_def *const ARENAS[NARENAS]; /* the battle arenas (maps.c) */
 extern const map_def map_test; /* the proving ground: RACER_MAP=-1 */
 
 #endif

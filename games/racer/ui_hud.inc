@@ -127,6 +127,8 @@ static void hud_event(int v, const struct sim_event *e, const sim *S) {
   case EV_RESPAWN:
     if (e->a == me) pop_add(h, PU_BACK);
     break;
+  case EV_POP:
+  case EV_OUT: battle_hud_event(v, e, S); break;
   default: break;
   }
 }
@@ -180,7 +182,7 @@ static void hud_tick(void) {
     if (h->item_t > 0 && ++h->item_t > 30) h->item_t = 0;
     /* wrong way: the kart faces against the road for a second */
     bool wrong = false;
-    if (S->phase == PH_RACE && !k->finished && k->grounded && k->loc.on_road && k->speed > 2.5f && !(S->track->s[k->loc.i].flags & (TF_LOOP | TF_GAP))) {
+    if (S->phase == PH_RACE && !S->battle && !k->finished && k->grounded && k->loc.on_road && k->speed > 2.5f && !(S->track->s[k->loc.i].flags & (TF_LOOP | TF_GAP))) {
       tsample m = track_at(S->track, k->loc.s);
       wrong = v3dot(kart_fwd(k), m.f) < -0.15f;
     }
@@ -192,6 +194,7 @@ static void hud_tick(void) {
     h->speed_s += (fabsf(k->speed) - h->speed_s) * 0.2f;
     h->boost_glow += ((k->boost_ticks > 0 ? 1.0f : 0.0f) - h->boost_glow) * 0.15f;
   }
+  battle_hud_tick();
 }
 
 /* ── item icons ─────────────────────────────────────────────────────── */
@@ -298,6 +301,7 @@ typedef struct hv {
   const hudv *hs;
 } hv;
 static void hud_trial(const hv *g); /* ui_modes.inc: the time trial's panels */
+static void hud_battle_view(const hv *g, int nviews); /* ui_battle.inc: a battle's HUD */
 
 static float hpx(float design, float s, float minpx) { return fmaxf(design * s, minpx); }
 
@@ -764,6 +768,11 @@ static void hud_view(int v, float W, float H, int nviews) {
   if (h->fall_t > 0) hud_edges(&g, CREAM, 0.55f * (1 - (float)h->fall_t / 40.0f), 0.2f);
   if (h->boost_t > 0) hud_edges(&g, TEAL, 0.3f * (1 - (float)h->boost_t / 20.0f), 0.1f);
   if (g.k->respawn_ticks > 0 && (g.k->respawn_ticks / 5) & 1) cw_r2d_rect(cw_rect_make(g.x, g.y, g.w, g.h), rgba(1, 1, 1, 0.06f));
+  if (S->battle) {
+    hud_battle_view(&g, nviews);
+    cw_r2d_pop_clip();
+    return;
+  }
   bool trial = game_is_trial();
   if (trial) hud_trial(&g);
   else hud_place(&g), hud_item(&g);
@@ -899,7 +908,8 @@ static void hud_draw(float W, float H) {
   if (!game_loaded() || (U.mode != M_RACE && U.mode != M_PAUSE)) return;
   int nv = game_views();
   for (int v = 0; v < nv; v++) hud_view(v, W, H, nv);
-  if (nv == 3) {
+  if (nv == 3 && game_sim()->battle) hud_battle_shared(W, H);
+  else if (nv == 3) {
     hv g = { 0 };
     g.S = game_sim();
     g.k = &g.S->k[game_view_kart(0)];
