@@ -899,3 +899,15 @@ static bool build_branch(track *t, const branch_spec *bs) {
   cw_info("track %s: branch %s %.0f m for %.0f m of road (s %.0f to %.0f), side %d, solve %.2f m", t->circuit ? "circuit" : "course", name, B->length, B->span, B->s0, B->s1, B->side, err);
   return true;
 }
+
+/* the lowest road height of the loop or corkscrew that sample i is in (or i's own height when it is in none): the
+ * ground round a loop has to stay under this, or it stands up inside the tube */
+float track_loop_floor(const track *t, int i) {
+  for (int g = 0; g < t->nloops; g++)
+    if (i >= t->loop_from[g] && i < t->loop_to[g]) {
+      float lo = 1e9f;
+      for (int k = t->loop_from[g]; k < t->loop_to[g]; k++) lo = fminf(lo, t->s[k].p.y - t->s[k].hw * fabsf(t->s[k].r.y));
+      return lo;
+    }
+  return t->s[i].p.y;
+}

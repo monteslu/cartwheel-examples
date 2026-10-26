@@ -718,6 +718,40 @@ static void hud_mapname(const hv *g) {
   tx(U.f_hud, b, cx, y + 49 * s, hpx(17, s, 11), alpha(CREAM, a), CW_ALIGN_CENTER);
 }
 
+/* a missile closing from behind: you cannot see back there, so the HUD shows it coming, at the bottom of the view on
+ * the side it is on, with a ping when it first locks on (it was a hit out of nowhere) */
+static void hud_incoming(const hv *g) {
+  static bool was[MAXV];
+  const sim *S = g->S;
+  const kart *me = g->k;
+  if (!S->track || me->finished || g->v < 0 || g->v >= MAXV) return;
+  float len = S->track->length, best = 1e9f, side = 0;
+  for (int i = 0; i < MAXHZ; i++) {
+    const hazard *z = &S->hz[i];
+    if ((z->kind != HZ_MISSILE && z->kind != HZ_HOMING) || z->life <= 0 || z->owner == g->kart) continue;
+    float ds = me->loc.ms - z->s; /* hazards ride the main road's metres */
+    if (S->track->circuit) {
+      if (ds > len * 0.5f) ds -= len;
+      if (ds < -len * 0.5f) ds += len;
+    }
+    bool aimed = z->kind == HZ_HOMING ? z->target == g->kart : fabsf(z->lat - me->loc.lat) < 3.5f;
+    if (!aimed || ds < -1.5f || ds > 70 || ds >= best) continue;
+    best = ds, side = z->lat - me->loc.lat;
+  }
+  bool on = best < 1e8f;
+  if (on && !was[g->v]) audio_ui(AUI_COUNT);
+  was[g->v] = on;
+  if (!on) return;
+  float s = g->s, near = clamp01(1 - fmaxf(best, 0) / 70.0f);
+  float pulse = 0.55f + 0.45f * cw_sin((float)S->tick * (0.25f + 0.5f * near));
+  float cx = g->x + g->w * 0.5f + cw_clampf(side / 6.0f, -1, 1) * 120 * s, cy = g->y + g->h - 120 * s;
+  if (U.touch_on) cy -= 136 * s;
+  cw_color c = alpha(RED, 0.5f + 0.5f * pulse);
+  for (int k = 0; k < 2; k++) tri(cw_v2(cx, cy - (float)k * 16 * s), (18 + 8 * near) * s, -CW_PI * 0.5f, c);
+  /* close in: the cue to hop it */
+  tx_o(U.f_title, best < 14 ? "HOP!" : "INCOMING", cx, cy + 26 * s, (20 + 8 * near) * s, c, (txopt){ .align = CW_ALIGN_CENTER });
+}
+
 static cw_rect pause_button_rect(const hv *g) {
   float s = g->s;
   return cw_rect_make(g->x + g->w * 0.5f + 60 * s, g->y + 14 * s, 46 * s, 40 * s);
@@ -793,6 +827,7 @@ static void hud_view(int v, float W, float H, int nviews) {
   hud_lapflash(&g);
   hud_popups(&g);
   hud_wrong_way(&g);
+  hud_incoming(&g);
   hud_finish(&g);
   if (nviews == 1 && pointer_mode() && S->phase != PH_DONE) {
     cw_rect pr = pause_button_rect(&g);

@@ -81,6 +81,7 @@ typedef struct hazard {
   t3_vec3 p;      /* world position, set each tick */
   t3_vec3 f;      /* world heading (missiles) */
   int bounces;    /* battle: walls a missile has glanced off */
+  bool owner_clear; /* the kart that dropped it has been 8 m away: from then on it can hit its owner too */
 } hazard;
 #define MAXHZ 48
 
@@ -120,6 +121,7 @@ typedef struct kart {
   bool finished;
   int finish_tick;
   int land_grace;       /* ticks of firmer stability after a landing (sim.c) */
+  int hop_tick;         /* the tick of the last hop (the drift button): a missile met just after it misses */
   float best_lap;       /* seconds */
   int lap_start_tick;
   float last_safe_s;    /* a place to put it back after a fall */

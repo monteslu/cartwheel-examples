@@ -383,7 +383,13 @@ static float land_road(float x, float z, int *kind) {
     if (kind) *kind = KIND_ROCK;
     return h0;
   }
-  if ((fl & TF_LOOP) || (fl & TF_GAP)) {
+  if (fl & TF_LOOP) {
+    /* round the loop and the corkscrew the rock stays under the lowest of its road (it stood up inside the tube) */
+    if (kind) *kind = KIND_ROCK;
+    float flr = track_loop_floor(t, idx) - 0.6f;
+    return g < 14.0f ? fminf(h0, flr) : fminf(h0, flr + SLOPE_K * (g - 14.0f));
+  }
+  if (fl & TF_GAP) {
     if (kind) *kind = KIND_ROCK;
     return h0;
   }

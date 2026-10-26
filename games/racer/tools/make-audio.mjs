@@ -172,14 +172,16 @@ const pulsesAt = (a, hz, fn) => { const per = sr / hz; for (let p = 0; p * per <
   for (let i = 0; i < a.length; i++) a[i] *= 0.75 + 0.25 * Math.sin(TAU * 1.5 * i / sr) * Math.sin(TAU * 0.5 * i / sr + 1);
   saveLoop('wind', a, 0.8);
 }
-{ /* water through the wheels: a rush with bubbling */
+{ /* water through the wheels: a soft wash that swells slowly, with a few small bubbles. (It was chopped by an 18 Hz
+   * envelope scaled 66 times, a sputter that read as an engine blowing out.) */
   const a = noiseLoop(1.5, 10);
-  circ(a, (d) => { hp(d, 300); lp(d, 3800); });
-  const b = noiseLoop(1.5, 11); circ(b, (d) => lp(d, 18));
-  for (let i = 0; i < a.length; i++) a[i] *= 0.45 + 2.2 * Math.max(0, b[i]) * 30;
+  circ(a, (d) => { hp(d, 250); lp(d, 2400, 0.6); });
+  const b = noiseLoop(1.5, 11); circ(b, (d) => lp(d, 3));
+  let bm = 1e-9; for (let i = 0; i < b.length; i++) bm = Math.max(bm, Math.abs(b[i]));
+  for (let i = 0; i < a.length; i++) a[i] *= 0.7 + 0.3 * (b[i] / bm);
   const bub = shaped(1.5, () => 0); const r = rng(12);
-  for (let k = 0; k < 40; k++) { const t0 = r() * 1.4, f = 500 + r() * 1500; for (let i = 0; i < 0.04 * sr; i++) { const j = Math.floor(t0 * sr) + i; if (j < bub.length) bub[j] += Math.sin(TAU * f * (1 + 6 * i / sr) * i / sr) * Math.exp(-i / sr * 90) * 0.4; } }
-  saveLoop('water', mixArrays(a, bub), 0.8);
+  for (let k = 0; k < 12; k++) { const t0 = r() * 1.4, f = 600 + r() * 900; for (let i = 0; i < 0.04 * sr; i++) { const j = Math.floor(t0 * sr) + i; if (j < bub.length) bub[j] += Math.sin(TAU * f * (1 + 4 * i / sr) * i / sr) * Math.exp(-i / sr * 90) * 0.15; } }
+  saveLoop('water', mixArrays(a, bub), 0.6);
 }
 { /* a tyre sliding on loose ground or ice: broad rough hiss */
   const a = noiseLoop(1.5, 13);

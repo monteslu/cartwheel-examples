@@ -207,35 +207,40 @@ void items_build(cw_node scene, const sim *s) {
   if (I.nbox > 0) {
     mb sb = { 0 }, gb = { 0 };
     float w[3] = { 1, 1, 1 }, yel[3] = { 1.0f, 0.95f, 0.6f };
-    mb_rbox(&sb, xf_at(0, 0, 0), 0.9f, 0.9f, 0.9f, 0.14f, 2, w);
+    /* kart height and bright, to be seen coming from far down the road */
+    mb_rbox(&sb, xf_at(0, 0, 0), 1.35f, 1.35f, 1.35f, 0.2f, 2, w);
     for (int f = 0; f < 4; f++) {
       xf fx = xf_rot(0, 0, 0, 0, (float)f * PI * 0.5f, 0);
       mb gf = { 0 };
-      qmark(&gf, 0.46f, yel);
+      qmark(&gf, 0.69f, yel);
       t3_geometry *g = mb_done(&gf);
       mb_geo(&gb, g, fx, yel);
     }
     {
       mb gt = { 0 };
-      qmark(&gt, 0.46f, yel);
+      qmark(&gt, 0.69f, yel);
       mb_geo(&gb, mb_done(&gt), xf_rot(0, 0, 0, -PI * 0.5f, 0, 0), yel);
     }
     t3_material *sm = phys(lin(1, 1, 1), 0.18f, 0.2f);
     sm->clearcoat = 1;
+    sm->emissive = lin(0.35f, 0.35f, 0.35f); /* a glow of their own: they read at a distance and in the dark maps */
+    sm->emissive_intensity = 1.0f;
     t3_material *gm = phys(lin(1.0f, 0.9f, 0.5f), 0.4f, 0);
     gm->emissive = lin(1.0f, 0.85f, 0.4f);
     gm->emissive_intensity = 2.6f;
-    t3_material *hm = additive(0.5f, 0.8f, 1.0f, 0.16f);
-    t3_geometry *sg = keep(mb_done(&sb)), *gg = keep(mb_done(&gb)), *hg = keep(t3_sphere_geometry_new(0.85f, 14, 10));
+    t3_material *hm = additive(0.6f, 0.85f, 1.0f, 0.1f);
+    t3_geometry *sg = keep(mb_done(&sb)), *gg = keep(mb_done(&gb)), *hg = keep(t3_sphere_geometry_new(1.25f, 16, 12));
     I.shell = t3_instanced_mesh_new(sg, sm, I.nbox);
     I.glyph = t3_instanced_mesh_new(gg, gm, I.nbox);
     I.halo = t3_instanced_mesh_new(hg, hm, I.nbox);
     I.shell->mesh.base.cast_shadow = true;
-    I.shell->mesh.base.frustum_culled = I.glyph->mesh.base.frustum_culled = I.halo->mesh.base.frustum_culled = true;
+    /* the boxes are spread over the whole map: an instanced mesh is culled by one sphere about its origin, so culling
+     * them hid every box away from the start line */
+    I.shell->mesh.base.frustum_culled = I.glyph->mesh.base.frustum_culled = I.halo->mesh.base.frustum_culled = false;
     t3_object_add(I.root, I.shell);
     t3_object_add(I.root, I.glyph);
     t3_object_add(I.root, I.halo);
-    static const float HUE[4][3] = { { 0.2f, 0.7f, 1.0f }, { 0.95f, 0.3f, 0.8f }, { 0.35f, 0.9f, 0.4f }, { 1.0f, 0.6f, 0.15f } };
+    static const float HUE[4][3] = { { 0.05f, 0.55f, 1.0f }, { 1.0f, 0.12f, 0.75f }, { 0.15f, 0.95f, 0.25f }, { 1.0f, 0.55f, 0.0f } };
     for (int i = 0; i < I.nbox; i++) {
       const float *h = HUE[(i / 3) & 3];
       t3_instanced_mesh_set_color_at(I.shell, i, lin(h[0], h[1], h[2]));
@@ -423,6 +428,9 @@ void items_frame(const sim *s, float alpha) {
     t3_mat4_compose(&m, p, q, v3(hs * sc, hs * sc, hs * sc));
     t3_instanced_mesh_set_matrix_at(I.halo, i, &m);
   }
+  /* new matrices only reach the GPU when the buffer's version moves (three.js's instanceMatrix.needsUpdate): without
+   * this every box stayed where it was first uploaded, at the world's origin under the road, and no box was ever seen */
+  if (I.nbox > 0) I.shell->instance_matrix->version++, I.glyph->instance_matrix->version++, I.halo->instance_matrix->version++;
   /* hazards */
   bool marked[MAXK] = { false };
   float near_d[MAXK];

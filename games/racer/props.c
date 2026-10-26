@@ -973,6 +973,28 @@ float road_gap_idx(const track *t, float x, float z, float *road_y, int *idx) {
   return best;
 }
 float road_gap(const track *t, float x, float z, float *road_y) { return road_gap_idx(t, x, z, road_y, NULL); }
+/* the lowest road surface (the low edge of a banked road) of every sample whose road comes within `reach` of (x, z), or
+ * 1e9 when none does: where roads cross, the ground under them must stay under the lower one */
+float road_low_y(const track *t, float x, float z, float reach) {
+  road_index_build(t);
+  float lo = 1e9f;
+  int cx = (int)floorf((x - RI.x0) / RC), cz = (int)floorf((z - RI.z0) / RC), rr = (int)ceilf(reach / RC) + 2;
+  for (int dz = -rr; dz <= rr; dz++)
+    for (int dx = -rr; dx <= rr; dx++) {
+      int ix = cx + dx, iz = cz + dz;
+      if (ix < 0 || iz < 0 || ix >= RI.w || iz >= RI.h) continue;
+      int c = iz * RI.w + ix;
+      for (int k = RI.start[c]; k < RI.start[c + 1]; k++) {
+        const tsample *s = &t->s[RI.items[k]];
+        if (s->flags & (TF_GAP | TF_TUNNEL)) continue;
+        float ex = s->p.x - x, ez = s->p.z - z;
+        if (sqrtf(ex * ex + ez * ez) - sample_reach(s) > reach) continue;
+        float y = s->p.y - s->hw * fabsf(s->r.y);
+        if (y < lo) lo = y;
+      }
+    }
+  return lo;
+}
 float branch_gap(const track *t, float x, float z) {
   float best = 1e9f;
   for (int i = t->n; i < t->nall; i++) {

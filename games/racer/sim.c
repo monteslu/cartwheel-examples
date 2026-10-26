@@ -53,7 +53,7 @@ const char *const ITEM_NAME[IT_KINDS] = { "-", "Turbo", "Triple Turbo", "Missile
 #define MAX_SPEED 78.0f
 #define STICK 0.45f     /* extra downforce, as a share of g, once moving */
 #define DRIFT_MIN 13.0f /* m/s */
-#define BOOST_TURBO 96  /* ticks */
+#define BOOST_TURBO 126 /* ticks */
 #define HIT_SPIN 70
 #define OIL_SPIN 60
 #define BOOM_SPIN 85
@@ -338,7 +338,7 @@ static void make_boxes(sim *s) {
     int cnt = a->hw > 9 ? 5 : a->hw > 6 ? 4 : 3;
     for (int j = 0; j < cnt && s->nbox < MAXBOX; j++) {
       float lat = ((float)j - (float)(cnt - 1) * 0.5f) * (2.0f * a->hw - 3.0f) / (float)cnt;
-      s->box[s->nbox++] = (itembox){ a->s, lat, track_point(t, a->s, lat, 1.1f), 0 };
+      s->box[s->nbox++] = (itembox){ a->s, lat, track_point(t, a->s, lat, 1.25f), 0 };
     }
   }
 }
@@ -446,6 +446,8 @@ static hazard *hz_add(sim *s, int kind, int owner, float sd, float lat, float h)
   return NULL;
 }
 
+static void start_boost(sim *s, int i, int ticks, float strength, int source);
+
 static void spin_kart(sim *s, int i, int kind, int by) {
   kart *k = &s->k[i];
   if (k->respawn_ticks > 0 || k->finished) return;
@@ -515,6 +517,13 @@ static void hazards_step(sim *s) {
       if (!k->on || k->respawn_ticks > 0 || k->finished) continue;
       if (z->age < 12 && z->owner == i && (z->kind == HZ_MISSILE || z->kind == HZ_HOMING)) continue;
       if (z->age < 45 && z->owner == i) continue;
+      /* an oil slick or a mine never catches the kart that dropped it until that kart has got clear of it once (a slow
+       * kart, or a blast set off by a kart right behind, hit its owner the moment it was dropped) */
+      if (z->owner == i && (z->kind == HZ_OIL || z->kind == HZ_MINE)) {
+        t3_vec3 od = v3sub(k->p, z->p);
+        if (!z->owner_clear && v3dot(od, od) > 8.0f * 8.0f) z->owner_clear = true;
+        if (!z->owner_clear) continue;
+      }
       t3_vec3 d = v3sub(k->p, z->p);
       float r = z->kind == HZ_OIL ? 1.8f : z->kind == HZ_MINE ? 2.3f : 1.9f;
       if (z->kind == HZ_OIL && k->loc.height > 1.2f) continue;
@@ -527,12 +536,22 @@ static void hazards_step(sim *s) {
         spin_kart(s, i, SPIN_BOOM, z->owner);
         /* the blast reaches a little way */
         for (int j = 0; j < MAXK; j++) {
-          if (j == i || !s->k[j].on) continue;
+          if (j == i || !s->k[j].on || (j == z->owner && !z->owner_clear)) continue;
           t3_vec3 e = v3sub(s->k[j].p, z->p);
           if (v3dot(e, e) < 4.5f * 4.5f) spin_kart(s, j, SPIN_HIT, z->owner);
         }
         z->kind = HZ_NONE;
       } else {
+        /* a hop timed as it arrives (the drift button in the last sixth of a second) and it goes by underneath: a
+         * close call, with the near miss's little boost. The counterplay the HUD's INCOMING warning asks for */
+        if (k->hop_tick > 0 && s->tick - k->hop_tick <= 10) {
+          event(s, EV_NEARMISS, i, z->owner, z->p, 0);
+          start_boost(s, i, 30, 0.7f * VEH[k->veh].boost, 6);
+          z->target = -1;
+          z->owner = i; /* and it does not turn back for the one who dodged it */
+          z->age = 0;
+          break;
+        }
         /* a missile from behind meets the item held out back first */
         if (k->trailing && v3dot(v3sub(z->p, k->p), kart_fwd(k)) < 0) {
           k->trailing = false;
@@ -541,6 +560,7 @@ static void hazards_step(sim *s) {
           z->kind = HZ_NONE;
           break;
         }
+        if (getenv("RACER_FALLLOG")) cw_info("missile hit kart %d tick %d race %d (hop %d)", i, s->tick, s->race_ticks, k->hop_tick);
         event(s, EV_HIT, i, z->owner, z->p, (float)z->kind);
         spin_kart(s, i, SPIN_HIT, z->owner);
         z->kind = HZ_NONE;
@@ -585,6 +605,14 @@ static int roll_item(sim *s, int place, bool final_lap) {
   return IT_TURBO;
 }
 
+/* a turbo's kick: metres a second added along the nose at once, grounded (in the air it only boosts) */
+static void turbo_kick(sim *s, int i, float dv) {
+  kart *k = &s->k[i];
+  if (!k->grounded) return;
+  t3_vec3 v = cw_body3d_velocity(PH.body[i]);
+  cw_body3d_set_velocity(PH.body[i], v3add(v, v3mul(kart_fwd(k), dv)));
+}
+
 static void start_boost(sim *s, int i, int ticks, float strength, int source) {
   kart *k = &s->k[i];
   if (k->boost_ticks < ticks) k->boost_ticks = ticks;
@@ -620,9 +648,14 @@ static void use_item(sim *s, int i) {
     il.lat = clampf(il.lat, -hw, hw);
   }
   switch (item) {
-  case IT_TURBO: start_boost(s, i, BOOST_TURBO, 1.25f * vd->boost, 1); break;
+  /* a turbo hits at once (a kick forward on the spot) and pulls hard for a while after: it was a slow swell */
+  case IT_TURBO:
+    start_boost(s, i, BOOST_TURBO, 1.7f * vd->boost, 1);
+    turbo_kick(s, i, 7.0f);
+    break;
   case IT_TURBO3:
-    start_boost(s, i, 70, 1.2f * vd->boost, 1);
+    start_boost(s, i, 90, 1.6f * vd->boost, 1);
+    turbo_kick(s, i, 6.0f);
     if (--k->item_count > 0) return;
     break;
   case IT_MISSILE: {
@@ -716,7 +749,7 @@ static void drive(sim *s, int i, float thr, float st, bool grounded_front) {
     float lead = -1e9f;
     for (int j = 0; j < MAXK; j++)
       if (s->k[j].on && s->k[j].human && s->k[j].prog > lead) lead = s->k[j].prog;
-    if (lead > -1e8f) rb = clampf((lead - k->prog) / 900.0f, -0.04f, 0.07f);
+    if (lead > -1e8f) rb = clampf((lead - k->prog) / 900.0f, -0.04f, 0.04f);
   }
   if (k->human) {
     /* a human far behind the pack gets up to 4% more top speed: the road is long, and so is the gap, but never hopeless */
@@ -830,6 +863,8 @@ static void kart_control(sim *s, int i, kin in) {
     if (k->loc.height > k->air_peak) k->air_peak = k->loc.height;
   }
   k->grounded = grounded;
+  /* every hop's tick: a missile met just after one goes by underneath */
+  if (pressed_drift && s->phase == PH_RACE) k->hop_tick = s->tick;
   if (k->shock_warn > 0) {
     /* the alarm: a tap of the drift button hops (even straight), and a kart in the air when the wave arrives is over it */
     if (pressed_drift && grounded && !k->drifting && s->phase == PH_RACE) cw_body3d_apply_impulse(b, v3mul(up, 2.6f * vd->mass), NULL);
@@ -938,6 +973,19 @@ static void kart_control(sim *s, int i, kin in) {
     float d = (float)k->drift_dir;
     eff = d * (0.55f + 0.45f * clampf(steer * d, -1.0f, 1.0f));
   }
+  /* loops and corkscrews: the road bends and twists under the kart faster than a driver can steer for it, so the wheels
+   * steer themselves along the tube and back toward its middle, and the stick adds to that at half strength. (A kart
+   * held straight ran sideways into the wall; the tyres own the yaw, so this has to be steering, not a push.) */
+  if ((ts->flags & TF_LOOP) && touching && k->spin_ticks <= 0 && aspd > 2) {
+    t3_vec3 fr = v3sub(m.f, v3mul(up, v3dot(m.f, up))), fk = v3sub(f, v3mul(up, v3dot(f, up)));
+    float frl = v3len(fr), fkl = v3len(fk);
+    if (frl > 0.3f && fkl > 0.3f) {
+      fr = v3mul(fr, 1.0f / frl), fk = v3mul(fk, 1.0f / fkl);
+      float err = cw_atan2(v3dot(v3cross(fk, fr), up), v3dot(fk, fr)); /* + : the road heads left of the nose */
+      eff = clampf(-err * 3.0f - k->loc.lat * 0.22f + steer * 0.5f, -1.0f, 1.0f);
+      k->drifting = false;
+    }
+  }
   /* gentle at speed without a drift, tight in one: the drift is how a sharp corner is taken */
   float rate = (2.35f - 1.35f * clampf(aspd / 40.0f, 0, 1)) * vd->turn * clampf(aspd / 3.0f + 0.15f, 0, 1);
   if (k->drifting) rate *= 1.34f;
@@ -1000,23 +1048,6 @@ static void kart_control(sim *s, int i, kin in) {
     }
   }
   if (k->land_grace > 0) k->land_grace--;
-  /* loops and corkscrews: the road twists under the kart faster than a driver can steer for it, so the nose is held
-   * along the tube and the kart eased toward its middle; the stick still moves it across, gently. Without
-   * this a corkscrew threw karts into its sides and turned them round */
-  if (touching && (ts->flags & TF_LOOP) && k->spin_ticks <= 0 && sp > 2) {
-    t3_vec3 fr = v3sub(m.f, v3mul(up, v3dot(m.f, up))), fk = v3sub(f, v3mul(up, v3dot(f, up)));
-    float frl = v3len(fr), fkl = v3len(fk);
-    if (frl > 0.3f && fkl > 0.3f) {
-      fr = v3mul(fr, 1.0f / frl), fk = v3mul(fk, 1.0f / fkl);
-      float err = cw_atan2(v3dot(v3cross(fk, fr), up), v3dot(fk, fr));
-      float want_w = err * 6.0f - eff * rate * 0.3f, wy = v3dot(k->w, up);
-      k->w = v3add(k->w, v3mul(up, (want_w - wy) * 0.35f));
-      cw_body3d_set_angular_velocity(b, k->w);
-      t3_vec3 v = cw_body3d_velocity(b);
-      float vlat = v3dot(v, m.r), want = clampf(-k->loc.lat * 1.5f, -6.0f, 6.0f) + steer * 2.5f;
-      cw_body3d_set_velocity(b, v3add(v, v3mul(m.r, (want - vlat) * 0.06f)));
-    }
-  }
 
   /* the road's boost strips */
   if ((ts->flags & TF_BOOST) && touching && k->boost_ticks < 50) start_boost(s, i, 70, 1.1f, 0);
@@ -1202,6 +1233,16 @@ static void contacts(sim *s) {
       float shove = clampf(h->speed * 0.08f, 0, 2.5f);
       cw_body3d_apply_impulse(PH.body[b], v3mul(n, shove * ma * (ma / (ma + mb))), NULL);
       cw_body3d_apply_impulse(PH.body[a], v3mul(n, -shove * mb * (mb / (ma + mb))), NULL);
+      /* and the contact itself never throws a kart up off the road, nor sets it tumbling end over end (two karts
+       * meeting at the start launched one nose up into the wall) */
+      for (int q = 0; q < 2; q++) {
+        int ki = q ? b : a;
+        t3_vec3 uq = kart_up(&s->k[ki]), v = cw_body3d_velocity(PH.body[ki]), w = cw_body3d_angular_velocity(PH.body[ki]);
+        float vu = v3dot(v, uq);
+        if (vu > 1.0f) cw_body3d_set_velocity(PH.body[ki], v3sub(v, v3mul(uq, vu - 1.0f)));
+        float wy = v3dot(w, uq);
+        cw_body3d_set_angular_velocity(PH.body[ki], v3add(v3mul(v3sub(w, v3mul(uq, wy)), 0.3f), v3mul(uq, wy)));
+      }
       if (h->speed > 4) event(s, EV_BUMP, a, b, h->point, clampf(h->speed / 20, 0, 1));
       if (s->battle) battle_ram(s, a, b, n, h->speed);
     } else if (a >= 0 || b >= 0) {
@@ -1403,3 +1444,6 @@ void sim_step(sim *s, const kin in_raw[MAXK]) {
   else rank(s);
   hash_state(s);
 }
+
+/* dev aid (world.c's geometry check): the collision walls as built */
+const track_phys *sim_wall_phys(void) { return &PH.walls; }

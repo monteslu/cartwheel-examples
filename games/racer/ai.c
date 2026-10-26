@@ -145,6 +145,10 @@ kin ai_think(const sim *s, int me, ai_mem *m) {
         if (ds < -t->length * 0.5f) ds += t->length;
       }
       if (ds > 0 && ds < 14 && fabsf(s->k[j].loc.lat - k->loc.lat) < 2.4f) lane += (k->loc.lat > s->k[j].loc.lat ? 1.0f : -1.0f) * 2.6f;
+      /* a human closing from behind in its lane: it gives way instead of sitting on the line in front of them (the
+       * player cannot see back and read it as blocking) */
+      if (s->k[j].human && ds < 0 && ds > -12 && s->k[j].speed > k->speed - 1 && fabsf(s->k[j].loc.lat - k->loc.lat) < 2.6f)
+        lane += (k->loc.lat > s->k[j].loc.lat ? 1.0f : -1.0f) * 3.0f;
     }
   lane = clampf(lane, -hw, hw);
   /* on a corkscrew or in a loop the road turns under the kart: it holds the middle */
@@ -213,8 +217,9 @@ kin ai_think(const sim *s, int me, ai_mem *m) {
     in.thr = -127;
     in.steer = (int8_t)(-in.steer);
   }
-  /* the skilled hold an oil can or a mine out behind as a shield, and let it go when a kart closes in behind */
-  if ((k->item == IT_OIL || k->item == IT_MINE) && k->item_wait == 0 && m->skill >= 1 && s->phase == PH_RACE) {
+  /* an Ace holds an oil can or a mine out behind as a shield, and lets it go when a kart closes in behind (only the
+   * Ace: a whole field of them dropping traps in front of the player was no fun) */
+  if ((k->item == IT_OIL || k->item == IT_MINE) && k->item_wait == 0 && m->skill >= 2 && s->phase == PH_RACE) {
     bool close = false;
     for (int j = 0; j < MAXK && !close; j++) {
       if (j == me || !s->k[j].on) continue;

@@ -212,6 +212,8 @@ typedef struct track_loc {
 /* hint: a sample index to search near (the last answer); -1 searches the whole track. Branches are searched too when
  * the point is near one: the answer is the path whose road the point is on (the nearer centre when on both). */
 void track_locate(const track *t, t3_vec3 p, int hint, track_loc *out);
+/* the lowest road height of the loop or corkscrew sample i is in (i's own height when in none): ground stays under it */
+float track_loop_floor(const track *t, int i);
 /* the same against the main road alone, or branch b alone */
 void track_locate_main(const track *t, t3_vec3 p, int hint, track_loc *out);
 void track_locate_branch(const track *t, int b, t3_vec3 p, track_loc *out);

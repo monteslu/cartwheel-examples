@@ -26,10 +26,6 @@ static void flame_at(kit *k, t3_vec3 p, t3_vec3 dir) {
   if (vg->nflame < 4) vg->flame[vg->nflame++] = (anchor){ p, v3norm(dir) };
 }
 
-/* a fender arch over wheel (sx, wz): paint, covering the top half of the tyre */
-static void fender(kit *k, float sx, float wz, float wy, float r, float width, float a0, float a1) {
-  mb_arch(&k->m[S_PAINT], V(0, wy, wz), r, sx - width * 0.5f, sx + width * 0.5f, a0, a1, 12, PAINT_TOP);
-}
 
 static void lamp(kit *k, t3_vec3 p, float r, bool front) {
   mb *bz = &k->m[S_METAL];
@@ -129,10 +125,8 @@ static void build_scrapper(kit *k) {
   lamp(k, V(-0.3f, 0.12f, 1.07f), 0.085f, true);
   t3_vec3 bump[4] = { V(-0.5f, -0.1f, 0.85f), V(-0.4f, -0.1f, 1.2f), V(0.4f, -0.1f, 1.2f), V(0.5f, -0.1f, 0.85f) };
   mb_polyline(mt, bump, 4, 0.032f, 8, C_STEEL);
-  /* fenders over the four wheels, and a mismatched salvage door on each side */
+  /* a mismatched salvage door on each side */
   for (int s = -1; s <= 1; s += 2) {
-    fender(k, (float)s * wx, wz, wy, vd->wheel_r + 0.07f, 0.38f, -1.9f, 1.9f);
-    fender(k, (float)s * wx, -wz, wy, vd->wheel_r + 0.07f, 0.38f, -1.9f, 1.9f);
     mb_rbox(&k->m[S_PAINT2], xf_at((float)s * 0.455f, -0.04f, -0.2f), 0.04f, 0.3f, 0.6f, 0.018f, 1, C_WHITE);
     rivets(k, V((float)s * 0.48f, -0.14f, -0.46f), V((float)s * 0.48f, -0.14f, 0.06f), 4, V((float)s, 0, 0), 0.02f);
     rivets(k, V((float)s * 0.48f, 0.06f, -0.46f), V((float)s * 0.48f, 0.06f, 0.06f), 4, V((float)s, 0, 0), 0.02f);
@@ -186,8 +180,6 @@ static void build_rhino(kit *k) {
     rivets(k, V((float)s * 0.645f, 0.14f, -0.5f), V((float)s * 0.645f, 0.14f, 0.4f), 5, V((float)s, 0, 0), 0.03f);
     rivets(k, V((float)s * 0.645f, -0.1f, -0.5f), V((float)s * 0.645f, -0.1f, 0.4f), 5, V((float)s, 0, 0), 0.03f);
     mb_rbox(pm, xf_rot((float)s * 0.31f, 0.28f, 0.85f, 0.35f, 0, 0), 0.4f, 0.04f, 0.55f, 0.015f, 1, C_WHITE);
-    fender(k, (float)s * wx, wz, wy, vd->wheel_r + 0.09f, 0.48f, -2.0f, 2.0f);
-    fender(k, (float)s * wx, -wz, wy, vd->wheel_r + 0.09f, 0.48f, -2.0f, 2.0f);
     for (int i = 0; i < 3; i++) mb_cone(mt, xf_rot((float)s * (wx + 0.2f), wy + vd->wheel_r + 0.12f - 0.05f * (float)(i % 2), wz - 0.28f * (float)i + 0.2f, 0, 0, (float)s * -PI_2 * 0.6f), 0.05f, 0.16f, 6, C_RUST);
   }
   /* the plough: hazard stripes on a leaning blade, two push arms, a lip and a row of spikes */
@@ -295,8 +287,6 @@ static void build_gnat(kit *k) {
   t3_vec3 bar[4] = { V(-0.22f, -0.2f, 0.7f), V(-0.18f, -0.22f, 1.0f), V(0.18f, -0.22f, 1.0f), V(0.22f, -0.2f, 0.7f) };
   mb_polyline(mt, bar, 4, 0.025f, 7, C_STEEL);
   for (int s = -1; s <= 1; s += 2) {
-    fender(k, (float)s * wx, wz, wy, vd->wheel_r + 0.05f, 0.34f, -1.7f, 1.7f);
-    fender(k, (float)s * wx, -wz, wy, vd->wheel_r + 0.05f, 0.34f, -1.7f, 1.7f);
     lamp(k, V((float)s * 0.12f, 0.02f, -0.4f), 0.04f, false);
   }
   seat(k, V(0, 0.14f, -0.12f), 0.28f, 0.34f);
@@ -350,8 +340,6 @@ static void build_sidewinder(kit *k) {
     stack(k, pts, 3, 0.05f, true, V((float)s * 0.05f, 0.04f, -1.0f));
     mb_rbox(mt, xf_at((float)s * 0.5f, -0.24f, 0.2f), 0.07f, 0.04f, 0.1f, 0.01f, 0, C_STEEL);
     mb_rbox(mt, xf_at((float)s * 0.5f, -0.24f, -0.4f), 0.07f, 0.04f, 0.1f, 0.01f, 0, C_STEEL);
-    fender(k, (float)s * wx, wz, wy, vd->wheel_r + 0.05f, 0.4f, -1.8f, 1.5f);
-    fender(k, (float)s * wx, -wz, wy, vd->wheel_r + 0.06f, 0.4f, -1.5f, 1.8f);
     /* slit headlights across the nose */
     mb_rbox(&k->m[S_LAMP], xf_rot((float)s * 0.24f, -0.07f, 0.98f, 0, (float)s * 0.45f, 0), 0.2f, 0.04f, 0.03f, 0.012f, 1, C_WHITE);
   }
@@ -400,8 +388,6 @@ static void build_longhaul(kit *k) {
   for (int s = -1; s <= 1; s += 2) {
     float sx = (float)s;
     lamp(k, V(sx * 0.4f, 0.28f, 1.3f), 0.1f, true);
-    fender(k, sx * wx, wz, wy, vd->wheel_r + 0.08f, 0.46f, -1.8f, 1.9f);
-    fender(k, sx * wx, -wz, wy, vd->wheel_r + 0.08f, 0.46f, -1.9f, 1.8f);
     /* tall twin stacks up the cab's flanks */
     t3_vec3 pts[3] = { V(sx * 0.54f, 0.2f, 0.5f), V(sx * 0.58f, 0.7f, 0.4f), V(sx * 0.58f, 1.4f, 0.38f) };
     stack(k, pts, 3, 0.05f, true, V(0, 0.9f, -0.5f));
@@ -487,8 +473,6 @@ static void build_pogo(kit *k) {
     mb_tube(mt, V(sx * 0.3f, -0.12f, -wz), V(sx * (wx - 0.13f), wy, -wz), 0.026f, 6, C_STEEL);
     mb_ball(mt, V(sx * 0.34f, 0.12f, wz), 0.06f, C_BRASS);
     mb_ball(mt, V(sx * 0.34f, 0.12f, -wz), 0.06f, C_BRASS);
-    fender(k, sx * wx, wz, wy, vd->wheel_r + 0.05f, 0.3f, -1.5f, 1.5f);
-    fender(k, sx * wx, -wz, wy, vd->wheel_r + 0.05f, 0.3f, -1.5f, 1.5f);
     lamp(k, V(sx * 0.22f, 0.26f, 0.8f), 0.1f, true);
   }
   /* a roll bar and a handle for good measure; seat */

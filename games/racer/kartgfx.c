@@ -6,6 +6,7 @@
  *
  * Everything here is a function of the simulation's numbers (render only, nothing feeds back): the fixed tick runs
  * the springs, the frame blends the last two poses. */
+#include <stdlib.h>
 #include <math.h>
 #include <string.h>
 
@@ -61,7 +62,7 @@ void kartgfx_build(cw_node parent, const sim *s) {
     K.node[i] = hang(parent, "Kart", K.rig[i].root);
     /* drawn between the last two ticks, as the cameras are: a kart stepped at the tick rate under a smooth camera
      * twitched forward and back on a screen whose frames do not line up with the ticks */
-    cw_node_set(K.node[i], "interpolate", cw_val_bool(true));
+    cw_node_set(K.node[i], "interpolate", cw_val_bool(!getenv("RACER_NOINTERP"))); /* RACER_NOINTERP: the old way, a control */
     t3_release(K.rig[i].root);
     cw_node3d_set_position(K.node[i], k->p);
     cw_node3d_set_quaternion(K.node[i], k->q);

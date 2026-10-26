@@ -103,6 +103,7 @@ static struct {
 } G;
 
 float road_gap_idx(const track *t, float x, float z, float *road_y, int *idx);
+float road_low_y(const track *t, float x, float z, float reach);
 
 static float base_height(const ground_opts *o, float x, float z) { return o->height ? o->height(x, z, o->height_ud) : o->base_y; }
 
@@ -115,7 +116,11 @@ float ground_height_at(const ground_opts *o, float x, float z) {
     int idx;
     float gap = road_gap_idx(G.t, x, z, &ry, &idx);
     const tsample *a = &G.t->s[idx];
-    if (gap < o->shoulder && !(a->flags & (TF_TUNNEL | TF_LOOP))) {
+    if (gap < o->shoulder + 12.0f && (a->flags & TF_LOOP)) {
+      /* round a loop or a corkscrew the earth stays under the lowest of its road: it stood up inside the tube */
+      float fl = track_loop_floor(G.t, idx) - o->road_drop - 0.3f;
+      if (g > fl) g = fl;
+    } else if (gap < o->shoulder && !(a->flags & TF_TUNNEL)) {
       /* the road's own surface at the nearest lateral place (its edge, once past it): a banked road's outer edge is
        * higher than its middle, and the earth has to meet that */
       float lat = (x - a->p.x) * a->r.x + (z - a->p.z) * a->r.z;
@@ -123,11 +128,20 @@ float ground_height_at(const ground_opts *o, float x, float z) {
       lat = rl > 1e-4f ? lat / rl : 0;
       lat = cw_clampf(lat, -a->hw, a->hw);
       float surf = a->p.y + a->r.y * lat / (rl > 1e-4f ? rl : 1.0f);
-      if (surf - g < o->follow_max && g - surf < o->follow_max) {
+      /* a road high over the ground (a bridge, a ramp on stilts) leaves it alone; ground above the road is always cut
+       * down to it, however deep (a dip in the road under higher land drew the earth over the deck) */
+      if (surf - g < o->follow_max) {
         float t = 1.0f - cw_smoothstep(0.0f, o->shoulder, gap);
         g = g + (surf - o->road_drop - g) * t;
       }
     }
+  }
+  /* on every map, whatever shaped the land (its own height function, or following the road): the ground never stands
+   * above the lowest road beside it. Where roads cross the nearest road can be the one overhead, and the land rose to
+   * it and stood across the road beneath as a slab; a map's own terrain put mounds through the deck */
+  if (G.have && G.t) {
+    float low = road_low_y(G.t, x, z, 0.5f);
+    if (low < 1e8f && g > low - 0.25f) g = low - 0.25f;
   }
   return g;
 }

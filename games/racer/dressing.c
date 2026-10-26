@@ -648,24 +648,34 @@ static int find_corners(const track *t, float min_curv, float *at, float *dir, i
   return n;
 }
 
-/* an arrow painted on the road at lateral x of sample a that bends the way d says (+ left) through `ang` radians of an
- * arc of radius R: slabs round the arc, a head at the end */
-static void bend_arrow(pmc *c, const tsample *a, float x, float d, float R, float ang, const dress_style *st) {
-  pm *b = frame_at(c, a, x, 0);
-  pm_layer(b, PL_GLOW);
+/* an arrow painted on the road at lateral x, from s metres along, that bends the way d says (+ left) through `ang`
+ * radians of an arc of radius R: slabs round the arc, a head at the end. Each slab is laid in the frame of the road
+ * where it lies, so the paint stays on the deck over a crest, through a dip and round a bend (one flat frame for the
+ * whole 14 m arrow stood it up off the road like a ramp, or sank it under) */
+static void bend_arrow(pmc *c, const track *t, float s, float x, float d, float R, float ang, const dress_style *st) {
   float w = 0.55f, px = 0, pz = 0;
   for (int sIdx = 0; sIdx < 8; sIdx++) {
     float an0 = ang * (float)sIdx / 8.0f, an1 = ang * (float)(sIdx + 1) / 8.0f;
     float x0 = d * -R * (cosf(an0) - 1) * -1.0f, z0 = R * sinf(an0), x1 = d * -R * (cosf(an1) - 1) * -1.0f, z1 = R * sinf(an1);
     float tx = x1 - x0, tz = z1 - z0, l = sqrtf(tx * tx + tz * tz);
     float nx = -tz / l * w, nz = tx / l * w;
+    float xm = (x0 + x1) * 0.5f, zm = (z0 + z1) * 0.5f;
+    tsample a = track_at(t, s + zm);
+    pm *b = frame_at(c, &a, x + xm, 0);
+    pm_layer(b, PL_GLOW);
+    x0 -= xm, x1 -= xm, z0 -= zm, z1 -= zm;
     pm_quad(b, V(x0 - nx, 0.045f, z0 - nz), V(x0 + nx, 0.045f, z0 + nz), V(x1 + nx, 0.045f, z1 + nz), V(x1 - nx, 0.045f, z1 - nz), glow(st->lamp, 1.5f));
-    px = x1, pz = z1;
+    pm_pop(b);
+    px = x1 + xm, pz = z1 + zm;
   }
   float tx = px - d * -R * (cosf(ang * 0.875f) - 1) * -1.0f, tz = pz - R * sinf(ang * 0.875f), l = sqrtf(tx * tx + tz * tz);
   tx /= l, tz /= l;
   float nx = -tz, nz = tx;
-  pm_tri(b, V(px - nx * 1.6f, 0.045f, pz - nz * 1.6f), V(px + nx * 1.6f, 0.045f, pz + nz * 1.6f), V(px + tx * 3.2f, 0.045f, pz + tz * 3.2f), glow(st->accent, 1.8f));
+  tsample a = track_at(t, s + pz + tz * 1.6f);
+  pm *b = frame_at(c, &a, x + px + tx * 1.6f, 0);
+  pm_layer(b, PL_GLOW);
+  float hx = -tx * 1.6f, hz = -tz * 1.6f; /* the head's base, about its middle */
+  pm_tri(b, V(hx - nx * 1.6f, 0.045f, hz - nz * 1.6f), V(hx + nx * 1.6f, 0.045f, hz + nz * 1.6f), V(hx + tx * 3.2f, 0.045f, hz + tz * 3.2f), glow(st->accent, 1.8f));
   pm_pop(b);
 }
 
@@ -680,7 +690,7 @@ void deco_corner_arrows(cw_node parent, const track *t, float min_curv, const dr
     if (s < 4) continue;
     tsample a = track_at(t, s);
     if (a.flags & (TF_GAP | TF_LOOP | TF_TUNNEL)) continue;
-    for (int k = -1; k <= 1; k += 2) bend_arrow(c, &a, k * a.hw * 0.5f, dir[i], 14.0f, 0.7f, &st);
+    for (int k = -1; k <= 1; k += 2) bend_arrow(c, t, s, k * a.hw * 0.5f, dir[i], 14.0f, 0.7f, &st);
   }
   pmc_finish(c, parent, "CornerArrows", false, -1);
 }
@@ -918,7 +928,7 @@ void deco_branches(cw_node parent, const track *t, const branch_dress *in) {
     /* on the main road before the mouth: an arrow in the lane that leads in, bending its way */
     if (bd.arrows) {
       tsample m = track_at(t, B->s0 - 26.0f);
-      if (!(m.flags & (TF_GAP | TF_LOOP | TF_TUNNEL))) bend_arrow(c, &m, (float)B->side * m.hw * 0.55f, B->side < 0 ? 1.0f : -1.0f, 18.0f, 0.5f, &st);
+      if (!(m.flags & (TF_GAP | TF_LOOP | TF_TUNNEL))) bend_arrow(c, t, B->s0 - 26.0f, (float)B->side * m.hw * 0.55f, B->side < 0 ? 1.0f : -1.0f, 18.0f, 0.5f, &st);
     }
     /* the islands' noses paved in hazard stripes, from where the roads part until they are a lane apart */
     if (bd.nose)

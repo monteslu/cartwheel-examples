@@ -57,6 +57,11 @@ static struct {
   t3_vec3 eye[4];
   int neye;
   t3_material *boost;   /* one material for every boost strip: its arrows run forward and pulse */
+  cw_node scene;
+  const sim *sim;
+  bool checked;         /* RACER_GEOMCHECK ran */
+  bool cleaned;         /* geomclean ran: nothing stands in the lanes */
+  int clean_frames;
 } W;
 
 const track_geo *world_geo(void) { return &W.geo; }
@@ -125,6 +130,7 @@ static void dev_walk(cw_node n, int depth, const char *hide) {
 void world_build(cw_node scene, const sim *s, const map_def *map) {
   world_reset();
   W.map = map;
+  W.scene = scene, W.sim = s, W.checked = false, W.cleaned = false, W.clean_frames = 0;
   W.root = cw_node_new("Node3D", "World");
   cw_node_add_child(scene, W.root);
   /* a battle arena's track is only the sim's frame under the floor: nothing of it is drawn (arena.c draws the arena) */
@@ -223,6 +229,21 @@ void world_set_eyes(const t3_vec3 *e, int n) {
 void world_frame(double alpha) {
   if (W.map && W.map->scenery_frame) W.map->scenery_frame((float)alpha, (double)W.frame_time);
   W.frame_time += 1.0f / 60.0f;
+  /* the first frame of a map: scenery standing in the lanes is taken out (geomcheck.c); RACER_NOCLEAN=1 leaves it */
+  if (!W.cleaned && W.sim && !W.map->arena && !getenv("RACER_NOCLEAN")) {
+    t3_object *ro = cw_node3d_object(W.scene);
+    /* a snapshot on the first frame, the clean on the fourth: what moved in between is left alone */
+    if (ro && W.clean_frames == 0) geomclean_snapshot(ro);
+    if (ro && ++W.clean_frames == 4) geomclean_begin(W.scene, ro, W.sim->track);
+    if (ro && W.clean_frames >= 4 && geomclean_step(20000)) W.cleaned = true, cw_info("geomclean: done on frame %d", W.clean_frames);
+    if (ro && W.clean_frames >= 4) W.clean_frames++;
+  }
+  /* dev aid: RACER_GEOMCHECK=1, once the map has stood a moment, lists geometry standing in the lanes (geomcheck.c) */
+  if (!W.checked && W.frame_time > 0.5f && W.sim && !W.map->arena && getenv("RACER_GEOMCHECK")) {
+    W.checked = true;
+    t3_object *ro = cw_node3d_object(W.scene);
+    if (ro) geomcheck_run(W.scene, ro, W.sim->track);
+  }
   kartgfx_frame(NULL, (float)alpha); /* models agent: the karts and the items posed between ticks */
   items_frame(NULL, (float)alpha);
   if (W.boost) {

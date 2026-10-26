@@ -614,7 +614,8 @@ void audio_tick(const sim *s, const t3_vec3 *eye, int neyes) {
     lslot_run(&A.rough[v], S_DIRT, (ts.flags & TF_ROUGH) && surf != SURF_DIRT ? 0.4f * roadg * g : 0, surf_pitch(speedf), &da, 0.12f);
     A.d_own_road[v] = (int)(SURF_GAIN[surf] * powf(roadg, 0.8f) * 1000);
     bool in_water = ground && (ts.flags & TF_WATER);
-    lslot_run(&A.water[v], S_WATER, in_water ? (0.35f + 0.55f * clampf(speedf, 0, 1)) * g : 0, 0.8f + 0.5f * speedf, &da, 0.15f);
+    /* a soft wash: quieter, and nearly the same pitch at any speed */
+    lslot_run(&A.water[v], S_WATER, in_water ? (0.2f + 0.25f * clampf(speedf, 0, 1)) * g : 0, 0.85f + 0.12f * clampf(speedf, 0, 1), &da, 0.3f);
 
     /* slides: squeal on hard ground, a rough hiss on dirt and ice */
     e->slip = lerpf(e->slip, slip_of(s, i), 0.25f);
@@ -853,9 +854,15 @@ void audio_events(const sim *s) {
     case EV_OVERTAKE:
       if (ov >= 0 && !A.attract) play2d(S_OVERTAKE, 0.6f * view_gain(), 1.0f, view_pan(ov));
       break;
-    case EV_WATER:
-      kart_sfx(S_SPLASH, e->a, e->at, 0.3f + 0.6f * clampf(e->k, 0, 1), 0.9f + 0.3f * (1.0f - clampf(e->k, 0, 1)));
+    case EV_WATER: {
+      /* one splash going in; while the kart stays in, the water loop carries it (a splash every 8 ticks, seven a
+       * second, sounded like an engine blowing out) */
+      static int last_wet[MAXK];
+      int a = e->a & (MAXK - 1);
+      if (s->tick - last_wet[a] > 40) kart_sfx(S_SPLASH, e->a, e->at, 0.25f + 0.4f * clampf(e->k, 0, 1), 0.95f);
+      last_wet[a] = s->tick;
       break;
+    }
     default: break;
     }
   }

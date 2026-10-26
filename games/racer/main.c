@@ -19,6 +19,8 @@
  *   RACER_TEST_AT=s:speed  kart 0 (RACER_TEST_KART=n another) on the road at s metres when the lights go out; L<n>:speed
  *                        30 m before the n-th loop; B<n>:metres:speed on branch n (a shortcut), that far from its mouth
  *   RACER_EYE=x,y,z,tx,ty,tz  a fixed camera there looking at the target, no HUD (a still of any part of a map)
+ *   RACER_JITLOG=1       log each frame the drawn distance from view 0's camera to its kart (with CW_FRAME_HZ: is it steady);
+ *                        RACER_NOINTERP=1 draws the karts at the tick rate, the old way, as a control
  *   RACER_SPLIT=a:b      log each kart's time from progress a to b (metres): what a shortcut is worth
  *   RACER_AI_TAKE=0|1    every CPU driver stays out of (0) or takes (1) every shortcut; RACER_AILOG=1 logs their choices
  *   RACER_MODE=battle    with RACER_MAP=n: a battle in arena n (0 Crusher Yard, 1 Foundry Pit); RACER_KARTS=2..8 karts in it
@@ -62,6 +64,7 @@ typedef struct rig {
   t3_vec3 eye, eye_v, look, look_v, up, fwd, cam_eye, cam_at;
   t3_vec3 erel, lrel; /* the chase camera: eye and look point relative to the kart (springs in eye_v, look_v) */
   bool live, snap, chase;
+  float spd_s; /* the chase camera's speed, smoothed: the raw one shivers with the suspension every tick */
   float base_fov, fov_k;
 } rig;
 
@@ -317,7 +320,8 @@ void game_start_race(const race_setup *rs) {
   for (int i = 0; i < MAXK; i++) {
     G.S.k[i].human = G.human[i];
     G.S.k[i].colour = i < humans ? rs->colour[i] & 7 : (i + 3) & 7;
-    int skill = rs->cpu_skill >= 3 ? (i < 3 ? 2 : i < 5 ? 1 : 0) : rs->cpu_skill;
+    /* Mixed, the default: one Ace, two Pros, the rest Rookies (three Aces made the default too hard) */
+    int skill = rs->cpu_skill >= 3 ? (i < 2 ? 2 : i < 4 ? 1 : 0) : rs->cpu_skill;
     ai_reset(&G.ai[i], i, skill, 100u + (uint32_t)i);
   }
   if (getenv("RACER_STUDIO") && getenv("RACER_COLOUR") && !humans) G.S.k[0].colour = atoi(getenv("RACER_COLOUR")) & 7;
@@ -492,7 +496,9 @@ static void rig_tick(int v) {
     r->fwd = v3norm(v3add(v3mul(r->fwd, 1 - 0.09f), v3mul(want_f, 0.09f)));
     t3_vec3 fh = v3norm(v3sub(r->fwd, v3mul(r->up, v3dot(r->fwd, r->up))));
     float split = G.nviews > 1 ? 0.88f : 1.0f;
-    float dist = (4.9f + spd * 0.03f) * split, high = (2.0f + spd * 0.008f) * split;
+    if (!r->live) r->spd_s = spd;
+    r->spd_s += (spd - r->spd_s) * 0.04f;
+    float dist = (4.9f + r->spd_s * 0.03f) * split, high = (2.0f + r->spd_s * 0.008f) * split;
     if (back) fh = v3mul(fh, -1);
     /* the springs run on the eye and look point relative to the kart: a world-space spring trails a moving target by
      * 2v/w (ten metres at 30 m/s), so only the swing round corners and over crests lags, never the distance */
@@ -514,11 +520,14 @@ static void rig_tick(int v) {
     float want_k = cw_clampf((spd - 24.0f) / 32.0f, 0, 1) + (k->boost_ticks > 0 ? 0.6f : 0);
     r->fov_k += (want_k - r->fov_k) * 0.06f;
     if (r->base_fov > 0) cw_node_set(r->cam, "fov", cw_val_float(r->base_fov + 13.0f * r->fov_k));
+    /* the shake: across the view and up and down only, a few times a second. It was 0.25 m at 15 to 26 Hz in all three
+     * axes, near what a 60 Hz tick can show at all: along the view it made the kart twitch toward and away */
     float sh = fx_shake(me);
     if (sh > 0.001f) {
-      e.x += sh * 0.25f * cw_sin((float)G.ticks * 1.9f + (float)v);
-      e.y += sh * 0.25f * cw_sin((float)G.ticks * 2.7f + 1 + (float)v);
-      e.z += sh * 0.25f * cw_sin((float)G.ticks * 2.3f + 2 + (float)v);
+      t3_vec3 rt = v3norm(v3cross(fh, r->up));
+      float tt = (float)G.ticks;
+      e = v3add(e, v3mul(rt, sh * 0.07f * cw_sin(tt * 0.47f + (float)v)));
+      e = v3add(e, v3mul(r->up, sh * 0.06f * cw_sin(tt * 0.61f + 1 + (float)v)));
     }
   }
   r->cam_eye = e, r->cam_at = at;
@@ -672,6 +681,10 @@ static void fixed(void *u, double dt) {
       else in[i] = cpu_think(i);
       static float test_steer = 9;
       if (test_steer == 9) test_steer = getenv("RACER_TEST_STEER") ? (float)atof(getenv("RACER_TEST_STEER")) : 0;
+      /* dev aid: RACER_TEST_HOP=t presses kart 0's hop (the drift button) on race tick t (a missile dodge test) */
+      static int hop_at = -2;
+      if (hop_at == -2) hop_at = getenv("RACER_TEST_HOP") ? atoi(getenv("RACER_TEST_HOP")) : -1;
+      if (i == 0 && hop_at >= 0 && G.S.phase == PH_RACE && G.S.race_ticks == hop_at) in[i].btn |= KB_DRIFT;
       static int steer_from = -1;
       if (steer_from < 0) steer_from = getenv("RACER_TEST_STEER_FROM") ? atoi(getenv("RACER_TEST_STEER_FROM")) : 200;
       if (i == 0 && test_steer != 0 && G.S.phase == PH_RACE && G.S.race_ticks > steer_from) in[i] = (kin){ .thr = 127, .steer = q127(test_steer) };
@@ -838,6 +851,12 @@ static void update(void *u, double dt) {
 static void render(void *u, double alpha) {
   (void)u;
   audio_frame();
+  /* dev aid: RACER_JITLOG=1 logs, each frame, the distance from view 0's camera to its kart as last drawn (both blended
+   * between ticks): steady at a render rate off the tick rate (CW_FRAME_HZ=144) when the two are drawn alike */
+  if (getenv("RACER_JITLOG") && G.have_track && cw_node_valid(G.rig[0].cam)) {
+    t3_object *ko = cw_node3d_object(kartgfx_node(game_view_kart(0))), *co = cw_node3d_object(G.rig[0].cam);
+    if (ko && co) cw_info("jit %d %.4f %.3f", G.S.tick, v3len(v3sub(ko->position, co->position)), alpha);
+  }
   if (G.have_track) {
     {
       t3_vec3 eyes[CW_MAX_VIEWS];
