@@ -140,3 +140,4 @@ physical+trans+senv+l3001+xcluster
 physical+l1001+xcluster
 physical+senv+l3001+xcluster
 basic+instbig
+physical+map+vcol+rep+nmap+ao+emap+rmap+shadow+senv+l1001+xcluster

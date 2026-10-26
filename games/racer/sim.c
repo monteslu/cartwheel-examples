@@ -24,6 +24,7 @@
 
 #include "cartwheel/debug.h"
 #include "cartwheel/math.h"
+#include "arena.h"
 #include "game.h"
 
 #define DT (1.0f / TICK_HZ)
@@ -72,6 +73,11 @@ static struct {
   float prev_s[MAXK];
   float min_y;
 } PH;
+
+/* battle mode (sim_battle.inc, included after spin_kart) */
+static void battle_place_all(sim *s);
+static void battle_boxes(sim *s);
+static void battle_pop(sim *s, int i, int by);
 
 /* ── small maths ─────────────────────────────────────────────────────── */
 
@@ -197,11 +203,12 @@ static void world_make(sim *s, const map_def *map, const bool on[MAXK], const in
   d.layers[L_KART] = "kart";
   d.layers[L_GHOST] = "ghost";
   PH.w = cw_world3d_create(&d);
-  track_phys_build(&PH.road, &PH.walls, s->track, &map->mesh);
+  if (!s->battle) track_phys_build(&PH.road, &PH.walls, s->track, &map->mesh);
   cw_body3d_def bd = cw_body3d_default_def();
   bd.type = CW_BODY_STATIC;
   bd.name = "road";
   PH.trackb = cw_body3d_create(PH.w, &bd);
+  if (s->battle) arena_phys_build(s->arena, PH.trackb, L_TRACK, L_WALL); /* an arena: its floor, walls and cover instead of a road */
   cw_shape3d_def sd = cw_shape3d_default_def();
   sd.layer = L_TRACK;
   sd.material.friction = 0.9f;
@@ -298,6 +305,10 @@ static void kart_place(sim *s, int i, float sdist, float lat, float speed) {
 }
 
 void sim_place_on_grid(sim *s) {
+  if (s->battle) {
+    battle_place_all(s);
+    return;
+  }
   const track *t = s->track;
   int row = 0, col = 0;
   for (int i = 0; i < MAXK; i++) {
@@ -340,6 +351,9 @@ void sim_init(sim *s, const track *t, const map_def *map, int map_index, int lap
   s->laps = laps < 1 ? 1 : laps > MAX_LAPS ? MAX_LAPS : laps;
   if (!t->circuit) s->laps = 1;
   s->class_top = s->class_acc = 1.0f;
+  s->battle = map->arena != NULL;
+  s->arena = arena_load(map->arena);
+  if (s->battle) s->laps = 1, s->battle_limit = 180 * TICK_HZ;
   for (int i = 0; i < MAXK; i++) {
     s->k[i].on = on[i];
     s->k[i].veh = veh[i] % NVEH;
@@ -347,7 +361,8 @@ void sim_init(sim *s, const track *t, const map_def *map, int map_index, int lap
     s->nkarts += on[i];
   }
   world_make(s, map, on, veh);
-  make_boxes(s);
+  if (s->battle) battle_boxes(s);
+  else make_boxes(s);
   sim_place_on_grid(s);
   s->phase = PH_GRID;
   for (int i = 0; i < MAXK; i++) s->order[i] = i;
@@ -366,6 +381,7 @@ void sim_set_class(sim *s, int cls) {
   s->speed_class = cls;
   s->class_top = CLASS_TOP[cls];
   s->class_acc = CLASS_ACC[cls];
+  if (s->battle) s->class_top *= 0.85f; /* an arena is small: battles run a little slower than races */
 }
 
 void sim_restart(sim *s, uint32_t seed, int skip_ticks) {
@@ -424,6 +440,7 @@ static hazard *hz_add(sim *s, int kind, int owner, float sd, float lat, float h)
 static void spin_kart(sim *s, int i, int kind, int by) {
   kart *k = &s->k[i];
   if (k->respawn_ticks > 0 || k->finished) return;
+  if (s->battle && (k->out || k->ram_cool > 0 || k->spin_ticks > 0 || s->phase != PH_RACE)) return; /* a moment's grace after each pop */
   if (k->shield_ticks > 0) {
     k->shield_ticks = 0;
     event(s, EV_SHIELD, i, by, k->p, 1);
@@ -443,9 +460,16 @@ static void spin_kart(sim *s, int i, int kind, int by) {
   if (kind == SPIN_BOOM) {
     cw_body3d_apply_impulse(PH.body[i], v3mul(kart_up(k), 9.0f * VEH[k->veh].mass), NULL);
   }
+  if (s->battle) battle_pop(s, i, by);
 }
 
+#include "sim_battle.inc"
+
 static void hazards_step(sim *s) {
+  if (s->battle) {
+    battle_hazards_step(s);
+    return;
+  }
   const track *t = s->track;
   for (int h = 0; h < MAXHZ; h++) {
     hazard *z = &s->hz[h];
@@ -573,6 +597,11 @@ static void use_item(sim *s, int i) {
   int item = k->item;
   event(s, EV_ITEM_USE, i, item, k->p, 0);
   k->item_cool = 18;
+  if (s->battle && battle_use_item(s, i, item)) {
+    k->item = IT_NONE;
+    k->item_count = 0;
+    return;
+  }
   switch (item) {
   case IT_TURBO: start_boost(s, i, BOOST_TURBO, 1.25f * vd->boost, 1); break;
   case IT_TURBO3:
@@ -620,7 +649,7 @@ static void boxes_step(sim *s) {
     }
     for (int i = 0; i < MAXK; i++) {
       kart *k = &s->k[i];
-      if (!k->on || k->respawn_ticks > 0 || k->finished) continue;
+      if (!k->on || k->respawn_ticks > 0 || k->finished || k->out) continue;
       t3_vec3 d = v3sub(k->p, x->p);
       if (v3dot(d, d) > 2.6f * 2.6f) continue;
       x->cool = 6 * TICK_HZ;
@@ -802,7 +831,7 @@ static void kart_control(sim *s, int i, kin in) {
   float lat_over = absf(k->loc.lat) - m.hw;
   bool gap = (ts->flags & TF_GAP) != 0 || (t->s[(k->loc.i + 1) % t->n].flags & TF_GAP) != 0;
   float attach = 0;
-  if (!gap && lat_over < 2.5f && h > -1.0f) {
+  if (!gap && lat_over < 2.5f && h > -1.0f && !s->battle) {
     float reach = (ts->flags & TF_LOOP) ? 2.3f : 3.0f;
     attach = clampf((reach - h) / 0.9f, 0, 1);
     float al = v3dot(up, m.u);
@@ -818,6 +847,11 @@ static void kart_control(sim *s, int i, kin in) {
     float sp = absf(k->speed);
     float press = STICK * clampf(sp / 14.0f, 0, 1) * GRAV * mass;
     if (grounded || touching) cw_body3d_apply_force(b, v3mul(m.u, -press * attach), NULL);
+  }
+  if (s->battle && (grounded || touching)) {
+    /* an arena has no track gravity: the same downforce, along the kart's own down (ramps and decks) */
+    float press = STICK * clampf(absf(k->speed) / 14.0f, 0, 1) * GRAV * mass;
+    cw_body3d_apply_force(b, v3mul(up, -press), NULL);
   }
 
   /* spin out: no control, a spin about the up axis, and the road still holds it */
@@ -962,7 +996,7 @@ static void kart_control(sim *s, int i, kin in) {
 
   /* items */
   if (k->item_wait > 0 && --k->item_wait == 0) {
-    k->item = roll_item(s, k->place, k->lap >= s->laps);
+    k->item = s->battle ? roll_battle_item(s, i) : roll_item(s, k->place, k->lap >= s->laps);
     k->item_count = k->item == IT_TURBO3 ? 3 : 1;
   }
   if (k->item_cool > 0) k->item_cool--;
@@ -1083,6 +1117,7 @@ static void contacts(sim *s) {
       cw_body3d_apply_impulse(PH.body[b], v3mul(n, shove * ma * (ma / (ma + mb))), NULL);
       cw_body3d_apply_impulse(PH.body[a], v3mul(n, -shove * mb * (mb / (ma + mb))), NULL);
       if (h->speed > 4) event(s, EV_BUMP, a, b, h->point, clampf(h->speed / 20, 0, 1));
+      if (s->battle) battle_ram(s, a, b, n, h->speed);
     } else if (a >= 0 || b >= 0) {
       int ki = a >= 0 ? a : b;
       kart *k = &s->k[ki];
@@ -1115,7 +1150,12 @@ static void hash_state(sim *s) {
     if (!k->on) continue;
     MIX(k->p.x); MIX(k->p.y); MIX(k->p.z); MIX(k->v.x); MIX(k->v.y); MIX(k->v.z);
     MIX(k->q.x); MIX(k->q.y); MIX(k->q.z); MIX(k->q.w); MIX(k->prog);
+    if (s->battle) {
+      MIX(k->balloons);
+      MIX(k->points);
+    }
   }
+  if (s->battle) MIX(s->battle_left);
   MIX(s->rng);
   uint32_t ph = cw_world3d_stats(PH.w).hash;
   MIX(ph);
@@ -1162,6 +1202,10 @@ void sim_step(sim *s, const kin in_raw[MAXK]) {
     break;
   case PH_RACE: {
     s->race_ticks++;
+    if (s->battle) {
+      battle_phase(s);
+      break;
+    }
     bool all_humans_done = true, any_human = false;
     for (int i = 0; i < MAXK; i++)
       if (s->k[i].on && s->k[i].human) {
@@ -1186,7 +1230,7 @@ void sim_step(sim *s, const kin in_raw[MAXK]) {
   /* the GO moment: a kart holding the throttle at the lights gets a start boost */
   for (int i = 0; i < MAXK; i++) {
     kart *k = &s->k[i];
-    if (!k->on) continue;
+    if (!k->on || k->parked) continue;
     if (k->finished) in[i].thr = in[i].thr > 55 ? 55 : in[i].thr; /* past the line: a cruise (main.c hands it to the CPU driver) */
     if (k->respawn_ticks > 40) in[i].thr = 0;
     /* hold a kart that fell: the respawn */
@@ -1198,7 +1242,7 @@ void sim_step(sim *s, const kin in_raw[MAXK]) {
   cw_world3d_step(PH.w, DT);
   for (int i = 0; i < MAXK; i++) {
     kart *k = &s->k[i];
-    if (!k->on) continue;
+    if (!k->on || k->parked) continue;
     cw_xform3 x = cw_body3d_transform(PH.body[i]);
     k->p = x.p;
     k->q = x.q;
@@ -1230,6 +1274,10 @@ void sim_step(sim *s, const kin in_raw[MAXK]) {
       }
     }
     k->top_speed_seen = maxf(k->top_speed_seen, sp);
+    if (s->battle) {
+      battle_kart_after(s, i);
+      continue;
+    }
     progress(s, i);
     /* falling off, flipped on its roof, or reset by hand */
     const track *t = s->track;
@@ -1250,6 +1298,7 @@ void sim_step(sim *s, const kin in_raw[MAXK]) {
   contacts(s);
   boxes_step(s);
   hazards_step(s);
-  rank(s);
+  if (s->battle) battle_rank(s);
+  else rank(s);
   hash_state(s);
 }

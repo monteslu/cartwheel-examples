@@ -249,20 +249,21 @@ static void draw_logo(float cx, float cy, float size, float s, float appear) {
 
 static cw_rect list_rect_n(int i, int n, float W, float H, float top_frac) {
   float s = lscale(W, H), bw = 340 * s, bh = 50 * s, gap = 11 * s;
-  if (n > 5) bh = 40 * s, gap = 7 * s; /* six entries: tighter, to stay clear of the hint line */
+  if (n > 6) bh = 36 * s, gap = 6 * s; /* seven: tighter still */
+  else if (n > 5) bh = 40 * s, gap = 7 * s; /* six entries: tighter, to stay clear of the hint line */
   else if (n > 4) bh = 44 * s, gap = 9 * s;
   return cw_rect_make((W - bw) * 0.5f, H * top_frac + (float)i * (bh + gap), bw, bh);
 }
 static cw_rect list_rect(int i, float W, float H, float top_frac) { return list_rect_n(i, 4, W, H, top_frac); }
 static int title_count(void) {
 #ifdef __wasm__
-  return 5;
-#else
   return 6;
+#else
+  return 7;
 #endif
 }
-enum { TI_RACE, TI_TRIAL, TI_CUP, TI_SPLIT, TI_OPTIONS, TI_QUIT };
-static const char *const TITLE_ITEMS[6] = { "RACE", "TIME TRIAL", "CUP", "SPLIT SCREEN", "OPTIONS", "QUIT" };
+enum { TI_RACE, TI_TRIAL, TI_CUP, TI_BATTLE, TI_SPLIT, TI_OPTIONS, TI_QUIT };
+static const char *const TITLE_ITEMS[7] = { "RACE", "TIME TRIAL", "CUP", "BATTLE", "SPLIT SCREEN", "OPTIONS", "QUIT" };
 static const char *const PAUSE_ITEMS[5] = { "RESUME", "RESTART RACE", "GRAPHICS", "CONTROLS", "QUIT TO MENU" };
 static const char *const OPTPAGE_ITEMS[7] = { "GRAPHICS", "MUSIC", "EFFECTS", "STEERING ASSIST", "AUTO-ACCELERATE", "CONTROLS", "BACK" };
 enum { OI_GFX, OI_MUSIC, OI_SFX, OI_ASSIST_STEER, OI_ASSIST_GAS, OI_CONTROLS, OI_BACK, OI_COUNT };
@@ -490,6 +491,10 @@ static const int POINTS[MAXK] = { 10, 8, 6, 5, 4, 3, 2, 1 };
 
 static void results_build(void) {
   const sim *S = game_sim();
+  if (S->battle) {
+    battle_results_build();
+    return;
+  }
   if (U.tr.on) {
     trial_results_build();
     return;
@@ -593,7 +598,7 @@ static void tick_title(float W, float H) {
     return;
   }
   int n = title_count();
-  cw_rect rects[6];
+  cw_rect rects[7];
   for (int i = 0; i < n; i++) rects[i] = list_rect_n(i, n, W, H, is_portrait(W, H) ? 0.36f : 0.335f);
   if (N.back) {
     U.title_menu = 0;
@@ -615,10 +620,11 @@ static void tick_title(float W, float H) {
   case TI_RACE:
   case TI_TRIAL:
   case TI_CUP:
+  case TI_BATTLE:
     restore_pads();
     memset(U.joined, 0, sizeof U.joined);
     U.joined[0] = true;
-    U.gmode = act == TI_TRIAL ? RM_TRIAL : act == TI_CUP ? RM_CUP : RM_RACE;
+    U.gmode = act == TI_TRIAL ? RM_TRIAL : act == TI_CUP ? RM_CUP : act == TI_BATTLE ? RM_BATTLE : RM_RACE;
     sfx_ok();
     enter_vehicle(1);
     U.from = M_TITLE;
@@ -669,7 +675,13 @@ static cw_rect join_mode_rect(float W, float H) {
 }
 
 static void tick_join(float W, float H) {
-  if ((N.dx || (N.click && in_rect(N.m, join_mode_rect(W, H)))) && U.mt > 10) U.gmode = U.gmode == RM_CUP ? RM_RACE : RM_CUP, sfx_move();
+  /* the mode: race, cup or battle (left and right step through them, a click steps on) */
+  if ((N.dx || (N.click && in_rect(N.m, join_mode_rect(W, H)))) && U.mt > 10) {
+    static const int ORDER[3] = { RM_RACE, RM_CUP, RM_BATTLE };
+    int at = U.gmode == RM_CUP ? 1 : U.gmode == RM_BATTLE ? 2 : 0;
+    U.gmode = ORDER[(at + (N.dx < 0 ? 2 : 1)) % 3];
+    sfx_move();
+  }
   for (int p = 1; p < MAXV; p++) {
     if (!pad_present(p)) {
       U.joined[p] = false;
@@ -766,7 +778,7 @@ static void tick_vehicle(float W, float H) {
     U.sel = 0;
     U.mapfocus = 0;
     U.cup_focus = 0;
-    goto_mode(U.gmode == RM_CUP ? M_CUP : M_MAP);
+    goto_mode(U.gmode == RM_CUP ? M_CUP : U.gmode == RM_BATTLE ? M_ARENA : M_MAP);
     sfx_ok();
   }
 }
@@ -1025,6 +1037,10 @@ static void tick_results(float W, float H) {
     tick_trial_results(W, H);
     return;
   }
+  if (game_loaded() && game_sim()->battle) {
+    tick_battle_results(W, H);
+    return;
+  }
   if (U.res_ticks < 110) {
     if ((N.ok || N.start || N.click) && U.res_ticks > 20) U.res_ticks = 110;
     return;
@@ -1097,6 +1113,7 @@ static void scr_tick(void) {
   case M_CUP: tick_cup(W, H); break;
   case M_STANDINGS: tick_standings(W, H); break;
   case M_CUPEND: tick_cupend(W, H); break;
+  case M_ARENA: tick_arena(W, H); break;
   }
 }
 
@@ -1178,7 +1195,7 @@ static void draw_join(float W, float H, float s) {
   char b[128];
   snprintf(b, sizeof b, "%d player%s. Player 1 uses the keyboard or the first pad; the rest need a pad each.", n, n == 1 ? "" : "s");
   tx_fit(U.f_small, b, W * 0.5f, H - 78 * s, 18 * s, W * 0.92f, alpha(CREAM, 0.85f), CW_ALIGN_CENTER);
-  draw_option_row_fwd(join_mode_rect(W, H), "MODE", U.gmode == RM_CUP ? "CUP" : "RACE", false, s, clamp01((float)U.mt / 20.0f));
+  draw_option_row_fwd(join_mode_rect(W, H), "MODE", U.gmode == RM_CUP ? "CUP" : U.gmode == RM_BATTLE ? "BATTLE" : "RACE", false, s, clamp01((float)U.mt / 20.0f));
   cw_rect br = back_button_rect(W, H);
   draw_button(br, "BACK", false, true, s * 0.8f, 1);
 }
@@ -1553,7 +1570,8 @@ static void draw_pause(float W, float H, float s) {
     tx(U.f_hud, p, W * 0.5f, b.y + b.h + 24 * s, 20 * s, CREAM, CW_ALIGN_CENTER);
   }
   for (int i = 0; i < 5; i++)
-    draw_button(list_rect(i, W, H, is_portrait(W, H) ? 0.3f : 0.3f), i == 1 && game_is_trial() ? "RETRY" : PAUSE_ITEMS[i], U.sel == i, true, s, clamp01(((float)U.mt - (float)i * 3) / 14.0f));
+    draw_button(list_rect(i, W, H, is_portrait(W, H) ? 0.3f : 0.3f), i == 1 && game_is_trial() ? "RETRY" : i == 1 && game_sim()->battle ? "RESTART BATTLE" : PAUSE_ITEMS[i], U.sel == i, true, s,
+                clamp01(((float)U.mt - (float)i * 3) / 14.0f));
   hint_line(W, H, s, dev_hint("D-pad move   (A) choose   START resume", "Arrows move   Enter choose   Esc resume", "Click to choose", "Tap to choose"));
 }
 
@@ -1593,6 +1611,10 @@ static void draw_results(float W, float H, float s) {
   if (!game_loaded()) return;
   if (U.tr.on) {
     draw_trial_results(W, H, s);
+    return;
+  }
+  if (game_sim()->battle) {
+    draw_battle_results(W, H, s);
     return;
   }
   bool por = is_portrait(W, H);
@@ -1752,6 +1774,7 @@ static void scr_draw(float W, float H) {
   case M_CUP: draw_cup(W, H, s); break;
   case M_STANDINGS: draw_standings(W, H, s); break;
   case M_CUPEND: draw_cupend(W, H, s); break;
+  case M_ARENA: draw_arena(W, H, s); break;
   default: break;
   }
 }

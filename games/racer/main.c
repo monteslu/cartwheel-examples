@@ -16,6 +16,16 @@
  *                        runs in a row, each retried by itself (a deterministic ghost record and replay)
  *   RACER_CLASS=0|1|2    speed class (Standard, Fast, Blazing) for a dev race; RACER_ASSIST=1|2|3 steering (1) and auto
  *                        accelerate (2) assists for the humans
+ *   RACER_MODE=battle    with RACER_MAP=n: a battle in arena n (0 Crusher Yard, 1 Foundry Pit); RACER_KARTS=2..8 karts in it
+ *                        (humans first, CPUs fill), RACER_BATTLE_TIME=secs the round's length (three minutes otherwise)
+ *
+ * Battle (sim_battle.inc, ai_battle.c, arena.c, balloons.c, ui_battle.inc): race_setup.mode RM_BATTLE puts ARENAS[map] on
+ * instead of a race map. The sim knows it by map_def.arena (sim.battle); the CPU drivers switch to ai_battle_think; a view whose
+ * kart is out follows the leader that is still in (spectate). Debug command `battle <arena> [humans] [secs] [karts]`; debug
+ * fields battle.* and karts.balloons / karts.points / karts.out are in the racer-battle gate. RACER_UI=arena opens the arena
+ * select (RACER_UI_MAP=n picks the arena). In a battle RACER_TRACE logs every kart's place, speed, balloons, points and item
+ * every half second (R: its CPU driver is backing out), and with RACER_TRACE_KART=n that kart every tick with where its
+ * driver aims and what its feelers see (games/racer/ai_battle.c).
  *
  * Time trial (ghost.c, ui_trial.inc): the race has one kart and no item boxes. game_retry() puts the same race back on the
  * grid without a reload (sim_restart: a short countdown). The human kart's pose is recorded every third tick (ghost_rec_*);
@@ -36,6 +46,7 @@
 #include "cartwheel/quality_menu.h"
 #include "cartwheel/render2d.h"
 #include "cartwheel/resource.h"
+#include "arena.h"
 #include "ui.h"
 #include "world.h"
 
@@ -50,6 +61,8 @@ static struct {
   int32_t ticks, phase, views, loaded;
   int32_t draws, tris;
   int32_t place[MAXK], lap[MAXK], prog[MAXK], falls[MAXK], speed[MAXK], tricks[MAXK], hits[MAXK], spd_max[MAXK], finished[MAXK], best_lap[MAXK], finish_tick[MAXK];
+  int32_t balloons[MAXK], points[MAXK], out[MAXK], battle_left, battle_end, battle_alive;
+  int spect[CW_MAX_VIEWS]; /* battle: the kart a view watches once its own is out (-1: none yet) */
   uint32_t hash;
   cw_node scene, sun;
   track trk;
@@ -106,7 +119,11 @@ void game_set_camera(int mode) {
   for (int v = 0; v < CW_MAX_VIEWS; v++) G.rig[v].live = false;
 }
 
+int game_view_own_kart(int v) { return v >= 0 && v < G.nviews ? G.view_kart[v] : -1; }
+
 int game_view_kart(int v) {
+  /* battle: a view whose kart is out watches another (spectate; camera_tick picks it) */
+  if (v >= 0 && v < G.nviews && G.view_kart[v] >= 0 && G.S.battle && G.S.k[G.view_kart[v]].parked && G.spect[v] >= 0) return G.spect[v];
   if (v >= 0 && v < G.nviews && G.view_kart[v] >= 0) return G.view_kart[v];
   static int dev_view = -2;
   if (dev_view == -2) dev_view = getenv("RACER_VIEW") ? atoi(getenv("RACER_VIEW")) % MAXK : -1;
@@ -141,6 +158,7 @@ void game_view_rect(int v, float W, float H, float *x, float *y, float *w, float
 static void unload(void) {
   if (G.have_track) {
     audio_race_stop();
+    balloons_reset();
     ghost_gfx_reset();
     ghost_unload();
     fx_reset();
@@ -240,8 +258,10 @@ static void views_setup(void) {
 void game_start_race(const race_setup *rs) {
   unload();
   G.setup = *rs;
+  bool battle = rs->mode == RM_BATTLE && !rs->attract;
   int map = rs->map < 0 ? -1 : rs->map >= NMAPS ? NMAPS - 1 : rs->map;
-  const map_def *md = map < 0 ? &map_test : MAPS[map];
+  if (battle) map = rs->map < 0 ? 0 : rs->map % NARENAS;
+  const map_def *md = battle ? ARENAS[map] : map < 0 ? &map_test : MAPS[map];
   cw_tree *t = cw_scene_app_tree();
   G.scene = cw_scene_instance_path(md->scene);
   if (CW_HANDLE_IS_NULL(G.scene)) {
@@ -262,12 +282,14 @@ void game_start_race(const race_setup *rs) {
   memset(G.human, 0, sizeof G.human);
   G.trial = rs->mode == RM_TRIAL && !rs->attract;
   G.assist_steer = rs->assist_steer, G.assist_gas = rs->assist_gas;
+  int humans = G.auto_all ? 0 : rs->humans > MAXV ? MAXV : rs->humans;
+  /* a battle can have fewer karts: the humans and enough CPUs to make it up */
+  int nk = battle && rs->karts > 0 ? CW_CLAMP(rs->karts, humans > 2 ? humans : 2, MAXK) : MAXK;
   for (int i = 0; i < MAXK; i++) {
-    on[i] = !G.trial || i == 0; /* a time trial has one kart */
+    on[i] = (!G.trial || i == 0) && i < nk; /* a time trial has one kart */
     veh[i] = (i * 5 + 1) % NVEH;
     G.human_of[i] = -1;
   }
-  int humans = G.auto_all ? 0 : rs->humans > MAXV ? MAXV : rs->humans;
   if (G.trial) humans = G.auto_all ? 0 : 1;
   for (int i = 0; i < humans; i++) {
     G.human[i] = true;
@@ -276,11 +298,13 @@ void game_start_race(const race_setup *rs) {
   }
   /* models agent, dev aid: RACER_STUDIO=<vehicle 0..5> makes kart 0 that vehicle (RACER_COLOUR=n paints it) and the camera orbits it */
   if (getenv("RACER_STUDIO") && !humans) veh[0] = atoi(getenv("RACER_STUDIO")) % NVEH;
-  G.seed = 7u + (uint32_t)(map + 1) * 101u;
-  sim_init(&G.S, &G.trk, md, map, G.trial ? 1 : rs->laps > 0 ? rs->laps : md->laps, on, veh, G.seed);
+  G.seed = 7u + (uint32_t)(map + 1) * 101u + (battle ? 5000u : 0u);
+  /* a battle's sim.map is 100 + the arena, so nothing that keys on a race map (best laps, the outlines) takes it for one */
+  sim_init(&G.S, &G.trk, md, battle ? 100 + map : map, G.trial ? 1 : rs->laps > 0 ? rs->laps : md->laps, on, veh, G.seed);
   sim_set_class(&G.S, G.trial ? CLASS_STANDARD : rs->speed_class);
-  /* the item boxes option (and the time trial) leaves the road without boxes; nothing is built for them */
-  if (!rs->items || G.trial) G.S.nbox = 0;
+  if (battle) sim_set_battle_time(&G.S, rs->battle_secs * TICK_HZ);
+  /* the item boxes option (and the time trial) leaves the road without boxes; nothing is built for them (a battle always has them) */
+  if ((!rs->items && !battle) || G.trial) G.S.nbox = 0;
   G.S.item_set = rs->turbos_only || getenv("RACER_TURBOS") ? 1 : 0; /* dev aid: RACER_TURBOS=1 forces the turbos-only preset */
   for (int i = 0; i < MAXK; i++) {
     G.S.k[i].human = G.human[i];
@@ -289,12 +313,25 @@ void game_start_race(const race_setup *rs) {
     ai_reset(&G.ai[i], i, skill, 100u + (uint32_t)i);
   }
   if (getenv("RACER_STUDIO") && getenv("RACER_COLOUR") && !humans) G.S.k[0].colour = atoi(getenv("RACER_COLOUR")) & 7;
+  if (battle) {
+    /* a battle tells karts apart by their balloons: the CPU karts take the paints no human has */
+    bool used[8] = { false };
+    for (int i = 0; i < humans; i++) used[G.S.k[i].colour & 7] = true;
+    int c = 0;
+    for (int i = humans; i < MAXK; i++) {
+      while (c < 8 && used[c]) c++;
+      G.S.k[i].colour = c < 8 ? c : (i + 3) & 7;
+      if (c < 8) used[c] = true;
+    }
+  }
   for (int v = 0; v < CW_MAX_VIEWS; v++) G.pl[v] = v;
   world_build(G.scene, &G.S, md);
   if (G.trial && rs->ghost && ghost_load(rs->ghost, &G.trk)) ghost_gfx_build(G.scene);
   if (G.trial) ghost_rec_start(&G.S.k[0]);
   items_build(G.scene, &G.S);
+  balloons_build(G.scene, &G.S);
   fx_init(G.scene, &G.S, md);
+  for (int v = 0; v < CW_MAX_VIEWS; v++) G.spect[v] = -1;
   views_setup();
   audio_race_start(&G.S, md);
   G.cam_mode = rs->attract ? 1 : 0;
@@ -307,13 +344,16 @@ void game_start_race(const race_setup *rs) {
 
 static int8_t q127(float v) { return (int8_t)(cw_clampf(v, -1, 1) * 127.0f); }
 
+/* the CPU driver for kart i: the racing line, or the battle driver in an arena */
+static kin cpu_think(int i) { return G.S.battle ? ai_battle_think(&G.S, i, &G.ai[i]) : ai_think(&G.S, i, &G.ai[i]); }
+
 static kin human_in(int kart) {
   int p = G.pl[G.human_of[kart]];
   kin in = { 0 };
   {
     /* dev aid: RACER_BOT=1 drives the human karts with the CPU driver through the human path (a whole split-screen race without hands) */
     if (G.bot) {
-      kin b = ai_think(&G.S, kart, &G.ai[kart]);
+      kin b = cpu_think(kart);
       /* the CPU driver never tricks: the bot taps the button once it has been airborne a while */
       if (G.S.k[kart].air_ticks > 14 && G.S.k[kart].air_ticks < 18) b.btn |= KB_TRICK;
       if (G.bot == 2) {
@@ -469,6 +509,20 @@ static void rig_tick(int v) {
 
 static void camera_tick(void) {
   if (!G.have_track) return;
+  /* battle: a view whose kart is out watches the leader still in, and keeps watching it until that one is out too */
+  if (G.S.battle)
+    for (int v = 0; v < G.nviews; v++) {
+      int own = G.view_kart[v];
+      if (own < 0 || !G.S.k[own].parked) continue;
+      int cur = G.spect[v];
+      if (cur >= 0 && !G.S.k[cur].out) continue;
+      int pick = -1;
+      for (int r = 0; r < MAXK && pick < 0; r++) {
+        int ki = G.S.order[r];
+        if (G.S.k[ki].on && !G.S.k[ki].out) pick = ki;
+      }
+      if (pick >= 0 && pick != cur) G.spect[v] = pick, G.rig[v].live = false, G.rig[v].snap = true;
+    }
   for (int v = 0; v < G.nviews; v++) rig_tick(v);
   /* the sun's shadow box follows the play */
   if (cw_node_valid(G.sun)) {
@@ -496,7 +550,7 @@ static void trace(void) {
   }
   if (!tr) return;
   const char *tk = getenv("RACER_TRACE_KART");
-  if (tk) {
+  if (tk && !G.S.battle) {
     int from = getenv("RACER_TRACE_FROM") ? atoi(getenv("RACER_TRACE_FROM")) : 880;
     if (G.S.tick < from || G.S.tick >= from + 220) return;
     const kart *k = &G.S.k[atoi(tk)];
@@ -507,7 +561,28 @@ static void trace(void) {
             c->wheel[2].compression, c->wheel[3].compression, kart_up(k).y, k->p.x, k->p.y, k->p.z);
     return;
   }
+  if (G.S.battle && getenv("RACER_TRACE_KART")) {
+    /* one kart of a battle every tick: where it is and where its driver aims */
+    int ti = atoi(getenv("RACER_TRACE_KART")) & 7;
+    const kart *k = &G.S.k[ti];
+    const ai_mem *m = &G.ai[ti];
+    fprintf(tr, "t%d p=(%.1f %.1f %.1f) spd=%.1f fwd=(%.2f %.2f) aim=(%.1f %.1f %.1f) feel=%.2f/%.2f/%.2f rev=%d slow=%d frust=%d roam=%d box=%d tgt=%d btn=%d spin=%d\n", G.S.tick, k->p.x, k->p.z - 100, k->p.y, k->speed,
+            kart_fwd(k).x, kart_fwd(k).z, m->b_aim.x, m->b_aim.z - 100, m->b_aim.y, m->b_feel[0], m->b_feel[1], m->b_feel[2], m->b_reverse, m->b_slow, m->b_frust, m->b_roam, m->b_box, m->b_target, (int)G.S.k[ti].last_btn, k->spin_ticks);
+    return;
+  }
   if (G.S.tick % 30) return;
+  if (G.S.battle) {
+    /* a battle: where each kart is, its speed, balloons, points, item and whether its driver is backing out */
+    fprintf(tr, "%d left %d", G.S.tick, G.S.battle_left / TICK_HZ);
+    for (int i = 0; i < MAXK; i++) {
+      const kart *k = &G.S.k[i];
+      if (!k->on) continue;
+      fprintf(tr, " | %.0f,%.0f,%.0f %.0f b%d p%d i%d%s%s", k->p.x, k->p.z - 100, k->p.y, k->speed, k->balloons, k->points, k->item, G.ai[i].b_reverse ? " R" : "", k->out ? " OUT" : "");
+    }
+    fprintf(tr, "\n");
+    fflush(tr);
+    return;
+  }
   fprintf(tr, "%d", G.S.tick);
   for (int i = 0; i < MAXK; i++) {
     const kart *k = &G.S.k[i];
@@ -533,7 +608,7 @@ static void fixed(void *u, double dt) {
     for (int i = 0; i < MAXK; i++) {
       if (!G.S.k[i].on) continue;
       if (G.human[i] && !G.S.k[i].finished) in[i] = human_in(i);
-      else in[i] = ai_think(&G.S, i, &G.ai[i]);
+      else in[i] = cpu_think(i);
       static float test_steer = 9;
       if (test_steer == 9) test_steer = getenv("RACER_TEST_STEER") ? (float)atof(getenv("RACER_TEST_STEER")) : 0;
       if (i == 0 && test_steer != 0 && G.S.phase == PH_RACE && G.S.race_ticks > 200) in[i] = (kin){ .thr = 127, .steer = q127(test_steer) };
@@ -594,7 +669,9 @@ static void fixed(void *u, double dt) {
       G.finished[i] = k->finished;
       G.best_lap[i] = (int32_t)(k->best_lap * 100);
       G.finish_tick[i] = k->finished ? k->finish_tick : 0;
+      G.balloons[i] = k->balloons, G.points[i] = k->points, G.out[i] = k->out;
     }
+    G.battle_left = G.S.battle_left, G.battle_end = G.S.battle_end, G.battle_alive = G.S.alive;
     G.phase = G.S.phase;
     G.hash = G.S.hash;
   }
@@ -624,6 +701,11 @@ static void fixed(void *u, double dt) {
     for (int i = 0; i < MAXV; i++) rs.vehicle[i] = i * 2 % NVEH, rs.colour[i] = i;
     if (getenv("RACER_CLASS")) rs.speed_class = CW_CLAMP(atoi(getenv("RACER_CLASS")), 0, CLASS_COUNT - 1);
     if (getenv("RACER_ASSIST")) rs.assist_steer = (atoi(getenv("RACER_ASSIST")) & 1) != 0, rs.assist_gas = (atoi(getenv("RACER_ASSIST")) & 2) != 0;
+    if (getenv("RACER_MODE") && !strcmp(getenv("RACER_MODE"), "battle")) {
+      rs.mode = RM_BATTLE, rs.map = (dm < 0 ? 0 : dm) % NARENAS;
+      rs.karts = getenv("RACER_KARTS") ? atoi(getenv("RACER_KARTS")) : 0;
+      rs.battle_secs = getenv("RACER_BATTLE_TIME") ? atoi(getenv("RACER_BATTLE_TIME")) : 0;
+    }
     if (getenv("RACER_MODE") && !strcmp(getenv("RACER_MODE"), "trial") && dm >= 0) {
       rs.mode = RM_TRIAL, rs.items = false, rs.humans = 1;
       rs.ghost = ui_trial_ghost(rs.map);
@@ -662,6 +744,16 @@ static void cmd_cup(int argc, const char **argv, cw_reply *r) {
   if (r) cw_reply_printf(r, "{\"cup\":1}");
 }
 
+/* battle <arena 0..1> [humans] [secs] [karts]: a battle now (secs 0: three minutes; karts 0: eight) */
+static void cmd_battle(int argc, const char **argv, cw_reply *r) {
+  int a = argc > 1 ? CW_CLAMP(atoi(argv[1]), 0, NARENAS - 1) : 0;
+  race_setup rs = { .map = a, .humans = argc > 2 ? CW_CLAMP(atoi(argv[2]), 0, MAXV) : 0, .laps = 1, .cpu_skill = 3, .items = true, .mode = RM_BATTLE,
+                    .battle_secs = argc > 3 ? atoi(argv[3]) : 0, .karts = argc > 4 ? atoi(argv[4]) : 0 };
+  for (int i = 0; i < MAXV; i++) rs.vehicle[i] = i * 2 % NVEH, rs.colour[i] = i;
+  ui_enter_race(&rs);
+  if (r) cw_reply_printf(r, "{\"battle\":%d}", a);
+}
+
 static void cmd_bot(int argc, const char **argv, cw_reply *r) {
   G.bot = argc > 1 ? CW_CLAMP(atoi(argv[1]), 0, 2) : 1;
   if (r) cw_reply_printf(r, "{\"bot\":%d}", G.bot);
@@ -683,6 +775,7 @@ static void render(void *u, double alpha) {
       world_set_eyes(eyes, G.nviews);
     }
     world_frame(alpha);
+    balloons_frame(&G.S, (float)alpha);
     {
       cw_render3d_stats rs;
       cw_render3d_get_stats(cw_scene_app_tree(), &rs);
@@ -738,6 +831,13 @@ static void init(void *u) {
   cw_debug_command("trial", "trial <map 0..7> [runs]: start a time trial now (the bot drives <runs> runs when it is on)", cmd_trial);
   cw_debug_command("cup", "cup <0..1> [humans] [laps] [races]: a cup now, clicking through its own results (with `bot 1`)", cmd_cup);
   cw_debug_command("bot", "bot <0|1|2>: the human karts driven by the CPU driver (2: keyboard-style steering)", cmd_bot);
+  cw_debug_command("battle", "battle <arena 0..1> [humans] [secs] [karts]: a battle now (secs 0: three minutes)", cmd_battle);
+  cw_debug_field("karts.balloons", G.balloons, CW_DBG_I32, MAXK);
+  cw_debug_field("karts.points", G.points, CW_DBG_I32, MAXK);
+  cw_debug_field("karts.out", G.out, CW_DBG_I32, MAXK);
+  cw_debug_i32("battle.left", &G.battle_left);
+  cw_debug_i32("battle.end", &G.battle_end);
+  cw_debug_i32("battle.alive", &G.battle_alive);
   cw_debug_field("ghost.rec_n", &G.ghost_rec_n, CW_DBG_I32, 1);
   cw_debug_u32("ghost.rec_hash", &G.ghost_rec_hash);
   cw_debug_u32("ghost.play_hash", &G.ghost_play_hash);

@@ -15,7 +15,7 @@
 #include "ghost.h"
 
 /* what a race is: a normal race, a time trial (one kart, no items, a ghost to race), a race of a cup */
-enum { RM_RACE, RM_TRIAL, RM_CUP };
+enum { RM_RACE, RM_TRIAL, RM_CUP, RM_BATTLE };
 /* speed classes (sim_set_class) */
 enum { CLASS_STANDARD, CLASS_FAST, CLASS_BLAZING, CLASS_COUNT };
 
@@ -34,6 +34,10 @@ typedef struct race_setup {
   bool assist_steer;/* the humans' steering assist: a gentle pull back towards the road when a wall or the edge is close */
   bool assist_gas;  /* the humans' auto-accelerate: the throttle is held unless the brake is pressed */
   const ghost_saved *ghost; /* a time trial: the run to race (NULL: none). Must stay valid for the race (the save data does) */
+  /* battle (mode RM_BATTLE): map is an arena (ARENAS[]), karts the karts in it (humans first, CPUs fill; 0: eight), the round's
+   * length in seconds (0: three minutes) */
+  int karts;
+  int battle_secs;
 } race_setup;
 
 /* ── provided by main.c ─────────────────────────────────────────────── */
@@ -50,6 +54,7 @@ bool game_loaded(void);                      /* a race is loaded */
 const sim *game_sim(void);
 int game_views(void);                        /* views on screen: 1..MAXV */
 int game_view_kart(int v);                   /* the kart view v follows */
+int game_view_own_kart(int v);               /* the kart view v belongs to (a battle: game_view_kart differs once it is out and the view watches another) */
 int game_view_player(int v);                 /* the input player (pad slot) behind view v */
 /* the rectangle of view v on a W x H canvas */
 void game_view_rect(int v, float W, float H, float *x, float *y, float *w, float *h);
