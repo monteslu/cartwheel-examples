@@ -143,7 +143,11 @@ GEN(gen_container) {
       c = pc_mul(c, 0.82f + 0.2f * pm_rand(b));
       pm_push(b);
       pm_move(b, (variant == 3 && k == 0) ? (side ? 1 : -1) * (w * 0.52f) : 0, h * (float)k, 0);
-      if (k > 0) pm_move(b, pm_rands(b) * h * 0.05f, 0, pm_rands(b) * h * 0.3f), pm_roty(b, pm_rands(b) * 0.03f);
+      if (k > 0) {
+        float mx = pm_rands(b), mz = pm_rands(b);
+        pm_move(b, mx * h * 0.05f, 0, mz * h * 0.3f);
+        pm_roty(b, pm_rands(b) * 0.03f);
+      }
       pm_layer(b, PL_METAL);
       pm_box(b, w, h, l, dk(c, 0.55f), c);
       int ribs = lod ? 0 : 26;
@@ -195,7 +199,8 @@ GEN(gen_tyre_stack) {
     int hgt = variant == 2 ? 2 + c : n;
     for (int i = 0; i < hgt; i++) {
       pm_push(b);
-      pm_move(b, (c - (cols - 1) * 0.5f) * tR * 2.1f + pm_rands(b) * tr * 0.2f, tr + i * tr * 1.85f, pm_rands(b) * tr * 0.2f);
+      float mx = pm_rands(b), mz = pm_rands(b);
+      pm_move(b, (c - (cols - 1) * 0.5f) * tR * 2.1f + mx * tr * 0.2f, tr + i * tr * 1.85f, mz * tr * 0.2f);
       pm_rotx(b, CW_PI * 0.5f);
       pm_ring(b, tR, tr, lod ? 8 : 12, lod ? 4 : 6, i & 1 ? rgb(0.14f, 0.14f, 0.15f) : rgb(0.18f, 0.175f, 0.17f));
       pm_pop(b);
@@ -595,7 +600,8 @@ GEN(gen_cooling_tower) {
     for (int i = 0; i < (lod ? 3 : 6); i++) {
       float t = (float)i / 5.0f;
       pm_push(b);
-      pm_move(b, pm_rands(b) * h * 0.04f * (1 + t), h * (1.02f + 0.18f * t), pm_rands(b) * h * 0.04f * (1 + t));
+      float mx = pm_rands(b), mz = pm_rands(b);
+      pm_move(b, mx * h * 0.04f * (1 + t), h * (1.02f + 0.18f * t), mz * h * 0.04f * (1 + t));
       pm_ball(b, h * (0.07f + 0.05f * t), h * (0.05f + 0.03f * t), h * (0.07f + 0.05f * t), 1, 0.2f, rgb(0.78f, 0.8f, 0.84f), rgb(0.97f, 0.97f, 0.99f));
       pm_pop(b);
     }
@@ -914,7 +920,11 @@ static void windows(pm *b, float w, float d, float y0, float y1, float fh, float
         float ww = step * 0.34f, wh = fh * 0.3f;
         bool lit = pm_rand(b) < lit_prob;
         pm_layer(b, lit ? PL_GLOW : PL_METAL);
-        pcol col = lit ? glow(pc_mix(tp->lit_a, tp->lit_b, pm_rand(b)), 1.4f + 1.6f * pm_rand(b)) : pc_mix(tp->win_dark, rgb(0.2f, 0.28f, 0.36f), pm_rand(b) * 0.3f);
+        pcol col;
+        if (lit) {
+          float hue = pm_rand(b), lum = 1.4f + 1.6f * pm_rand(b);
+          col = glow(pc_mix(tp->lit_a, tp->lit_b, hue), lum);
+        } else col = pc_mix(tp->win_dark, rgb(0.2f, 0.28f, 0.36f), pm_rand(b) * 0.3f);
         pm_quad(b, P(x - ww, y, off + 0.03f), P(x + ww, y, off + 0.03f), P(x + ww, y + wh * 2, off + 0.03f), P(x - ww, y + wh * 2, off + 0.03f), col);
       }
     }
@@ -981,7 +991,8 @@ GEN(gen_skyscraper) {
     pm_layer(b, PL_METAL);
     for (int i = 0; i < (lod ? 2 : 7); i++) { /* twisted rebar */
       float x = (pm_rand(b) - 0.5f) * w * 0.8f, z = (pm_rand(b) - 0.5f) * d * 0.8f;
-      pm_rod(b, P(x, top, z), P(x + pm_rands(b) * 3, top + 3 + 8 * pm_rand(b), z + pm_rands(b) * 3), 0.12f, 4, rgb(0.35f, 0.18f, 0.1f));
+      float ex = x + pm_rands(b) * 3, ey = top + 3 + 8 * pm_rand(b), ez = z + pm_rands(b) * 3;
+      pm_rod(b, P(x, top, z), P(ex, ey, ez), 0.12f, 4, rgb(0.35f, 0.18f, 0.1f));
     }
     pm_layer(b, PL_MAIN);
     pm_push(b); /* slabs hanging at an angle */
@@ -1036,7 +1047,8 @@ GEN(gen_ruin_building) {
   for (int j = 0; j <= gz; j++)
     for (int i = 0; i <= gx; i++) {
       float x = -w * 0.5f + w * (float)i / (float)gx, z = -d * 0.5f + d * (float)j / (float)gz;
-      float ch = fh * (float)(1 + (int)(pm_rand(b) * 2.99f)) - pm_rand(b) * fh * 0.4f;
+      float floors = (float)(1 + (int)(pm_rand(b) * 2.99f)), cut = pm_rand(b);
+      float ch = fh * floors - cut * fh * 0.4f;
       colh[i][j] = ch;
       pm_push(b);
       pm_move(b, x, 0, z);
@@ -1092,7 +1104,8 @@ GEN(gen_ruin_building) {
     int ci = (int)(pm_rand(b) * 4.99f), cj = (int)(pm_rand(b) * 3.99f);
     float x = -w * 0.5f + w * (float)ci / (float)gx, z = -d * 0.5f + d * (float)cj / (float)gz;
     float top = colh[ci][cj];
-    pm_rod(b, P(x, top, z), P(x + pm_rands(b) * 1.2f, top + 1.5f + 3.0f * pm_rand(b), z + pm_rands(b) * 1.2f), 0.07f, 4, rgb(0.38f, 0.19f, 0.1f));
+    float ex = x + pm_rands(b) * 1.2f, ey = top + 1.5f + 3.0f * pm_rand(b), ez = z + pm_rands(b) * 1.2f;
+    pm_rod(b, P(x, top, z), P(ex, ey, ez), 0.07f, 4, rgb(0.38f, 0.19f, 0.1f));
   }
   pm_layer(b, PL_MAIN);
   for (int i = 0; i < (lod ? 3 : 9); i++) {
@@ -1964,12 +1977,17 @@ GEN(gen_debris) {
   int n = lod ? 3 : 6;
   for (int i = 0; i < n; i++) {
     pm_push(b);
-    pm_move(b, pm_rands(b) * h * 0.5f, h * (0.3f + 0.6f * pm_rand(b)), pm_rands(b) * h * 0.5f);
+    float mx = pm_rands(b), my = pm_rand(b), mz = pm_rands(b);
+    pm_move(b, mx * h * 0.5f, h * (0.3f + 0.6f * my), mz * h * 0.5f);
     pm_rotx(b, pm_rand(b) * CW_TAU);
     pm_roty(b, pm_rand(b) * CW_TAU);
     pm_rotz(b, pm_rand(b) * CW_TAU);
     switch ((variant + i) % 5) {
-    case 0: pm_box_c(b, h * (0.3f + 0.3f * pm_rand(b)), h * 0.02f, h * (0.2f + 0.2f * pm_rand(b)), pc_mix(hull, burnt, pm_rand(b) * 0.6f)); break;
+    case 0: {
+      float bx = h * (0.3f + 0.3f * pm_rand(b)), bz = h * (0.2f + 0.2f * pm_rand(b)), bk = pm_rand(b) * 0.6f;
+      pm_box_c(b, bx, h * 0.02f, bz, pc_mix(hull, burnt, bk));
+      break;
+    }
     case 1: pm_rod(b, P(-h * 0.25f, 0, 0), P(h * 0.25f, 0, 0), h * 0.012f, 5, hull); break;
     case 2: pm_cyl_ex(b, h * 0.08f, h * 0.06f, h * 0.2f, 7, burnt, hull, true, true); break;
     case 3: pm_box_c(b, h * 0.25f, h * 0.2f, h * 0.2f, gold); break;

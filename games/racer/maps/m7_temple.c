@@ -93,7 +93,8 @@ static float sstep(float a, float b, float x) { return cw_smoothstep(a, b, x); }
 
 /* a small deterministic generator for placing things. Draw each value in a statement (or declarator) of its own, never two
  * in one call's arguments or one braced initializer: C leaves their order unspecified, and GCC (native) and clang (carts)
- * evaluate them in different orders, so the same seed grew different trees on the two hosts. */
+ * evaluate them in different orders, so the same seed grew different trees on the two hosts (tools/check-eval-order.mjs,
+ * run by tools/build.sh, finds them). */
 typedef struct { uint32_t s; } rng;
 static float rnd(rng *r) {
   r->s = r->s * 1664525u + 1013904223u;

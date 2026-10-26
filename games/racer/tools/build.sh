@@ -8,5 +8,8 @@ mkdir -p "$R/out"
 exec 9>"$R/out/racer-build.lock"
 flock 9
 cd "$R"
+# GCC (native) and clang (carts) evaluate a call's arguments in different orders: two RNG draws in one expression grow
+# different scenery on the two hosts (tools/check-eval-order.mjs says where)
+node "$D/tools/check-eval-order.mjs" | sed 's/^/warning: evaluation order: /'
 TARGETS="${TARGETS:-native}" scripts/build.sh racer racer_auto 2>&1 | grep -E "error|warning|FAILED|undefined reference|Error" | head -${LINES_MAX:-40}
 exit "${PIPESTATUS[0]}"

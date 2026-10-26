@@ -68,7 +68,8 @@ GEN(gen_boulders) {
     pm_push(b);
     pm_move(b, cosf(a) * d, 0, sinf(a) * d);
     pm_roty(b, pm_rand(b) * 6);
-    pm_rock(b, r, 0.6f + 0.4f * pm_rand(b), 0.3f, pc_mul(lo, 0.9f), pc_mix(hi, lo, pm_rand(b) * 0.4f));
+    float sq = 0.6f + 0.4f * pm_rand(b), mk = pm_rand(b) * 0.4f;
+    pm_rock(b, r, sq, 0.3f, pc_mul(lo, 0.9f), pc_mix(hi, lo, mk));
     pm_pop(b);
   }
 }
@@ -174,15 +175,19 @@ GEN(gen_canyon_wall) {
     if (!lod && (i & 1)) {
       pm_push(b);
       pm_move(b, x, y - 0.5f, -size * 0.2f);
-      pm_rock(b, cw * 0.55f, 0.8f, 0.3f, strata(variant, 2, b), strata(variant, 4, b));
+      pcol s2 = strata(variant, 2, b), s4 = strata(variant, 4, b);
+      pm_rock(b, cw * 0.55f, 0.8f, 0.3f, s2, s4);
       pm_pop(b);
     }
   }
   /* scree along the foot */
   for (int i = 0; i < (lod ? 4 : 10); i++) {
     pm_push(b);
-    pm_move(b, -L * 0.5f + L * pm_rand(b), 0, size * 0.1f + size * 0.2f * pm_rand(b));
-    pm_rock(b, size * (0.04f + 0.07f * pm_rand(b)), 0.7f, 0.3f, pc_mul(strata(variant, 0, b), 0.7f), strata(variant, 3, b));
+    float mx = pm_rand(b), mz = pm_rand(b);
+    pm_move(b, -L * 0.5f + L * mx, 0, size * 0.1f + size * 0.2f * mz);
+    float rr = size * (0.04f + 0.07f * pm_rand(b));
+    pcol s0 = strata(variant, 0, b), s3 = strata(variant, 3, b);
+    pm_rock(b, rr, 0.7f, 0.3f, pc_mul(s0, 0.7f), s3);
     pm_pop(b);
   }
 }
@@ -362,7 +367,8 @@ GEN(gen_palm) {
   pm_vary(b, 0.05f);
   pcol t0 = rgb(0.30f, 0.20f, 0.12f), t1 = rgb(0.58f, 0.44f, 0.30f);
   int ns = lod ? 4 : 8;
-  float bend = (0.25f + 0.25f * pm_rand(b)) * (variant == 1 ? 1.7f : 1.0f) * (pm_rand(b) < 0.5f ? 1 : -1);
+  float bend = (0.25f + 0.25f * pm_rand(b)) * (variant == 1 ? 1.7f : 1.0f);
+  bend *= pm_rand(b) < 0.5f ? 1 : -1;
   float x = 0, y = 0, ang = 0;
   float segh = size * 0.9f / (float)ns;
   t3_vec3 top = P(0, 0, 0);
@@ -524,7 +530,10 @@ GEN(gen_mushroom) {
   for (int m = 0; m < count; m++) {
     pm_push(b);
     float s = m == 0 ? 1.0f : 0.35f + 0.3f * pm_rand(b);
-    if (m > 0) pm_move(b, pm_rands(b) * size * 0.45f, 0, pm_rands(b) * size * 0.45f);
+    if (m > 0) {
+      float mx = pm_rands(b), mz = pm_rands(b);
+      pm_move(b, mx * size * 0.45f, 0, mz * size * 0.45f);
+    }
     float H = size * s * (variant == 1 ? 1.2f : 0.85f), r = size * s * (variant == 1 ? 0.3f : 0.46f);
     pm_layer(b, PL_LEAF);
     pm_smooth(b, true);
@@ -660,6 +669,7 @@ GEN(gen_bush) {
   for (int i = 0; i < n; i++) {
     float a = (float)i / (float)n * CW_TAU + pm_rand(b), d = i == 0 ? 0 : size * (0.28f + 0.2f * pm_rand(b));
     float r = size * (i == 0 ? 0.36f : 0.2f + 0.1f * pm_rand(b));
-    lump(b, cosf(a) * d, r * 0.75f + size * 0.04f * pm_rand(b), sinf(a) * d, r, 0.8f, pc_mul(l0, 0.8f + 0.3f * pm_rand(b)), pc_mix(l0, l1, 0.3f + 0.7f * pm_rand(b)), 0);
+    float ly = r * 0.75f + size * 0.04f * pm_rand(b), lk = 0.8f + 0.3f * pm_rand(b), lm = 0.3f + 0.7f * pm_rand(b);
+    lump(b, cosf(a) * d, ly, sinf(a) * d, r, 0.8f, pc_mul(l0, lk), pc_mix(l0, l1, lm), 0);
   }
 }

@@ -804,7 +804,8 @@ static void build_start(cw_node root, const track *t) {
     for (int k = 0; k < 5; k++) {
       float w = 3.7f - 0.22f * (float)k, h = 2.15f + 0.2f * rnd1(&r);
       pm_push(b);
-      pm_move(b, side * (px + 0.18f * rnds(&r)), y, 0.15f * rnds(&r));
+      float mx = rnds(&r), mz = rnds(&r);
+      pm_move(b, side * (px + 0.18f * mx), y, 0.15f * mz);
       ice_block(b, w, h, 3.1f - 0.1f * (float)k, 0.1f * rnds(&r), pc_mix(ICE_DEEP, ICE_LO, (float)k / 5.0f), pc_mix(ICE_LO, ICE_HI, 0.35f + 0.12f * (float)k));
       pm_pop(b);
       y += h * 0.93f;
@@ -823,8 +824,10 @@ static void build_start(cw_node root, const track *t) {
   while (x < px + 0.5f) {
     float w = 2.5f + 0.4f * rnd1(&r);
     pm_push(b);
-    pm_move(b, x + w * 0.5f, H - 0.55f + 0.1f * rnds(&r), 0.1f * rnds(&r));
-    ice_block(b, w, 2.0f + 0.25f * rnd1(&r), 3.0f, 0.06f * rnds(&r), pc_mix(ICE_DEEP, ICE_LO, 0.5f), pc_mix(ICE_LO, ICE_HI, 0.55f));
+    float my = rnds(&r), mz = rnds(&r);
+    pm_move(b, x + w * 0.5f, H - 0.55f + 0.1f * my, 0.1f * mz);
+    float bh = 2.0f + 0.25f * rnd1(&r), tilt = 0.06f * rnds(&r);
+    ice_block(b, w, bh, 3.0f, tilt, pc_mix(ICE_DEEP, ICE_LO, 0.5f), pc_mix(ICE_LO, ICE_HI, 0.55f));
     pm_pop(b);
     x += w * 0.92f;
   }
@@ -837,8 +840,10 @@ static void build_start(cw_node root, const track *t) {
   }
   for (int i = 0; i < 26; i++) {
     pm_push(b);
-    pm_move(b, -px + 2.0f * px * rnd1(&r), H - 1.4f, -1.1f + 2.2f * rnd1(&r));
-    icicle(b, 0.09f + 0.1f * rnd1(&r), 0.6f + 1.8f * rnd1(&r), ICE_HI);
+    float mx = rnd1(&r), mz = rnd1(&r);
+    pm_move(b, -px + 2.0f * px * mx, H - 1.4f, -1.1f + 2.2f * mz);
+    float ir = 0.09f + 0.1f * rnd1(&r), il = 0.6f + 1.8f * rnd1(&r);
+    icicle(b, ir, il, ICE_HI);
     pm_pop(b);
   }
   pm_pop(b);
@@ -1589,7 +1594,8 @@ static void build_crevasse(cw_node root, const track *t) {
       float a = side * (half + 1.5f + 1.5f * hashf2((int)b, side, 29));
       t3_vec3 p = gorge_pt(a, b + 2.0f * rnds(&r), 0);
       p.y = rim_height(a, b) - 0.25f;
-      ps_add(ps, hashf2((int)b, side, 31) > 0.35f ? PK_ICE_SPIKES : PK_ICE_BOULDER, p, rnd1(&r) * TAU_F, 0.8f + 1.3f * rnd1(&r), (uint32_t)(b * 7 + side));
+      float yaw = rnd1(&r) * TAU_F, sc = 0.8f + 1.3f * rnd1(&r);
+      ps_add(ps, hashf2((int)b, side, 31) > 0.35f ? PK_ICE_SPIKES : PK_ICE_BOULDER, p, yaw, sc, (uint32_t)(b * 7 + side));
     }
   ps_finish(ps);
 
@@ -1751,13 +1757,15 @@ static void build_portal(cw_node root, const track *t, int idx, int dir, uint32_
     pm_push(b);
     pm_move(b, x, y, 0.4f * rnds(&r));
     pm_rotz(b, ang - CW_PI * 0.5f);
-    pm_box_c(b, 2.5f + 0.5f * rnd1(&r), 2.8f + 0.5f * rnd1(&r), 3.0f, pc_mix(ICE_DEEP, ICE_LO, 0.3f + 0.4f * rnd1(&r)));
+    float bx = 2.5f + 0.5f * rnd1(&r), by = 2.8f + 0.5f * rnd1(&r), bk = 0.3f + 0.4f * rnd1(&r);
+    pm_box_c(b, bx, by, 3.0f, pc_mix(ICE_DEEP, ICE_LO, bk));
     pm_pop(b);
   }
   for (int side = -1; side <= 1; side += 2)
     for (int k = 0; k < 2; k++) {
       pm_push(b);
-      pm_move(b, side * (Rr + 1.5f + 0.2f * rnds(&r)), -0.6f + 1.7f * (float)k, 0.3f * rnds(&r));
+      float mx = rnds(&r), mz = rnds(&r);
+      pm_move(b, side * (Rr + 1.5f + 0.2f * mx), -0.6f + 1.7f * (float)k, 0.3f * mz);
       ice_block(b, 2.8f, 2.1f, 3.0f, 0.15f * rnds(&r), ICE_DEEP, ICE_HI);
       pm_pop(b);
     }
@@ -1776,7 +1784,8 @@ static void build_portal(cw_node root, const track *t, int idx, int dir, uint32_
     pm_rotx(b, 0.04f * rnds(&r));
     pm_rotz(b, 0.05f * rnds(&r));
     pm_jitter(b, 0.18f);
-    pm_cyl_ex(b, rad, rad * 0.62f, top_y - base_y, 7, pc_mix(ICE_DEEP, ICE_LO, rnd1(&r)), pc_mix(ICE_LO, ICE_HI, 0.55f + 0.4f * rnd1(&r)), false, false);
+    float k0 = rnd1(&r), k1 = 0.55f + 0.4f * rnd1(&r);
+    pm_cyl_ex(b, rad, rad * 0.62f, top_y - base_y, 7, pc_mix(ICE_DEEP, ICE_LO, k0), pc_mix(ICE_LO, ICE_HI, k1), false, false);
     pm_jitter(b, 0);
     /* a bulb of ice where it landed */
     pm_ball(b, rad * 1.5f, rad * 1.1f, rad * 1.5f, 1, 0.2f, pc_mix(ICE_LO, ICE_HI, 0.3f), ICE_HI);
@@ -1788,7 +1797,8 @@ static void build_portal(cw_node root, const track *t, int idx, int dir, uint32_
     float x = -cosf(ang) * (Rr + 0.6f), y = hc + sinf(ang) * (Rt + 0.5f);
     pm_push(b);
     pm_move(b, x, y, 0.5f * rnds(&r));
-    icicle(b, 0.1f + 0.1f * rnd1(&r), 0.7f + 2.2f * rnd1(&r), ICE_HI);
+    float ir = 0.1f + 0.1f * rnd1(&r), il = 0.7f + 2.2f * rnd1(&r);
+    icicle(b, ir, il, ICE_HI);
     pm_pop(b);
   }
   pm_pop(b);
@@ -1881,8 +1891,10 @@ static void build_summit(cw_node root, const track *t) {
   /* drifts piled against the windward side and half over the doorway */
   for (int i = 0; i < 9; i++) {
     pm_push(b);
-    pm_move(b, -7.0f + 1.8f * (float)i + 0.5f * rnds(&r), 0, 3.6f + 0.8f * rnd1(&r));
-    pm_ball(b, 2.3f + rnd1(&r), 0.9f + 0.5f * rnd1(&r), 1.6f + 0.6f * rnd1(&r), 1, 0.15f, pc_mix(snow, ICE_LO, 0.25f), snow);
+    float mx = rnds(&r), mz = rnd1(&r);
+    pm_move(b, -7.0f + 1.8f * (float)i + 0.5f * mx, 0, 3.6f + 0.8f * mz);
+    float bx = 2.3f + rnd1(&r), by = 0.9f + 0.5f * rnd1(&r), bz = 1.6f + 0.6f * rnd1(&r);
+    pm_ball(b, bx, by, bz, 1, 0.15f, pc_mix(snow, ICE_LO, 0.25f), snow);
     pm_pop(b);
   }
   /* a stair, a door */
@@ -1983,7 +1995,8 @@ static void build_camp(cw_node root, int pad, uint32_t seed) {
   prop_set *ps = ps_new(root, "CampProps");
   for (int i = 0; i < 5; i++) {
     float a = rnd1(&r) * TAU_F, d = 5.5f + 7.0f * rnd1(&r);
-    ps_add(ps, i & 1 ? PK_CRATE : PK_BARREL, V3(px + cosf(a) * d, py - 0.05f, pz + sinf(a) * d), rnd1(&r) * 6, 1.0f + 0.3f * rnd1(&r), seed + 40u + (uint32_t)i);
+    float yaw = rnd1(&r) * 6, sc = 1.0f + 0.3f * rnd1(&r);
+    ps_add(ps, i & 1 ? PK_CRATE : PK_BARREL, V3(px + cosf(a) * d, py - 0.05f, pz + sinf(a) * d), yaw, sc, seed + 40u + (uint32_t)i);
   }
   ps_finish(ps);
   /* the fire in the middle, a ring of stones, logs, sleds, and the tents round them */
@@ -2436,7 +2449,8 @@ static void build_falls(cw_node root, const track *t) {
     float s = rnd1(&r) * t->length;
     tsample a = track_at(t, s);
     if (a.flags & (TF_GAP | TF_LOOP | TF_TUNNEL)) continue;
-    float lat = (rnd1(&r) < 0.5f ? 1.0f : -1.0f) * (a.hw + 30.0f + 70.0f * rnd1(&r));
+    float lside = rnd1(&r) < 0.5f ? 1.0f : -1.0f;
+    float lat = lside * (a.hw + 30.0f + 70.0f * rnd1(&r));
     t3_vec3 p = track_point(t, s, lat, 0);
     if (in_lake(p.x, p.z, 1.2f) || in_gorge(p.x, p.z, 40.0f)) continue;
     float h = terrain(p.x, p.z, NULL);

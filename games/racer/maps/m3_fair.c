@@ -1570,8 +1570,10 @@ static void build_life(cw_node root, const track *t) {
       t3_object *o = obj_from_model(&bird, NULL, -1, false);
       char nm[24];
       snprintf(nm, sizeof nm, "Crow%d", ncr);
-      CR[ncr] = (crow){ node_of(root, nm, o), V3(cc[k][0], cc[k][1], cc[k][2]), cc[k][3] * (0.7f + 0.5f * rf()), (float)(rf() * 14.0f - 7.0f), (0.12f + 0.06f * rf()) * (k == 1 ? -1.0f : 1.0f),
-                        CW_TAU * rf(), 6.0f + 3.0f * rf() };
+      cw_node cn = node_of(root, nm, o);
+      float c0 = rf(), c1 = rf(), c2 = rf(), c3 = rf(), c4 = rf();
+      CR[ncr] = (crow){ cn, V3(cc[k][0], cc[k][1], cc[k][2]), cc[k][3] * (0.7f + 0.5f * c0), (float)(c1 * 14.0f - 7.0f), (0.12f + 0.06f * c2) * (k == 1 ? -1.0f : 1.0f),
+                        CW_TAU * c3, 6.0f + 3.0f * c4 };
       ncr++;
     }
   prop_model_free(&bird);

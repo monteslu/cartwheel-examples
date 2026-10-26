@@ -1193,7 +1193,9 @@ static void holo_sign(cw_node root, t3_vec3 p, float yaw, float w, float h, floa
   t3_object_set_position(me, p.x + sinf(yaw) * 0.0f, p.y + lift + h * 0.5f, p.z);
   t3_object_set_rotation(me, 0, yaw, 0);
   hang(root, "Holo", &me->base);
-  HOLO[nholo++] = (holo){ m, HOLO_TEX[kind], base, hf((uint32_t)nholo * 977u) * 6.28f, 0.6f + 0.8f * hf((uint32_t)nholo * 331u) };
+  /* the hashes take the count after this one is added (what GCC and clang both made of the old unsequenced form) */
+  int hi = nholo++;
+  HOLO[hi] = (holo){ m, HOLO_TEX[kind], base, hf((uint32_t)nholo * 977u) * 6.28f, 0.6f + 0.8f * hf((uint32_t)nholo * 331u) };
   t3_release(me), t3_release(g);
 }
 

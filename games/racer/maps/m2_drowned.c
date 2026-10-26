@@ -622,8 +622,10 @@ static void building(const tsample *a, t3_vec3 p, int side, float len, float dep
     float rx = (frand(&rs) - 0.5f) * depth * 0.5f, rz = (frand(&rs) - 0.5f) * len * 0.6f;
     pm_push(b);
     pm_move(b, rx, 0.7f, rz);
-    if (frand(&rs) < 0.5f) pm_box(b, 3.0f + 2.0f * frand(&rs), 2.0f + 2.0f * frand(&rs), 3.0f + 2.5f * frand(&rs), dk(ts.wall0, 1.2f), ts.wall1);
-    else pm_cyl(b, 1.6f, 1.6f, 2.6f, 10, dk(ts.wall0, 1.4f), ts.wall1);
+    if (frand(&rs) < 0.5f) {
+      float bx = 3.0f + 2.0f * frand(&rs), by = 2.0f + 2.0f * frand(&rs), bz = 3.0f + 2.5f * frand(&rs);
+      pm_box(b, bx, by, bz, dk(ts.wall0, 1.2f), ts.wall1);
+    } else pm_cyl(b, 1.6f, 1.6f, 2.6f, 10, dk(ts.wall0, 1.4f), ts.wall1);
     pm_pop(b);
   }
   pm_layer(b, PL_METAL);
@@ -657,7 +659,9 @@ static void building(const tsample *a, t3_vec3 p, int side, float len, float dep
       pm *sb = upright_frame(N.c[g == GR_STEADY && frand(&rs) < 0.3f ? GR_BUZZ : g], p, a);
       pm_roty(sb, -(float)side * 1.5707963f);
       pm_move(sb, 0, lift + 4.0f, depth * 0.5f);
-      neon_sign(sb, fminf(len * 0.7f, 12.0f), 1.5f, (int)(frand(&rs) * 4.99f), neon_pick(&rs), neon_pick(&rs), seed + 99u);
+      int style = (int)(frand(&rs) * 4.99f);
+      pcol n1 = neon_pick(&rs), n2 = neon_pick(&rs);
+      neon_sign(sb, fminf(len * 0.7f, 12.0f), 1.5f, style, n1, n2, seed + 99u);
       pm_pop(sb);
     }
   }
@@ -798,7 +802,9 @@ static void dress_walls(const track *t, uint32_t seed) {
         int g = frand(&rs) < 0.3f ? GR_FLICK : GR_BUZZ;
         pm *b = wall_frame(N.c[g], &a, side, 0.0f, 0.0f);
         pcol c1 = neon_pick(&rs), c2 = neon_pick(&rs);
-        blade_sign(b, 0, 4.25f + 0.5f * frand(&rs), 1.7f, 1.7f, 2.6f + 1.2f * frand(&rs), (int)(frand(&rs) * 4.99f), c1, c2, (uint32_t)(s * 17.0f));
+        float by = 4.25f + 0.5f * frand(&rs), bh = 2.6f + 1.2f * frand(&rs);
+        int style = (int)(frand(&rs) * 4.99f);
+        blade_sign(b, 0, by, 1.7f, 1.7f, bh, style, c1, c2, (uint32_t)(s * 17.0f));
         pm_pop(b);
         pool_add(g, &a, side, 0, 2.4f, 8.0f, c2, 0.45f);
       }
@@ -868,7 +874,11 @@ static void street_blocks(const track *t, uint32_t seed) {
       }
       float depth = mode == 0 ? 12 + 8 * frand(&rs) : 9 + 4 * frand(&rs);
       float off = mode == 0 ? 2.2f + 1.5f * frand(&rs) : 3.0f + 5.0f * frand(&rs);
-      float h = mode == 0 ? 20 + 36 * frand(&rs) * frand(&rs) + (frand(&rs) < 0.12f ? 30 : 0) : 7 + 7 * frand(&rs);
+      float h;
+      if (mode == 0) {
+        float h1 = frand(&rs), h2 = frand(&rs), h3 = frand(&rs);
+        h = 20 + 36 * h1 * h2 + (h3 < 0.12f ? 30 : 0);
+      } else h = 7 + 7 * frand(&rs);
       t3_vec3 p = vadd(a.p, vmul(a.r, (float)side * (a.hw + off + depth * 0.5f)));
       float base_y = a.p.y - 7.0f;
       p.y = base_y;
@@ -1567,9 +1577,11 @@ static void ruin_slab(pm *b, float w, float len, uint32_t seed) {
   /* a broken end: a stepped break of smaller blocks */
   for (int i = 0; i < 4; i++) {
     pm_push(b);
-    pm_move(b, (frand(&rs) - 0.5f) * w * 0.8f, 0, len * 0.5f + 0.2f + frand(&rs) * 0.8f);
+    float mx = frand(&rs), mz = frand(&rs);
+    pm_move(b, (mx - 0.5f) * w * 0.8f, 0, len * 0.5f + 0.2f + mz * 0.8f);
     pm_rotx(b, (frand(&rs) - 0.5f) * 0.5f);
-    pm_box(b, 1.5f + 2.0f * frand(&rs), 1.1f, 1.2f + 1.6f * frand(&rs), dk(concrete_dark, 0.9f), concrete_light);
+    float bx = 1.5f + 2.0f * frand(&rs), bz = 1.2f + 1.6f * frand(&rs);
+    pm_box(b, bx, 1.1f, bz, dk(concrete_dark, 0.9f), concrete_light);
     pm_pop(b);
   }
   /* the kerb and the railing stump along one side */
@@ -1580,7 +1592,8 @@ static void ruin_slab(pm *b, float w, float len, uint32_t seed) {
   pm_layer(b, PL_METAL);
   for (int i = 0; i < 8; i++) {
     float x = (frand(&rs) - 0.5f) * w * 0.9f, z = len * 0.5f + 0.2f;
-    pm_rod(b, V(x, 0.7f, z), V(x + pm_rands(b) * 0.4f, 0.6f + frand(&rs) * 0.8f, z + 1.0f + 2.8f * frand(&rs)), 0.07f, 4, rust_col);
+    float ex = x + pm_rands(b) * 0.4f, ey = 0.6f + frand(&rs) * 0.8f, ez = z + 1.0f + 2.8f * frand(&rs);
+    pm_rod(b, V(x, 0.7f, z), V(ex, ey, ez), 0.07f, 4, rust_col);
   }
   pm_layer(b, PL_GLOW);
   /* the last metres of a strip light along the kerb, still on */
@@ -1600,12 +1613,17 @@ static void stump(pm *b, float h, float r, uint32_t seed) {
   pm_move(b, 0, h, 0);
   for (int i = 0; i < 3; i++) {
     pm_push(b);
-    pm_move(b, (frand(&rs) - 0.5f) * r, 0, (frand(&rs) - 0.5f) * r);
-    pm_box(b, r * (0.5f + 0.5f * frand(&rs)), 0.8f + 1.8f * frand(&rs), r * (0.5f + 0.5f * frand(&rs)), concrete_dark, concrete_light);
+    float mx = frand(&rs), mz = frand(&rs);
+    pm_move(b, (mx - 0.5f) * r, 0, (mz - 0.5f) * r);
+    float bx = r * (0.5f + 0.5f * frand(&rs)), by = 0.8f + 1.8f * frand(&rs), bz = r * (0.5f + 0.5f * frand(&rs));
+    pm_box(b, bx, by, bz, concrete_dark, concrete_light);
     pm_pop(b);
   }
   pm_layer(b, PL_METAL);
-  for (int i = 0; i < 5; i++) pm_rod(b, V((frand(&rs) - 0.5f) * r, 0, (frand(&rs) - 0.5f) * r), V((frand(&rs) - 0.5f) * r * 2, 2.5f + 2.5f * frand(&rs), (frand(&rs) - 0.5f) * r * 2), 0.07f, 4, rust_col);
+  for (int i = 0; i < 5; i++) {
+    float ax = frand(&rs), az = frand(&rs), bx = frand(&rs), by = frand(&rs), bz = frand(&rs);
+    pm_rod(b, V((ax - 0.5f) * r, 0, (az - 0.5f) * r), V((bx - 0.5f) * r * 2, 2.5f + 2.5f * by, (bz - 0.5f) * r * 2), 0.07f, 4, rust_col);
+  }
   pm_pop(b);
   pm_layer(b, PL_MAIN);
 }
@@ -1667,11 +1685,13 @@ static void corkscrew_ruins(const track *t, cw_node root, uint32_t seed) {
     pm_pop(b);
     if (frand(&rs) < 0.75f) {
       pm *d = upright_frame(c, V(p.x, a.p.y + 1.0f + 3.0f * frand(&rs), p.z), &a);
-      pm_move(d, (frand(&rs) - 0.5f) * 4.0f, 0, 6.0f * (frand(&rs) - 0.5f));
+      float mx = frand(&rs), mz = frand(&rs);
+      pm_move(d, (mx - 0.5f) * 4.0f, 0, 6.0f * (mz - 0.5f));
       pm_roty(d, (frand(&rs) - 0.5f) * 0.9f);
       pm_rotz(d, (float)side * (0.12f + 0.3f * frand(&rs)));
       pm_rotx(d, (frand(&rs) - 0.5f) * 0.3f);
-      ruin_slab(d, 8.0f + 5.0f * frand(&rs), 14.0f + 10.0f * frand(&rs), seed + (uint32_t)k * 11u);
+      float sw = 8.0f + 5.0f * frand(&rs), sl = 14.0f + 10.0f * frand(&rs);
+      ruin_slab(d, sw, sl, seed + (uint32_t)k * 11u);
       pm_pop(d);
     }
     /* a broken sign hanging by one corner, one half of it still burning */
@@ -1682,7 +1702,9 @@ static void corkscrew_ruins(const track *t, cw_node root, uint32_t seed) {
       pm_rotz(e, 0.5f + 0.5f * frand(&rs));
       pm_layer(e, PL_METAL);
       pm_rod(e, V(0, 0, 0), V(0, 7, 0), 0.08f, 4, rgb(0.1f, 0.1f, 0.12f));
-      neon_sign(e, 5.0f, 2.0f, (int)(frand(&rs) * 4.99f), neon_pick(&rs), neon_pick(&rs), seed + (uint32_t)k * 5u);
+      int style = (int)(frand(&rs) * 4.99f);
+      pcol n1 = neon_pick(&rs), n2 = neon_pick(&rs);
+      neon_sign(e, 5.0f, 2.0f, style, n1, n2, seed + (uint32_t)k * 5u);
       pm_pop(e);
     }
     /* sparks falling from a cut cable beside it */
@@ -1696,7 +1718,8 @@ static void corkscrew_ruins(const track *t, cw_node root, uint32_t seed) {
     float sd = lerpf(L.cork.s0, L.cork.s1, (float)i / (float)(NDEBRIS - 1));
     tsample a = track_at(t, sd);
     int side = (i & 1) ? 1 : -1;
-    RU.at[i] = vadd(vadd(a.p, vmul(a.r, (float)side * (22.0f + 6.0f * frand(&rs)))), V(0, 10.0f + 4.0f * frand(&rs), 0));
+    float lat = 22.0f + 6.0f * frand(&rs), up = 10.0f + 4.0f * frand(&rs);
+    RU.at[i] = vadd(vadd(a.p, vmul(a.r, (float)side * lat)), V(0, up, 0));
     RU.fall[i] = 16.0f + 4.0f * frand(&rs), RU.per[i] = 1.6f + 0.8f * frand(&rs), RU.ph[i] = frand(&rs) * 4.0f;
     RU.chunk[i] = model_node(root, "Rubble", make_chunk(30u + (uint32_t)i), false);
     cw_node3d_set_position(RU.chunk[i], RU.at[i]);
@@ -1746,15 +1769,18 @@ static void jump_set_piece(const track *t, cw_node root, uint32_t seed) {
     pm_layer(b, PL_MAIN);
     for (int i = 0; i < 7; i++) {
       pm_push(b);
-      pm_move(b, (frand(&rs) - 0.5f) * (a->hw * 2.0f), -0.8f - frand(&rs) * 1.4f, dir * (0.4f + frand(&rs) * 3.2f));
+      float mx = frand(&rs), my = frand(&rs), mz = frand(&rs);
+      pm_move(b, (mx - 0.5f) * (a->hw * 2.0f), -0.8f - my * 1.4f, dir * (0.4f + mz * 3.2f));
       pm_rotx(b, dir * (0.1f + 0.5f * frand(&rs)));
-      pm_box(b, 1.6f + 3.2f * frand(&rs), 1.0f, 1.2f + 2.0f * frand(&rs), concrete_dark, concrete_light);
+      float bx = 1.6f + 3.2f * frand(&rs), bz = 1.2f + 2.0f * frand(&rs);
+      pm_box(b, bx, 1.0f, bz, concrete_dark, concrete_light);
       pm_pop(b);
     }
     pm_layer(b, PL_METAL);
     for (int i = 0; i < 12; i++) {
       float x = (frand(&rs) - 0.5f) * (a->hw * 2.0f);
-      pm_rod(b, V(x, -0.4f, dir * 0.6f), V(x + pm_rands(b) * 0.7f, -0.3f - frand(&rs) * 1.5f, dir * (2.5f + 3.5f * frand(&rs))), 0.08f, 4, rust_col);
+      float ex = x + pm_rands(b) * 0.7f, ey = -0.3f - frand(&rs) * 1.5f, ez = dir * (2.5f + 3.5f * frand(&rs));
+      pm_rod(b, V(x, -0.4f, dir * 0.6f), V(ex, ey, ez), 0.08f, 4, rust_col);
     }
     pm_layer(b, PL_GLOW);
     /* the warning lights along the broken edge */
@@ -1777,7 +1803,8 @@ static void jump_set_piece(const track *t, cw_node root, uint32_t seed) {
     pm_roty(b, frand(&rs) * 3.0f);
     pm_rotz(b, (frand(&rs) - 0.5f) * 0.6f);
     pm_rotx(b, (frand(&rs) - 0.5f) * 0.5f);
-    ruin_slab(b, 7.0f + 3.0f * frand(&rs), 10.0f + 6.0f * frand(&rs), seed + (uint32_t)i * 9u);
+    float sw = 7.0f + 3.0f * frand(&rs), sl = 10.0f + 6.0f * frand(&rs);
+    ruin_slab(b, sw, sl, seed + (uint32_t)i * 9u);
     pm_pop(b);
   }
   /* the billboard: two towers and a gantry over the road 60 m past the landing, a big lit picture facing the ramp */
@@ -1902,7 +1929,8 @@ static void holograms(const track *t, cw_node root, uint32_t seed) {
     HO.m[k] = m;
     HO.base_y[k] = 7.5f + 3.0f * frand(&rs);
     cw_node3d_set_position(HO.n[k], V(p.x, HO.base_y[k], p.z));
-    HO.spin[k] = (0.25f + 0.2f * frand(&rs)) * (frand(&rs) < 0.5f ? 1 : -1);
+    float rate = 0.25f + 0.2f * frand(&rs);
+    HO.spin[k] = rate * (frand(&rs) < 0.5f ? 1 : -1);
     HO.ph[k] = frand(&rs) * 6.28f;
     HO.count++;
   }
