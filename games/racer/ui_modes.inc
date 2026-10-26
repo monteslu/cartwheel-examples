@@ -746,6 +746,7 @@ static void tick_standings(float W, float H) {
       if (in_rect(N.m, res_button_n(i, nb, W, H))) U.sel = i, act = i;
   if (N.ok && U.mt > 30) act = U.sel;
   if (U.auto_cup && U.mt > 60) act = 0;
+  if (U.pending != PD_NONE) act = -1; /* already on the way to the next race: a second OK must not skip a race or end the cup */
   if (act == 0) {
     sfx_ok();
     if (U.cup.race + 1 < cup_nraces()) {
