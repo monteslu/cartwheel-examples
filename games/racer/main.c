@@ -22,7 +22,10 @@
  * Battle (sim_battle.inc, ai_battle.c, arena.c, balloons.c, ui_battle.inc): race_setup.mode RM_BATTLE puts ARENAS[map] on
  * instead of a race map. The sim knows it by map_def.arena (sim.battle); the CPU drivers switch to ai_battle_think; a view whose
  * kart is out follows the leader that is still in (spectate). Debug command `battle <arena> [humans] [secs] [karts]`; debug
- * fields battle.* and karts.balloons / karts.points / karts.out are in the racer-battle gate.
+ * fields battle.* and karts.balloons / karts.points / karts.out are in the racer-battle gate. RACER_UI=arena opens the arena
+ * select (RACER_UI_MAP=n picks the arena). In a battle RACER_TRACE logs every kart's place, speed, balloons, points and item
+ * every half second (R: its CPU driver is backing out), and with RACER_TRACE_KART=n that kart every tick with where its
+ * driver aims and what its feelers see (games/racer/ai_battle.c).
  *
  * Time trial (ghost.c, ui_trial.inc): the race has one kart and no item boxes. game_retry() puts the same race back on the
  * grid without a reload (sim_restart: a short countdown). The human kart's pose is recorded every third tick (ghost_rec_*);
