@@ -15,7 +15,7 @@
 #define GLOWPOST(x, z, y, dia, h, col) { AP_POST, AL_GLOW, x, z, y, dia, h, dia, 0, true, col }
 #define PAINT(x, z, y, w, d, yaw, col) { AP_BOX, AL_PAINT, x, z, y, w, 0.03f, d, yaw, true, col }
 /* one side of the painted octagon (apothem 30 m) at angle a degrees round the middle */
-#define RINGSIDE(a) PAINT(30.0f * SIN_##a, 30.0f * COS_##a, 0, 24.85f, 0.7f, a, 0xe8e2d6)
+#define RINGSIDE(a) PAINT(30.0f * SIN_##a, 30.0f * COS_##a, 0, 24.85f, 0.8f, a, 0xe59a1c)
 /* a start pad: a cream border and a dark square on it */
 #define PAD(x, z, yaw) PAINT(x, z, 0, 5.4f, 5.4f, yaw, 0xe8e2d6), PAINT(x, z, 0.012f, 4.6f, 4.6f, yaw, 0x3a3236)
 #define SIN_0 0.0f
