@@ -7,6 +7,7 @@
  *
  * Everything it reads is the simulation and a seeded stream of its own, so a battle repeats. */
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "arena.h"
@@ -110,6 +111,24 @@ static t3_vec3 via_ramp(const sim *s, const kart *k, t3_vec3 goal, float goal_lv
   return arena_prim_point(a, best, 0, 0, -a->prim[best].d * 0.5f - 7.0f);
 }
 
+/* the free way out: rays fanned round the line to the goal; the longest clear one that heads most nearly there, a point along it */
+static t3_vec3 pick_detour(const sim *s, const kart *k, t3_vec3 goal) {
+  float base = cw_atan2(goal.x - k->p.x, goal.z - k->p.z), best = -1e9f;
+  t3_vec3 at = goal;
+  for (int i = -4; i <= 4; i++) {
+    float sn, cs;
+    cw_sincos(base + (float)i * 0.42f, &sn, &cs);
+    t3_vec3 dir = { sn, 0, cs };
+    float fr = 1;
+    t3_vec3 n;
+    float free = 18.0f;
+    if (sim_ray(s, v3add(k->p, (t3_vec3){ 0, 0.15f, 0 }), v3mul(dir, 18.0f), &fr, &n) && n.y < 0.6f) free = 18.0f * fr;
+    float score = free - fabsf((float)i) * 1.8f;
+    if (score > best) best = score, at = v3add(k->p, v3mul(dir, clampf(free - 2.5f, 3.0f, 12.0f)));
+  }
+  return at;
+}
+
 kin ai_battle_think(const sim *s, int me, ai_mem *m) {
   const kart *k = &s->k[me];
   kin in = { 0 };
@@ -159,11 +178,13 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
   float ang = bearing(k, goal), dist = flat_dist(goal, k->p);
   /* no nearer to it for a few seconds (a wall between, a kart that keeps away): give up on it for a while */
   if (dist < m->b_best_d - 1.0f || m->b_best_d <= 0) m->b_best_d = dist, m->b_frust = 0;
-  else if (++m->b_frust > 210) {
+  else if (++m->b_frust > 180) {
+    /* the open way round, or now and then somewhere else altogether */
     const arena_rt *a = s->arena;
     int sp = a && a->nspawn ? (int)(rnd(m) % (uint32_t)a->nspawn) : 0;
-    m->b_goal = a && a->nspawn ? (t3_vec3){ a->spawn[sp][0] * 0.55f, 0, (a->spawn[sp][1] - ARENA_CZ) * 0.55f + ARENA_CZ } : (t3_vec3){ 0, 0, ARENA_CZ };
-    m->b_roam = 120, m->b_frust = 0, m->b_best_d = 0, m->b_box = -1;
+    if (rnd(m) % 3u && m->b_roam == 0) m->b_goal = pick_detour(s, k, goal), m->b_roam = 80;
+    else m->b_goal = a && a->nspawn ? (t3_vec3){ a->spawn[sp][0] * 0.55f, 0, (a->spawn[sp][1] - ARENA_CZ) * 0.55f + ARENA_CZ } : (t3_vec3){ 0, 0, ARENA_CZ }, m->b_roam = 120, m->b_box = -1;
+    m->b_frust = 0, m->b_best_d = 0;
   }
   /* mines and oil in the way: aim to the side of them */
   for (int h = 0; h < MAXHZ; h++) {
@@ -191,7 +212,10 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
   /* a tight turn: off the gas, the skilled drift through it (a drift boost is a ram waiting to happen) */
   if (fabsf(ang) > 1.4f && spd > 14) in.thr = 0;
   if (m->skill >= 1 && fabsf(ang) > 0.55f && fabsf(ang) < 1.6f && spd > 17 && fc > 0.7f) in.btn |= KB_DRIFT;
-  if (dist < 6 && m->b_box >= 0 && fabsf(ang) > 1.2f) in.thr = 60;
+  /* close to the goal but off to the side: slow right down so it turns tight instead of circling it */
+  if (m->b_box >= 0 && m->b_roam == 0 && dist < 11 && fabsf(ang) > 0.7f) in.thr = spd > 7 ? -127 : 80;
+  /* something solid close ahead for this speed: brake while it steers round it */
+  if (fc < 1.0f && fc * len < spd * 0.42f && spd > 8) in.thr = -127, in.btn &= ~KB_DRIFT;
   /* stuck on something: back out, turned the other way, then try again */
   float moved = flat_dist(k->p, m->b_last_p);
   m->b_last_p = k->p;
@@ -201,7 +225,7 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
   /* a wall close ahead and the goal off to the side: back and turn (the steering turns the nose the same way in reverse) */
   bool boxed = fc < 1.0f && fc * len < 4.5f && fabsf(ang) > 1.0f && spd < 9;
   if (m->b_commit > 0) m->b_commit--;
-  if ((m->b_slow > 35 || ((fc < 0.25f && spd < 5) || boxed) && m->b_commit == 0) && m->b_reverse == 0) {
+  if ((m->b_slow > 35 || (fc < 0.25f && spd < 5) || boxed) && m->b_commit == 0 && m->b_reverse == 0) {
     m->b_reverse = 75;
     m->b_slow = 0;
     m->b_side = ang > 0 ? 1 : -1;
@@ -213,8 +237,29 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
     in.thr = -127;
     in.steer = (int8_t)(m->b_side * 90);
     in.btn &= ~KB_DRIFT;
-    if (flat_dist(k->p, m->b_rev_p) > 3.5f || m->b_reverse == 0) m->b_reverse = 0, m->b_commit = 45, in.thr = 0;
+    /* something behind it (a wall, a kart): stop backing */
+    bool behind = false;
+    {
+      t3_vec3 back = kart_fwd(k);
+      back.y = 0;
+      back = v3mul(v3norm(back), -3.2f);
+      float bf = 1;
+      t3_vec3 bn;
+      if (sim_ray(s, v3add(k->p, (t3_vec3){ 0, 0.15f, 0 }), back, &bf, &bn) && bn.y < 0.6f) behind = true;
+      for (int j = 0; j < MAXK && !behind; j++) {
+        const kart *o = &s->k[j];
+        if (j == me || !o->on || o->parked) continue;
+        t3_vec3 d = v3sub(o->p, k->p);
+        behind = v3dot(d, d) < 4.0f * 4.0f && v3dot(d, kart_fwd(k)) < -0.5f;
+      }
+    }
+    if (flat_dist(k->p, m->b_rev_p) > 3.5f || m->b_reverse == 0 || (behind && m->b_reverse < 68) || (m->b_slow > 24 && m->b_reverse < 50)) {
+      m->b_reverse = 0, m->b_commit = 45, in.thr = 0;
+      /* and then the open way that heads most nearly where it wants to go */
+      m->b_goal = pick_detour(s, k, goal), m->b_roam = 70, m->b_best_d = 0;
+    }
   }
+
   /* a Shockwave is coming: hop it */
   if (m->skill >= 1 && k->shock_warn > 0 && k->shock_warn <= 9 + 2 * (2 - m->skill)) in.btn |= KB_DRIFT;
   /* items */
