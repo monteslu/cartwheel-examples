@@ -2,8 +2,9 @@ Racer: credits
 
 Everything in this game was made for it: code, the karts, the props and eight
 worlds, the procedural textures, the colour grades and the synthesized sound
-and music (tools/make-audio.mjs, tools/make-music.mjs). The exceptions are the
-fonts and the announcer's voice below.
+and music (tools/make-audio.mjs, tools/make-music.mjs, and battle mode's pop and
+knockout from tools/make-battle-audio.mjs). The exceptions are the fonts and the
+announcer's voice below.
 
 Fonts (from github.com/google/fonts; each licence ships beside its font in
 assets/fonts/):
