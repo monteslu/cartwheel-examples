@@ -149,6 +149,7 @@ static void battle_pop(sim *s, int i, int by) {
   k->balloons--;
   k->pops_taken++;
   k->ram_cool = POP_GRACE;
+  k->spin_ticks = k->spin_ticks * 7 / 10; /* a battle spin is shorter: losing the balloon is the cost, the long tumble only feeds the pile-up */
   if (by >= 0 && by < MAXK && by != i && s->k[by].on) s->k[by].points++;
   event(s, EV_POP, i, by == i ? -1 : by, k->p, (float)k->balloons);
   if (k->balloons == 0) {
@@ -443,5 +444,52 @@ static void battle_kart_after(sim *s, int i) {
   if (k->respawn_ticks <= 0 && (lost || k->stuck_ticks > 120 || k->stall_ticks > (k->human ? 300 : 170) || k->reset_hold > 55)) {
     if (lost) event(s, EV_FALL, i, 0, k->p, 0);
     battle_respawn(s, i);
+  }
+}
+
+/* battle handling (kart_control calls it, battle only; a race never sees it): an arena is all tight turns and restarts,
+ * so a kart under 17 m/s gets more drive (fading to none by then) and, under 12 m/s, the yaw the stick asks for even at
+ * walking pace, where the tyres alone give almost none. Forward or in reverse (the stick turns the nose the same way). */
+static void battle_handling(sim *s, int i, float thr, float steer, bool grounded) {
+  kart *k = &s->k[i];
+  if (!grounded || k->spin_ticks > 0 || k->out || s->phase != PH_RACE) return;
+  float spd = k->speed, m = VEH[k->veh].mass;
+  t3_vec3 f = kart_fwd(k), up = kart_up(k);
+  float low = 1.0f - clampf(absf(spd) / 17.0f, 0, 1);
+  if (thr > 0.05f && spd > -0.5f) cw_body3d_apply_force(PH.body[i], v3mul(f, thr * 14.0f * low * m), NULL);
+  else if (thr < -0.05f && spd < 0.5f) cw_body3d_apply_force(PH.body[i], v3mul(f, thr * 5.0f * low * m), NULL);
+  float crawl = 1.0f - clampf(absf(spd) / 12.0f, 0, 1);
+  if (crawl > 0 && absf(steer) > 0.05f && absf(thr) > 0.05f) {
+    t3_vec3 w = cw_body3d_angular_velocity(PH.body[i]);
+    float wy = v3dot(w, up), want = -steer * 2.4f * crawl;
+    float nw = wy + (want - wy) * 0.2f * crawl;
+    cw_body3d_set_angular_velocity(PH.body[i], v3add(w, v3mul(up, nw - wy)));
+  }
+}
+
+/* two karts crawling pressed together for a while (a scrum after a hit): a little shove apart, so neither has to back out */
+static void battle_unscrum(sim *s) {
+  if (s->phase != PH_RACE) return;
+  for (int i = 0; i < MAXK; i++) {
+    kart *k = &s->k[i];
+    if (!k->on || k->out) continue;
+    bool pressed = false;
+    for (int j = 0; j < MAXK && !pressed; j++) {
+      const kart *o = &s->k[j];
+      if (j == i || !o->on || o->out) continue;
+      float dx = o->p.x - k->p.x, dz = o->p.z - k->p.z;
+      pressed = dx * dx + dz * dz < 3.0f * 3.0f && absf(k->speed) < 3 && absf(o->speed) < 3;
+    }
+    k->scrum_ticks = pressed ? k->scrum_ticks + 1 : 0;
+    if (k->scrum_ticks < 24) continue;
+    k->scrum_ticks = 0;
+    for (int j = 0; j < MAXK; j++) {
+      const kart *o = &s->k[j];
+      if (j == i || !o->on || o->out) continue;
+      t3_vec3 d = { k->p.x - o->p.x, 0, k->p.z - o->p.z };
+      float l = v3len(d);
+      if (l > 3.0f || l < 1e-3f) continue;
+      cw_body3d_apply_impulse(PH.body[i], v3mul(d, 2.2f * VEH[k->veh].mass / l), NULL);
+    }
   }
 }

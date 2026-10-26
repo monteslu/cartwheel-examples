@@ -1038,6 +1038,7 @@ static void kart_control(sim *s, int i, kin in) {
   if (k->boost_ticks > 0) k->boost_ticks--;
   if (k->shield_ticks > 0) k->shield_ticks--;
   if (k->respawn_ticks > 0) k->respawn_ticks--;
+  if (s->battle) battle_handling(s, i, thr, steer, grounded); /* battle only: a quicker getaway from a crawl */
   k->last_btn = in.btn;
   cw_vehicle3d_update(car, DT);
 }
@@ -1326,6 +1327,7 @@ void sim_step(sim *s, const kin in_raw[MAXK]) {
     }
   }
   contacts(s);
+  if (s->battle) battle_unscrum(s);
   boxes_step(s);
   hazards_step(s);
   if (s->battle) battle_rank(s);

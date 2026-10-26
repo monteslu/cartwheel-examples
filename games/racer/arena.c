@@ -13,6 +13,8 @@ static const piece ARENA_PIECES[] = {
 };
 const track_spec ARENA_TRACK = { .name = "arena", .pieces = ARENA_PIECES, .npieces = sizeof ARENA_PIECES / sizeof ARENA_PIECES[0], .hw0 = 95, .circuit = false };
 
+#define RAMP_SKIRT 0.7f /* how far a ramp's sides flare out at its high end, per metre of height */
+
 static arena_rt CUR;
 static bool CUR_ON;
 const arena_rt *arena_current(void) { return CUR_ON ? &CUR : NULL; }
@@ -105,9 +107,10 @@ void arena_phys_build(const arena_rt *rt, cw_body3d b, int track_layer, int wall
       cw_xform3 x = { { p->x, p->y + p->h * 0.5f, p->z }, yaw_q(rt->sn[i], rt->cs[i]) };
       cw_shape3d_box(b, &sd, (t3_vec3){ p->w * 0.5f, p->h * 0.5f, p->d * 0.5f }, x);
     } else if (p->kind == AP_RAMP) {
-      float hx = p->w * 0.5f, hz = p->d * 0.5f;
-      t3_vec3 pts[6] = { to_world(rt, i, -hx, 0, -hz), to_world(rt, i, hx, 0, -hz), to_world(rt, i, -hx, 0, hz),
-                         to_world(rt, i, hx, 0, hz),   to_world(rt, i, -hx, p->h, hz), to_world(rt, i, hx, p->h, hz) };
+      /* the sides flare out at the foot (RAMP_SKIRT): a kart running along the edge slides off it instead of hanging on it */
+      float hx = p->w * 0.5f, hz = p->d * 0.5f, e = RAMP_SKIRT * p->h;
+      t3_vec3 pts[6] = { to_world(rt, i, -hx, 0, -hz), to_world(rt, i, hx, 0, -hz), to_world(rt, i, -hx - e, 0, hz),
+                         to_world(rt, i, hx + e, 0, hz), to_world(rt, i, -hx, p->h, hz), to_world(rt, i, hx, p->h, hz) };
       cw_shape3d_hull(b, &sd, pts, 6);
     } else {
       t3_vec3 pts[24];
@@ -127,7 +130,11 @@ void arena_phys_build(const arena_rt *rt, cw_body3d b, int track_layer, int wall
 
 static pcol prim_col(const arena_prim *p, const arena_look *L, float k) {
   pcol c = p->col ? hex(p->col) : rgb(L->tint[0], L->tint[1], L->tint[2]);
-  return pc_mul(c, k * (L->gain > 0 ? L->gain : 1.0f));
+  c = pc_mul(c, k * (L->gain > 0 ? L->gain : 1.0f));
+  /* a floor is the biggest thing on screen: it never goes brighter than this, or a pale one (salt) glares in every view */
+  float peak = fmaxf(c.r, fmaxf(c.g, c.b));
+  if (p->look == AL_FLOOR && peak > 1.45f) c = pc_mul(c, 1.45f / peak);
+  return c;
 }
 
 static void draw_prim(pm *b, const arena_prim *p, const arena_look *L, int i) {
@@ -138,7 +145,18 @@ static void draw_prim(pm *b, const arena_prim *p, const arena_look *L, int i) {
   pcol lo = prim_col(p, L, 0.62f), hi = prim_col(p, L, 1.0f);
   if (p->look == AL_FLOOR) lo = hi;
   if (p->kind == AP_BOX) pm_box(b, p->w, p->h, p->d, lo, hi);
-  else if (p->kind == AP_RAMP) pm_wedge(b, p->w, p->h, p->d, prim_col(p, L, 0.8f), hi);
+  else if (p->kind == AP_RAMP) {
+    pm_wedge(b, p->w, p->h, p->d, prim_col(p, L, 0.8f), hi);
+    /* the flared sides (both windings: a thin skirt seen from either side) */
+    float hx = p->w * 0.5f, hz = p->d * 0.5f, e = RAMP_SKIRT * p->h;
+    pcol sc = prim_col(p, L, 0.7f);
+    for (int sd = -1; sd <= 1; sd += 2) {
+      float x0 = (float)sd * hx, x1 = (float)sd * (hx + e);
+      t3_vec3 a = { x0, 0, -hz }, c = { x1, 0, hz }, t = { x0, p->h, hz }, f = { x0, 0, hz };
+      pm_tri(b, a, c, t, sc), pm_tri(b, a, t, c, sc);
+      pm_tri(b, c, f, t, sc), pm_tri(b, c, t, f, sc);
+    }
+  }
   else pm_cyl(b, p->w * 0.5f, p->w * 0.5f, p->h, p->w > 6 ? 20 : 12, lo, hi);
   (void)i;
   pm_pop(b);

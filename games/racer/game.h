@@ -162,6 +162,7 @@ typedef struct kart {
   bool out, parked;     /* out: no balloons left; parked: its last spin over, moved off the arena (no longer drawn) */
   int out_tick;
   int ram_cool;         /* ticks before a turbo ram can pop this kart again */
+  int scrum_ticks;      /* battle: ticks it has been crawling pressed against another kart (sim_battle.inc pulls them apart) */
 } kart;
 
 /* ── the race ───────────────────────────────────────────────────────── */

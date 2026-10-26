@@ -74,6 +74,9 @@ static int pick_target(const sim *s, int me, ai_mem *m) {
     float score = d + a * 20.0f;
     if (j == m->b_target) score -= 12; /* keep after the one it is chasing */
     if (o->balloons == 1) score -= 6;   /* one more pop finishes it */
+    /* one in a scrum is a poor mark: the pile-up stops everyone who joins it */
+    for (int q = 0; q < MAXK; q++)
+      if (q != j && q != me && s->k[q].on && !s->k[q].out && flat_dist(s->k[q].p, o->p) < 5.0f) score += 12;
     if (score < bs) bs = score, best = j;
   }
   return best;
@@ -224,12 +227,12 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
   in.steer = (int8_t)(clampf(m->steer_smooth, -1, 1) * 127);
   in.thr = 127;
   /* a hard turn at speed: lift; the skilled drift through it (a drift boost is a ram waiting to happen) */
-  if (fabsf(best_a) > 1.3f && spd > 22) in.thr = 0;
+  if (fabsf(best_a) > 1.3f && spd > 22) in.thr = 0, in.btn |= KB_DRIFT; /* lift and slide it round */
   if (m->skill >= 1 && fabsf(best_a) > 0.45f && fabsf(best_a) < 1.3f && spd > 17 && fc > 0.6f) in.btn |= KB_DRIFT;
   /* close to a box but off to the side: slow right down so it turns tight instead of circling it */
   if (m->b_box >= 0 && m->b_roam == 0 && dist < 7 && fabsf(ang) > 1.2f && spd > 14) in.thr = 0;
   /* the way it is going ends sooner than it can turn: brake */
-  if (clear[best_c] * look < spd * 0.35f && spd > 12) in.thr = -127, in.btn &= ~KB_DRIFT;
+  if (clear[best_c] * look < spd * 0.3f && spd > 14) in.thr = -127, in.btn &= ~KB_DRIFT;
   /* stuck (pinned on something, or nose into a wall with nowhere to turn): a short committed back-out, the nose swinging to
    * the open side (the steering turns the nose the same way in reverse), then a moment driving on before it may again */
   /* stuck: it has not got 1.2 m from where it last was for most of a second (pinned, or rocking on an edge) */
@@ -239,7 +242,7 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
   if (m->lane_ticks > 0) m->lane_ticks--;
   /* nose to a wall: if there is room to the side it means to turn to, it turns there going forward; only boxed in does it back out */
   float side_m = (best_a > 0 ? fminf(clear[6], clear[7]) : fminf(clear[1], clear[2])) * look;
-  bool walled = spd < 4 && fabsf(best_a) > 0.5f && (ahead_m < 1.4f || (ahead_m < 2.4f && side_m < 3.5f));
+  bool walled = spd < 4 && fabsf(best_a) > 0.5f && ahead_m < 1.6f && side_m < 2.5f; /* the crawl turn-in (battle handling) swings it round in place otherwise */
   /* another kart nose to nose with it, both crawling: one of them has to give way */
   for (int j = 0; j < MAXK && !walled; j++) {
     const kart *o = &s->k[j];
