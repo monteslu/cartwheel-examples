@@ -531,7 +531,8 @@ static void tick_arena(float W, float H) {
   {
     int hx = (cw_action_pressed(0, U.m_right) ? 1 : 0) - (cw_action_pressed(0, U.m_left) ? 1 : 0);
     int hy = (cw_action_pressed(0, U.m_down) ? 1 : 0) - (cw_action_pressed(0, U.m_up) ? 1 : 0);
-    nav_step(&U.nav, hx, hy, &dx, &dy);
+    static navstate nav1; /* player one's own repeat (U.nav is stepped for everyone in scr_tick) */
+    nav_step(&nav1, hx, hy, &dx, &dy);
   }
   bool ok = cw_action_just_pressed(0, U.m_ok) && U.mt > 12;
   bool back = cw_action_just_pressed(0, U.a_back) && U.mt > 8;
@@ -643,7 +644,7 @@ static void battle_results_build(void) {
   }
   goto_mode(M_RESULTS);
   U.res_ticks = 0;
-  U.sel = 0;
+  U.sel = 1; /* NEXT ARENA */
   game_set_camera(2);
 }
 

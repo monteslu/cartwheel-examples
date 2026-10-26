@@ -59,6 +59,9 @@ void kartgfx_build(cw_node parent, const sim *s) {
     if (!k->on) continue;
     rig_build(&K.rig[i], k->veh, k->colour, i + 1);
     K.node[i] = hang(parent, "Kart", K.rig[i].root);
+    /* drawn between the last two ticks, as the cameras are: a kart stepped at the tick rate under a smooth camera
+     * twitched forward and back on a screen whose frames do not line up with the ticks */
+    cw_node_set(K.node[i], "interpolate", cw_val_bool(true));
     t3_release(K.rig[i].root);
     cw_node3d_set_position(K.node[i], k->p);
     cw_node3d_set_quaternion(K.node[i], k->q);
@@ -88,9 +91,13 @@ void kartgfx_tick(const sim *s) {
     const kart *k = &s->k[i];
     if (!k->on || !cw_node_valid(K.node[i])) continue;
     cw_node n = K.node[i];
+    t3_vec3 was = cw_node3d_position(n);
     cw_node3d_snapshot(n);
     cw_node3d_set_position(n, k->p);
     cw_node3d_set_quaternion(n, k->q);
+    /* put back on the road: no blend across the jump */
+    t3_vec3 jd = v3sub(k->p, was);
+    if (v3dot(jd, jd) > 6.0f * 6.0f) cw_node3d_snapshot(n);
     kstate *st = &K.st[i];
     memcpy(st->prev, st->cur, sizeof st->cur);
     t3_vec3 up = kart_up(k), fw = kart_fwd(k);
@@ -279,6 +286,10 @@ void kartgfx_frame(const sim *s, float alpha) {
     t3_vec3 wp[4];
     for (int w = 0; w < 4; w++) {
       cw_xform3 lw = cw_vehicle3d_wheel_local(car, w, alpha);
+      /* the tyre never climbs into its arch: a hard landing squeezes the springs up to 0.4 m, the arch has room for
+       * about the first 0.16 of it, so the drawn wheel stops there (the physics keeps the whole travel) */
+      float cex = car->wheel[w].compression - 0.16f;
+      if (cex > 0) lw.p.y -= cex;
       t3_object_set_position(r->wheel[w], lw.p.x, lw.p.y, lw.p.z);
       t3_object_set_quaternion(r->wheel[w], lw.q);
       wp[w] = lw.p;

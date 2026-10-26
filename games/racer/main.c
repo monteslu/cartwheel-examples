@@ -9,7 +9,7 @@
  *   RACER_CAM=top        a fixed look from above the track (the map's overview)
  *   RACER_VIEW=n         the camera follows kart n (an all-CPU run follows the leader otherwise)
  *   RACER_TRACE=file     log every half second what each kart is doing
- *   RACER_TEST_STEER=x   kart 0 holds steering x at full throttle (a handling test)
+ *   RACER_TEST_STEER=x   kart 0 holds steering x at full throttle (a handling test) from race tick 200 (RACER_TEST_STEER_FROM=n)
  *   RACER_BOT=1|keys     the human karts are driven by the CPU driver (see human_in); the debug command `bot 0|1|2` does the same
  *                        for hosts without an environment (2: keyboard-style steering)
  *   RACER_MODE=trial     with RACER_MAP: a time trial (one kart, no items, the map's ghost); RACER_RUNS=n has the bot drive n
@@ -60,7 +60,8 @@
 typedef struct rig {
   cw_node cam;
   t3_vec3 eye, eye_v, look, look_v, up, fwd, cam_eye, cam_at;
-  bool live, snap;
+  t3_vec3 erel, lrel; /* the chase camera: eye and look point relative to the kart (springs in eye_v, look_v) */
+  bool live, snap, chase;
   float base_fov, fov_k;
 } rig;
 
@@ -366,7 +367,7 @@ static kin human_in(int kart) {
       if (G.bot == 2) {
         /* RACER_BOT=keys: a keyboard driver, steering all or nothing through the same easing as a held key */
         float want = fabsf(b.steer) < 20 ? 0.0f : (b.steer > 0 ? 1.0f : -1.0f), *ss = &steer_smooth[G.human_of[kart]];
-        *ss += (want - *ss) * (fabsf(want) > fabsf(*ss) ? 0.28f : 0.40f);
+        *ss += (want - *ss) * (fabsf(want) > fabsf(*ss) ? 0.13f : 0.24f);
         b.steer = q127(*ss);
         b.btn &= ~KB_DRIFT;
       }
@@ -382,9 +383,11 @@ static kin human_in(int kart) {
     if (S->phase == PH_RACE) in.thr = br > 0.05f ? q127(-br) : 127;
     else if (S->phase == PH_COUNT && S->phase_ticks >= 166 && br < 0.05f) in.thr = 127;
   }
-  /* a key is all or nothing: ease it in and out so a tap is a nudge and a hold a full lock */
+  /* a key is all or nothing: ease it in and out so a tap is a nudge and a hold a full lock (about a fifth of a second
+   * to full lock); a stick gets a softer centre, so small corrections stay small */
   float raw = cw_input_axis(p, G.a_left, G.a_right), *ss = &steer_smooth[G.human_of[kart]];
-  *ss += (raw - *ss) * (fabsf(raw) > fabsf(*ss) ? 0.28f : 0.40f);
+  raw = raw * (0.45f + 0.55f * fabsf(raw));
+  *ss += (raw - *ss) * (fabsf(raw) > fabsf(*ss) ? 0.13f : 0.24f);
   in.steer = q127(*ss);
   in.pitch = q127(cw_action_strength(p, G.a_pup) - cw_action_strength(p, G.a_pdn));
   if (cw_action_pressed(p, G.a_drift)) in.btn |= KB_DRIFT;
@@ -412,6 +415,8 @@ static void rig_tick(int v) {
   int me = game_view_kart(v);
   const kart *k = &s->k[me];
   t3_vec3 e, at, upv = { 0, 1, 0 };
+  bool was_chase = r->chase;
+  r->chase = false;
   static int dev_top = -1;
   if (dev_top < 0) dev_top = getenv("RACER_CAM") && !strcmp(getenv("RACER_CAM"), "top");
   static int dev_eye = -1;
@@ -487,18 +492,22 @@ static void rig_tick(int v) {
     r->fwd = v3norm(v3add(v3mul(r->fwd, 1 - 0.09f), v3mul(want_f, 0.09f)));
     t3_vec3 fh = v3norm(v3sub(r->fwd, v3mul(r->up, v3dot(r->fwd, r->up))));
     float split = G.nviews > 1 ? 0.88f : 1.0f;
-    float dist = (6.6f + spd * 0.045f) * split, high = (2.5f + spd * 0.01f) * split;
+    float dist = (4.9f + spd * 0.03f) * split, high = (2.0f + spd * 0.008f) * split;
     if (back) fh = v3mul(fh, -1);
-    t3_vec3 eye = v3add(v3sub(k->p, v3mul(fh, dist)), v3mul(r->up, high));
-    t3_vec3 look = v3add(v3add(k->p, v3mul(fh, 6.0f)), v3mul(r->up, 1.0f));
-    if (!r->live) {
-      r->eye = eye, r->look = look;
+    /* the springs run on the eye and look point relative to the kart: a world-space spring trails a moving target by
+     * 2v/w (ten metres at 30 m/s), so only the swing round corners and over crests lags, never the distance */
+    t3_vec3 erel = v3add(v3mul(fh, -dist), v3mul(r->up, high));
+    t3_vec3 lrel = v3add(v3mul(fh, 5.0f), v3mul(r->up, 0.9f));
+    if (!r->live || !was_chase) {
+      r->erel = erel, r->lrel = lrel;
       r->eye_v = r->look_v = (t3_vec3){ 0, 0, 0 };
       r->live = true;
     }
-    if (back) r->eye = eye, r->look = look;
-    spring3(&r->eye, &r->eye_v, eye, spd > 50 ? 7.5f : 6.0f);
-    spring3(&r->look, &r->look_v, look, 9.0f);
+    r->chase = true;
+    if (back) r->erel = erel, r->lrel = lrel;
+    spring3(&r->erel, &r->eye_v, erel, 6.0f);
+    spring3(&r->lrel, &r->look_v, lrel, 9.0f);
+    r->eye = v3add(k->p, r->erel), r->look = v3add(k->p, r->lrel);
     e = r->eye, at = r->look;
     upv = r->up;
     /* the field of view opens with speed and a boost: the world rushes */
@@ -663,7 +672,9 @@ static void fixed(void *u, double dt) {
       else in[i] = cpu_think(i);
       static float test_steer = 9;
       if (test_steer == 9) test_steer = getenv("RACER_TEST_STEER") ? (float)atof(getenv("RACER_TEST_STEER")) : 0;
-      if (i == 0 && test_steer != 0 && G.S.phase == PH_RACE && G.S.race_ticks > 200) in[i] = (kin){ .thr = 127, .steer = q127(test_steer) };
+      static int steer_from = -1;
+      if (steer_from < 0) steer_from = getenv("RACER_TEST_STEER_FROM") ? atoi(getenv("RACER_TEST_STEER_FROM")) : 200;
+      if (i == 0 && test_steer != 0 && G.S.phase == PH_RACE && G.S.race_ticks > steer_from) in[i] = (kin){ .thr = 127, .steer = q127(test_steer) };
     }
     {
       /* dev aid: RACER_USE=kart:item:tick makes that kart use that item (IT_*) at that race tick */
@@ -704,6 +715,7 @@ static void fixed(void *u, double dt) {
     fx_tick(&G.S);
     audio_events(&G.S);
     rumble_events(&G.S);
+    stats_events(&G.S);
     rumble_tick(&G.S);
     t3_vec3 eyes[CW_MAX_VIEWS];
     for (int v = 0; v < G.nviews; v++) eyes[v] = cw_node_valid(G.rig[v].cam) ? cw_node3d_global_position(G.rig[v].cam) : G.rig[v].cam_eye;

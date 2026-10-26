@@ -119,6 +119,7 @@ typedef struct kart {
   int place;            /* 1 = leading */
   bool finished;
   int finish_tick;
+  int land_grace;       /* ticks of firmer stability after a landing (sim.c) */
   float best_lap;       /* seconds */
   int lap_start_tick;
   float last_safe_s;    /* a place to put it back after a fall */

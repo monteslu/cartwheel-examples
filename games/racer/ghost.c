@@ -254,6 +254,7 @@ void ghost_gfx_build(cw_node parent) {
   }
   ghostify(Z.rig.root);
   Z.node = hang(parent, "Ghost", Z.rig.root);
+  cw_node_set(Z.node, "interpolate", cw_val_bool(true));
   t3_release(Z.rig.root);
   Z.built = true;
   Z.shown = true;

@@ -314,19 +314,17 @@ static void hud_place(const hv *g) {
   float pop = h->place_t > 0 ? 1 + 0.55f * (1 - ease_back((float)h->place_t / 22.0f)) : 1;
   float flash = h->place_t > 0 ? clamp01(1 - (float)h->place_t / 50.0f) : 0;
   cw_color base = p >= 1 && p <= 3 ? PLACE_COL[p - 1] : CREAM;
-  cw_rect r = cw_rect_make(x, y, 150 * s, 96 * s);
-  cw_color fill = PANEL;
-  if (flash > 0) fill = mix(PANEL, h->place_dir > 0 ? rgba(0.15f, 0.5f, 0.2f, 0.9f) : rgba(0.6f, 0.15f, 0.12f, 0.9f), flash * 0.8f);
-  slab(r, 14 * s, fill, s);
+  /* no panel: the number stands on the scene in an outline, and a place won or lost tints it for a moment */
+  if (flash > 0) base = mix(base, h->place_dir > 0 ? LIME : RED, flash * 0.7f);
   char b[16];
   snprintf(b, sizeof b, "%d", p);
   float nsz = 78 * s * pop;
-  float nx = x + 22 * s;
-  tx_o(U.f_title, b, nx, y + 50 * s, nsz, base, (txopt){ .align = CW_ALIGN_LEFT, .outline = nsz * 0.06f });
+  float nx = x + 10 * s;
+  tx_o(U.f_title, b, nx, y + 50 * s, nsz, base, (txopt){ .align = CW_ALIGN_LEFT, .outline = nsz * 0.07f });
   float nw = tx_width(U.f_title, b, nsz);
-  tx(U.f_title, place_suffix(p), nx + nw + 3 * s, y + 30 * s, 30 * s, base, CW_ALIGN_LEFT);
+  tx_o(U.f_title, place_suffix(p), nx + nw + 3 * s, y + 30 * s, 30 * s, base, (txopt){ .align = CW_ALIGN_LEFT, .outline = 2.5f * s });
   snprintf(b, sizeof b, "/%d", g->S->nkarts);
-  tx(U.f_small, b, x + 142 * s, y + 80 * s, hpx(20, s, 12), DIM, CW_ALIGN_RIGHT);
+  tx_o(U.f_small, b, nx + nw + 4 * s, y + 70 * s, hpx(20, s, 12), CREAM, (txopt){ .align = CW_ALIGN_LEFT, .outline = 2 * s });
   /* the way it went: a little arrow for a moment */
   if (h->place_t > 0 && h->place_t < 70) {
     float a = clamp01(1 - (float)h->place_t / 70.0f);
@@ -338,20 +336,19 @@ static void hud_place(const hv *g) {
 static void hud_lap(const hv *g) {
   float s = g->s, w = 190 * s, x = g->x + g->w - w - 14 * s, y = g->y + 12 * s;
   const kart *k = g->k;
-  slab(cw_rect_make(x, y, w, 62 * s), 12 * s, PANEL, s);
   char b[48];
   int lap = k->lap < 1 ? 1 : k->lap;
   if (k->finished) lap = g->S->laps;
-  tx(U.f_small, "LAP", x + 26 * s, y + 21 * s, hpx(20, s, 12), DIM, CW_ALIGN_LEFT);
   snprintf(b, sizeof b, "%d/%d", lap, g->S->laps);
-  tx(U.f_title, b, x + w - 22 * s, y + 31 * s, 38 * s, lap == g->S->laps ? RUST : CREAM, CW_ALIGN_RIGHT);
+  float lw = tx_width(U.f_title, b, 38 * s);
+  tx_o(U.f_small, "LAP", x + w - 4 * s - lw - 8 * s, y + 27 * s, hpx(20, s, 12), CREAM, (txopt){ .align = CW_ALIGN_RIGHT, .outline = 2 * s });
+  tx_o(U.f_title, b, x + w - 4 * s, y + 31 * s, 38 * s, lap == g->S->laps ? RUST : CREAM, (txopt){ .align = CW_ALIGN_RIGHT, .outline = 2.6f * s });
   if (g->compact) return;
   /* the clock */
-  cw_rect r2 = cw_rect_make(x, y + 68 * s, w, g->medium ? 36 * s : 62 * s);
-  slab(r2, 12 * s, PANEL, s);
+  cw_rect r2 = cw_rect_make(x, y + 52 * s, w, g->medium ? 36 * s : 62 * s);
   float secs = k->finished ? (float)k->finish_tick / TICK_HZ : (float)g->S->race_ticks / TICK_HZ;
   fmt_time(b, sizeof b, fmaxf(secs, 0.001f));
-  tx(U.f_title, b, x + w * 0.5f + 4 * s, r2.y + 19 * s, 24 * s, CREAM, CW_ALIGN_CENTER);
+  tx_o(U.f_title, b, x + w - 4 * s, r2.y + 19 * s, 24 * s, CREAM, (txopt){ .align = CW_ALIGN_RIGHT, .outline = 2.2f * s });
   if (g->medium) return;
   const hudv *h = g->hs;
   if (h->last_lap > 0 && h->last_lap_t > 0) {
@@ -359,12 +356,12 @@ static void hud_lap(const hv *g) {
     char l[64];
     snprintf(l, sizeof l, "LAST %s", b);
     float a = h->last_lap_t > 360 ? clamp01((420.0f - (float)h->last_lap_t) / 60.0f) : 1;
-    tx(U.f_small, l, x + w * 0.5f + 4 * s, r2.y + 46 * s, 20 * s, alpha(h->last_lap_best ? LIME : CREAM, a), CW_ALIGN_CENTER);
+    tx_o(U.f_small, l, x + w - 4 * s, r2.y + 44 * s, 20 * s, alpha(h->last_lap_best ? LIME : CREAM, a), (txopt){ .align = CW_ALIGN_RIGHT, .outline = 2 * s });
   } else if (k->best_lap > 0) {
     fmt_time(b, sizeof b, k->best_lap);
     char l[64];
     snprintf(l, sizeof l, "BEST %s", b);
-    tx(U.f_small, l, x + w * 0.5f + 4 * s, r2.y + 46 * s, 20 * s, DIM, CW_ALIGN_CENTER);
+    tx_o(U.f_small, l, x + w - 4 * s, r2.y + 44 * s, 20 * s, CREAM, (txopt){ .align = CW_ALIGN_RIGHT, .outline = 2 * s });
   }
 }
 
@@ -378,8 +375,9 @@ static void hud_item(const hv *g) {
   float pop = h->item_t > 0 ? 1 + 0.4f * (1 - ease_back((float)h->item_t / 14.0f)) : 1;
   float wob = roll ? 0.04f * cw_sin(g->S->tick * 0.9f) : 0;
   cw_rect r = cw_rect_make(cx - sz * 0.5f * pop, y - (pop - 1) * sz * 0.2f, sz * pop, sz * pop);
-  cw_color fill = has ? mix(PANEL, rgba(0.35f, 0.22f, 0.05f, 0.95f), 0.5f) : PANEL;
-  rslab(r, 14 * s, fill, s);
+  /* a see-through slot: the road shows through it */
+  cw_color fill = has ? rgba(0.2f, 0.13f, 0.04f, 0.45f) : rgba(0.06f, 0.05f, 0.06f, 0.28f);
+  cw_r2d_round_rect(r, 14 * s, 6, fill);
   cw_color edge = has ? MUSTARD : roll ? TEAL : rgba(0.5f, 0.45f, 0.4f, 1);
   cw_r2d_round_rect_lines(cw_rect_make(r.x + 3 * s, r.y + 3 * s, r.w - 6 * s, r.h - 6 * s), 11 * s, 3 * s, 6, edge);
   cw_vec2 c = cw_v2(r.x + r.w * 0.5f, r.y + r.h * 0.5f + wob * sz);
@@ -404,7 +402,7 @@ static void hud_item(const hv *g) {
 }
 
 static void hud_speed(const hv *g) {
-  float s = g->s * (g->compact ? 0.95f : 1);
+  float s = g->s * (g->compact ? 0.95f : 1) * 0.78f;
   float R = (U.touch_on ? 60 : 78) * s;
   float cx = g->x + g->w - 22 * g->s - R, cy = g->y + g->h - 24 * g->s - R;
   if (U.touch_on) cx = g->x + g->w * 0.5f; /* the thumbs own both bottom corners */
@@ -413,15 +411,15 @@ static void hud_speed(const hv *g) {
   float frac = clamp01(h->speed_s / 62.0f);
   float a0 = 2.356f, sweep = 4.712f; /* 135 degrees clockwise from the right, over 270 */
   float glow = h->boost_glow;
-  cw_r2d_circle(cw_v2(cx, cy), R + 6 * s, 40, rgba(0.05f, 0.03f, 0.04f, 0.72f));
-  cw_r2d_circle_lines(cw_v2(cx, cy), R + 6 * s, 3 * s, 40, INK);
+  cw_r2d_circle(cw_v2(cx, cy), R + 6 * s, 40, rgba(0.05f, 0.03f, 0.04f, 0.32f));
+  cw_r2d_circle_lines(cw_v2(cx, cy), R + 6 * s, 3 * s, 40, alpha(INK, 0.5f));
   if (glow > 0.01f) {
     cw_r2d_set_blend(CW_BLEND_ADD);
     float pulse = 0.65f + 0.35f * cw_sin(g->S->tick * 0.7f);
     cw_r2d_arc(cw_v2(cx, cy), R + 4 * s, R + 18 * s * (0.6f + glow * 0.7f), a0 - 0.1f, a0 + sweep + 0.1f, 40, rgba(1.0f, 0.5f, 0.1f, 0.35f * glow * pulse));
     cw_r2d_set_blend(CW_BLEND_ALPHA);
   }
-  cw_r2d_arc(cw_v2(cx, cy), R - 18 * s, R, a0, a0 + sweep, 40, rgba(0.22f, 0.2f, 0.22f, 0.95f));
+  cw_r2d_arc(cw_v2(cx, cy), R - 18 * s, R, a0, a0 + sweep, 40, rgba(0.22f, 0.2f, 0.22f, 0.5f));
   int segs = 36;
   int fill = (int)(frac * (float)segs + 0.5f);
   for (int i = 0; i < fill; i++) {
@@ -479,7 +477,7 @@ static void hud_minimap(const hv *g, cw_rect r) {
   const sim *S = g->S;
   const mmap_t *m = mm_race(S);
   float s = g->s;
-  rslab(r, 10 * s, rgba(0.07f, 0.06f, 0.08f, 0.8f), s);
+  cw_r2d_round_rect(r, 10 * s, 6, rgba(0.07f, 0.06f, 0.08f, 0.3f));
   if (!m) return;
   float pad = 12 * s;
   mm_draw(m, r, pad, s, 3.2f * s + 0.6f, !g->compact);
@@ -781,15 +779,13 @@ static void hud_view(int v, float W, float H, int nviews) {
     float ms = 128 * g.s;
     hud_minimap(&g, cw_rect_make(g.x + 14 * g.s, g.y + 116 * g.s, ms, ms));
   } else if (!g.compact && !g.shared_map) {
-    float ms = (g.medium ? 130 : 176) * g.s;
+    float ms = (g.medium ? 104 : 136) * g.s;
     hud_minimap(&g, cw_rect_make(g.x + 14 * g.s, g.y + g.h - ms - 14 * g.s, ms, ms));
   } else if (g.compact && !g.shared_map) {
-    float ms = 118 * g.s * 1.1f;
+    float ms = 100 * g.s * 1.1f;
     hud_minimap(&g, cw_rect_make(g.x + 12 * g.s, g.y + g.h - ms - 12 * g.s, ms, ms));
   }
-  if (U.touch_on || trial) {
-  } else if (!g.medium) hud_standings(&g, g.x + 14 * g.s, g.y + 116 * g.s, 8);
-  else if (!g.compact) hud_standings(&g, g.x + 14 * g.s, g.y + 114 * g.s, 4);
+  /* no standings list during the race: the place says enough, and the results show the order */
   hud_speed(&g);
   hud_drift(&g);
   hud_mapname(&g);

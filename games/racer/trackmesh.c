@@ -392,8 +392,13 @@ void track_phys_build(track_phys *road, track_phys *walls, const track *t, const
   for (int b = -1; b < t->nbranch; b++) {
     track v = b < 0 ? *t : track_branch_view(t, b);
     sweep_phys(&r, &v, TM_ROAD, o);
-    sweep_phys(&w, &v, TM_WALL, o);
-    sweep_phys(&w, &v, TM_WALLTOP, o);
+    /* the walls the karts hit stand taller than the ones drawn: a low barrier struck at a mild angle sends the kart back
+     * onto the road instead of letting it ride up and over */
+    track_mesh_opts wo = *o;
+    for (int c = 1; c < 3; c++)
+      if (wo.wall_h[c] > 0) wo.wall_h[c] += 1.2f;
+    sweep_phys(&w, &v, TM_WALL, &wo);
+    sweep_phys(&w, &v, TM_WALLTOP, &wo);
     sweep_phys(&w, &v, TM_TUNNEL, o);
     sweep_phys(&w, &v, TM_PLATE, o);
   }

@@ -149,7 +149,7 @@ static bool null_voice(cw_voice v) { return CW_HANDLE_IS_NULL(v); }
 
 /* ── the buses ──────────────────────────────────────────────────────── */
 
-static const float BUS_BASE[B_COUNT] = { [B_MUSIC] = 0.55f, [B_TUNNEL] = 1.0f, [B_SFX] = 0.9f, [B_ENG] = 0.42f, [B_AMB] = 0.6f, [B_UI] = 0.85f };
+static const float BUS_BASE[B_COUNT] = { [B_MUSIC] = 0.55f, [B_TUNNEL] = 1.0f, [B_SFX] = 0.9f, [B_ENG] = 0.14f, [B_AMB] = 0.6f, [B_UI] = 0.85f };
 
 static void apply_volumes(void) {
   if (!A.on) return;
@@ -185,6 +185,9 @@ void audio_init(void) {
   for (int i = 0; i < B_COUNT; i++) A.bus[i] = cw_bus_create(NAMES[i], CW_AUDIO_MASTER);
   /* the tunnel's echo: a small hard room (concrete), only wet, fed by sends while a view is in a tunnel */
   cw_bus_add_fx(A.bus[B_TUNNEL], &(cw_fx_desc){ .type = CW_FX_FDN_REVERB, .fdn = { .decay_s = 1.9f, .hf_damp_hz = 4500, .predelay_s = 0.012f, .size = 0.55f, .wet = 1.0f, .dry = 0.0f } });
+  /* the engines: two low-pass stages take the rasp off the top, so they sit under everything as a soft hum */
+  cw_bus_add_fx(A.bus[B_ENG], &(cw_fx_desc){ .type = CW_FX_LOWPASS, .filter = { 1500, 0.6f } });
+  cw_bus_add_fx(A.bus[B_ENG], &(cw_fx_desc){ .type = CW_FX_LOWPASS, .filter = { 1900, 0.6f } });
   /* the master: a gentle squeeze so a busy moment stays readable, then a hard ceiling */
   cw_bus_add_fx(CW_AUDIO_MASTER, &(cw_fx_desc){ .type = CW_FX_COMPRESSOR, .compressor = { .threshold_db = -14, .ratio = 2.5f, .attack_s = 0.01f, .release_s = 0.25f, .makeup_db = 2.0f } });
   cw_bus_add_fx(CW_AUDIO_MASTER, &(cw_fx_desc){ .type = CW_FX_LIMITER, .limiter = { -1.0f, 0.12f } });
@@ -497,9 +500,10 @@ static void engine_params(const sim *s, int i, float *vol, float *pitch) {
   const kstate *e = &A.ks[i];
   int vi = k->veh % NVEH;
   float boost = k->boost_ticks > 0 ? 1.0f : 0.0f;
-  *pitch = ENGP[vi].pitch * (0.5f + 1.2f * e->rpm) * (1.0f + 0.09f * boost);
+  /* a narrow pitch range: a soft hum that rises a little, never a whine at the top */
+  *pitch = ENGP[vi].pitch * (0.62f + 0.72f * e->rpm) * (1.0f + 0.06f * boost);
   if (k->spin_ticks > 0) *pitch *= 0.85f;
-  float v = 0.34f + 0.46f * e->rpm + 0.14f * e->thr;
+  float v = 0.36f + 0.3f * e->rpm + 0.1f * e->thr;
   if (e->shift > 0) v *= 0.82f;
   v *= ENGP[vi].gain * (1.0f + 0.15f * boost);
   if (!k->grounded && k->air_ticks > 6) v *= 0.85f;

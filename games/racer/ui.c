@@ -776,6 +776,7 @@ void ui_init(void) {
   cw_debug_i32("ui.mode", &U.mode);
   cw_debug_i32("ui.device", &U.device); /* 0 mouse, 1 pad, 2 keys, 3 touch */
   cw_debug_i32("ui.pending", &U.pending);
+  cw_debug_i32("ui.sel", &U.sel);
   cw_debug_field("save.version", &SAVE.version, CW_DBG_U16, 1);
   cw_debug_i32("save.migrated", &save_migrated);
   cw_debug_field("save.races", &SAVE.races, CW_DBG_U32, 1);

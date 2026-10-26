@@ -545,6 +545,7 @@ static void results_build(void) {
   if (U.cup.on) cup_results_add();
   goto_mode(M_RESULTS);
   U.res_ticks = 0;
+  U.sel = U.cup.on ? 0 : 1; /* NEXT MAP (a cup's first button is already NEXT RACE) */
   game_set_camera(2);
 }
 
@@ -791,7 +792,8 @@ static void tick_map(float W, float H) {
   {
     int hx = (cw_action_pressed(0, U.m_right) ? 1 : 0) - (cw_action_pressed(0, U.m_left) ? 1 : 0);
     int hy = (cw_action_pressed(0, U.m_down) ? 1 : 0) - (cw_action_pressed(0, U.m_up) ? 1 : 0);
-    nav_step(&U.nav, hx, hy, &dx, &dy);
+    static navstate nav1; /* player one's own repeat (U.nav is stepped for everyone in scr_tick) */
+    nav_step(&nav1, hx, hy, &dx, &dy);
   }
   bool ok = cw_action_just_pressed(0, U.m_ok) && U.mt > 12;
   bool back = cw_action_just_pressed(0, U.a_back) && U.mt > 8;
@@ -867,10 +869,8 @@ static cw_rect opt_slider(cw_rect row, float s) { return cw_rect_make(row.x + ro
 
 static void tick_options(float W, float H) {
   float s = lscale(W, H);
-  int hx = (any_held(U.m_right) ? 1 : 0) - (any_held(U.m_left) ? 1 : 0);
-  int hy = (any_held(U.m_down) ? 1 : 0) - (any_held(U.m_up) ? 1 : 0);
-  int dx, dy;
-  nav_step(&U.nav, hx, hy, &dx, &dy);
+  /* the steps scr_tick took this frame (stepping U.nav again here ate every first press) */
+  int dx = N.dx, dy = N.dy;
   if (dy) U.opt_sel = (U.opt_sel + dy + OI_COUNT) % OI_COUNT, sfx_move();
   if (pointer_mode() && N.moved)
     for (int i = 0; i < OI_COUNT; i++)
@@ -1052,9 +1052,8 @@ static void tick_results(float W, float H) {
     return;
   }
   int nb = res_nbuttons();
-  int hx = (any_held(U.m_right) ? 1 : 0) - (any_held(U.m_left) ? 1 : 0);
-  int dx, dy;
-  nav_step(&U.nav, hx, 0, &dx, &dy);
+  /* the steps scr_tick took this frame (stepping U.nav again here ate every first press) */
+  int dx = N.dx, dy = 0;
   if (U.sel >= nb) U.sel = 0;
   if (dx) U.sel = (U.sel + dx + nb) % nb, sfx_move();
   if (is_portrait(W, H)) {

@@ -78,6 +78,7 @@ void audio_init(void);
 void audio_race_start(const sim *s, const map_def *map);
 void audio_race_stop(void);
 void rumble_events(const sim *s);     /* fixed tick: pad rumble for this tick's sim events (needs the engine's cw_input_rumble; else nothing) */
+void stats_events(const sim *s);      /* fixed tick: dev aid RACER_STATS=1 logs the race's dynamics when it ends (stats.c) */
 void rumble_tick(const sim *s);       /* fixed tick: the rumbles that last (boost, drift, rough road) */
 void rumble_set_enabled(bool on);
 bool rumble_enabled(void);

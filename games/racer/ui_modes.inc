@@ -14,7 +14,7 @@ enum { MEDAL_NONE, MEDAL_BRONZE, MEDAL_SILVER, MEDAL_GOLD, MEDAL_AUTHOR, MEDAL_K
 static const char *const MEDAL_NAME[MEDAL_KINDS] = { "NO MEDAL", "BRONZE", "SILVER", "GOLD", "AUTHOR" };
 
 /* the reference lap of each map from the grid at the standard class, in centiseconds (tools/trial_ref.sh prints these) */
-static const uint32_t TRIAL_REF_CS[NMAPS] = { 7913, 8590, 8717, 8222, 8438, 9168, 8185, 8237 };
+static const uint32_t TRIAL_REF_CS[NMAPS] = { 7830, 8437, 8747, 7868, 7157, 8940, 7905, 7815 };
 /* a medal's time as a share of the reference: you earn the medal by being at least that quick */
 static const int MEDAL_PCT[MEDAL_KINDS] = { 0, 135, 117, 105, 100 };
 
@@ -127,7 +127,7 @@ static void trial_results_build(void) {
   if (tr->record) save_write();
   goto_mode(M_RESULTS);
   U.res_ticks = 0;
-  U.sel = 0;
+  U.sel = 1; /* NEXT MAP; RETRY is a press of ITEM away */
   if (tr->record || tr->new_medal) audio_ui(AUI_GO);
   if (tr->record) audio_announce(ANN_RECORD);
   if (tr->new_medal) audio_announce(ANN_MEDAL_BRONZE + tr->medal - MEDAL_BRONZE);
@@ -135,9 +135,8 @@ static void trial_results_build(void) {
 
 static void tick_trial_results(float W, float H) {
   (void)W, (void)H;
-  int hx = (any_held(U.m_right) ? 1 : 0) - (any_held(U.m_left) ? 1 : 0);
-  int dx, dy;
-  nav_step(&U.nav, hx, 0, &dx, &dy);
+  /* the steps scr_tick took this frame (stepping U.nav again here ate every first press) */
+  int dx = N.dx, dy = 0;
   if (dx) U.sel = (U.sel + dx + 3) % 3, sfx_move();
   if (is_portrait(W, H)) {
     int hy = (any_held(U.m_down) ? 1 : 0) - (any_held(U.m_up) ? 1 : 0);
@@ -726,9 +725,8 @@ static void draw_cup(float W, float H, float s) {
 static int stand_nb(void) { return 2; }
 
 static void tick_standings(float W, float H) {
-  int hx = (any_held(U.m_right) ? 1 : 0) - (any_held(U.m_left) ? 1 : 0);
-  int dx, dy;
-  nav_step(&U.nav, hx, 0, &dx, &dy);
+  /* the steps scr_tick took this frame (stepping U.nav again here ate every first press) */
+  int dx = N.dx, dy = 0;
   int nb = stand_nb();
   if (dx) U.sel = (U.sel + dx + nb) % nb, sfx_move();
   if (is_portrait(W, H)) {
@@ -812,9 +810,8 @@ static void draw_standings(float W, float H, float s) {
 static void tick_cupend(float W, float H) {
   U.res_ticks++;
   if (U.pending != PD_NONE) return;
-  int hx = (any_held(U.m_right) ? 1 : 0) - (any_held(U.m_left) ? 1 : 0);
-  int dx, dy;
-  nav_step(&U.nav, hx, 0, &dx, &dy);
+  /* the steps scr_tick took this frame (stepping U.nav again here ate every first press) */
+  int dx = N.dx, dy = 0;
   if (dx) U.sel = (U.sel + dx + 2) % 2, sfx_move();
   if (is_portrait(W, H)) {
     int hy = (any_held(U.m_down) ? 1 : 0) - (any_held(U.m_up) ? 1 : 0);

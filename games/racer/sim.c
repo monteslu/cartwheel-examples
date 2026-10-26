@@ -821,6 +821,7 @@ static void kart_control(sim *s, int i, kin in) {
         k->tricks++;
       }
     }
+    if (!k->grounded && k->air_ticks > 6) k->land_grace = 24;
     k->air_ticks = 0;
     k->air_peak = 0;
     k->trick_ticks = 0;
@@ -937,8 +938,9 @@ static void kart_control(sim *s, int i, kin in) {
     float d = (float)k->drift_dir;
     eff = d * (0.55f + 0.45f * clampf(steer * d, -1.0f, 1.0f));
   }
-  float rate = (2.35f - 1.15f * clampf(aspd / 40.0f, 0, 1)) * vd->turn * clampf(aspd / 3.0f + 0.15f, 0, 1);
-  if (k->drifting) rate *= 1.18f;
+  /* gentle at speed without a drift, tight in one: the drift is how a sharp corner is taken */
+  float rate = (2.35f - 1.35f * clampf(aspd / 40.0f, 0, 1)) * vd->turn * clampf(aspd / 3.0f + 0.15f, 0, 1);
+  if (k->drifting) rate *= 1.34f;
   float ang = cw_atan2(rate * vd->len * 1.45f, maxf(aspd, 0.8f));
   ang = minf(ang, 0.62f);
   float st = -eff * ang;
@@ -961,6 +963,60 @@ static void kart_control(sim *s, int i, kin in) {
   /* deep sand, mud, loose snow: the speed bleeds away (a boost pushes through it) */
   if ((ts->flags & TF_SLOW) && touching && k->speed > 12 && k->boost_ticks <= 0) cw_body3d_apply_force(b, v3mul(f, -(k->speed - 12) * 0.5f * mass), NULL);
   drive(s, i, thr, st, true);
+  /* a drift carries its speed round the arc: the travel turns toward the nose instead of the loose rear tyres
+   * scrubbing it away (without this a drifting kart lost more than its mini-turbo gave back) */
+  if (k->drifting && touching) {
+    t3_vec3 v = cw_body3d_velocity(b);
+    float vn = v3dot(v, up);
+    t3_vec3 vp = v3sub(v, v3mul(up, vn)), fp = v3sub(f, v3mul(up, v3dot(f, up)));
+    float sp2 = v3len(vp), fl = v3len(fp);
+    if (sp2 > 4 && fl > 0.5f) {
+      t3_vec3 nd = v3norm(v3add(v3mul(vp, 0.92f / sp2), v3mul(fp, 0.08f / fl)));
+      cw_body3d_set_velocity(b, v3add(v3mul(nd, sp2), v3mul(up, vn)));
+    }
+  }
+  /* stability, the arcade kind: out of a drift or a spin the kart never yaws faster than its steering asks, and a
+   * sideways slide bleeds back into travel along the nose, so a bump, a kerb or a crooked landing is a wobble, not a
+   * spin-out. For a moment after a landing it holds harder (land_grace) */
+  if (touching && !k->drifting && k->spin_ticks <= 0 && !(ts->flags & TF_LOOP)) {
+    t3_vec3 v = cw_body3d_velocity(b);
+    float vn = v3dot(v, up);
+    t3_vec3 vp = v3sub(v, v3mul(up, vn)), fp = v3sub(f, v3mul(up, v3dot(f, up)));
+    float sp2 = v3len(vp), fl = v3len(fp);
+    if (sp2 > 3 && fl > 0.5f) {
+      fp = v3mul(fp, 1.0f / fl);
+      float along = v3dot(vp, fp);
+      if (along > 0) {
+        float pull = k->land_grace > 0 ? 0.35f : 0.06f;
+        t3_vec3 lat = v3sub(vp, v3mul(fp, along));
+        t3_vec3 nvp = v3add(v3mul(fp, along + v3len(lat) * pull * 0.7f), v3mul(lat, 1 - pull));
+        cw_body3d_set_velocity(b, v3add(nvp, v3mul(up, vn)));
+      }
+    }
+    float asked = rate * absf(eff), wy = v3dot(k->w, up), cap = k->land_grace > 0 ? asked + 0.1f : asked * 1.2f + rate * 0.2f + 0.2f;
+    if (absf(wy) > cap) {
+      k->w = v3add(k->w, v3mul(up, (wy > 0 ? cap : -cap) - wy));
+      cw_body3d_set_angular_velocity(b, k->w);
+    }
+  }
+  if (k->land_grace > 0) k->land_grace--;
+  /* loops and corkscrews: the road twists under the kart faster than a driver can steer for it, so the nose is held
+   * along the tube and the kart eased toward its middle; the stick still moves it across, gently. Without
+   * this a corkscrew threw karts into its sides and turned them round */
+  if (touching && (ts->flags & TF_LOOP) && k->spin_ticks <= 0 && sp > 2) {
+    t3_vec3 fr = v3sub(m.f, v3mul(up, v3dot(m.f, up))), fk = v3sub(f, v3mul(up, v3dot(f, up)));
+    float frl = v3len(fr), fkl = v3len(fk);
+    if (frl > 0.3f && fkl > 0.3f) {
+      fr = v3mul(fr, 1.0f / frl), fk = v3mul(fk, 1.0f / fkl);
+      float err = cw_atan2(v3dot(v3cross(fk, fr), up), v3dot(fk, fr));
+      float want_w = err * 6.0f - eff * rate * 0.3f, wy = v3dot(k->w, up);
+      k->w = v3add(k->w, v3mul(up, (want_w - wy) * 0.35f));
+      cw_body3d_set_angular_velocity(b, k->w);
+      t3_vec3 v = cw_body3d_velocity(b);
+      float vlat = v3dot(v, m.r), want = clampf(-k->loc.lat * 1.5f, -6.0f, 6.0f) + steer * 2.5f;
+      cw_body3d_set_velocity(b, v3add(v, v3mul(m.r, (want - vlat) * 0.06f)));
+    }
+  }
 
   /* the road's boost strips */
   if ((ts->flags & TF_BOOST) && touching && k->boost_ticks < 50) start_boost(s, i, 70, 1.1f, 0);
@@ -1151,11 +1207,18 @@ static void contacts(sim *s) {
     } else if (a >= 0 || b >= 0) {
       int ki = a >= 0 ? a : b;
       kart *k = &s->k[ki];
-      /* a wall takes some of the speed, kills the spin it would give and never throws the kart back */
+      /* a wall takes some of the speed, kills the spin it would give and bounces the kart a little back onto the road;
+       * the push is across the road only, so a wall never lifts a kart up and over it */
+      t3_vec3 up0 = kart_up(k);
       t3_vec3 n = a >= 0 ? h->normal : v3mul(h->normal, -1); /* kart to wall */
+      n = v3sub(n, v3mul(up0, v3dot(n, up0)));
+      float nl = v3len(n);
+      n = nl > 0.2f ? v3mul(n, 1.0f / nl) : n;
       t3_vec3 v = cw_body3d_velocity(PH.body[ki]);
       float vn = v3dot(v, n);
-      if (vn > 0) v = v3sub(v, v3mul(n, vn));
+      if (vn > 0 && nl > 0.2f) v = v3sub(v, v3mul(n, vn * 1.0f + clampf(vn * 0.35f, 0, 4.0f)));
+      float vu = v3dot(v, up0);
+      if (vu > 1.0f) v = v3sub(v, v3mul(up0, vu - 1.0f));
       v = v3mul(v, h->speed > 8 ? 0.93f : 0.99f);
       cw_body3d_set_velocity(PH.body[ki], v);
       t3_vec3 w = cw_body3d_angular_velocity(PH.body[ki]);
@@ -1293,6 +1356,12 @@ void sim_step(sim *s, const kin in_raw[MAXK]) {
         k->v = v3mul(k->v, gcap / sp);
         cw_body3d_set_velocity(PH.body[i], k->v);
       }
+      /* and the flight bends gently toward the middle of the landing: a crooked take-off or a bump at the lip lands
+       * on the far side, not in the gorge beside it */
+      tsample gm = track_at_loc(s->track, &k->loc, 0);
+      float vlat = v3dot(k->v, gm.r), want = clampf(-k->loc.lat * 1.4f, -9.0f, 9.0f);
+      k->v = v3add(k->v, v3mul(gm.r, (want - vlat) * 0.08f));
+      cw_body3d_set_velocity(PH.body[i], k->v);
     }
     if (k->loc.i >= 0 && (s->track->s[k->loc.i].flags & TF_LOOP)) {
       static float capv = -1;
@@ -1322,7 +1391,7 @@ void sim_step(sim *s, const kin in_raw[MAXK]) {
     else if (k->stuck_ticks > 0) k->stuck_ticks--;
     if (k->respawn_ticks <= 0 && (lost || k->stuck_ticks > 150 || k->stall_ticks > 210 || k->reset_hold > 55) && !k->finished) {
       if (lost) event(s, EV_FALL, i, 0, k->p, 0);
-      if (getenv("RACER_FALLLOG")) cw_info("respawn kart %d br=%d s=%.0f spd=%.0f lost=%d (dist %.1f hw %.1f height %.1f) stuck=%d stall=%d reset=%d", i, k->loc.br, k->loc.s, k->speed, lost, k->loc.dist, ts->hw, k->loc.height, k->stuck_ticks, k->stall_ticks, k->reset_hold);
+      if (getenv("RACER_FALLLOG")) cw_info("respawn kart %d tick %d br=%d s=%.0f spd=%.0f lost=%d (dist %.1f hw %.1f height %.1f) stuck=%d stall=%d reset=%d p=(%.0f %.0f %.0f)", i, s->tick, k->loc.br, k->loc.s, k->speed, lost, k->loc.dist, ts->hw, k->loc.height, k->stuck_ticks, k->stall_ticks, k->reset_hold, k->p.x, k->p.y, k->p.z);
       respawn(s, i);
     }
   }
