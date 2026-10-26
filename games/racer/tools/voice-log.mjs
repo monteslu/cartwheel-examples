@@ -15,7 +15,7 @@ for (const m of table.matchAll(/\{ "([a-z0-9_]+)", \d+, \{[^}]*\}, \{ (.*?) \}, 
   const texts = JSON.parse('[' + m[2] + ']'), ms = m[3].split(',').map(Number);
   texts.forEach((t, i) => words.set(m[1] + '|' + t, ms[i]));
 }
-const MUST = new Set(['three', 'two', 'one', 'go', 'final_lap', 'winner', 'what_a_race', 'so_close', 'podium', 'finished', 'new_record', 'medal_bronze', 'medal_silver', 'medal_gold', 'medal_author', 'cup_winner', 'cup_trophy', 'cup_done']);
+const MUST = new Set(['three', 'two', 'one', 'go', 'final_lap', 'winner', 'what_a_race', 'so_close', 'podium', 'finished', 'new_record', 'medal_bronze', 'medal_silver', 'medal_gold', 'medal_author', 'cup_winner', 'cup_trophy', 'cup_done', 'battle_win', 'battle_over', 'knocked_out']);
 let bad = 0;
 for (const path of process.argv.slice(2)) {
   const ev = [];

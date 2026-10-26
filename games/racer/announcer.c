@@ -39,6 +39,7 @@
 /* priorities: higher speaks first; P_MUST cuts anything off, P_ALERT cuts off what is below P_BIG */
 enum { P_CHATTER = 10, P_WELCOME = 20, P_INFO = 30, P_POS = 40, P_BIG = 50, P_ALERT = 60, P_FINAL = 70, P_FINISH = 80, P_MUST = 100 };
 #define QN 6
+#define BIG_AIR_M 6.0f                 /* metres over the road at the top of a flight that make it big air */
 #define VOICE_GAIN 1.6f               /* the voice bus, set by measuring it (RACER_VOICE=solo) over the ducked race (=mute) */
 #define GAP_MINOR (3 * TICK_HZ)        /* a call below P_BIG waits this long after the last line started */
 #define GAP_BIG (2 * TICK_HZ)          /* and a big moment this long (an alarm or the countdown never waits) */
@@ -127,6 +128,9 @@ void announcer_init(int parent) {
   for (int i = VL_MEDAL_BRONZE; i <= VL_MEDAL_AUTHOR; i++) rule(i, P_FINISH - 1, 5, 0); /* "New record!", then the medal */
   for (int i = VL_MAP_SALT; i <= VL_MAP_ORBIT; i++) rule(i, P_WELCOME, 8, 0);
   rule(VL_CHATTER, P_CHATTER, 1, 20);
+  rule(VL_CLOSE_CALL, P_POS, 1.0f, 20); /* a pack fight shaves past often: one in twenty seconds is plenty */
+  rule(VL_POP, P_BIG, 1.2f, 5), rule(VL_LAST_BALLOON, P_ALERT, 1.5f, 0), rule(VL_KNOCKED_OUT, P_FINAL, 2, 0);
+  rule(VL_RIVAL_OUT, P_POS, 1.5f, 8), rule(VL_BATTLE_WIN, P_FINISH, 4, 0), rule(VL_BATTLE_OVER, P_FINISH, 4, 0);
   for (int i = 0; i < VL_N; i++) {
     const voice_line *l = &VOICE_LINES[i];
     for (int v = 0; v < l->n; v++) {
@@ -359,6 +363,11 @@ void announcer_events(const sim *s) {
       }
       break;
     case EV_FINISH: {
+      if (s->battle) { /* the round is over: a = the winner */
+        if (!N.finish_said) say(is_human(s, e->a) ? VL_BATTLE_WIN : VL_BATTLE_OVER);
+        N.finish_said = true;
+        break;
+      }
       if (!is_human(s, e->a) || N.finish_said || N.trial) break;
       N.finish_said = true;
       int place = e->b;
@@ -402,6 +411,7 @@ void announcer_events(const sim *s) {
       if (is_human(s, e->a)) say(VL_SHOCK_WARN);
       break;
     case EV_HIT: {
+      if (s->battle) break; /* a battle calls the pop that follows */
       int hz = (int)(e->k + 0.5f);
       if (hz != HZ_MISSILE && hz != HZ_HOMING && hz != HZ_MINE) break;
       if (mine(s, e->b) && e->a != e->b) say(VL_DIRECT_HIT);
@@ -411,9 +421,16 @@ void announcer_events(const sim *s) {
     case EV_FALL:
       if (mine(s, e->a)) say(VL_FALL);
       break;
-    case EV_POP: /* battle: a balloon popped */
-      if (e->b >= 0 && e->b != e->a && mine(s, e->b)) say(VL_DIRECT_HIT);
-      else if (mine(s, e->a)) say(VL_GOT_HIT);
+    case EV_NEARMISS: /* a close pass by the player */
+      if (mine(s, e->a)) say(VL_CLOSE_CALL);
+      break;
+    case EV_POP: /* battle: a balloon popped (k: the balloons it has left) */
+      if (e->b >= 0 && e->b != e->a && mine(s, e->b)) say(VL_POP);
+      else if (mine(s, e->a)) say(e->k > 0.5f && e->k < 1.5f ? VL_LAST_BALLOON : e->k >= 1.5f ? VL_GOT_HIT : -1);
+      break;
+    case EV_OUT: /* battle: out of the round. Any human's is news (it ends that player's round); a rival's is colour */
+      if (is_human(s, e->a)) say(VL_KNOCKED_OUT);
+      else say(VL_RIVAL_OUT);
       break;
     default: break;
     }
@@ -475,11 +492,11 @@ void announcer_tick(const sim *s) {
           N.best_place = best;
         }
       }
-      /* big air: once a flight, for the focus human, a second in the air over one of the jumps (not a fall) */
+      /* big air: once a flight, for the focus human, more than BIG_AIR_M over the road (a fall drops below it) */
       if (N.focus >= 0) {
         const kart *k = &s->k[N.focus];
         if (k->grounded) N.air_said[N.focus] = false;
-        else if (!N.air_said[N.focus] && k->air_ticks >= 60 && k->respawn_ticks <= 0 && (track_at(s->track, k->loc.s).flags & TF_GAP)) {
+        else if (!N.air_said[N.focus] && k->air_peak > BIG_AIR_M && k->respawn_ticks <= 0) {
           N.air_said[N.focus] = true;
           say(VL_HUGE_AIR);
         }
