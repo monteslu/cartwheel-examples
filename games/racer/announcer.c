@@ -18,6 +18,7 @@
  * Split screen: the race-wide calls (the countdown, the laps of the first human to get there, the welcome, colour)
  * speak once; the player's own calls (place, hits, stunts, the finish) follow the best-placed human still racing,
  * which is also the one a "lead" call is about. An alarm (a Shockwave coming) is said for any human.
+ * A battle (no laps, places or welcome) gets the countdown, the hits and pops, the alarms and colour.
  * Off in a demo race (no humans), and when the player turns it off (Options: ANNOUNCER).
  *
  * Dev aids: RACER_VOICE_LOG=file (or 1: the engine log) writes every line said, dropped or cut, with the time;
@@ -294,7 +295,7 @@ void announcer_race_start(const sim *s, bool humans) {
   N.live = humans; /* a demo race behind the menus is not called */
   N.trial = game_is_trial();
   /* the welcome: a moment after the lights, and only for a race from the grid (not a time trial's quick retry) */
-  N.welcome_at = s->phase == PH_GRID && s->phase_ticks <= 1 && s->map >= 0 && s->map < NMAPS ? (int)(2.4f * TICK_HZ) : -1;
+  N.welcome_at = s->phase == PH_GRID && s->phase_ticks <= 1 && !s->battle && s->map >= 0 && s->map < NMAPS ? (int)(2.4f * TICK_HZ) : -1;
   N.quiet_target = (QUIET_MIN + (int)(rnd() % QUIET_RANGE)) * TICK_HZ;
   N.best_place = N.best_seen = 0;
   N.best_hold = 0;
@@ -410,6 +411,10 @@ void announcer_events(const sim *s) {
     case EV_FALL:
       if (mine(s, e->a)) say(VL_FALL);
       break;
+    case EV_POP: /* battle: a balloon popped */
+      if (e->b >= 0 && e->b != e->a && mine(s, e->b)) say(VL_DIRECT_HIT);
+      else if (mine(s, e->a)) say(VL_GOT_HIT);
+      break;
     default: break;
     }
   }
@@ -438,13 +443,18 @@ void announcer_tick(const sim *s) {
   if (!N.init) return;
   N.clock++;
   if (N.live && N.user_on && s) {
-    /* the focus: the best-placed human still racing */
+    /* the focus: the best-placed human still racing (in a battle: still in the round) */
     N.focus = -1;
     for (int i = 0; i < s->nkarts && i < MAXK && N.focus < 0; i++) {
       int k = s->order[i];
-      if (is_human(s, k) && !s->k[k].finished) N.focus = k;
+      if (is_human(s, k) && !s->k[k].finished && !s->k[k].out) N.focus = k;
     }
-    if (s->phase == PH_RACE) {
+    if (s->phase == PH_RACE && s->battle) {
+      /* a battle has no laps, places or jumps to call: the hits (EV_POP), the alarms and colour */
+      if (N.focus >= 0 && s->race_ticks > 8 * TICK_HZ && N.qn == 0 && !speaking() && N.clock - N.last_start > N.quiet_target) {
+        if (say(VL_CHATTER)) N.quiet_target = (QUIET_MIN + (int)(rnd() % QUIET_RANGE)) * TICK_HZ;
+      }
+    } else if (s->phase == PH_RACE) {
       /* the best human place, once it has held for most of a second (a pass and a pass back is not news) */
       int best = 0, racing_n = 0;
       for (int i = 0; i < MAXK; i++)
