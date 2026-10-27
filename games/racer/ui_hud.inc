@@ -709,7 +709,7 @@ static void hud_mapname(const hv *g) {
   float in = ease_out(t / 0.2f), out = t > 0.85f ? ease_io((t - 0.85f) / 0.15f) : 0;
   float cx = g->x + g->w * 0.5f, y = g->y + g->h - 82 * s + (1 - in) * 90 * s + out * 90 * s;
   char b[64];
-  snprintf(b, sizeof b, "%d LAPS", S->laps);
+  snprintf(b, sizeof b, "%d LAP%s", S->laps, S->laps == 1 ? "" : "S");
   float w = fminf(g->w * 0.9f, 460 * s);
   cw_rect r = cw_rect_make(cx - w * 0.5f, y, w, 64 * s);
   float a = in * (1 - out);
