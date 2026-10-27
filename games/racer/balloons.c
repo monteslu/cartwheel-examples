@@ -50,8 +50,8 @@ void balloons_build(cw_node scene, const sim *s) {
   B.s = s;
   if (!s->battle) return;
   B.str_mat = phys(lin(0.95f, 0.93f, 0.88f), 0.7f, 0);
-  t3_geometry *sg = t3_sphere_geometry_new(0.36f, 16, 12);
-  t3_geometry *kg = t3_cone_geometry_new(0.09f, 0.14f, 8, 1, false);
+  t3_geometry *sg = t3_sphere_geometry_new(0.28f, 16, 12);
+  t3_geometry *kg = t3_cone_geometry_new(0.07f, 0.11f, 8, 1, false);
   t3_geometry *cg = t3_cylinder_geometry_new(0.012f, 0.012f, 1.0f, 4, 1, true);
   t3_geometry_translate(cg, 0, 0.5f, 0); /* the string grows up from its foot */
   for (int i = 0; i < MAXK; i++) {
@@ -63,14 +63,18 @@ void balloons_build(cw_node scene, const sim *s) {
     t3_material *m = phys(lin(c[0], c[1], c[2]), 0.22f, 0);
     m->emissive = lin(c[0], c[1], c[2]);
     m->emissive_intensity = 0.25f;
+    /* see-through, smaller and higher: they mark a kart's balloons without hiding the arena behind them */
+    m->transparent = true;
+    m->opacity = 0.55f;
+    m->depth_write = false;
     const vehicle_def *vd = &VEH[k->veh];
     b->grp = t3_group_new();
     t3_object_set_position(b->grp, 0, 0.55f, -vd->len * 0.82f);
     for (int j = 0; j < NB; j++) {
       t3_mesh *bm = t3_mesh_new(sg, m);
-      bm->base.cast_shadow = true;
+      bm->base.cast_shadow = false;
       t3_mesh *knot = t3_mesh_new(kg, m);
-      t3_object_set_position(&knot->base, 0, -0.41f, 0);
+      t3_object_set_position(&knot->base, 0, -0.32f, 0);
       t3_object_set_rotation(&knot->base, 3.14159f, 0, 0);
       t3_object_add(&bm->base, &knot->base);
       t3_release(knot);
@@ -81,7 +85,7 @@ void balloons_build(cw_node scene, const sim *s) {
       b->str[j] = &sm->base;
       t3_object_add(b->grp, &sm->base);
       t3_release(sm);
-      b->x[j] = ((float)j - 1.0f) * 0.46f;
+      b->x[j] = ((float)j - 1.0f) * 0.38f;
     }
     t3_release(m);
     b->shown = k->balloons;
@@ -120,10 +124,10 @@ void balloons_frame(const sim *s, float alpha) {
       b->ball[j]->visible = vis;
       b->str[j]->visible = vis && !popping;
       if (!vis) continue;
-      float want = ((float)j - (float)(n - 1) * 0.5f) * 0.46f;
+      float want = ((float)j - (float)(n - 1) * 0.5f) * 0.38f;
       if (!popping) b->x[j] += (want - b->x[j]) * 0.12f;
       float bob = 0.06f * sinf(t * 2.3f + (float)(i * 3 + j));
-      t3_vec3 top = { b->x[j] * 1.25f + 0.05f * sinf(t * 1.7f + (float)j), 1.55f + bob + (j == 1 ? 0.12f : 0), -0.1f };
+      t3_vec3 top = { b->x[j] * 1.25f + 0.05f * sinf(t * 1.7f + (float)j), 2.05f + bob + (j == 1 ? 0.1f : 0), -0.1f };
       float sc = 1.0f;
       if (popping) {
         float u = (float)b->pop_t / (float)POP_FRAMES;
@@ -133,7 +137,7 @@ void balloons_frame(const sim *s, float alpha) {
       t3_object_set_position(b->ball[j], top.x, top.y, top.z);
       t3_object_set_scale(b->ball[j], sc, sc * 1.12f, sc);
       /* the string from the tie point to the knot */
-      t3_vec3 knot = { top.x, top.y - 0.44f, top.z };
+      t3_vec3 knot = { top.x, top.y - 0.35f, top.z };
       float len = v3len(knot);
       t3_object_set_position(b->str[j], 0, 0, 0);
       t3_object_set_quaternion(b->str[j], from_to((t3_vec3){ 0, 1, 0 }, knot));
