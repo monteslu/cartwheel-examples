@@ -469,7 +469,10 @@ static void spin_kart(sim *s, int i, int kind, int by) {
   if (by >= 0 && by != i) s->k[by].hits_given++;
   event(s, EV_SPIN, i, by, k->p, (float)kind);
   if (kind == SPIN_BOOM) {
-    cw_body3d_apply_impulse(PH.body[i], v3mul(kart_up(k), 9.0f * VEH[k->veh].mass), NULL);
+    /* the blast throws it up off the road; in a loop or corkscrew up is across the tube, so only a hop there (the full
+     * throw put karts hit upside down out of Orbit's corkscrews) */
+    bool looped = k->loc.i >= 0 && (s->track->s[k->loc.i].flags & TF_LOOP);
+    cw_body3d_apply_impulse(PH.body[i], v3mul(kart_up(k), (looped ? 2.0f : 9.0f) * VEH[k->veh].mass), NULL);
   }
   if (s->battle) battle_pop(s, i, by);
 }
@@ -885,7 +888,7 @@ static void kart_control(sim *s, int i, kin in) {
   float lat_over = absf(k->loc.lat) - m.hw;
   bool gap = (ts->flags & TF_GAP) != 0 || (t->s[track_next(t, k->loc.i)].flags & TF_GAP) != 0;
   float attach = 0;
-  if (!gap && lat_over < 2.5f && h > -1.0f && !s->battle) {
+  if (!gap && lat_over < ((ts->flags & TF_LOOP) ? 6.0f : 2.5f) && h > -1.0f && !s->battle) {
     /* in a loop or corkscrew the road keeps its hold a long way out: a kart bounced off it upside down was dropped out
      * of the tube (2.3 m was all it had) */
     float reach = (ts->flags & TF_LOOP) ? 7.0f : 3.0f;
@@ -1419,6 +1422,16 @@ void sim_step(sim *s, const kin in_raw[MAXK]) {
       tsample gm = track_at_loc(s->track, &k->loc, 0);
       float vlat = v3dot(k->v, gm.r), want = clampf(-k->loc.lat * 1.4f, -9.0f, 9.0f);
       k->v = v3add(k->v, v3mul(gm.r, (want - vlat) * 0.08f));
+      cw_body3d_set_velocity(PH.body[i], k->v);
+    }
+    if (k->loc.i >= 0 && (s->track->s[k->loc.i].flags & TF_LOOP) && !k->grounded && k->loc.height < 8.0f) {
+      /* off the deck in a loop or corkscrew (the road rolled away faster than the kart followed): it stops drifting
+       * away from the road and bends back toward the tube's middle, as a jump's flight does toward its landing */
+      tsample lm = track_at_loc(s->track, &k->loc, 0);
+      float vn = v3dot(k->v, lm.u);
+      if (vn > 0) k->v = v3sub(k->v, v3mul(lm.u, vn * 0.25f));
+      float vlat = v3dot(k->v, lm.r), want = clampf(-k->loc.lat * 1.6f, -8.0f, 8.0f);
+      k->v = v3add(k->v, v3mul(lm.r, (want - vlat) * 0.1f));
       cw_body3d_set_velocity(PH.body[i], k->v);
     }
     if (k->loc.i >= 0 && (s->track->s[k->loc.i].flags & TF_LOOP)) {
