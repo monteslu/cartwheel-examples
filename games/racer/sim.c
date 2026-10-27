@@ -575,19 +575,39 @@ static void hazards_step(sim *s) {
 
 /* ── items ───────────────────────────────────────────────────────────── */
 
+/* the odds by position (after Mario Kart 8's datamined tables): the leader gets defence (oil, mines, a shield), the
+ * middle the attack (missiles, the homing one only there), the back speed (turbos, the triple) and the Shockwave */
 static const uint8_t ITEM_W[IT_KINDS][MAXK] = {
-  [IT_TURBO] = { 20, 20, 18, 15, 12, 10, 8, 6 },
-  [IT_TURBO3] = { 0, 2, 6, 10, 14, 18, 22, 26 },
-  [IT_MISSILE] = { 28, 26, 22, 18, 14, 10, 6, 4 },
-  [IT_HOMING] = { 0, 4, 8, 12, 16, 18, 20, 22 },
-  [IT_OIL] = { 22, 20, 18, 14, 10, 8, 6, 4 },
-  [IT_MINE] = { 20, 18, 16, 12, 10, 8, 6, 4 },
-  [IT_SHIELD] = { 8, 8, 10, 12, 12, 12, 12, 10 },
-  [IT_SHOCK] = { 0, 0, 2, 7, 12, 16, 20, 24 },
+  [IT_TURBO] = { 6, 14, 18, 18, 16, 14, 10, 8 },
+  [IT_TURBO3] = { 0, 2, 6, 10, 16, 22, 28, 32 },
+  [IT_MISSILE] = { 24, 24, 20, 16, 12, 8, 6, 4 },
+  [IT_HOMING] = { 0, 4, 10, 14, 14, 10, 6, 2 },
+  [IT_OIL] = { 30, 22, 16, 12, 8, 6, 4, 2 },
+  [IT_MINE] = { 28, 20, 14, 10, 8, 6, 4, 2 },
+  [IT_SHIELD] = { 12, 10, 10, 10, 10, 8, 6, 4 },
+  [IT_SHOCK] = { 0, 0, 2, 6, 10, 16, 20, 22 },
 };
+/* metres behind the leader that count as each position for the odds: a kart far back draws from the back's table
+ * whatever its place (Mario Kart 8 picks by distance; place alone gave a kart half a length behind the leader the
+ * same as one a straight away) */
+static const float ITEM_GAP_M[MAXK] = { 0, 12, 30, 60, 100, 150, 220, 300 };
 
-static int roll_item(sim *s, int place, bool final_lap) {
+
+/* how far this kart is behind the leader, in metres of race progress */
+static float item_gap_m(const sim *s, int i) {
+  float lead = s->k[i].prog;
+  for (int j = 0; j < MAXK; j++)
+    if (s->k[j].on && s->k[j].prog > lead) lead = s->k[j].prog;
+  return lead - s->k[i].prog;
+}
+
+static int roll_item(sim *s, int place, float gap_m, bool final_lap) {
   int p = place - 1;
+  for (int g = MAXK - 1; g > 0; g--)
+    if (gap_m >= ITEM_GAP_M[g]) {
+      if (g > p) p = g;
+      break;
+    }
   if (p < 0) p = 0;
   if (p > MAXK - 1) p = MAXK - 1;
   int w[IT_KINDS] = { 0 }, total = 0;
@@ -745,7 +765,7 @@ static void drive(sim *s, int i, float thr, float st, bool grounded_front) {
   const vehicle_def *vd = &VEH[k->veh];
   cw_vehicle3d *c = &PH.car[i];
   float spd = k->speed;
-  float top = vd->top * s->class_top * (k->boost_ticks > 0 ? 1.0f + 0.42f * k->boost_k : 1.0f);
+  float top = vd->top * s->class_top * (k->boost_ticks > 0 ? 1.0f + 0.5f * k->boost_k : 1.0f);
   /* the CPU karts hold the pack together: one behind the leading human gets up to 4% more, one ahead up to 12% less
    * (full at 60 m clear), and none is faster flat out than 39 m/s whatever it drives: a CPU in the Longhaul (41) used to
    * pull away for good, "flat out faster and can't be caught" */
@@ -764,6 +784,8 @@ static void drive(sim *s, int i, float thr, float st, bool grounded_front) {
     for (int j = 0; j < MAXK; j++)
       if (s->k[j].on && s->k[j].prog > lead) lead = s->k[j].prog;
     rb = clampf((lead - k->prog) / 660.0f, 0, 0.06f);
+    /* and by place: 6th, 7th and 8th get 4, 6 and 8% (whichever help is bigger) */
+    if (!s->battle && k->place >= 6) rb = maxf(rb, 0.02f * (float)(k->place - 4));
   }
   top *= 1.0f + rb;
   /* the slipstream: close behind another kart in its lane the air is thin. A little more top speed while it lasts, and a
@@ -821,9 +843,13 @@ static void drive(sim *s, int i, float thr, float st, bool grounded_front) {
     if (spd > 0.5f) brake = 46;
     else if (spd > -12) acc = thr * 10.0f;
   } else brake = 4.0f;
-  if (k->boost_ticks > 0) acc += 16.0f * k->boost_k * (1.0f - clampf(spd / (top + 2), 0, 1));
+  float boost_acc = k->boost_ticks > 0 ? 20.0f * k->boost_k * (1.0f - clampf(spd / (top + 2), 0, 1)) : 0;
   (void)grounded_front;
   float m = vd->mass;
+  /* the boost pushes the kart along its nose at its middle, not through the tyres: through the (rear-biased) wheels it
+   * used up their grip and the back stepped out, a spin from every boost taken in a bend */
+  if (boost_acc > 0 && (c->wheel[0].contact || c->wheel[1].contact || c->wheel[2].contact || c->wheel[3].contact))
+    cw_body3d_apply_force(PH.body[i], v3mul(kart_fwd(k), boost_acc * m), NULL);
   int front = c->wheel[0].contact + c->wheel[1].contact, back = c->wheel[2].contact + c->wheel[3].contact;
   float kf = front + back ? (float)front / (float)(front + back) : 0.5f;
   /* rear-biased drive keeps the nose pointing where it is steered */
@@ -1010,6 +1036,7 @@ static void kart_control(sim *s, int i, kin in) {
     if (ts->flags & TF_DRIFTY) g *= 0.42f;
     else if (ts->flags & TF_ROUGH) g *= 0.8f;
     if (w >= 2 && k->drifting) g *= 0.62f;
+    if (k->boost_ticks > 0 && !k->drifting) g *= 1.25f; /* a boost holds the road: more speed, not less control */
     car->def.wheels[w].grip = g;
   }
   if (ts->flags & TF_WATER) {
@@ -1044,7 +1071,7 @@ static void kart_control(sim *s, int i, kin in) {
       fp = v3mul(fp, 1.0f / fl);
       float along = v3dot(vp, fp);
       if (along > 0) {
-        float pull = k->land_grace > 0 ? 0.35f : 0.06f;
+        float pull = k->land_grace > 0 ? 0.35f : k->boost_ticks > 0 ? 0.15f : 0.06f;
         t3_vec3 lat = v3sub(vp, v3mul(fp, along));
         /* the slide turns into travel along the nose at the same speed: a crooked landing costs direction, not pace */
         t3_vec3 nvp = v3add(v3mul(fp, along), v3mul(lat, 1 - pull));
@@ -1054,6 +1081,15 @@ static void kart_control(sim *s, int i, kin in) {
       }
     }
     float asked = rate * absf(eff), wy = v3dot(k->w, up), cap = k->land_grace > 0 ? asked + 0.1f : asked * 1.2f + rate * 0.2f + 0.2f;
+    if (k->boost_ticks > 0) cap = minf(cap, asked * 1.05f + 0.1f); /* boosting, the nose goes only where it is steered */
+    if (absf(wy) > cap) {
+      k->w = v3add(k->w, v3mul(up, (wy > 0 ? cap : -cap) - wy));
+      cw_body3d_set_angular_velocity(b, k->w);
+    }
+  }
+  /* a drift begun under a boost keeps its arc but never whips round */
+  if (touching && k->drifting && k->boost_ticks > 0 && k->spin_ticks <= 0 && !(ts->flags & TF_LOOP)) {
+    float cap = rate * 1.1f + 0.2f, wy = v3dot(k->w, up);
     if (absf(wy) > cap) {
       k->w = v3add(k->w, v3mul(up, (wy > 0 ? cap : -cap) - wy));
       cw_body3d_set_angular_velocity(b, k->w);
@@ -1130,7 +1166,7 @@ static void kart_control(sim *s, int i, kin in) {
 
   /* items */
   if (k->item_wait > 0 && --k->item_wait == 0) {
-    k->item = s->battle ? roll_battle_item(s, i) : roll_item(s, k->place, k->lap >= s->laps);
+    k->item = s->battle ? roll_battle_item(s, i) : roll_item(s, k->place, item_gap_m(s, i), k->lap >= s->laps);
     k->item_count = k->item == IT_TURBO3 ? 3 : 1;
   }
   if (k->item_cool > 0) k->item_cool--;

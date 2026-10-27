@@ -492,13 +492,19 @@ static void rig_tick(int v) {
     }
     bool back = (k->last_btn & KB_BACK) != 0;
     if (!r->live) r->up = tsup, r->fwd = want_f;
-    r->up = v3norm(v3add(v3mul(r->up, 1 - 0.07f), v3mul(tsup, 0.07f)));
-    r->fwd = v3norm(v3add(v3mul(r->fwd, 1 - 0.09f), v3mul(want_f, 0.09f)));
+    /* at a loop's mouth and inside it the view turns with the road quickly and closes in: lagging, it stared straight
+     * into the road rising ahead, a wall of deck filling the screen */
+    bool loopy = false;
+    if (k->loc.i >= 0 && k->loc.br < 0)
+      for (int j = -4; j <= 24 && !loopy; j += 4) loopy = (s->track->s[(k->loc.i + j + s->track->n) % s->track->n].flags & TF_LOOP) != 0;
+    float ku = loopy ? 0.22f : 0.07f, kf = loopy ? 0.25f : 0.09f;
+    r->up = v3norm(v3add(v3mul(r->up, 1 - ku), v3mul(tsup, ku)));
+    r->fwd = v3norm(v3add(v3mul(r->fwd, 1 - kf), v3mul(want_f, kf)));
     t3_vec3 fh = v3norm(v3sub(r->fwd, v3mul(r->up, v3dot(r->fwd, r->up))));
     float split = G.nviews > 1 ? 0.88f : 1.0f;
     if (!r->live) r->spd_s = spd;
     r->spd_s += (spd - r->spd_s) * 0.04f;
-    float dist = (4.9f + r->spd_s * 0.03f) * split, high = (2.0f + r->spd_s * 0.008f) * split;
+    float dist = (4.9f + r->spd_s * 0.03f) * split * (loopy ? 0.75f : 1.0f), high = (2.0f + r->spd_s * 0.008f) * split;
     if (back) fh = v3mul(fh, -1);
     /* the springs run on the eye and look point relative to the kart: a world-space spring trails a moving target by
      * 2v/w (ten metres at 30 m/s), so only the swing round corners and over crests lags, never the distance */
@@ -514,6 +520,19 @@ static void rig_tick(int v) {
     spring3(&r->erel, &r->eye_v, erel, 6.0f);
     spring3(&r->lrel, &r->look_v, lrel, 9.0f);
     r->eye = v3add(k->p, r->erel), r->look = v3add(k->p, r->lrel);
+    /* never under the road: where it curls up into a loop (or over a crest) the eye behind the kart can end up below the
+     * deck and the view shows its underside as a dark wall across the road. Keep the eye 1.2 m over the road beneath it */
+    {
+      static int eye_hint[CW_MAX_VIEWS] = { -1, -1, -1, -1 };
+      track_loc el;
+      track_locate(s->track, r->eye, eye_hint[v], &el);
+      eye_hint[v] = el.i;
+      if (el.i >= 0 && el.on_road && el.height < 1.2f && el.height > -6.0f) {
+        tsample em = track_at_loc(s->track, &el, 0);
+        r->eye = v3add(r->eye, v3mul(em.u, 1.2f - el.height));
+        r->erel = v3sub(r->eye, k->p);
+      }
+    }
     e = r->eye, at = r->look;
     upv = r->up;
     /* the field of view opens with speed and a boost: the world rushes */

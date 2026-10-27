@@ -59,7 +59,7 @@ static void pop_add(hudv *h, int kind) {
   h->pop[slot] = (popup){ kind, 1 };
 }
 
-static const char *const POP_TEXT[PU_KINDS] = { "TRICK!", "BOOST!", "DRIFT BOOST!", "GREAT START!", "HIT!", "BLOCKED!", "BACK ON TRACK", "SPIN OUT!", "SHOCKWAVE! HOP!", "CLOSE CALL!" };
+static const char *const POP_TEXT[PU_KINDS] = { "TRICK!", "BOOST!", "DRIFT BOOST!", "GREAT START!", "HIT!", "BLOCKED!", "BACK ON TRACK", "SPIN OUT!", "SHOCKWAVE! TAP DRIFT TO HOP", "CLOSE CALL!" };
 static cw_color pop_colour(int k) {
   switch (k) {
   case PU_TRICK: return MUSTARD;
@@ -749,7 +749,7 @@ static void hud_incoming(const hv *g) {
   cw_color c = alpha(RED, 0.5f + 0.5f * pulse);
   for (int k = 0; k < 2; k++) tri(cw_v2(cx, cy - (float)k * 16 * s), (18 + 8 * near) * s, -CW_PI * 0.5f, c);
   /* close in: the cue to hop it */
-  tx_o(U.f_title, best < 14 ? "HOP!" : "INCOMING", cx, cy + 26 * s, (20 + 8 * near) * s, c, (txopt){ .align = CW_ALIGN_CENTER });
+  tx_o(U.f_title, best < 14 ? "HOP! (DRIFT)" : "INCOMING", cx, cy + 26 * s, (20 + 8 * near) * s, c, (txopt){ .align = CW_ALIGN_CENTER });
 }
 
 static cw_rect pause_button_rect(const hv *g) {

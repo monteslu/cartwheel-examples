@@ -1346,7 +1346,9 @@ static void build_ring(cw_node parent, const track *t) {
   /* feet: heavy blocks from the ground up to the ring's flanks where it stands high above it */
   for (float s = s0; s < s1; s += 8.0f) {
     tsample a = track_at(t, s);
-    if (a.flags & TF_GAP) continue;
+    /* only under road that lies level: on the loop's climb "under the road" points into the loop, and a foot there stood
+     * a 5 m deep block of stone right across the loop's mouth (a wall in the road) */
+    if ((a.flags & TF_GAP) || a.u.y < 0.9f) continue;
     t3_vec3 p = vadd(a.p, vmul(a.u, -4.6f));
     float g = gy(p.x, p.z);
     if (p.y - g < 2.0f || p.y > 36.0f) continue;
@@ -1760,7 +1762,8 @@ static void build_roadside(cw_node scene, const track *t) {
       uint32_t bit = k < 0 ? TF_WALL_L : TF_WALL_R;
       if (!(a.flags & bit) || rnd(&r) < 0.4f) continue;
       float h = t->s[(int)s].walls >= 2 ? 1.6f : 0.9f;
-      t3_vec3 p = vadd(vadd(a.p, vmul(a.r, (float)k * (a.hw - 0.3f))), vmul(a.u, h));
+      /* on the wall's face, not 0.3 m into the lane */
+      t3_vec3 p = vadd(vadd(a.p, vmul(a.r, (float)k * (a.hw + 0.05f))), vmul(a.u, h));
       inst_add(&D.wallvines, p, yaw_of(V(a.f.x, 0, a.f.z)) + 1.5708f, 0.8f + rnd(&r) * 0.6f);
     }
   }
@@ -1780,16 +1783,14 @@ static void build_roadside(cw_node scene, const track *t) {
       inst_add(&D.flowers[fi], p, yaw, sc);
     }
   }
-  /* vines hanging from the canopy edge over the verge, above the camera's reach */
+  /* (vines from the canopy edge used to hang here 12-16 m up beside the road with no canopy above them: vines in the
+   * sky. The draws stay so the rest of the dressing is laid out as before; nothing is placed) */
   for (float s = 6; s < t->length - 6; s += thin(14.0f, 26.0f) + rnd(&r) * 10.0f) {
     tsample a = track_at(t, s);
     if (a.flags & (TF_GAP | TF_LOOP | TF_TUNNEL)) continue;
     for (int k = -1; k <= 1; k += 2) {
       if (rnd(&r) < 0.4f) continue;
-      float lat = (float)k * (a.hw + 2.5f + rnd(&r) * 5.0f);
-      t3_vec3 p = vadd(vadd(a.p, vmul(a.r, lat)), V(0, 12.0f + rnd(&r) * 4.0f, 0));
-      float yaw = rnd(&r) * 6.28f, sc = 1.0f + rnd(&r) * 0.5f;
-      inst_add(&D.vines, p, yaw, sc);
+      (void)rnd(&r), (void)rnd(&r), (void)rnd(&r), (void)rnd(&r);
     }
   }
   /* crowns of canopy over parts of the road: leaf masses with holes between, high enough to pass under */

@@ -30,7 +30,7 @@ static void hit1(const char *name, const track *t, t3_vec3 p, bool main_only) {
   if (a->flags & TF_GAP) return;
   /* a collision wall is invisible where it is not drawn: anything of it more than 0.15 m inside a lane counts */
   float edge = strcmp(name, "(collision wall)") ? 0.5f : 0.15f;
-  if (fabsf(l.lat) > a->hw - edge || l.height < 0.3f || l.height > 4.0f) return;
+  if (fabsf(l.lat) > a->hw - edge || l.height < (getenv("RACER_GC_MINH") ? (float)atof(getenv("RACER_GC_MINH")) : 0.3f) || l.height > 4.0f) return;
   struct rep *r = NULL;
   for (int i = 0; i < nrep; i++)
     if (!strcmp(R[i].name, name) && fabsf(R[i].s1 - l.ms) < 40) r = &R[i];

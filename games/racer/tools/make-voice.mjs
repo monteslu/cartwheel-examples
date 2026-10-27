@@ -1,12 +1,12 @@
 // Regenerates racer's announcer: every line spoken by an open text-to-speech model run locally,
-// then given its character here: a wacky 90s radio DJ (a deeper voice, pitched down a little, close-miked in a booth:
-// full lows, a hard squeeze, a bright edge, a little grit), written as Ogg into games/racer/assets/audio/voice/.
+// then given its character here: a wacky 90s radio DJ (the most sing-song voice, pitched up, through a nasal AM-radio
+// band: no lows, a honk at 1.2-2.6 kHz, a hard squeeze, grit), written as Ogg into games/racer/assets/audio/voice/.
 //
 //   npm install --prefix games/racer/tools/voice        (once: kokoro-js, the model runner)
 //   node games/racer/tools/make-voice.mjs [--asr] [--only id,id]
 //
 // The model: Kokoro-82M v1.0 (hexgrad, Apache-2.0) in its ONNX build (onnx-community/Kokoro-82M-v1.0-ONNX,
-// Apache-2.0), run by kokoro-js 1.2.1 (Apache-2.0) on the CPU; the voice is am_michael from the same
+// Apache-2.0), run by kokoro-js 1.2.1 (Apache-2.0) on the CPU; the voice is am_liam from the same
 // release (Apache-2.0). The weights are fetched from Hugging Face on the first run and cached under
 // tools/voice/node_modules. The phonemes come from the phonemizer package (espeak-ng compiled to wasm,
 // GPL-3.0; a tool, its output carries no licence of its own). See CREDITS.
@@ -27,9 +27,11 @@ const GAME = join(HERE, '..');
 const OUT = join(GAME, 'assets', 'audio', 'voice');
 const TMP = join(GAME, '..', '..', 'out', 'racer-voice');
 const MODS = join(HERE, 'voice', 'node_modules');
-const VOICE = 'am_michael';
-const SPEED = 1.2;  /* spoken quick, then slowed by PITCH: a bigger, older voice at about the model's own pace */
-const PITCH = 0.92; /* about a semitone and a half down (am_fenrir sped up read as a teenage boy) */
+const VOICE = 'am_liam';
+const SPEED = 1.12; /* then sped up again by PITCH: quick and wound up */
+const HYPE = 1.7;   /* the pitch swing stretched this much (hype) */
+const PITCH = 1.09; /* a semitone and a half up, faster with it: over-excited. am_liam swings 11-12 semitones across a hype
+                     * line (am_michael, the last pick, 7: flat and boring; the measure is the 10-90% spread of its pitch) */
 const SR = 24000;   /* the model's rate; kept (speech has nothing above 12 kHz worth the bytes) */
 L.useSR(SR);
 
@@ -59,9 +61,9 @@ const LINES = [
   { id: 'lost_lead', say: ['Ohh no! Lost the lead!', 'They got by ya! Chase em down!'] },
   { id: 'dropping', say: ['Droppin back! Step on it!', 'Hey! Don\'t let em get away!'] },
   /* items */
-  { id: 'shock_warn', say: ['Shockwave comin! Jump, jump!', 'Incoming shockwave! Hop it!'] },
-  { id: 'shock_dodged', say: ['Woo! Right over it!', 'Ha! Dodged it!'] },
-  { id: 'direct_hit', say: ['Kaboom! Direct hit!', 'Bullseye, baby!', 'Ooh, got em good!'] },
+  { id: 'shock_warn', say: ['Shockwave comin! Tap drift to hop it!', 'Shockwave! Hop it with drift!'] },
+  { id: 'shock_dodged', say: ['Woo! Right over it!', 'Ha! Dodged it, baby!'] },
+  { id: 'direct_hit', say: ['Kaboom! Direct hit!', 'Bullseye, baby!', 'Ooh, got them good!'] },
   { id: 'got_hit', say: ['Ouch! That smarts!', 'Yikes! That\'s gonna leave a mark!'] },
   { id: 'shield_up', say: ['Shields up!', 'Shields up! Bring it on!'] },
   { id: 'shield_saved', say: ['Blocked it! Ha!', 'Nice try, pal!'] }, /* a shield, or an item held out back stopping a missile */
@@ -95,7 +97,7 @@ const LINES = [
   { id: 'map_dam', say: ['Welcome to the Spillway Dam! Mind the drop!', 'The Spillway Dam! Don\'t look down!'] },
   { id: 'map_frost', say: ['Welcome to Frostbite Pass! Bundle up!', 'Frostbite Pass! Cold tires, hot tempers!'] },
   { id: 'map_temple', say: ['Welcome to the Overgrowth Temple! Watch them vines!', 'Overgrowth Temple! Ancient stones, brand new scrapes!'] },
-  { id: 'map_orbit', say: ['Welcome to Wreck Orbit! No air, no brakes, no problem!', 'Wreck Orbit! One small lap for a racer!'] },
+  { id: 'map_orbit', say: ['Welcome to Wreck Orbit! No air, no brakes, no problem!', 'Wreck Orbit! One small lap for racing!'] },
   /* colour, when the race has been quiet a while */
   { id: 'chatter', say: ['Scrap and glory, baby!', 'Nobody brakes in this league!', 'The crowd is goin wild!', 'Somebody\'s gonna need a new bumper!', 'Step on it, folks!', 'Whoo! What a day for racing!'] },
   /* a close pass (EV_NEARMISS) */
@@ -103,7 +105,7 @@ const LINES = [
   /* battle */
   { id: 'pop', say: ['Pop! Got one!', 'There goes a balloon!', 'Pop goes the balloon!'] },
   { id: 'last_balloon', say: ['Last balloon! Careful!', 'One balloon left! Don\'t blow it!'] },
-  { id: 'knocked_out', say: ['Knocked out! Ouch!', 'You\'re outta there!'] },
+  { id: 'knocked_out', say: ['Knocked out! Ouch!', 'You\'re out of here!'] },
   { id: 'rival_out', say: ['Another one down!', 'Buh-bye!'] },
   { id: 'battle_win', say: ['Last kart standing, baby!', 'Battle champion!'] },
   { id: 'battle_over', say: ['That\'s the battle!', 'Battle over! Woo!'] },
@@ -122,19 +124,62 @@ async function speakAll(lines) {
     for (let v = 0; v < line.say.length; v++) {
       const a = await tts.generate(line.say[v], { voice: VOICE, speed: line.speed ?? SPEED });
       if (a.sampling_rate !== SR) throw new Error(`the model spoke at ${a.sampling_rate} Hz, expected ${SR}`);
-      out.set(fileOf(line, v), pitchDown(Float32Array.from(a.audio), PITCH));
+      out.set(fileOf(line, v), retape(hype(Float32Array.from(a.audio), HYPE), PITCH));
     }
   return out;
 }
 
-/* slowed by k (< 1) as a tape is: pitch and pace drop together (linear interpolation) */
-function pitchDown(a, k) {
+/* played at k times speed, as a tape is: pitch and pace move together (linear interpolation) */
+function retape(a, k) {
   const n = Math.floor(a.length / k), o = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     const x = i * k, j = Math.floor(x), f = x - j;
     o[i] = (a[j] ?? 0) * (1 - f) + (a[j + 1] ?? 0) * f;
   }
   return o;
+}
+
+/* the hype: the pitch's swings stretched about its median (TD-PSOLA: grains two periods long, laid back down at the new
+ * pitch's spacing, so the timing is kept). k = 1.7 makes a line's 12-semitone swing about 20: the sing-song of a DJ
+ * shouting over the race instead of a newsreader's 7. The model's own delivery is too even for "wacky" */
+function hype(a, k) {
+  const hop = Math.round(SR * 0.005), win = Math.round(SR * 0.03), minL = Math.round(SR / 400), maxL = Math.round(SR / 70);
+  const nf = Math.floor(a.length / hop), per = new Float32Array(nf); /* the period at each 5 ms, 0 unvoiced */
+  for (let f = 0; f < nf; f++) {
+    const s0 = f * hop - (win >> 1);
+    if (s0 < 0 || s0 + win + maxL >= a.length) continue;
+    let e = 0; for (let i = 0; i < win; i++) e += a[s0 + i] * a[s0 + i];
+    if (e / win < 1e-4) continue;
+    let best = 0, bl = 0;
+    for (let l = minL; l <= maxL; l++) { let c = 0; for (let i = 0; i < win; i++) c += a[s0 + i] * a[s0 + i + l]; if (c > best) best = c, bl = l; }
+    if (best / e > 0.5) per[f] = bl;
+  }
+  const voiced = Array.from(per).filter(x => x > 0).sort((x, y) => x - y);
+  if (voiced.length < 10) return a;
+  const med = voiced[voiced.length >> 1];
+  /* analysis marks: one per period through voiced stretches, every 5 ms elsewhere */
+  const marks = [];
+  for (let t = 0; t < a.length;) {
+    const p = per[Math.min(nf - 1, Math.floor(t / hop))];
+    marks.push([t, p]);
+    t += p > 0 ? p : hop;
+  }
+  const out = new Float32Array(a.length);
+  let mi = 0;
+  for (let t = 0; t < a.length;) {
+    while (mi + 1 < marks.length && marks[mi + 1][0] <= t) mi++;
+    const [mt, p] = marks[mi];
+    /* the new period: the old one's distance from the median stretched k times (in log, so in semitones) */
+    const np = p > 0 ? Math.max(minL, Math.min(maxL, Math.round(med * Math.pow(p / med, k)))) : hop;
+    const L = p > 0 ? p : hop;
+    for (let i = -L; i < L; i++) {
+      const src = mt + i, dst = t + i;
+      if (src < 0 || src >= a.length || dst < 0 || dst >= a.length) continue;
+      out[dst] += a[src] * (0.5 + 0.5 * Math.cos(Math.PI * i / L));
+    }
+    t += np;
+  }
+  return out;
 }
 
 /* ── the character ──────────────────────────────────────────────────── */
@@ -172,21 +217,21 @@ function character(raw) {
   removeDC(a);
   const g0 = 0.5 / (peakOf(a) || 1);
   for (let i = 0; i < a.length; i++) a[i] *= g0;
-  /* the booth: a close mic's full lows (a shelf around 150 Hz), a bright edge where a DJ cuts through (3 kHz), air up to
-   * 9 kHz, then the station's hard squeeze and a little grit */
-  hp(a, 70, 0.7);
-  lp(a, 9000, 0.7);
-  const lows = lp(Float32Array.from(a), 180, 0.7), edge = bp(Float32Array.from(a), 3000, 1.0);
-  for (let i = 0; i < a.length; i++) a[i] += lows[i] * 0.55 + edge[i] * 0.6;
-  compress(a, { thresh: -28, ratio: 6, attack: 0.002, release: 0.06 });
-  const g1 = 0.75 / (peakOf(a) || 1);
+  /* the nasal radio: no chest (high-pass 300 Hz), no air (low-pass 5 kHz), a honk where the nose rings (1.2 kHz) and a
+   * bite above it (2.6 kHz), then the station's hard squeeze and grit */
+  hp(a, 300, 0.7); hp(a, 300, 0.7);
+  lp(a, 5000, 0.7); lp(a, 5000, 0.7);
+  const honk = bp(Float32Array.from(a), 1250, 2.2), bite = bp(Float32Array.from(a), 2600, 1.6);
+  for (let i = 0; i < a.length; i++) a[i] += honk[i] * 1.2 + bite[i] * 0.8;
+  compress(a, { thresh: -30, ratio: 8, attack: 0.002, release: 0.05 });
+  const g1 = 0.8 / (peakOf(a) || 1);
   for (let i = 0; i < a.length; i++) a[i] *= g1;
-  softclip(a, 2.0);
+  softclip(a, 2.6);
   /* a small bright room, just enough to sit it in the race */
   const [rl, rr] = reverb(a, { room: 0.32, damp: 0.35, predelay: 0.008 });
   const out = new Float32Array(a.length);
   for (let i = 0; i < a.length; i++) out[i] = a[i] + 0.07 * (rl[i] + rr[i]) * 0.5;
-  hp(out, 60, 0.7);
+  hp(out, 200, 0.7);
   /* the tail fades to nothing; the start rises from nothing (no clicks) */
   const fo = Math.round(SR * 0.25), fi = Math.round(SR * 0.004);
   for (let i = 0; i < fi; i++) out[i] *= i / fi;
