@@ -561,6 +561,23 @@ static void on_event(const sim *s, const struct sim_event *e) {
   }
   case EV_HIT: {
     int hk = (int)e->k;
+    if (hk == HZ_BOMB && ka) {
+      /* a kart caught in a bomb's blast: the blast (a = -1) has the fire; here only the jolt */
+      shake_add(a, 1.0f);
+      break;
+    }
+    if (hk == HZ_BOMB) {
+      t3_vec3 u = v3(0, 1, 0);
+      burst(NEXT(boom, boom_i), v3add(e->at, v3mul(u, 0.8f)), u, v3(0, 0, 1));
+      flare_at(e->at, 4.0f, 1, 0.7f, 0.3f);
+      cloud_burst(v3add(e->at, v3mul(u, 0.5f)), u, 0.13f, 0.12f, 0.11f, 0.85f, 4.0f);
+      ring_at(e->at, u, v3(0, 0, 1), 1, 0.65f, 0.25f, 14);
+      spark_burst(e->at, u, v3(0, 0, 1), 1, 0.7f, 0.2f);
+      chips_burst(e->at, u, 0.12f, 0.1f, 0.1f);
+      light_flash(e->at, 220, 34, 0.12f, 1, 0.6f, 0.2f);
+      shake_near(s, e->at, 1.0f, 60);
+      break;
+    }
     if (hk == HZ_SHOCK) {
       if (!ka) break;
       ring_at(e->at, up, fwd, 0.45f, 0.65f, 1, 13);

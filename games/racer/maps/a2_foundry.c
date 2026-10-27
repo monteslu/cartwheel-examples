@@ -84,11 +84,23 @@ static const float BOXES[][3] = {
   { -30, 46, 4 }, { 30, 46, 4 }, { 0, 48, 4 }, { -38, 56, 4 }, { 38, 56, 4 },
 };
 
+/* capture the flag: red holds the loading deck (its base in front of the booth), blue the far end of the casting floor
+ * behind the low pipe run */
+static const float TEAM_SPAWNS[8][3] = {
+  { -12, 58, 180 }, { 12, 58, 180 }, { -32, 50, 160 }, { 32, 50, 200 },
+  { 20, -61, 0 }, { -20, -61, 0 }, { 36, -58, -20 }, { -36, -58, 20 },
+};
+/* king of the mountain: the middle of the casting floor first, then the deck and the two far corners */
+static const float HILLS[][2] = { { 0, 2 }, { 0, 50 }, { -34, -28 }, { 34, -28 } };
+
 static const arena_def ARENA = {
   .half_x = 58, .half_z = 70, .wall_h = 7.0f,
   .prims = PRIMS, .nprims = sizeof PRIMS / sizeof PRIMS[0],
   .spawns = SPAWNS, .nspawns = sizeof SPAWNS / sizeof SPAWNS[0],
   .boxes = BOXES, .nboxes = sizeof BOXES / sizeof BOXES[0],
+  .base = { { 0, 54 }, { 0, -62 } },
+  .team_spawns = TEAM_SPAWNS,
+  .hills = HILLS, .nhills = sizeof HILLS / sizeof HILLS[0],
   .look = {
     [AL_FLOOR] = { TEX_ROAD_METAL, { 0.42f, 0.42f, 0.46f }, 1.6f, 6.0f, 0.7f, 0 },
     [AL_WALL] = { TEX_WALL_TECH, { 0.5f, 0.5f, 0.58f }, 1.4f, 4.0f, 0.8f, 0 },

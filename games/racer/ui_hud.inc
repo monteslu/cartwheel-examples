@@ -107,10 +107,10 @@ static void hud_event(int v, const struct sim_event *e, const sim *S) {
     if (e->a == me) h->drift_flash_t = 1, h->drift_flash_lvl = e->b;
     break;
   case EV_HIT:
-    if (e->a == me) h->hit_t = 1, S->battle ? (void)0 : pop_add(h, PU_HIT); /* a battle says POPPED instead */
+    if (e->a == me) h->hit_t = 1, S->battle && S->amode == AM_BALLOON ? (void)0 : pop_add(h, PU_HIT); /* a battle says POPPED instead */
     break;
   case EV_SPIN:
-    if (e->a == me) h->spin_t = 1, S->battle ? (void)0 : pop_add(h, PU_SPIN);
+    if (e->a == me) h->spin_t = 1, S->battle && S->amode == AM_BALLOON ? (void)0 : pop_add(h, PU_SPIN);
     break;
   case EV_SHIELD:
     if (e->a == me) h->shield_t = 1, pop_add(h, PU_BLOCK);
@@ -128,7 +128,9 @@ static void hud_event(int v, const struct sim_event *e, const sim *S) {
     if (e->a == me) pop_add(h, PU_BACK);
     break;
   case EV_POP:
-  case EV_OUT: battle_hud_event(v, e, S); break;
+  case EV_OUT:
+  case EV_FLAG:
+  case EV_HILL: battle_hud_event(v, e, S); break;
   default: break;
   }
 }
@@ -227,6 +229,14 @@ static void missile_body(cw_vec2 c, float r, float a) {
   static const float fl[] = { -0.7f, -0.12f, -1.05f, 0, -0.7f, 0.12f };
   poly_rot(c, fl, 3, a, r, MUSTARD, INK, 0);
 }
+/* a triple missile's missiles left (1..3), stacked up the slot */
+static void missiles_icon(cw_vec2 c, float r, int n) {
+  for (int i = 0; i < n; i++) {
+    float off = ((float)i - (float)(n - 1) * 0.5f) * r * 0.62f;
+    missile_body(cw_v2(c.x - off * 0.35f, c.y + off), r * 0.78f, -0.4f);
+  }
+}
+
 /* kind: IT_*; t: seconds, for the small animations */
 static void item_icon(int kind, cw_vec2 c, float r, float t) {
   switch (kind) {
@@ -284,6 +294,31 @@ static void item_icon(int kind, cw_vec2 c, float r, float t) {
     poly_rot(c, bolt, 6, 0, r * 0.95f, MUSTARD, INK, 3);
     float p = 0.12f * cw_sin(t * 9);
     cw_r2d_circle_lines(c, r * (0.85f + p), 2, 22, alpha(MUSTARD, 0.6f));
+    break;
+  }
+  case IT_MISSILE3: missiles_icon(c, r, 3); break;
+  case IT_BOOMERANG: {
+    /* two arms meeting at an elbow, banded, with a swoosh of its flight */
+    float a = -0.5f + 0.15f * cw_sin(t * 3);
+    static const float arm1[] = { -0.12f, -0.1f, -0.85f, -0.55f, -0.7f, -0.78f, 0.12f, -0.32f };
+    static const float arm2[] = { -0.12f, -0.1f, 0.12f, -0.32f, 0.88f, 0.12f, 0.66f, 0.3f };
+    poly_rot(c, arm1, 4, a, r, rgba(0.95f, 0.7f, 0.2f, 1), INK, 2.5f);
+    poly_rot(c, arm2, 4, a, r, rgba(0.95f, 0.7f, 0.2f, 1), INK, 2.5f);
+    cw_r2d_line(rot2(c, -0.55f, -0.5f, a, r), rot2(c, -0.4f, -0.4f, a, r), r * 0.14f + 1, LIME);
+    cw_r2d_line(rot2(c, 0.55f, 0.08f, a, r), rot2(c, 0.42f, -0.02f, a, r), r * 0.14f + 1, LIME);
+    cw_r2d_arc(c, r * 0.95f, r * 1.05f, 0.6f, 2.2f, 12, alpha(CREAM, 0.6f));
+    break;
+  }
+  case IT_BOMB: {
+    /* a black ball, a cap, a fuse and its spark */
+    cw_vec2 b = cw_v2(c.x - r * 0.08f, c.y + r * 0.12f);
+    cw_r2d_circle(b, r * 0.7f, 24, INK);
+    cw_r2d_circle(b, r * 0.62f, 24, rgba(0.2f, 0.2f, 0.24f, 1));
+    cw_r2d_circle(cw_v2(b.x - r * 0.22f, b.y - r * 0.22f), r * 0.16f, 12, rgba(1, 1, 1, 0.35f));
+    cw_r2d_rect(cw_rect_make(b.x + r * 0.22f, b.y - r * 0.78f, r * 0.26f, r * 0.2f), MUSTARD);
+    cw_r2d_line(cw_v2(b.x + r * 0.35f, b.y - r * 0.78f), cw_v2(b.x + r * 0.62f, b.y - r * 0.98f), r * 0.08f + 1, CREAM);
+    float sp = 0.18f + 0.06f * cw_sin(t * 22);
+    cw_r2d_circle(cw_v2(b.x + r * 0.66f, b.y - r * 1.0f), r * sp, 10, (int)(t * 12) & 1 ? MUSTARD : RED);
     break;
   }
   default: break;
@@ -389,8 +424,9 @@ static void hud_item(const hv *g) {
     cw_r2d_pop_clip();
     cw_r2d_rect(cw_rect_make(r.x + 4 * s, r.y + 4 * s, r.w - 8 * s, r.h * 0.2f), rgba(1, 1, 1, 0.07f));
   } else if (has) {
-    item_icon(k->item, c, sz * 0.32f * pop, g->S->tick / 60.0f);
-    if (k->item == IT_TURBO3 || k->item_count > 1) {
+    if (k->item == IT_MISSILE3) missiles_icon(c, sz * 0.32f * pop, k->item_count); /* one icon a missile left */
+    else item_icon(k->item, c, sz * 0.32f * pop, g->S->tick / 60.0f);
+    if (k->item == IT_TURBO3 || (k->item_count > 1 && k->item != IT_MISSILE3)) {
       char b[8];
       snprintf(b, sizeof b, "x%d", k->item_count);
       tx(U.f_title, b, r.x + r.w - 8 * s, r.y + r.h - 16 * s, 22 * s, CREAM, CW_ALIGN_RIGHT);
@@ -728,7 +764,9 @@ static void hud_incoming(const hv *g) {
   float len = S->track->length, best = 1e9f, side = 0;
   for (int i = 0; i < MAXHZ; i++) {
     const hazard *z = &S->hz[i];
-    if ((z->kind != HZ_MISSILE && z->kind != HZ_HOMING) || z->life <= 0 || z->owner == g->kart) continue;
+    /* a boomerang too (on its way out, from behind; one that has hit this kart already will not again) */
+    bool boom = z->kind == HZ_BOOMERANG && z->state == 0 && !((z->hitmask >> g->kart) & 1);
+    if ((z->kind != HZ_MISSILE && z->kind != HZ_HOMING && !boom) || z->life <= 0 || z->owner == g->kart) continue;
     float ds = me->loc.ms - z->s; /* hazards ride the main road's metres */
     if (S->track->circuit) {
       if (ds > len * 0.5f) ds -= len;

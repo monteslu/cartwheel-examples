@@ -61,6 +61,17 @@ enum {
   VL_RIVAL_OUT,
   VL_BATTLE_WIN,
   VL_BATTLE_OVER,
+  VL_FLAG_GOT,
+  VL_FLAG_STOLEN,
+  VL_FLAG_CAPTURED,
+  VL_FLAG_LOST,
+  VL_FLAG_SAVED,
+  VL_TEAM_WIN,
+  VL_KING,
+  VL_HILL_MOVING,
+  VL_CONTESTED,
+  VL_BOMB_HIT,
+  VL_BOOMERANG_HIT,
   VL_N
 };
 
@@ -130,6 +141,17 @@ static const voice_line VOICE_LINES[VL_N] = {
   [VL_RIVAL_OUT] = { "rival_out", 2, { "audio/voice/rival_out_1.ogg", "audio/voice/rival_out_2.ogg" }, { "Another one down!", "Buh-bye!" }, { 1182, 702 } },
   [VL_BATTLE_WIN] = { "battle_win", 2, { "audio/voice/battle_win_1.ogg", "audio/voice/battle_win_2.ogg" }, { "Last kart standing, baby!", "Battle champion!" }, { 1442, 1062 } },
   [VL_BATTLE_OVER] = { "battle_over", 2, { "audio/voice/battle_over_1.ogg", "audio/voice/battle_over_2.ogg" }, { "That's the battle!", "Battle over! Woo!" }, { 892, 1172 } },
+  [VL_FLAG_GOT] = { "flag_got", 2, { "audio/voice/flag_got_1.ogg", "audio/voice/flag_got_2.ogg" }, { "Flag taken! Bring it home, baby!", "Got the flag! Now hit the gas!" }, { 1702, 1522 } },
+  [VL_FLAG_STOLEN] = { "flag_stolen", 2, { "audio/voice/flag_stolen_1.ogg", "audio/voice/flag_stolen_2.ogg" }, { "They have your flag!", "Hey! They swiped your flag!" }, { 1112, 1302 } },
+  [VL_FLAG_CAPTURED] = { "flag_captured", 2, { "audio/voice/flag_captured_1.ogg", "audio/voice/flag_captured_2.ogg" }, { "Captured! Score!", "Captured! Oh yeah!" }, { 1062, 1122 } },
+  [VL_FLAG_LOST] = { "flag_lost", 2, { "audio/voice/flag_lost_1.ogg", "audio/voice/flag_lost_2.ogg" }, { "Ouch! They scored!", "They got one! Get it back!" }, { 1062, 1342 } },
+  [VL_FLAG_SAVED] = { "flag_saved", 2, { "audio/voice/flag_saved_1.ogg", "audio/voice/flag_saved_2.ogg" }, { "Flag's back home!", "Nice save! Flag's home!" }, { 1162, 1382 } },
+  [VL_TEAM_WIN] = { "team_win", 2, { "audio/voice/team_win_1.ogg", "audio/voice/team_win_2.ogg" }, { "Your team wins! Woo!", "Team victory, baby!" }, { 1292, 1232 } },
+  [VL_KING] = { "king", 2, { "audio/voice/king_1.ogg", "audio/voice/king_2.ogg" }, { "King of the mountain!", "Top of the world, baby!" }, { 1132, 1282 } },
+  [VL_HILL_MOVING] = { "hill_moving", 2, { "audio/voice/hill_moving_1.ogg", "audio/voice/hill_moving_2.ogg" }, { "The hill is moving!", "Heads up! The hill's on the move!" }, { 1132, 1512 } },
+  [VL_CONTESTED] = { "contested", 2, { "audio/voice/contested_1.ogg", "audio/voice/contested_2.ogg" }, { "Push em off the hill!", "Crowded up there!" }, { 1212, 962 } },
+  [VL_BOMB_HIT] = { "bomb_hit", 2, { "audio/voice/bomb_hit_1.ogg", "audio/voice/bomb_hit_2.ogg" }, { "Ka-blammo!", "Bombs away, baby!" }, { 822, 1242 } },
+  [VL_BOOMERANG_HIT] = { "boomerang_hit", 2, { "audio/voice/boomerang_hit_1.ogg", "audio/voice/boomerang_hit_2.ogg" }, { "Boing! Boomerang, baby!", "Whack! Didn't see that comin back!" }, { 1332, 1542 } },
 };
 
 #endif

@@ -208,4 +208,26 @@ audio/voice/battle_win_1.ogg
 audio/voice/battle_win_2.ogg
 audio/voice/battle_over_1.ogg
 audio/voice/battle_over_2.ogg
+audio/voice/flag_got_1.ogg
+audio/voice/flag_got_2.ogg
+audio/voice/flag_stolen_1.ogg
+audio/voice/flag_stolen_2.ogg
+audio/voice/flag_captured_1.ogg
+audio/voice/flag_captured_2.ogg
+audio/voice/flag_lost_1.ogg
+audio/voice/flag_lost_2.ogg
+audio/voice/flag_saved_1.ogg
+audio/voice/flag_saved_2.ogg
+audio/voice/team_win_1.ogg
+audio/voice/team_win_2.ogg
+audio/voice/king_1.ogg
+audio/voice/king_2.ogg
+audio/voice/hill_moving_1.ogg
+audio/voice/hill_moving_2.ogg
+audio/voice/contested_1.ogg
+audio/voice/contested_2.ogg
+audio/voice/bomb_hit_1.ogg
+audio/voice/bomb_hit_2.ogg
+audio/voice/boomerang_hit_1.ogg
+audio/voice/boomerang_hit_2.ogg
 # end voice

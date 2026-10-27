@@ -15,4 +15,6 @@ const map_def *const MAPS[NMAPS] = { &map_salt, &map_drowned, &map_fair, &map_re
 /* the battle arenas (battle mode: maps/a*.c, arena.h) */
 extern const map_def map_yard;
 extern const map_def map_foundry;
-const map_def *const ARENAS[NARENAS] = { &map_yard, &map_foundry };
+extern const map_def map_spillway;
+extern const map_def map_frostlake;
+const map_def *const ARENAS[NARENAS] = { &map_yard, &map_foundry, &map_spillway, &map_frostlake };

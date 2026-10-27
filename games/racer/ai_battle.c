@@ -6,6 +6,14 @@
  *                and other karts; it brakes when the way ends too soon, and a kart pinned or nosed into a corner
  *                backs out briefly with the nose swinging to the open side, then drives on
  *
+ * The other arena rounds give it an objective (mode_goal) that stands in for roaming, and it only turns aside for a box or
+ * a kart close by:
+ *   capture the flag     a carrier heads home; its own flag taken, the guards and the nearest chase the carrier, its own
+ *                        flag lying out, the nearest sends it home; attackers go for the other flag (or escort their
+ *                        carrier home); a guard circles its base and goes for whoever comes near. Teammates are never
+ *                        targets
+ *   king of the mountain onto the hill and round it, fighting whoever else is on it
+ *
  * Everything it reads is the simulation and a seeded stream of its own, so a battle repeats. */
 #include <math.h>
 #include <stdlib.h>
@@ -41,7 +49,8 @@ static bool clear_line(const sim *s, t3_vec3 a, t3_vec3 b) {
   return !sim_ray(s, from, v3sub(to, from), &fr, &n) || fabsf(n.y) > 0.6f;
 }
 
-static int pick_box(const sim *s, int me, const ai_mem *m) {
+/* the box to go for (no farther than max_d), -1 none */
+static int pick_box(const sim *s, int me, const ai_mem *m, float max_d) {
   const kart *k = &s->k[me];
   int best = -1;
   float bs = 1e9f;
@@ -50,6 +59,7 @@ static int pick_box(const sim *s, int me, const ai_mem *m) {
     if (x->cool > 0) continue;
     if (m->lane_ticks > 0 && (int)m->lane_want == b) continue; /* it just got stuck going for this one */
     float d = flat_dist(x->p, k->p), a = fabsf(bearing(k, x->p));
+    if (d > max_d) continue;
     float score = d + a * 16.0f + (fabsf(x->p.y - k->p.y) > 2.0f ? 18.0f : 0);
     if (!clear_line(s, k->p, x->p)) score += 40;
     /* another kart is nearer to it and heading there: leave it */
@@ -69,14 +79,16 @@ static int pick_box(const sim *s, int me, const ai_mem *m) {
   return best;
 }
 
-static int pick_target(const sim *s, int me, ai_mem *m) {
+/* the kart to go after (no farther than max_d, never a teammate), -1 none */
+static int pick_target(const sim *s, int me, ai_mem *m, float max_d) {
   const kart *k = &s->k[me];
   int best = -1;
   float bs = 1e9f;
   for (int j = 0; j < MAXK; j++) {
     const kart *o = &s->k[j];
-    if (j == me || !o->on || o->out || o->respawn_ticks > 0) continue;
+    if (j == me || !o->on || o->out || o->respawn_ticks > 0 || !kart_foe(s, me, j)) continue;
     float d = flat_dist(o->p, k->p), a = fabsf(bearing(k, o->p));
+    if (d > max_d) continue;
     float score = d + a * 20.0f;
     if (j == m->b_target) score -= 12; /* keep after the one it is chasing */
     if (o->balloons == 1) score -= 6;   /* one more pop finishes it */
@@ -126,6 +138,81 @@ static t3_vec3 pick_detour(const sim *s, const kart *k, t3_vec3 goal) {
   return at;
 }
 
+/* a point going round c at radius r (each driver its own way round), for holding a place without parking on it */
+static t3_vec3 orbit(const sim *s, int me, t3_vec3 c, float r) {
+  float sn, cs;
+  cw_sincos((float)s->tick * 0.018f + (float)me * 1.7f, &sn, &cs);
+  return (t3_vec3){ c.x + sn * r, c.y, c.z + cs * r };
+}
+
+/* kart me is among the n of its team nearest to p (carriers and karts flickering back in do not count) */
+static bool among_nearest(const sim *s, int me, t3_vec3 p, int n) {
+  float d = flat_dist(s->k[me].p, p);
+  int nearer = 0;
+  for (int j = 0; j < MAXK; j++) {
+    const kart *o = &s->k[j];
+    if (j == me || !o->on || o->team != s->k[me].team || o->carry >= 0 || o->respawn_ticks > 0) continue;
+    if (flat_dist(o->p, p) < d) nearer++;
+  }
+  return nearer < n;
+}
+
+/* the nearest kart of the other team within r of p, -1 none */
+static int foe_near(const sim *s, int me, t3_vec3 p, float r) {
+  int best = -1;
+  float bd = r;
+  for (int j = 0; j < MAXK; j++) {
+    const kart *o = &s->k[j];
+    if (j == me || !o->on || o->out || o->respawn_ticks > 0 || !kart_foe(s, me, j)) continue;
+    float d = flat_dist(o->p, p);
+    if (d < bd) bd = d, best = j;
+  }
+  return best;
+}
+
+/* capture the flag and king of the mountain: where this driver means to be, the kart to chase on the way (*chase, -1
+ * none) and whether that is too urgent to turn aside for a box (*busy) */
+static t3_vec3 mode_goal(const sim *s, int me, int *chase, bool *busy) {
+  const kart *k = &s->k[me];
+  *chase = -1, *busy = false;
+  if (s->amode == AM_KOTM) {
+    float d = flat_dist(k->p, s->hill);
+    *busy = d < HILL_R + 2.0f; /* off it, a box close by is worth the turn: an armed kart takes the hill back */
+    /* on it: fight whoever else is there */
+    if (d < HILL_R + 6.0f) *chase = foe_near(s, me, s->hill, HILL_R + 2.0f);
+    return d < HILL_R ? orbit(s, me, s->hill, 4.5f) : s->hill;
+  }
+  int own = k->team & 1, other = own ^ 1;
+  const struct ctf_flag *mine = &s->flag[own], *theirs = &s->flag[other];
+  if (k->carry >= 0) {
+    *busy = true;
+    return s->base[own];
+  }
+  /* the guards: the second of every three on the team (by kart order) */
+  int before = 0;
+  for (int j = 0; j < me; j++) before += s->k[j].on && s->k[j].team == k->team;
+  bool guard = before % 3 == 1;
+  if (mine->state == FL_CARRIED && (guard || among_nearest(s, me, mine->p, 2))) {
+    *chase = mine->carrier, *busy = true;
+    return s->k[mine->carrier].p;
+  }
+  if (mine->state == FL_DROPPED && (guard || among_nearest(s, me, mine->p, 2))) {
+    *busy = true;
+    return mine->p;
+  }
+  if (guard) {
+    *chase = foe_near(s, me, s->base[own], 30.0f);
+    return orbit(s, me, s->base[own], 11.0f);
+  }
+  if (theirs->state == FL_CARRIED) {
+    /* a teammate has it: escort it home, after whoever closes on it */
+    *chase = foe_near(s, me, theirs->p, 25.0f);
+    return s->base[own];
+  }
+  *busy = theirs->state == FL_DROPPED && flat_dist(k->p, theirs->p) < 40.0f;
+  return theirs->p;
+}
+
 kin ai_battle_think(const sim *s, int me, ai_mem *m) {
   const kart *k = &s->k[me];
   kin in = { 0 };
@@ -140,15 +227,30 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
     return in;
   }
   bool armed = k->item != IT_NONE && k->item_wait == 0;
-  bool offensive = armed && (k->item == IT_MISSILE || k->item == IT_HOMING || k->item == IT_TURBO || k->item == IT_TURBO3 || k->item == IT_SHOCK);
+  bool offensive = armed && (k->item == IT_MISSILE || k->item == IT_HOMING || k->item == IT_TURBO || k->item == IT_TURBO3 || k->item == IT_SHOCK ||
+                             k->item == IT_MISSILE3 || k->item == IT_BOOMERANG || k->item == IT_BOMB);
+  bool modes = s->amode != AM_BALLOON && s->arena;
+  int chase = -1;
+  bool busy = false;
+  t3_vec3 obj = { 0, 0, ARENA_CZ };
+  if (modes) {
+    obj = mode_goal(s, me, &chase, &busy);
+    if (chase >= 0 && chase != m->b_target) m->b_target = chase, m->b_box = -1; /* a carrier to run down: at once */
+  }
   /* rethink the goal now and then */
   if (--m->b_think <= 0) {
     m->b_think = 20 + (int)(rnd(m) % 20u);
-    m->b_target = offensive ? pick_target(s, me, m) : -1;
-    m->b_box = (!armed && k->item_wait == 0) ? pick_box(s, me, m) : -1;
-    if (m->b_target < 0 && m->b_box < 0) {
+    if (modes) {
+      /* the objective first: only a box or a kart close by turns it aside */
+      m->b_target = chase >= 0 ? chase : offensive ? pick_target(s, me, m, 28.0f) : -1;
+      m->b_box = (!busy && !armed && k->item_wait == 0) ? pick_box(s, me, m, 24.0f) : -1;
+    } else {
+      m->b_target = offensive ? pick_target(s, me, m, 1e9f) : -1;
+      m->b_box = (!armed && k->item_wait == 0) ? pick_box(s, me, m, 1e9f) : -1;
+    }
+    if (!modes && m->b_target < 0 && m->b_box < 0) {
       /* nothing to do: roam towards the far side, or after the nearest kart */
-      m->b_target = pick_target(s, me, m);
+      m->b_target = pick_target(s, me, m, 1e9f);
       if (m->b_target < 0 || armed) {
         const arena_rt *a = s->arena;
         int sp = a && a->nspawn ? (int)(rnd(m) % (uint32_t)a->nspawn) : 0;
@@ -159,10 +261,10 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
   }
   if (m->b_box >= 0 && s->box[m->b_box].cool > 0) m->b_box = -1, m->b_think = 0;
   if (m->b_target >= 0 && (s->k[m->b_target].out || !s->k[m->b_target].on)) m->b_target = -1, m->b_think = 0;
-  t3_vec3 goal = m->b_goal;
-  if (m->b_roam > 0) m->b_roam--; /* fed up with the last goal: wander to the roaming point a while */
+  t3_vec3 goal = modes ? obj : m->b_goal;
+  if (m->b_roam > 0) m->b_roam--, goal = m->b_goal; /* fed up with the last goal: wander to the roaming point a while */
   else if (m->b_box >= 0) goal = s->box[m->b_box].p;
-  else if (m->b_target >= 0) {
+  else if (m->b_target >= 0 && (!modes || m->b_target == chase || flat_dist(s->k[m->b_target].p, k->p) < 28.0f)) {
     /* lead the target a little */
     const kart *o = &s->k[m->b_target];
     float t = clampf(flat_dist(o->p, k->p) / 45.0f, 0, 0.8f);
@@ -178,8 +280,9 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
     if (goal_lv > my_lv + 1.5f) goal = via_ramp(s, k, goal, goal_lv);
   }
   float ang = bearing(k, goal), dist = flat_dist(goal, k->p);
-  /* no nearer to it for a few seconds (a wall between, a kart that keeps away): give up on it for a while */
-  if (dist < m->b_best_d - 1.0f || m->b_best_d <= 0) m->b_best_d = dist, m->b_frust = 0;
+  /* no nearer to it for a few seconds (a wall between, a kart that keeps away): give up on it for a while. Circling its
+   * objective close by (a guard at its base, a king on the hill) is not being stuck */
+  if (dist < m->b_best_d - 1.0f || m->b_best_d <= 0 || (modes && m->b_roam == 0 && flat_dist(k->p, obj) < 14.0f)) m->b_best_d = dist, m->b_frust = 0;
   else if (++m->b_frust > 180) {
     /* the open way round, or now and then somewhere else altogether */
     const arena_rt *a = s->arena;
@@ -309,22 +412,38 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
   if (m->skill >= 1 && k->shock_warn > 0 && k->shock_warn <= 9 + 2 * (2 - m->skill)) in.btn |= KB_DRIFT;
   /* items */
   if (armed) {
-    bool use = false;
+    bool use = false, back = false;
     m->b_hold++;
     int tgt = m->b_target;
     switch (k->item) {
     case IT_MISSILE:
+    case IT_MISSILE3:
+    case IT_BOOMERANG: {
+      /* lined up and clear; a boomerang's reach is shorter (it turns back at BOOM_OUT_M) */
+      float reach = k->item == IT_BOOMERANG ? 38.0f : 55.0f;
       for (int j = 0; j < MAXK && !use; j++) {
         const kart *o = &s->k[j];
-        if (j == me || !o->on || o->out || o->respawn_ticks > 0) continue;
+        if (j == me || !o->on || o->out || o->respawn_ticks > 0 || !kart_foe(s, me, j)) continue;
         float d = flat_dist(o->p, k->p), a = bearing(k, v3add(o->p, v3mul(o->v, d / 50.0f)));
-        if (d < 55 && fabsf(a) < 0.09f + 1.2f / (d + 8.0f) && clear_line(s, k->p, o->p)) use = true;
+        if (d < reach && fabsf(a) < 0.09f + 1.2f / (d + 8.0f) && clear_line(s, k->p, o->p)) use = true;
       }
+      break;
+    }
+    case IT_BOMB:
+      /* lobbed onto someone 12 to 30 m ahead, or dropped back on someone close behind (the brake held as it goes) */
+      for (int j = 0; j < MAXK && !use; j++) {
+        const kart *o = &s->k[j];
+        if (j == me || !o->on || o->out || o->respawn_ticks > 0 || !kart_foe(s, me, j)) continue;
+        float d = flat_dist(o->p, k->p), a = fabsf(bearing(k, o->p));
+        if (d > 12 && d < 30 && a < 0.3f) use = true;
+        else if (d < 14 && a > 2.4f) use = back = true;
+      }
+      if (m->b_hold > 8 * TICK_HZ) use = true;
       break;
     case IT_HOMING:
       for (int j = 0; j < MAXK && !use; j++) {
         const kart *o = &s->k[j];
-        if (j == me || !o->on || o->out || o->respawn_ticks > 0) continue;
+        if (j == me || !o->on || o->out || o->respawn_ticks > 0 || !kart_foe(s, me, j)) continue;
         float d = flat_dist(o->p, k->p);
         if (d < 70 && fabsf(bearing(k, o->p)) < 0.7f && clear_line(s, k->p, o->p)) use = true;
       }
@@ -333,7 +452,7 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
     case IT_MINE:
       for (int j = 0; j < MAXK; j++) {
         const kart *o = &s->k[j];
-        if (j == me || !o->on || o->out) continue;
+        if (j == me || !o->on || o->out || !kart_foe(s, me, j)) continue;
         if (flat_dist(o->p, k->p) < 24 && fabsf(bearing(k, o->p)) > 2.2f) use = true;
       }
       if (m->b_hold > 9 * TICK_HZ) use = true; /* lay it somewhere */
@@ -354,7 +473,7 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
     case IT_SHOCK:
       for (int j = 0; j < MAXK; j++) {
         const kart *o = &s->k[j];
-        if (j == me || !o->on || o->out) continue;
+        if (j == me || !o->on || o->out || !kart_foe(s, me, j)) continue;
         if (flat_dist(o->p, k->p) < 24) use = true;
       }
       break;
@@ -364,6 +483,7 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
     int wait = m->skill == 2 ? 6 : m->skill == 1 ? 14 : 30;
     if (use && m->b_hold > wait && k->item_cool == 0 && k->spin_ticks == 0) {
       in.btn |= KB_ITEM;
+      if (back) in.thr = -127; /* the brake held as the bomb goes: it goes back */
       m->b_hold = 0;
       m->b_think = 0;
     }

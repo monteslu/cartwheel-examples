@@ -32,7 +32,7 @@
 #define NMAPS 8
 #define NVEH 6
 #define MAX_LAPS 5
-#define NARENAS 2  /* battle arenas (ARENAS[]; separate from the race maps) */
+#define NARENAS 4  /* battle arenas (ARENAS[]; separate from the race maps) */
 #define BALLOONS 3 /* a battle kart's balloons at the start */
 #define BATTLE_SPIN_K 0.45f /* a battle spin lasts this share of a race spin (the pop is the cost; sim_battle.inc, kartgfx.c) */
 
@@ -65,11 +65,13 @@ enum { KB_DRIFT = 1, KB_ITEM = 2, KB_TRICK = 4, KB_RESET = 8, KB_BACK = 16 /* lo
 
 /* ── items ──────────────────────────────────────────────────────────── */
 
-enum { IT_NONE, IT_TURBO, IT_TURBO3, IT_MISSILE, IT_HOMING, IT_OIL, IT_MINE, IT_SHIELD, IT_SHOCK, IT_KINDS };
+enum { IT_NONE, IT_TURBO, IT_TURBO3, IT_MISSILE, IT_HOMING, IT_OIL, IT_MINE, IT_SHIELD, IT_SHOCK, IT_MISSILE3, IT_BOOMERANG, IT_BOMB, IT_KINDS };
 extern const char *const ITEM_NAME[IT_KINDS];
 
 /* something in the race that is not a kart: a missile in flight, an oil slick, a mine */
-enum { HZ_NONE, HZ_MISSILE, HZ_HOMING, HZ_OIL, HZ_MINE, HZ_SHOCK, HZ_KINDS };
+/* HZ_BOOMERANG flies out and comes back to its thrower (two hits at most); HZ_BOMB is lobbed, lands, and goes off a second
+ * later with a wide blast (sim.c bomb_blast) */
+enum { HZ_NONE, HZ_MISSILE, HZ_HOMING, HZ_OIL, HZ_MINE, HZ_SHOCK, HZ_BOOMERANG, HZ_BOMB, HZ_KINDS };
 typedef struct hazard {
   int kind;
   int owner;      /* the kart that set it down (immune for a moment) */
@@ -82,6 +84,11 @@ typedef struct hazard {
   t3_vec3 f;      /* world heading (missiles) */
   int bounces;    /* battle: walls a missile has glanced off */
   bool owner_clear; /* the kart that dropped it has been 8 m away: from then on it can hit its owner too */
+  int state;      /* a boomerang: 0 going out, 1 coming back; a bomb: 0 in the air, 1 down and fizzing */
+  float dist;     /* a boomerang: metres it has flown out */
+  float vy;       /* a bomb in the air: its climb (m/s, up the road's up in a race, +y in an arena) */
+  int hitmask;    /* a boomerang: the karts it has hit (one hit each), and how many */
+  int hits;
 } hazard;
 #define MAXHZ 48
 
@@ -167,6 +174,13 @@ typedef struct kart {
   int out_tick;
   int ram_cool;         /* ticks before a turbo ram can pop this kart again */
   int scrum_ticks;      /* battle: ticks it has been crawling pressed against another kart (sim_battle.inc pulls them apart) */
+  int8_t last_thr;      /* the throttle asked this tick (a bomb is thrown back while the brake is held) */
+  /* capture the flag and king of the mountain (sim_battle.inc) */
+  int team;             /* capture the flag: 0 red, 1 blue */
+  int carry;            /* capture the flag: the team whose flag it carries, -1 none */
+  int caps, steals, returns; /* flags captured, flags taken, its own team's flag sent home */
+  int flag_cool;        /* ticks before it can take a flag again (it just dropped one) */
+  int hill_ticks;       /* king of the mountain: ticks it has held the hill alone */
 } kart;
 
 /* ── the race ───────────────────────────────────────────────────────── */
@@ -198,11 +212,21 @@ enum {
   EV_WARN,         /* a = kart a Shockwave is coming for (hop to dodge it), b = attacker */
   EV_POP,          /* battle: a = victim lost a balloon, b = attacker (or -1 / itself), k = balloons left */
   EV_OUT,          /* battle: a = victim is out of the round, b = attacker */
-  EV_RAM           /* battle: a = rammed b under a boost (the pop follows as EV_POP) */
+  EV_RAM,          /* battle: a = rammed b under a boost (the pop follows as EV_POP) */
+  EV_FLAG,         /* capture the flag: a = kart (-1: none), b = FE_*, k = the flag's team */
+  EV_HILL          /* king of the mountain: a = kart (-1: none), b = HE_* */
 };
+enum { FE_TAKEN, FE_DROPPED, FE_RETURNED, FE_CAPTURED, FE_HOME /* left alone long enough, it went home by itself */ };
+enum { HE_SOON /* it moves in five seconds */, HE_MOVED, HE_TAKEN /* a = the kart holding it alone now */, HE_CONTESTED };
 
-/* battle: why the round ended (sim.battle_end) */
-enum { BE_NONE, BE_LAST, BE_TIME, BE_HUMANS };
+/* what an arena round is played for (sim.amode): balloons (battle), capture the flag, king of the mountain */
+enum { AM_BALLOON, AM_CTF, AM_KOTM, AM_KINDS };
+#define CTF_WIN 3        /* captures that win a capture the flag round */
+#define HILL_R 9.0f      /* king of the mountain: the hill's radius */
+enum { FL_HOME, FL_CARRIED, FL_DROPPED };
+
+/* battle: why the round ended (sim.battle_end); BE_SCORE: a capture the flag team reached CTF_WIN */
+enum { BE_NONE, BE_LAST, BE_TIME, BE_HUMANS, BE_SCORE };
 typedef struct arena_rt arena_rt;
 
 typedef struct sim {
@@ -232,6 +256,22 @@ typedef struct sim {
   int battle_end;          /* BE_* */
   int alive;               /* karts still in */
   int humans_out_tick;
+  int amode;               /* AM_*: what the arena round is played for */
+  /* capture the flag: the score, each team's flag and base */
+  int team_score[2];
+  int win_team;            /* at the end: the team that won, -1 a draw */
+  struct ctf_flag {
+    int state;             /* FL_* */
+    int carrier;           /* the kart carrying it (FL_CARRIED) */
+    int timer;             /* FL_DROPPED: ticks until it goes home by itself */
+    t3_vec3 p;             /* where it is (home: on its base) */
+  } flag[2];
+  t3_vec3 base[2];
+  /* king of the mountain: where the hill is and who holds it */
+  t3_vec3 hill;
+  int hill_i;              /* the arena's hill spot it stands on */
+  int hill_left;           /* ticks until it moves */
+  int hill_holder;         /* the kart holding it alone, -1 nobody, -2 contested */
   uint32_t hash;
   int ev_n;
   struct sim_event { int kind, a, b; t3_vec3 at; float k; } ev[96];
@@ -252,6 +292,11 @@ void sim_put_branch(sim *s, int i, int b, float bs, float speed); /* dev aid: on
 void sim_use(sim *s, int i, int item); /* dev aid: kart i uses this item now */
 /* battle: the round's length in ticks (call after sim_init; 0 keeps the default three minutes) */
 void sim_set_battle_time(sim *s, int ticks);
+/* an arena round's rules (AM_*): call after sim_init once the karts' human flags are set (capture the flag puts the humans
+ * in teams by player: one or two players on red, three or four 1 and 3 red, 2 and 4 blue; the CPUs even the teams up) */
+void sim_set_arena_mode(sim *s, int mode);
+/* capture the flag: a and b are on opposite teams (always true outside capture the flag) */
+static inline bool kart_foe(const sim *s, int a, int b) { return s->amode != AM_CTF || s->k[a].team != s->k[b].team; }
 /* a ray against the static world (floor, walls, cover; never the karts): true on a hit, with how far along (0..1) and the normal.
  * A query only: it changes nothing (the CPU drivers' feelers and line of sight) */
 bool sim_ray(const sim *s, t3_vec3 from, t3_vec3 delta, float *frac, t3_vec3 *normal);
@@ -294,6 +339,7 @@ typedef struct ai_mem {
   int b_thr;          /* the throttle it chose this tick (the trace) */
   t3_vec3 b_goal, b_last_p;
   int8_t take[4];     /* each branch (shortcut) on the way: 0 not decided yet, 1 taking it, -1 staying on the main road */
+  int b_role;         /* capture the flag: 0 attacks the other flag, 1 stays back and guards its own */
 } ai_mem;
 void ai_reset(ai_mem *m, int me, int skill, uint32_t seed);
 kin ai_think(const sim *s, int me, ai_mem *m);

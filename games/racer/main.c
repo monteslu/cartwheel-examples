@@ -23,15 +23,19 @@
  *                        RACER_NOINTERP=1 draws the karts at the tick rate, the old way, as a control
  *   RACER_SPLIT=a:b      log each kart's time from progress a to b (metres): what a shortcut is worth
  *   RACER_AI_TAKE=0|1    every CPU driver stays out of (0) or takes (1) every shortcut; RACER_AILOG=1 logs their choices
- *   RACER_MODE=battle    with RACER_MAP=n: a battle in arena n (0 Crusher Yard, 1 Foundry Pit); RACER_KARTS=2..8 karts in it
- *                        (humans first, CPUs fill), RACER_BATTLE_TIME=secs the round's length (three minutes otherwise)
+ *   RACER_MODE=battle    with RACER_MAP=n: a battle in arena n (0 Crusher Yard, 1 Foundry Pit, 2 Spillway Basin, 3 Frost Lake);
+ *                        RACER_KARTS=2..8 karts in it (humans first, CPUs fill), RACER_BATTLE_TIME=secs the round's length (three
+ *                        minutes otherwise). RACER_MODE=ctf and RACER_MODE=koth the same for capture the flag and king of the
+ *                        mountain
  *   RACER_VOICE_LOG=file the announcer (announcer.c) logs every line it says, drops or cuts, with the time (1: the
  *                        engine log); tools/voice-log.mjs reads the logs back (pacing, overlaps)
  *
  * Battle (sim_battle.inc, ai_battle.c, arena.c, balloons.c, ui_battle.inc): race_setup.mode RM_BATTLE puts ARENAS[map] on
  * instead of a race map. The sim knows it by map_def.arena (sim.battle); the CPU drivers switch to ai_battle_think; a view whose
- * kart is out follows the leader that is still in (spectate). Debug command `battle <arena> [humans] [secs] [karts]`; debug
- * fields battle.* and karts.balloons / karts.points / karts.out are in the racer-battle gate. RACER_UI=arena opens the arena
+ * kart is out follows the leader that is still in (spectate). race_setup.arena_mode picks the round (sim_set_arena_mode: balloons,
+ * capture the flag, king of the mountain; modes_gfx.c draws the flags and the hill). Debug command
+ * `battle <arena> [humans] [secs] [karts] [mode]`; debug fields battle.*, ctf.*, hill.* and karts.balloons / points / out / team /
+ * caps / hill are in the racer-battle, racer-ctf and racer-koth gates. RACER_UI=arena opens the arena
  * select (RACER_UI_MAP=n picks the arena). In a battle RACER_TRACE logs every kart's place, speed, balloons, points and item
  * every half second (R: its CPU driver is backing out), and with RACER_TRACE_KART=n that kart every tick with where its
  * driver aims and what its feelers see (games/racer/ai_battle.c).
@@ -73,6 +77,7 @@ static struct {
   int32_t draws, tris;
   int32_t place[MAXK], lap[MAXK], prog[MAXK], falls[MAXK], cuts[MAXK], speed[MAXK], tricks[MAXK], hits[MAXK], spd_max[MAXK], finished[MAXK], best_lap[MAXK], finish_tick[MAXK];
   int32_t balloons[MAXK], points[MAXK], out[MAXK], battle_left, battle_end, battle_alive;
+  int32_t amode, team_score[2], flag_state[2], hill_holder, hill_spot, team[MAXK], caps[MAXK], hill[MAXK]; /* capture the flag, king of the mountain */
   int spect[CW_MAX_VIEWS]; /* battle: the kart a view watches once its own is out (-1: none yet) */
   uint32_t hash;
   cw_node scene, sun;
@@ -170,6 +175,7 @@ static void unload(void) {
   if (G.have_track) {
     audio_race_stop();
     balloons_reset();
+    modes_gfx_reset();
     ghost_gfx_reset();
     ghost_unload();
     fx_reset();
@@ -335,6 +341,10 @@ void game_start_race(const race_setup *rs) {
       G.S.k[i].colour = c < 8 ? c : (i + 3) & 7;
       if (c < 8) used[c] = true;
     }
+    /* the round's rules (capture the flag puts everyone in a team, and the teams wear red and blue) */
+    sim_set_arena_mode(&G.S, rs->arena_mode);
+    if (G.S.amode == AM_CTF)
+      for (int i = 0; i < MAXK; i++) G.S.k[i].colour = G.S.k[i].team & 1; /* Red, Blue */
   }
   for (int v = 0; v < CW_MAX_VIEWS; v++) G.pl[v] = v;
   world_build(G.scene, &G.S, md);
@@ -342,6 +352,7 @@ void game_start_race(const race_setup *rs) {
   if (G.trial) ghost_rec_start(&G.S.k[0]);
   items_build(G.scene, &G.S);
   balloons_build(G.scene, &G.S);
+  modes_gfx_build(G.scene, &G.S);
   fx_init(G.scene, &G.S, md);
   for (int v = 0; v < CW_MAX_VIEWS; v++) G.spect[v] = -1;
   views_setup();
@@ -773,8 +784,11 @@ static void fixed(void *u, double dt) {
       G.best_lap[i] = (int32_t)(k->best_lap * 100);
       G.finish_tick[i] = k->finished ? k->finish_tick : 0;
       G.balloons[i] = k->balloons, G.points[i] = k->points, G.out[i] = k->out;
+      G.team[i] = k->team, G.caps[i] = k->caps, G.hill[i] = k->hill_ticks;
     }
     G.battle_left = G.S.battle_left, G.battle_end = G.S.battle_end, G.battle_alive = G.S.alive;
+    G.amode = G.S.amode, G.hill_holder = G.S.hill_holder, G.hill_spot = G.S.hill_i;
+    for (int t = 0; t < 2; t++) G.team_score[t] = G.S.team_score[t], G.flag_state[t] = G.S.flag[t].state;
     G.phase = G.S.phase;
     G.hash = G.S.hash;
   }
@@ -804,8 +818,10 @@ static void fixed(void *u, double dt) {
     for (int i = 0; i < MAXV; i++) rs.vehicle[i] = i * 2 % NVEH, rs.colour[i] = i;
     if (getenv("RACER_CLASS")) rs.speed_class = CW_CLAMP(atoi(getenv("RACER_CLASS")), 0, CLASS_COUNT - 1);
     if (getenv("RACER_ASSIST")) rs.assist_steer = (atoi(getenv("RACER_ASSIST")) & 1) != 0, rs.assist_gas = (atoi(getenv("RACER_ASSIST")) & 2) != 0;
-    if (getenv("RACER_MODE") && !strcmp(getenv("RACER_MODE"), "battle")) {
+    const char *rm = getenv("RACER_MODE");
+    if (rm && (!strcmp(rm, "battle") || !strcmp(rm, "ctf") || !strcmp(rm, "koth"))) {
       rs.mode = RM_BATTLE, rs.map = (dm < 0 ? 0 : dm) % NARENAS;
+      rs.arena_mode = !strcmp(rm, "ctf") ? AM_CTF : !strcmp(rm, "koth") ? AM_KOTM : AM_BALLOON;
       rs.karts = getenv("RACER_KARTS") ? atoi(getenv("RACER_KARTS")) : 0;
       rs.battle_secs = getenv("RACER_BATTLE_TIME") ? atoi(getenv("RACER_BATTLE_TIME")) : 0;
     }
@@ -847,11 +863,13 @@ static void cmd_cup(int argc, const char **argv, cw_reply *r) {
   if (r) cw_reply_printf(r, "{\"cup\":1}");
 }
 
-/* battle <arena 0..1> [humans] [secs] [karts]: a battle now (secs 0: three minutes; karts 0: eight) */
+/* battle <arena 0..3> [humans] [secs] [karts] [mode]: an arena round now (secs 0: three minutes; karts 0: eight; mode 0 balloons,
+ * 1 capture the flag, 2 king of the mountain) */
 static void cmd_battle(int argc, const char **argv, cw_reply *r) {
   int a = argc > 1 ? CW_CLAMP(atoi(argv[1]), 0, NARENAS - 1) : 0;
   race_setup rs = { .map = a, .humans = argc > 2 ? CW_CLAMP(atoi(argv[2]), 0, MAXV) : 0, .laps = 1, .cpu_skill = 3, .items = true, .mode = RM_BATTLE,
-                    .battle_secs = argc > 3 ? atoi(argv[3]) : 0, .karts = argc > 4 ? atoi(argv[4]) : 0 };
+                    .battle_secs = argc > 3 ? atoi(argv[3]) : 0, .karts = argc > 4 ? atoi(argv[4]) : 0,
+                    .arena_mode = argc > 5 ? CW_CLAMP(atoi(argv[5]), 0, AM_KINDS - 1) : AM_BALLOON };
   for (int i = 0; i < MAXV; i++) rs.vehicle[i] = i * 2 % NVEH, rs.colour[i] = i;
   ui_enter_race(&rs);
   if (r) cw_reply_printf(r, "{\"battle\":%d}", a);
@@ -885,6 +903,7 @@ static void render(void *u, double alpha) {
     }
     world_frame(alpha);
     balloons_frame(&G.S, (float)alpha);
+    modes_gfx_frame(&G.S, (float)alpha);
     {
       cw_render3d_stats rs;
       cw_render3d_get_stats(cw_scene_app_tree(), &rs);
@@ -941,7 +960,15 @@ static void init(void *u) {
   cw_debug_command("trial", "trial <map 0..7> [runs]: start a time trial now (the bot drives <runs> runs when it is on)", cmd_trial);
   cw_debug_command("cup", "cup <0..1> [humans] [laps] [races]: a cup now, clicking through its own results (with `bot 1`)", cmd_cup);
   cw_debug_command("bot", "bot <0|1|2>: the human karts driven by the CPU driver (2: keyboard-style steering)", cmd_bot);
-  cw_debug_command("battle", "battle <arena 0..1> [humans] [secs] [karts]: a battle now (secs 0: three minutes)", cmd_battle);
+  cw_debug_command("battle", "battle <arena 0..3> [humans] [secs] [karts] [mode 0 balloons|1 flag|2 hill]: an arena round now (secs 0: three minutes)", cmd_battle);
+  cw_debug_i32("battle.mode", &G.amode);
+  cw_debug_field("ctf.score", G.team_score, CW_DBG_I32, 2);
+  cw_debug_field("ctf.flag", G.flag_state, CW_DBG_I32, 2);
+  cw_debug_i32("hill.holder", &G.hill_holder);
+  cw_debug_i32("hill.spot", &G.hill_spot);
+  cw_debug_field("karts.team", G.team, CW_DBG_I32, MAXK);
+  cw_debug_field("karts.caps", G.caps, CW_DBG_I32, MAXK);
+  cw_debug_field("karts.hill", G.hill, CW_DBG_I32, MAXK);
   cw_debug_field("karts.balloons", G.balloons, CW_DBG_I32, MAXK);
   cw_debug_field("karts.points", G.points, CW_DBG_I32, MAXK);
   cw_debug_field("karts.out", G.out, CW_DBG_I32, MAXK);

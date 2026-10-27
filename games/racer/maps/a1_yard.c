@@ -108,11 +108,23 @@ static const float BOXES[][3] = {
   { 44, 44, 0 }, { -44, 44, 0 }, { 44, -44, 0 }, { -44, -44, 0 },
 };
 
+/* capture the flag: red's base in the nook behind the north double stack, blue's behind the south one; each team starts
+ * either side of its stack, facing the middle */
+static const float TEAM_SPAWNS[8][3] = {
+  { -14, 53, 180 }, { 14, 53, 180 }, { -24, 46, 160 }, { 24, 46, 200 },
+  { 14, -53, 0 }, { -14, -53, 0 }, { 24, -46, 20 }, { -24, -46, -20 },
+};
+/* king of the mountain: the crusher's mound first, then the four quarters inside the container walls */
+static const float HILLS[][2] = { { 0, 0 }, { 40, 40 }, { -40, -40 }, { 40, -40 }, { -40, 40 } };
+
 static const arena_def ARENA = {
   .half_x = 64, .half_z = 64, .wall_h = 3.4f,
   .prims = PRIMS, .nprims = sizeof PRIMS / sizeof PRIMS[0],
   .spawns = SPAWNS, .nspawns = sizeof SPAWNS / sizeof SPAWNS[0],
   .boxes = BOXES, .nboxes = sizeof BOXES / sizeof BOXES[0],
+  .base = { { 0, 56 }, { 0, -56 } },
+  .team_spawns = TEAM_SPAWNS,
+  .hills = HILLS, .nhills = sizeof HILLS / sizeof HILLS[0],
   .look = {
     [AL_FLOOR] = { TEX_GROUND_SALT, { 1.0f, 0.9f, 0.84f }, 2.05f, 9.0f, 0.85f, 0 },
     [AL_WALL] = { TEX_WALL_RUST, { 0.62f, 0.33f, 0.22f }, 1.6f, 4.0f, 0.9f, 0 },

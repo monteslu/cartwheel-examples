@@ -1575,7 +1575,9 @@ static void draw_pause(float W, float H, float s) {
     const sim *S = game_sim();
     char p[128];
     int left = (S->phase == PH_RACE ? S->battle_left : S->battle_limit) / TICK_HZ;
-    snprintf(p, sizeof p, "Battle in %s   %d:%02d left   %d of %d still in", S->md->name, left / 60, left % 60, S->alive, S->nkarts);
+    if (S->amode == AM_CTF) snprintf(p, sizeof p, "Capture the Flag in %s   %d:%02d left   RED %d - %d BLUE", S->md->name, left / 60, left % 60, S->team_score[0], S->team_score[1]);
+    else if (S->amode == AM_KOTM) snprintf(p, sizeof p, "King of the Mountain in %s   %d:%02d left", S->md->name, left / 60, left % 60);
+    else snprintf(p, sizeof p, "Battle in %s   %d:%02d left   %d of %d still in", S->md->name, left / 60, left % 60, S->alive, S->nkarts);
     tx_fit(U.f_hud, p, W * 0.5f, b.y + b.h + 24 * s, 20 * s, W * 0.9f, CREAM, CW_ALIGN_CENTER);
     if (game_views() > 1) {
       snprintf(p, sizeof p, "Player %d paused", U.pauser + 1);

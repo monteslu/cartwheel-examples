@@ -233,11 +233,30 @@ kin ai_think(const sim *s, int me, ai_mem *m) {
   }
   /* items */
   if (k->item != IT_NONE && k->item_wait == 0) {
-    bool use = false;
+    bool use = false, back = false;
     switch (k->item) {
     case IT_TURBO:
     case IT_TURBO3: use = k->boost_ticks == 0 && k->grounded; break;
     case IT_SHIELD: use = true; break;
+    case IT_BOOMERANG:
+      /* a kart ahead in its lane within the boomerang's reach (it turns back after 40 m) */
+      for (int j = 0; j < MAXK && !on_branch; j++) {
+        if (j == me || !s->k[j].on) continue;
+        float ds = s->k[j].loc.ms - k->loc.ms;
+        float min_ds = s->k[j].human ? (m->skill == 0 ? 1e9f : 10.0f) : 4.0f;
+        if (ds > min_ds && ds < 38 && fabsf(s->k[j].loc.lat - k->loc.lat) < 2.5f) use = true;
+      }
+      break;
+    case IT_BOMB:
+      /* lobbed onto a kart 15 to 45 m ahead, or dropped back on one close behind (the brake held as it goes) */
+      for (int j = 0; j < MAXK && !on_branch; j++) {
+        if (j == me || !s->k[j].on) continue;
+        float ds = s->k[j].loc.ms - k->loc.ms;
+        if (ds > 15 && ds < 45 && fabsf(s->k[j].loc.lat - k->loc.lat) < 4.0f) use = true;
+        else if (ds < -4 && ds > -18 && m->skill >= 1) use = back = true;
+      }
+      break;
+    case IT_MISSILE3:
     case IT_MISSILE:
     case IT_HOMING:
       for (int j = 0; j < MAXK && !on_branch; j++) {
@@ -260,7 +279,10 @@ kin ai_think(const sim *s, int me, ai_mem *m) {
     case IT_SHOCK: use = k->place > 3; break;
     }
     m->item_wait++;
-    if (use && m->item_wait > 30 + (int)(rnd(m) % 90u)) in.btn |= KB_ITEM, m->item_wait = 0;
+    if (use && m->item_wait > 30 + (int)(rnd(m) % 90u)) {
+      in.btn |= KB_ITEM, m->item_wait = 0;
+      if (back) in.thr = -127; /* a bomb thrown back: the brake for that one tick */
+    }
   }
   return in;
 }
