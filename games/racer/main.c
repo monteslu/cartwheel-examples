@@ -699,7 +699,7 @@ static void fixed(void *u, double dt) {
       /* dev aid: RACER_TEST_AT=s:speed puts kart 0 on the road there, moving, when the lights go out */
       static int at_done;
       if (!at_done && getenv("RACER_TEST_AT") && G.S.phase == PH_RACE && G.S.race_ticks == 1) {
-        float sd = 0, sp = 30;
+        float sd = 0, sp = 30, lat_at = 0;
         const char *at = getenv("RACER_TEST_AT");
         int tk = getenv("RACER_TEST_KART") ? atoi(getenv("RACER_TEST_KART")) & 7 : 0;
         if (*at == 'L') { /* L<n>:speed: 30 m before the n-th loop or corkscrew */
@@ -711,8 +711,8 @@ static void fixed(void *u, double dt) {
           sscanf(strchr(at, ':') + 1, "%f:%f", &sd, &sp);
           sim_put_branch(&G.S, tk, n, sd, sp);
           at_done = 1;
-        } else sscanf(at, "%f:%f", &sd, &sp);
-        if (!at_done) sim_put(&G.S, tk, sd, 0, sp);
+        } else sscanf(at, "%f:%f:%f", &sd, &sp, &lat_at); /* s:speed[:lat] */
+        if (!at_done) sim_put(&G.S, tk, sd, lat_at, sp);
         at_done = 1;
       }
     }

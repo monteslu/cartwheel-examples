@@ -110,8 +110,14 @@ void bumpcheck_events(const sim *s) {
     if (!k->on || k->finished || k->respawn_ticks > 0 || k->spin_ticks > 0 || k->loc.i < 0) continue;
     const tsample *a = &s->track->s[k->loc.i];
     if (a->flags & (TF_SLOW | TF_WATER | TF_GAP)) continue;
-    if (was - now > 8.0f && s->tick - why[i] > 12 && s->race_ticks > 60)
-      cw_info("bumpcheck: kart %d lost %.0f m/s at s %.0f lat %.1f h %.1f br %d tick %d (flags 0x%x, p %.0f,%.0f,%.0f)", i, was - now,
-              k->loc.ms, k->loc.lat, k->loc.height, k->loc.br, s->tick, (unsigned)a->flags, k->p.x, k->p.y, k->p.z);
+    static int last_log[MAXK];
+    if (was - now > 8.0f && s->tick - why[i] > 12 && s->race_ticks > 60 && s->tick - last_log[i] > 30) {
+      float near = 1e9f;
+      for (int j = 0; j < s->nkarts; j++)
+        if (j != i && s->k[j].on) near = fminf(near, v3len(v3sub(s->k[j].p, k->p)));
+      last_log[i] = s->tick;
+      cw_info("bumpcheck: kart %d lost %.0f m/s at s %.0f lat %.1f h %.1f br %d tick %d (flags 0x%x, p %.0f,%.0f,%.0f, nearest kart %.1f m)", i,
+              was - now, k->loc.ms, k->loc.lat, k->loc.height, k->loc.br, s->tick, (unsigned)a->flags, k->p.x, k->p.y, k->p.z, near);
+    }
   }
 }
