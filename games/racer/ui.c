@@ -179,6 +179,7 @@ static struct {
   int cup_sel, cup_focus;
   struct battle_setup {
     int arena, karts, secs_i;      /* the arena, the karts in the round (2..8), the round's length (BATTLE_SECS index) */
+    int mode;                      /* AM_*: battle, capture the flag, king of the mountain */
     int focus;                     /* the arena screen: 0 the arenas, 1.. the option rows, then START */
   } bt;
   bool auto_cup;                   /* dev/gates: a cup that clicks through its own results and standings (the bot drives) */
@@ -945,10 +946,12 @@ static void dev_screen(void) {
     U.gmode = RM_BATTLE;
     U.setup.humans = n;
     if (getenv("RACER_UI_MAP")) U.bt.arena = atoi(getenv("RACER_UI_MAP")) % NARENAS;
+    if (getenv("RACER_UI_ROUND")) U.bt.mode = atoi(getenv("RACER_UI_ROUND")) % AM_KINDS; /* dev aid: 0 battle, 1 capture the flag, 2 king of the mountain */
     goto_mode(M_ARENA);
   } else if (!strcmp(d, "bpause")) {
-    /* a battle paused (RACER_UI_MAP picks the arena) */
-    race_setup rs = { .map = getenv("RACER_UI_MAP") ? atoi(getenv("RACER_UI_MAP")) % NARENAS : 0, .laps = 1, .humans = n, .cpu_skill = 3, .items = true, .mode = RM_BATTLE };
+    /* a battle paused (RACER_UI_MAP picks the arena, RACER_UI_ROUND the round) */
+    race_setup rs = { .map = getenv("RACER_UI_MAP") ? atoi(getenv("RACER_UI_MAP")) % NARENAS : 0, .laps = 1, .humans = n, .cpu_skill = 3, .items = true, .mode = RM_BATTLE,
+                      .arena_mode = getenv("RACER_UI_ROUND") ? atoi(getenv("RACER_UI_ROUND")) % AM_KINDS : 0 };
     for (int i = 0; i < MAXV; i++) rs.vehicle[i] = U.veh[i], rs.colour[i] = U.col[i];
     ui_enter_race(&rs);
     U.fade = 0;

@@ -1,5 +1,6 @@
 /* racer's item graphics: the item boxes along the road, missiles and homing missiles in flight, oil slicks, mines,
- * the lock-on reticle, and the blasts and the shockwave ring.
+ * boomerangs and bombs, the lock-on reticle, the items a kart holds ready (a triple missile's three circling it, a
+ * boomerang or a bomb over its back), and the blasts and the shockwave ring.
  *
  * Boxes are instanced (three meshes for all of them: the shell, the glowing "?" and a halo); hazards and blasts come
  * from pools built up front, so nothing is allocated while racing. Every pose is a function of the simulation
@@ -31,12 +32,14 @@ static struct {
   t3_object *miss_flame[MAXHZ][2], *homing_flame[MAXHZ][2];
   t3_object *reticle[MAXK];
   t3_object *held_mine[MAXK], *held_oil[MAXK]; /* an item held out behind a kart */
+  t3_object *boom[MAXHZ], *bomb[MAXHZ], *bomb_spark[MAXHZ];
+  t3_object *held_miss[MAXK][3], *held_boom[MAXK], *held_bomb[MAXK]; /* ready to use: circling the kart, over its back */
   t3_material *reticle_mat;
   fxrec fx[NFX];
   t3_object *fx_obj[NFX], *fx_ball[NFX], *fx_ring[NFX], *fx_ring2[NFX];
   t3_material *fx_mat[NFX][3];
   t3_material *flame_mat[2], *light_mat;
-  t3_geometry *geo[16];
+  t3_geometry *geo[24];
   int ngeo;
   const sim *sim;
   int last_tick;
@@ -45,13 +48,14 @@ static struct {
 void item_icon_color(int item, float rgb[3]) {
   static const float C[IT_KINDS][3] = {
     { 0.5f, 0.5f, 0.5f }, { 0.3f, 0.65f, 1.0f }, { 0.55f, 0.4f, 1.0f }, { 1.0f, 0.3f, 0.2f },  { 1.0f, 0.3f, 0.7f },
-    { 0.55f, 0.35f, 0.8f }, { 1.0f, 0.6f, 0.15f }, { 0.3f, 0.95f, 0.9f }, { 1.0f, 0.9f, 0.25f },
+    { 0.55f, 0.35f, 0.8f }, { 1.0f, 0.6f, 0.15f }, { 0.3f, 0.95f, 0.9f }, { 1.0f, 0.9f, 0.25f },  { 1.0f, 0.45f, 0.2f },
+    { 0.45f, 0.9f, 0.3f },  { 0.35f, 0.35f, 0.42f },
   };
   memcpy(rgb, C[item < 0 || item >= IT_KINDS ? 0 : item], sizeof(float) * 3);
 }
 
 static t3_geometry *keep(t3_geometry *g) {
-  if (g && I.ngeo < 16) I.geo[I.ngeo++] = g;
+  if (g && I.ngeo < 24) I.geo[I.ngeo++] = g;
   return g;
 }
 
@@ -188,6 +192,34 @@ static t3_geometry *reticle_geo(void) {
   return keep(mb_done(&b));
 }
 
+/* a boomerang: two flat arms meeting at a rounded elbow, in the xz plane (it spins about y), striped */
+static t3_geometry *boomerang_geo(void) {
+  mb b = { 0 };
+  float wood[3] = { 0.95f, 0.7f, 0.2f }, band[3] = { 0.25f, 0.75f, 0.3f }, tip[3] = { 0.9f, 0.2f, 0.15f };
+  for (int a = 0; a < 2; a++) {
+    float ang = a ? 0.95f : -0.95f;
+    float cx = sinf(ang) * 0.42f, cz = cosf(ang) * 0.42f;
+    mb_rbox(&b, xf_rot(cx, 0, cz, 0, ang, 0), 0.24f, 0.07f, 0.9f, 0.03f, 1, wood);
+    mb_rbox(&b, xf_rot(cx, 0.005f, cz, 0, ang, 0), 0.25f, 0.072f, 0.12f, 0.02f, 1, band);
+    mb_rbox(&b, xf_rot(sinf(ang) * 0.82f, 0, cosf(ang) * 0.82f, 0, ang, 0), 0.25f, 0.072f, 0.14f, 0.03f, 1, tip);
+  }
+  mb_cyl(&b, xf_at(0, 0, 0), 0.15f, 0.15f, 0.07f, 12, wood);
+  return keep(mb_done(&b));
+}
+
+/* a round black bomb with a brass cap, a fuse and two painted eyes */
+static t3_geometry *bomb_geo(void) {
+  mb b = { 0 };
+  float body[3] = { 0.1f, 0.1f, 0.12f }, cap[3] = { 0.8f, 0.6f, 0.2f }, fuse[3] = { 0.85f, 0.8f, 0.65f }, eye[3] = { 0.95f, 0.95f, 0.9f };
+  mb_ball(&b, v3(0, 0, 0), 0.5f, body);
+  mb_cyl(&b, xf_at(0, 0.5f, 0), 0.16f, 0.18f, 0.14f, 12, cap);
+  t3_vec3 f[4] = { v3(0, 0.56f, 0), v3(0.04f, 0.72f, 0), v3(0.12f, 0.82f, 0.02f), v3(0.2f, 0.86f, 0.04f) };
+  mb_polyline(&b, f, 4, 0.03f, 6, fuse);
+  mb_ball(&b, v3(-0.15f, 0.12f, 0.45f), 0.08f, eye);
+  mb_ball(&b, v3(0.15f, 0.12f, 0.45f), 0.08f, eye);
+  return keep(mb_done(&b));
+}
+
 static t3_geometry *flame_cone(void) {
   t3_geometry *g = t3_cone_geometry_new(0.5f, 1.0f, 10, 1, true);
   t3_geometry_translate(g, 0, 0.5f, 0);
@@ -266,6 +298,7 @@ void items_build(cw_node scene, const sim *s) {
   om->clearcoat_roughness = 0.03f;
   t3_geometry *mg = missile_geo(false), *hg = missile_geo(true), *ng = mine_geo(), *og = oil_geo(), *fg = flame_cone();
   t3_geometry *lg = keep(t3_sphere_geometry_new(0.075f, 8, 6));
+  t3_geometry *wg = boomerang_geo(), *bgeo = bomb_geo();
   for (int h = 0; h < MAXHZ; h++) {
     for (int v = 0; v < 2; v++) {
       t3_object *g = group_in(I.root);
@@ -291,6 +324,24 @@ void items_build(cw_node scene, const sim *s) {
     t3_object_set_position(lm, 0, 0.34f, 0);
     I.mine_light[h] = &lm->base;
     I.mine[h] = m;
+    I.boom[h] = group_in(I.root);
+    add_geo(I.boom[h], wg, mm, true);
+    I.bomb[h] = group_in(I.root);
+    add_geo(I.bomb[h], bgeo, mm, true);
+    t3_mesh *sp = add_geo(I.bomb[h], lg, I.flame_mat[1], false);
+    t3_object_set_position(&sp->base, 0.2f, 0.88f, 0.04f);
+    t3_object_set_scale(&sp->base, 1.8f, 1.8f, 1.8f);
+    I.bomb_spark[h] = &sp->base;
+  }
+  for (int k = 0; k < MAXK; k++) {
+    for (int j = 0; j < 3; j++) {
+      I.held_miss[k][j] = group_in(I.root);
+      add_geo(I.held_miss[k][j], mg, mm, true);
+    }
+    I.held_boom[k] = group_in(I.root);
+    add_geo(I.held_boom[k], wg, mm, true);
+    I.held_bomb[k] = group_in(I.root);
+    add_geo(I.held_bomb[k], bgeo, mm, true);
   }
   {
     /* held out behind a kart: the mine itself, or a squat oil drum */
@@ -363,7 +414,9 @@ void items_tick(const sim *s) {
     t3_quat q = { 0, 0, 0, 1 };
     if (ev->kind == EV_HIT) {
       int hk = (int)ev->k;
+      if (hk == HZ_BOMB && ev->a >= 0) continue; /* a kart caught in a bomb's blast: the blast itself is the one with no victim */
       if (hk == HZ_SHOCK) kind = 1, life = 50, size = 1;
+      else if (hk == HZ_BOMB) kind = 4, life = 46, size = 1;
       else if (hk == HZ_MINE) kind = 2, life = 36, size = 1;
       else kind = 3, life = 22, size = 0.6f;
       if (ev->a >= 0 && ev->a < MAXK) {
@@ -442,6 +495,27 @@ void items_frame(const sim *s, float alpha) {
     I.homing[h]->visible = is_h;
     I.oil[h]->visible = z->kind == HZ_OIL;
     I.mine[h]->visible = z->kind == HZ_MINE;
+    I.boom[h]->visible = z->kind == HZ_BOOMERANG;
+    I.bomb[h]->visible = z->kind == HZ_BOMB;
+    if (z->kind == HZ_BOOMERANG) {
+      /* spinning flat as it flies, tipped a little */
+      t3_vec3 p = v3sub(z->p, v3mul(z->f, z->speed / (float)TICK_HZ * (1.0f - alpha)));
+      t3_object_set_position(I.boom[h], p.x, p.y + 0.15f, p.z);
+      t3_object_set_quaternion(I.boom[h], t3_quat_multiply(t3_quat_from_axis_angle(v3(1, 0, 0), 0.25f), t3_quat_from_axis_angle(v3(0, 1, 0), t * 26.0f + (float)h)));
+      t3_object_set_scale(I.boom[h], 1.5f, 1.5f, 1.5f);
+    } else if (z->kind == HZ_BOMB) {
+      /* tumbling through the air; down, it swells and its spark fizzes faster as the fuse runs out */
+      float sc = 1.1f;
+      t3_quat q = t3_quat_from_axis_angle(v3(1, 0, 0), z->state == 0 ? (float)z->age * 0.3f : 0);
+      if (z->state == 1) {
+        float u = 1.0f - (float)z->life / 60.0f;
+        sc = 1.1f + 0.35f * u * u + 0.08f * sinf(t * (12.0f + 30.0f * u));
+      }
+      t3_object_set_position(I.bomb[h], z->p.x, z->p.y + 0.15f, z->p.z);
+      t3_object_set_quaternion(I.bomb[h], q);
+      t3_object_set_scale(I.bomb[h], sc, sc, sc);
+      I.bomb_spark[h]->visible = fmodf(t * 17.0f + (float)h * 0.3f, 1.0f) < 0.6f;
+    }
     if (is_m || is_h) {
       t3_object *o = is_h ? I.homing[h] : I.miss[h];
       t3_vec3 f = z->f, p = v3sub(z->p, v3mul(f, z->speed / (float)TICK_HZ * (1.0f - alpha)));
@@ -502,6 +576,36 @@ void items_frame(const sim *s, float alpha) {
       t3_object_set_quaternion(o, from_to(v3(0, 1, 0), u));
     }
   }
+  /* items ready to use: a triple missile's missiles circling the kart, a boomerang or a bomb over its back */
+  for (int k = 0; k < MAXK; k++) {
+    const kart *kk = &s->k[k];
+    bool ready = kk->on && !kk->parked && kk->item_wait == 0;
+    int nm = ready && kk->item == IT_MISSILE3 ? kk->item_count : 0;
+    I.held_boom[k]->visible = ready && kk->item == IT_BOOMERANG;
+    I.held_bomb[k]->visible = ready && kk->item == IT_BOMB;
+    for (int j = 0; j < 3; j++) I.held_miss[k][j]->visible = j < nm;
+    if (!ready || (nm == 0 && kk->item != IT_BOOMERANG && kk->item != IT_BOMB)) continue;
+    t3_vec3 kp = v3sub(kk->p, v3mul(kk->v, (1.0f - alpha) / (float)TICK_HZ));
+    t3_vec3 f = kart_fwd(kk), u = kart_up(kk), r = v3cross(f, u);
+    for (int j = 0; j < nm; j++) {
+      float a = t * 3.2f + (float)j * (2.0f * PI / 3.0f), sa = sinf(a), ca = cosf(a);
+      t3_vec3 p = v3add(v3add(kp, v3add(v3mul(f, ca * 1.7f), v3mul(r, sa * 1.7f))), v3mul(u, 0.55f));
+      t3_vec3 tan = v3add(v3mul(f, -sa), v3mul(r, ca)); /* nose along the way round */
+      t3_object_set_position(I.held_miss[k][j], p.x, p.y, p.z);
+      t3_object_set_quaternion(I.held_miss[k][j], from_to(v3(0, 0, 1), tan));
+      t3_object_set_scale(I.held_miss[k][j], 0.85f, 0.85f, 0.85f);
+    }
+    t3_vec3 back = v3add(v3sub(kp, v3mul(f, VEH[kk->veh].len * 0.55f)), v3mul(u, 1.35f + 0.06f * sinf(t * 4.0f)));
+    if (kk->item == IT_BOOMERANG) {
+      t3_object_set_position(I.held_boom[k], back.x, back.y, back.z);
+      t3_object_set_quaternion(I.held_boom[k], t3_quat_multiply(from_to(v3(0, 1, 0), u), t3_quat_from_axis_angle(v3(0, 1, 0), t * 2.5f)));
+      t3_object_set_scale(I.held_boom[k], 1.2f, 1.2f, 1.2f);
+    } else if (kk->item == IT_BOMB) {
+      t3_object_set_position(I.held_bomb[k], back.x, back.y, back.z);
+      t3_object_set_quaternion(I.held_bomb[k], t3_quat_multiply(from_to(v3(0, 1, 0), u), t3_quat_from_axis_angle(v3(0, 1, 0), atan2f(f.x, f.z))));
+      t3_object_set_scale(I.held_bomb[k], 0.9f, 0.9f, 0.9f);
+    }
+  }
   for (int k = 0; k < MAXK; k++) {
     t3_object *r = I.reticle[k];
     r->visible = marked[k] && s->k[k].on;
@@ -539,7 +643,7 @@ void items_frame(const sim *s, float alpha) {
       t3_object_set_scale(I.fx_ring2[i], r2, r2, r2);
       I.fx_mat[i][2]->opacity = 0.7f * (1 - u);
     } else {
-      float big = f->kind == 2 ? 1.0f : 0.5f;
+      float big = f->kind == 4 ? 2.1f : f->kind == 2 ? 1.0f : 0.5f;
       I.fx_ball[i]->visible = true;
       float bs = (0.5f + 3.2f * (1.0f - (1.0f - u) * (1.0f - u))) * big;
       t3_object_set_scale(I.fx_ball[i], bs, bs, bs);

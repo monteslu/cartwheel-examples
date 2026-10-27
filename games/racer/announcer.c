@@ -18,7 +18,9 @@
  * Split screen: the race-wide calls (the countdown, the laps of the first human to get there, the welcome, colour)
  * speak once; the player's own calls (place, hits, stunts, the finish) follow the best-placed human still racing,
  * which is also the one a "lead" call is about. An alarm (a Shockwave coming) is said for any human.
- * A battle (no laps, places or welcome) gets the countdown, the hits and pops, the alarms and colour.
+ * A battle (no laps, places or welcome) gets the countdown, the hits and pops, the alarms and colour; capture the flag
+ * its flags (yours taken, theirs grabbed, a capture either way, a save) and king of the mountain the hill (a new king, the
+ * hill about to move, a crowd on it).
  * Off in a demo race (no humans), and when the player turns it off (Options: ANNOUNCER).
  *
  * Dev aids: RACER_VOICE_LOG=file (or 1: the engine log) writes every line said, dropped or cut, with the time;
@@ -131,6 +133,10 @@ void announcer_init(int parent) {
   rule(VL_CLOSE_CALL, P_POS, 1.0f, 20); /* a pack fight shaves past often: one in twenty seconds is plenty */
   rule(VL_POP, P_BIG, 1.2f, 5), rule(VL_LAST_BALLOON, P_ALERT, 1.5f, 0), rule(VL_KNOCKED_OUT, P_FINAL, 2, 0);
   rule(VL_RIVAL_OUT, P_POS, 1.5f, 8), rule(VL_BATTLE_WIN, P_FINISH, 4, 0), rule(VL_BATTLE_OVER, P_FINISH, 4, 0);
+  rule(VL_FLAG_GOT, P_BIG, 1.5f, 4), rule(VL_FLAG_STOLEN, P_ALERT, 1.5f, 6), rule(VL_FLAG_CAPTURED, P_FINAL, 2.5f, 0), rule(VL_FLAG_LOST, P_BIG, 2, 0);
+  rule(VL_FLAG_SAVED, P_POS, 1.5f, 8), rule(VL_TEAM_WIN, P_FINISH, 4, 0);
+  rule(VL_KING, P_BIG, 1.5f, 10), rule(VL_HILL_MOVING, P_ALERT, 2, 0), rule(VL_CONTESTED, P_POS, 1, 15);
+  rule(VL_BOMB_HIT, P_BIG, 1.2f, 10), rule(VL_BOOMERANG_HIT, P_BIG, 1.2f, 10);
   for (int i = 0; i < VL_N; i++) {
     const voice_line *l = &VOICE_LINES[i];
     for (int v = 0; v < l->n; v++) {
@@ -363,8 +369,13 @@ void announcer_events(const sim *s) {
       }
       break;
     case EV_FINISH: {
-      if (s->battle) { /* the round is over: a = the winner */
-        if (!N.finish_said) say(is_human(s, e->a) ? VL_BATTLE_WIN : VL_BATTLE_OVER);
+      if (s->battle) { /* the round is over: a = the winner (capture the flag: the winning team, any human on it) */
+        bool won = is_human(s, e->a);
+        if (s->amode == AM_CTF) {
+          won = false;
+          for (int i = 0; i < MAXK; i++) won = won || (is_human(s, i) && s->win_team >= 0 && s->k[i].team == s->win_team);
+        }
+        if (!N.finish_said) say(!won ? VL_BATTLE_OVER : s->amode == AM_CTF ? VL_TEAM_WIN : s->amode == AM_KOTM ? VL_KING : VL_BATTLE_WIN);
         N.finish_said = true;
         break;
       }
@@ -411,13 +422,32 @@ void announcer_events(const sim *s) {
       if (is_human(s, e->a)) say(VL_SHOCK_WARN);
       break;
     case EV_HIT: {
-      if (s->battle) break; /* a battle calls the pop that follows */
+      if (s->battle && s->amode == AM_BALLOON) break; /* a battle calls the pop that follows */
       int hz = (int)(e->k + 0.5f);
-      if (hz != HZ_MISSILE && hz != HZ_HOMING && hz != HZ_MINE) break;
-      if (mine(s, e->b) && e->a != e->b) say(VL_DIRECT_HIT);
+      if (hz != HZ_MISSILE && hz != HZ_HOMING && hz != HZ_MINE && hz != HZ_BOMB && hz != HZ_BOOMERANG) break;
+      if (e->a < 0) break; /* a bomb's blast itself: the karts it catches come after it */
+      if (mine(s, e->b) && e->a != e->b) say(hz == HZ_BOMB ? VL_BOMB_HIT : hz == HZ_BOOMERANG ? VL_BOOMERANG_HIT : VL_DIRECT_HIT);
       else if (mine(s, e->a)) say(VL_GOT_HIT);
       break;
     }
+    case EV_FLAG: { /* capture the flag: k = the flag's team (a capture: the team that scored) */
+      int ft = (int)(e->k + 0.5f), my = N.focus >= 0 ? s->k[N.focus].team : -1;
+      if (my < 0) break;
+      if (e->b == FE_TAKEN && mine(s, e->a)) say(VL_FLAG_GOT);
+      else if (e->b == FE_TAKEN && ft == my) say(VL_FLAG_STOLEN);
+      else if (e->b == FE_CAPTURED) say(ft == my ? VL_FLAG_CAPTURED : VL_FLAG_LOST);
+      else if (e->b == FE_RETURNED && ft == my) say(VL_FLAG_SAVED);
+      break;
+    }
+    case EV_HILL: /* king of the mountain */
+      if (e->b == HE_SOON) say(VL_HILL_MOVING);
+      else if (e->b == HE_TAKEN && mine(s, e->a)) say(VL_KING);
+      else if (e->b == HE_CONTESTED && N.focus >= 0) {
+        const kart *k = &s->k[N.focus];
+        float dx = k->p.x - s->hill.x, dz = k->p.z - s->hill.z;
+        if (dx * dx + dz * dz < HILL_R * HILL_R) say(VL_CONTESTED);
+      }
+      break;
     case EV_FALL:
       if (mine(s, e->a)) say(VL_FALL);
       break;

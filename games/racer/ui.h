@@ -38,6 +38,7 @@ typedef struct race_setup {
    * length in seconds (0: three minutes) */
   int karts;
   int battle_secs;
+  int arena_mode;   /* AM_*: what the arena round is played for (balloons, capture the flag, king of the mountain) */
 } race_setup;
 
 /* ── provided by main.c ─────────────────────────────────────────────── */

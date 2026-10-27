@@ -11,7 +11,18 @@
  * ramps and decks, and glances off walls and cover (a few times, then it bursts); a homing missile turns after the
  * kart it locked at launch; oil and mines lie where they were dropped. A kart under any boost that drives into
  * another at RAM_SPEED or more pops one of its balloons (the TURBO RAM): turbos and drift boosts are weapons.
- * Item boxes stand where the arena puts them and come back six seconds after they are taken. */
+ * Item boxes stand where the arena puts them and come back six seconds after they are taken.
+ *
+ * The same arena plays two more rounds (sim.amode, sim_set_arena_mode), with no balloons and nobody out:
+ *   capture the flag     two teams (red and blue), a flag on each team's base at opposite ends. Drive over the other
+ *                        team's flag to take it and bring it to your own base while your own flag is home: a capture.
+ *                        A carrier that spins (any hit) drops the flag where it is; the flag's own team touching it sends
+ *                        it home, the other team picks it up again; left alone it goes home after FLAG_RETURN. First to
+ *                        CTF_WIN captures, or the most when the clock runs out (level: a draw). No friendly fire.
+ *   king of the mountain one hill (a circle HILL_R wide on one of the arena's hill spots, moving to another every
+ *                        HILL_MOVE, called out five seconds before). A kart alone on it scores its time there; two or
+ *                        more score nobody; a spinning kart is not on it (and a hit shoves it off). The most time when
+ *                        the clock runs out wins. */
 
 #define BATTLE_TICKS (180 * TICK_HZ)
 #define POP_GRACE 100   /* ticks after a pop before the same kart can lose another */
@@ -21,23 +32,32 @@
 #define B_MISSILE_LIFE (int)(3.4f * TICK_HZ)
 #define B_HOMING_LIFE (int)(4.2f * TICK_HZ)
 #define B_BOUNCES 3
+#define FLAG_R 3.4f              /* a kart this near a flag (or its base, the flag at home) touches it */
+#define BASE_R 7.0f              /* a carrier this near its own base captures */
+#define FLAG_RETURN (20 * TICK_HZ)
+#define HILL_MOVE (35 * TICK_HZ)
+#define HILL_WARN (5 * TICK_HZ)
 
-/* the items in battle: no place to weight by, so a kart with fewer balloons left draws more of the strong ones */
+/* the items in battle: no place to weight by, so a kart with fewer balloons left draws more of the strong ones (the other
+ * rounds draw from the middle column) */
 static const uint8_t BATTLE_W[IT_KINDS][BALLOONS] = {
   /*            1 left  2  3 */
   [IT_TURBO] = { 8, 10, 12 },
   [IT_TURBO3] = { 6, 5, 4 },
-  [IT_MISSILE] = { 26, 28, 30 },
+  [IT_MISSILE] = { 22, 24, 26 },
   [IT_HOMING] = { 18, 14, 10 },
   [IT_OIL] = { 8, 10, 12 },
-  [IT_MINE] = { 14, 16, 18 },
+  [IT_MINE] = { 12, 14, 16 },
   [IT_SHIELD] = { 14, 10, 7 },
   [IT_SHOCK] = { 6, 4, 2 },
+  [IT_MISSILE3] = { 8, 7, 6 },
+  [IT_BOOMERANG] = { 10, 10, 10 },
+  [IT_BOMB] = { 10, 9, 8 },
 };
 
 static int roll_battle_item(sim *s, int i) {
   if (s->item_set == 1) return (rnd(s) % 3u) ? IT_TURBO : IT_TURBO3; /* the turbos-only preset: a battle of turbo rams */
-  int b = s->k[i].balloons - 1;
+  int b = s->amode == AM_BALLOON ? s->k[i].balloons - 1 : 1;
   b = b < 0 ? 0 : b >= BALLOONS ? BALLOONS - 1 : b;
   int total = 0;
   for (int it = 1; it < IT_KINDS; it++) total += BATTLE_W[it][b];
@@ -101,28 +121,85 @@ static void battle_place(sim *s, int i, float x, float z, float yaw, float speed
   PH.prev_s[i] = k->loc.s;
 }
 
+/* a point of the arena's own frame (x, z) in the world, standing on the floor there (the top of a deck or a mound) */
+static t3_vec3 arena_spot(const sim *s, float x, float z) {
+  float wz = z + ARENA_CZ;
+  return (t3_vec3){ x, arena_level(s->arena, x, wz), wz };
+}
+
+/* king of the mountain: the hill onto spot h */
+static void hill_put(sim *s, int h) {
+  const arena_def *d = s->arena->def;
+  s->hill_i = h;
+  s->hill = d->nhills > 0 ? arena_spot(s, d->hills[h][0], d->hills[h][1]) : arena_spot(s, 0, 0);
+  s->hill_left = HILL_MOVE;
+  s->hill_holder = -1;
+}
+
+static void flag_home(sim *s, int t) {
+  s->flag[t].state = FL_HOME;
+  s->flag[t].carrier = -1;
+  s->flag[t].timer = 0;
+  s->flag[t].p = s->base[t];
+}
+
 static void battle_place_all(sim *s) {
   const arena_rt *a = s->arena;
-  int n = 0;
+  const arena_def *d = a->def;
+  int n = 0, nt[2] = { 0, 0 };
+  if (s->amode == AM_CTF)
+    for (int t = 0; t < 2; t++) s->base[t] = arena_spot(s, d->base[t][0], d->base[t][1]);
   for (int i = 0; i < MAXK; i++) {
     kart *k = &s->k[i];
     if (!k->on) continue;
-    /* the spawns are listed so that the first two face each other across the arena, the first four are a quarter turn apart */
-    int sp = a->nspawn > 0 ? n % a->nspawn : 0;
-    if (a->nspawn > 0) battle_place(s, i, a->spawn[sp][0], a->spawn[sp][1], a->spawn[sp][2], 0);
-    else battle_place(s, i, (float)n * 4 - 14, ARENA_CZ, 0, 0);
-    k->balloons = BALLOONS;
+    if (s->amode == AM_CTF && d->team_spawns) {
+      /* round its own base, facing the other */
+      int t = k->team & 1, sp = t * 4 + nt[t]++ % 4;
+      battle_place(s, i, d->team_spawns[sp][0], d->team_spawns[sp][1] + ARENA_CZ, d->team_spawns[sp][2] * (CW_PI / 180.0f), 0);
+    } else {
+      /* the spawns are listed so that the first two face each other across the arena, the first four are a quarter turn apart */
+      int sp = a->nspawn > 0 ? n % a->nspawn : 0;
+      if (a->nspawn > 0) battle_place(s, i, a->spawn[sp][0], a->spawn[sp][1], a->spawn[sp][2], 0);
+      else battle_place(s, i, (float)n * 4 - 14, ARENA_CZ, 0, 0);
+    }
+    k->balloons = s->amode == AM_BALLOON ? BALLOONS : 0;
     k->points = k->pops_taken = 0;
     k->out = k->parked = false;
     k->out_tick = 0;
     k->ram_cool = 0;
     k->lap = 0;
+    k->carry = -1;
+    k->caps = k->steals = k->returns = k->flag_cool = 0;
+    k->hill_ticks = 0;
     n++;
   }
   s->alive = n;
   s->battle_left = s->battle_limit;
   s->battle_end = BE_NONE;
   s->humans_out_tick = 0;
+  s->team_score[0] = s->team_score[1] = 0;
+  s->win_team = -1;
+  if (s->amode == AM_CTF)
+    for (int t = 0; t < 2; t++) flag_home(s, t);
+  if (s->amode == AM_KOTM) hill_put(s, 0);
+}
+
+void sim_set_arena_mode(sim *s, int mode) {
+  if (!s->battle) return;
+  s->amode = mode >= 0 && mode < AM_KINDS ? mode : AM_BALLOON;
+  /* the teams: the humans by player (one or two all red; three or four alternate), then the CPUs to whichever team is
+   * short (red first) */
+  int humans = 0;
+  for (int i = 0; i < MAXK; i++) humans += s->k[i].on && s->k[i].human;
+  int nt[2] = { 0, 0 };
+  for (int i = 0; i < MAXK; i++) {
+    kart *k = &s->k[i];
+    if (!k->on) continue;
+    if (k->human) k->team = humans <= 2 ? 0 : i & 1;
+    else k->team = nt[1] < nt[0] ? 1 : 0;
+    nt[k->team]++;
+  }
+  battle_place_all(s);
 }
 
 static void battle_boxes(sim *s) {
@@ -142,7 +219,47 @@ void sim_set_battle_time(sim *s, int ticks) {
   s->battle_left = s->battle_limit;
 }
 
-/* a hit that spun kart i (spin_kart): a balloon goes, the attacker scores, and maybe it is out */
+/* capture the flag: kart i (spun, or put back) lets go of the flag it carries; dropped where it is, or home when it fell */
+static void flag_drop(sim *s, int i, bool home) {
+  kart *k = &s->k[i];
+  if (s->amode != AM_CTF || k->carry < 0) return;
+  int t = k->carry;
+  k->carry = -1;
+  k->flag_cool = 60;
+  if (home) {
+    flag_home(s, t);
+    event(s, EV_FLAG, i, FE_HOME, s->flag[t].p, (float)t);
+    return;
+  }
+  float y = battle_floor(s, k->p.x, k->p.y + 1.0f, k->p.z);
+  s->flag[t].state = FL_DROPPED;
+  s->flag[t].carrier = -1;
+  s->flag[t].timer = FLAG_RETURN;
+  s->flag[t].p = (t3_vec3){ k->p.x, y < -50 ? k->p.y - RIDE : y, k->p.z };
+  event(s, EV_FLAG, i, FE_DROPPED, s->flag[t].p, (float)t);
+}
+
+static void battle_pop(sim *s, int i, int by);
+/* a hit that spun kart i (spin_kart): in a battle a balloon; capture the flag drops the flag it carries; king of the
+ * mountain shoves it off the hill. Every round: a shorter spin and a moment's grace after it */
+static void battle_hit(sim *s, int i, int by) {
+  kart *k = &s->k[i];
+  if (s->amode == AM_BALLOON) {
+    battle_pop(s, i, by);
+    return;
+  }
+  k->ram_cool = POP_GRACE;
+  k->spin_ticks = (int)((float)k->spin_ticks * BATTLE_SPIN_K);
+  if (by >= 0 && by < MAXK && by != i && s->k[by].on) s->k[by].points += s->amode == AM_CTF ? 1 : 0;
+  if (s->amode == AM_CTF) flag_drop(s, i, false);
+  else {
+    t3_vec3 d = { k->p.x - s->hill.x, 0, k->p.z - s->hill.z };
+    float l = v3len(d);
+    if (l < HILL_R + 3.0f && l > 1e-3f) cw_body3d_apply_impulse(PH.body[i], v3mul(d, 9.0f * VEH[k->veh].mass / l), NULL);
+  }
+}
+
+/* a hit that spun kart i in a battle: a balloon goes, the attacker scores, and maybe it is out */
 static void battle_pop(sim *s, int i, int by) {
   kart *k = &s->k[i];
   if (k->out || k->balloons <= 0) return;
@@ -180,18 +297,27 @@ static void battle_park(sim *s, int i) {
 /* a kart that fell or stuck: back on the floor at the spawn farthest from the others, facing the middle */
 static void battle_respawn(sim *s, int i) {
   const arena_rt *a = s->arena;
-  int best = 0;
+  const arena_def *d = a->def;
+  flag_drop(s, i, true);
+  /* capture the flag: one of its own team's starts (the one farthest from the other team) */
+  bool team = s->amode == AM_CTF && d->team_spawns;
+  int best = 0, nsp = team ? 4 : a->nspawn;
   float bd = -1;
-  for (int sp = 0; sp < a->nspawn; sp++) {
+  for (int sp = 0; sp < nsp; sp++) {
+    float sx = team ? d->team_spawns[(s->k[i].team & 1) * 4 + sp][0] : a->spawn[sp][0];
+    float sz = team ? d->team_spawns[(s->k[i].team & 1) * 4 + sp][1] + ARENA_CZ : a->spawn[sp][1];
     float dmin = 1e9f;
     for (int j = 0; j < MAXK; j++) {
-      if (j == i || !s->k[j].on || s->k[j].out) continue;
-      float dx = s->k[j].p.x - a->spawn[sp][0], dz = s->k[j].p.z - a->spawn[sp][1];
+      if (j == i || !s->k[j].on || s->k[j].out || (team && !kart_foe(s, i, j))) continue;
+      float dx = s->k[j].p.x - sx, dz = s->k[j].p.z - sz;
       dmin = minf(dmin, dx * dx + dz * dz);
     }
     if (dmin > bd) bd = dmin, best = sp;
   }
-  if (a->nspawn > 0) battle_place(s, i, a->spawn[best][0], a->spawn[best][1], a->spawn[best][2], 6.0f);
+  if (team) {
+    const float *sp = d->team_spawns[(s->k[i].team & 1) * 4 + best];
+    battle_place(s, i, sp[0], sp[1] + ARENA_CZ, sp[2] * (CW_PI / 180.0f), 6.0f);
+  } else if (a->nspawn > 0) battle_place(s, i, a->spawn[best][0], a->spawn[best][1], a->spawn[best][2], 6.0f);
   kart *k = &s->k[i];
   k->respawn_ticks = 90;
   k->stall_ticks = 0;
@@ -216,7 +342,7 @@ static int battle_mark(const sim *s, int i) {
   float bs = 1e9f;
   for (int j = 0; j < MAXK; j++) {
     const kart *o = &s->k[j];
-    if (j == i || !o->on || o->out) continue;
+    if (j == i || !o->on || o->out || !kart_foe(s, i, j)) continue;
     t3_vec3 d = v3sub(o->p, k->p);
     d.y = 0;
     float dist = v3len(d);
@@ -264,11 +390,35 @@ static bool battle_use_item(sim *s, int i, int item) {
     z->h = 0.1f; /* the puddle is drawn this far under z->p (along the flat frame), on whatever floor it lies on */
     return true;
   }
+  case IT_BOOMERANG: {
+    hazard *z = hz_add(s, HZ_BOOMERANG, i, 0, 0, 0);
+    if (!z) return true;
+    z->p = v3add(v3add(k->p, v3mul(f, 2.6f)), (t3_vec3){ 0, 0.5f, 0 });
+    z->f = f;
+    z->speed = BOOM_REL + 4.0f;
+    z->life = BOOM_LIFE;
+    battle_hz_place(s, z);
+    return true;
+  }
+  case IT_BOMB: {
+    /* lobbed: ahead, or behind with the brake held (z->f and z->speed the flight across the floor) */
+    bool back = k->last_thr < -40;
+    hazard *z = hz_add(s, HZ_BOMB, i, 0, 0, 0);
+    if (!z) return true;
+    z->p = v3add(v3add(k->p, v3mul(f, back ? -1.5f : 1.5f)), (t3_vec3){ 0, 1.2f, 0 });
+    z->f = back ? v3mul(f, -1) : f;
+    float fwd = v3dot(k->v, f);
+    z->speed = back ? maxf(14.0f - fwd, 4.0f) : maxf(fwd, 0) + 22.0f;
+    z->vy = 7.5f;
+    z->life = 4 * TICK_HZ;
+    battle_hz_place(s, z);
+    return true;
+  }
   case IT_SHOCK:
     /* a ring out from the kart: everyone within 30 m gets the alarm (a hop clears it) */
     for (int j = 0; j < MAXK; j++) {
       kart *o = &s->k[j];
-      if (j == i || !o->on || o->out || o->shock_warn) continue;
+      if (j == i || !o->on || o->out || o->shock_warn || !kart_foe(s, i, j)) continue;
       t3_vec3 d = v3sub(o->p, k->p);
       if (v3dot(d, d) > 30.0f * 30.0f) continue;
       o->shock_warn = SHOCK_WARN / 2, o->shock_by = i;
@@ -289,10 +439,109 @@ static t3_vec3 turn_to(t3_vec3 f, t3_vec3 want, float max) {
   return (t3_vec3){ f.x * cs + f.z * sn, 0, -f.x * sn + f.z * cs };
 }
 
+/* a step of a missile or a boomerang across the floor: glances off a wall (false when it has glanced off too many and
+ * burst), then rides the floor up ramps and over decks */
+static bool battle_fly(sim *s, hazard *z, int bounces) {
+  t3_vec3 step = v3mul(z->f, z->speed * DT);
+  float fr = 0;
+  t3_vec3 n;
+  if (sim_ray(s, z->p, v3mul(step, 1.6f), &fr, &n) && absf(n.y) < 0.6f && fr < 0.625f) {
+    t3_vec3 nh = v3norm((t3_vec3){ n.x, 0, n.z });
+    if (++z->bounces > bounces) return false;
+    z->f = v3norm(v3sub(z->f, v3mul(nh, 2.0f * v3dot(z->f, nh))));
+    z->f.y = 0;
+    z->p = v3add(v3add(z->p, v3mul(step, fr * 1.6f)), v3mul(nh, 0.35f));
+  } else z->p = v3add(z->p, step);
+  float fl = battle_floor(s, z->p.x, z->p.y + 1.4f, z->p.z);
+  float want = fl + 0.75f;
+  if (fl < -50) z->p.y -= 0.35f;
+  else z->p.y += (want - z->p.y) * 0.45f;
+  return z->p.y > -20;
+}
+
+/* a boomerang or a bomb in an arena (world space; see thrown_step for the road's):
+ *   boomerang  straight out BOOM_OUT_M, glancing off walls, then back after its thrower, who catches it; one hit on
+ *              each kart it meets, BOOM_HITS at most; a hop lets it by
+ *   bomb       an arc that lands on whatever floor is there (a wall stops it going on), BOMB_FUSE of fizzing, the blast;
+ *              another kart running into it sets it off at once */
+static void battle_thrown_step(sim *s, hazard *z) {
+  z->age++;
+  if (--z->life <= 0) {
+    if (z->kind == HZ_BOMB) bomb_blast(s, z);
+    else z->kind = HZ_NONE;
+    return;
+  }
+  const kart *own = z->owner >= 0 ? &s->k[z->owner] : NULL;
+  if (z->kind == HZ_BOOMERANG) {
+    if (z->state == 0) {
+      z->dist += z->speed * DT;
+      if (z->dist >= BOOM_OUT_M) z->state = 1;
+    } else if (own && own->on && !own->out) {
+      t3_vec3 d = v3sub(own->p, z->p);
+      d.y = 0;
+      float l = v3len(d);
+      if (l > 0.3f) z->f = turn_to(z->f, v3mul(d, 1.0f / l), 7.0f * DT);
+      z->speed = BOOM_REL + 6.0f;
+    }
+    if (!battle_fly(s, z, 6)) {
+      z->kind = HZ_NONE;
+      return;
+    }
+  } else if (z->state == 0) {
+    t3_vec3 step = v3mul(z->f, z->speed * DT);
+    float fr = 0;
+    t3_vec3 n;
+    if (sim_ray(s, z->p, step, &fr, &n) && absf(n.y) < 0.6f) z->speed = 0; /* it hit a wall: it drops there */
+    else z->p = v3add(z->p, step);
+    z->p.y += z->vy * DT;
+    z->vy -= GRAV * DT;
+    float fl = battle_floor(s, z->p.x, z->p.y + 1.0f, z->p.z);
+    if (z->vy < 0 && fl > -50 && z->p.y <= fl + 0.35f) z->p.y = fl + 0.35f, z->state = 1, z->life = BOMB_FUSE;
+    if (z->p.y < -20) {
+      z->kind = HZ_NONE;
+      return;
+    }
+  }
+  battle_hz_place(s, z);
+  for (int i = 0; i < MAXK; i++) {
+    kart *k = &s->k[i];
+    if (!k->on || k->out || k->parked || k->respawn_ticks > 0) continue;
+    if (i != z->owner && z->owner >= 0 && !kart_foe(s, i, z->owner)) continue;
+    t3_vec3 d = v3sub(k->p, z->p);
+    if (z->kind == HZ_BOMB) {
+      if (z->state == 1 && i != z->owner && v3dot(d, d) < 2.3f * 2.3f) {
+        bomb_blast(s, z);
+        return;
+      }
+      continue;
+    }
+    if (i == z->owner) {
+      if (z->state == 1 && z->age > 30 && v3dot(d, d) < 2.8f * 2.8f) {
+        z->kind = HZ_NONE; /* caught */
+        return;
+      }
+      continue;
+    }
+    if ((z->hitmask >> i) & 1 || v3dot(d, d) > 2.0f * 2.0f) continue;
+    z->hitmask |= 1 << i;
+    if (hopped(s, i, z)) continue;
+    event(s, EV_HIT, i, z->owner, z->p, (float)HZ_BOOMERANG);
+    spin_kart(s, i, SPIN_HIT, z->owner);
+    if (++z->hits >= BOOM_HITS) {
+      z->kind = HZ_NONE;
+      return;
+    }
+  }
+}
+
 static void battle_hazards_step(sim *s) {
   for (int h = 0; h < MAXHZ; h++) {
     hazard *z = &s->hz[h];
     if (!z->kind) continue;
+    if (z->kind == HZ_BOOMERANG || z->kind == HZ_BOMB) {
+      battle_thrown_step(s, z);
+      continue;
+    }
     z->age++;
     if (--z->life <= 0) {
       if (z->kind == HZ_MISSILE || z->kind == HZ_HOMING) event(s, EV_HIT, -1, z->owner, z->p, (float)z->kind);
@@ -336,6 +585,7 @@ static void battle_hazards_step(sim *s) {
     for (int i = 0; i < MAXK; i++) {
       kart *k = &s->k[i];
       if (!k->on || k->out || k->respawn_ticks > 0) continue;
+      if (i != z->owner && z->owner >= 0 && !kart_foe(s, i, z->owner)) continue; /* a teammate's: it passes through */
       bool missile = z->kind == HZ_MISSILE || z->kind == HZ_HOMING;
       if (z->owner == i && z->age < (missile ? 24 : 45)) continue;
       t3_vec3 d = v3sub(k->p, z->p);
@@ -348,7 +598,7 @@ static void battle_hazards_step(sim *s) {
         event(s, EV_HIT, i, z->owner, z->p, (float)HZ_MINE);
         spin_kart(s, i, SPIN_BOOM, z->owner);
         for (int j = 0; j < MAXK; j++) {
-          if (j == i || !s->k[j].on || s->k[j].out) continue;
+          if (j == i || !s->k[j].on || s->k[j].out || (z->owner >= 0 && j != z->owner && !kart_foe(s, j, z->owner))) continue;
           t3_vec3 e = v3sub(s->k[j].p, z->p);
           if (v3dot(e, e) < 4.5f * 4.5f) spin_kart(s, j, SPIN_HIT, z->owner);
         }
@@ -369,7 +619,7 @@ static void battle_ram(sim *s, int a, int b, t3_vec3 n_ab, float speed) {
     int att = pass ? b : a, vic = pass ? a : b;
     t3_vec3 to_vic = pass ? v3mul(n_ab, -1) : n_ab;
     kart *ka = &s->k[att], *kv = &s->k[vic];
-    if (ka->out || kv->out || ka->boost_ticks <= 0 || ka->spin_ticks > 0) continue;
+    if (ka->out || kv->out || ka->boost_ticks <= 0 || ka->spin_ticks > 0 || !kart_foe(s, att, vic)) continue;
     if (v3dot(flat_fwd(ka), to_vic) < 0.55f) continue; /* its nose went in, not its flank */
     event(s, EV_RAM, att, vic, kv->p, speed);
     spin_kart(s, vic, SPIN_HIT, att);
@@ -387,7 +637,15 @@ static void battle_rank(sim *s) {
     while (b >= 0) {
       const kart *p = &s->k[idx[b]], *q = &s->k[x];
       bool better;
-      if (p->out != q->out) better = !q->out;
+      if (s->amode == AM_CTF) {
+        /* the leading team first, then the points (a capture 3, a flag taken or sent home 1, a hit 1) */
+        int tp = s->team_score[p->team & 1] - s->team_score[(p->team & 1) ^ 1], tq = s->team_score[q->team & 1] - s->team_score[(q->team & 1) ^ 1];
+        if (tq != tp) better = tq > tp;
+        else if (q->points != p->points) better = q->points > p->points;
+        else better = q->caps > p->caps;
+      } else if (s->amode == AM_KOTM) {
+        better = q->hill_ticks != p->hill_ticks ? q->hill_ticks > p->hill_ticks : q->hits_given > p->hits_given;
+      } else if (p->out != q->out) better = !q->out;
       else if (q->points != p->points) better = q->points > p->points;
       else if (q->balloons != p->balloons) better = q->balloons > p->balloons;
       else if (q->out && p->out) better = q->out_tick > p->out_tick;
@@ -404,18 +662,102 @@ static void battle_rank(sim *s) {
   }
 }
 
+/* a kart that can touch a flag or hold the hill: in the round, on its wheels (not spinning or flickering back in) */
+static bool battle_able(const kart *k) { return k->on && !k->out && !k->parked && k->respawn_ticks <= 0 && k->spin_ticks <= 0; }
+
+/* near a point: across the floor, and on the same level (a deck over it is not there) */
+static bool battle_near(t3_vec3 p, t3_vec3 at, float r) {
+  float dx = p.x - at.x, dz = p.z - at.z;
+  return dx * dx + dz * dz < r * r && absf(p.y - RIDE - at.y) < 2.5f;
+}
+
+/* capture the flag, every tick of the round: carried flags ride their carriers, dropped ones wait (then go home),
+ * karts touch flags, carriers reach their bases */
+static void ctf_step(sim *s) {
+  for (int t = 0; t < 2; t++) {
+    struct ctf_flag *f = &s->flag[t];
+    if (f->state == FL_CARRIED) f->p = s->k[f->carrier].p;
+    else if (f->state == FL_DROPPED && --f->timer <= 0) {
+      flag_home(s, t);
+      event(s, EV_FLAG, -1, FE_HOME, f->p, (float)t);
+    }
+  }
+  for (int i = 0; i < MAXK; i++) {
+    kart *k = &s->k[i];
+    if (k->flag_cool > 0) k->flag_cool--;
+    if (!battle_able(k)) continue;
+    int own = k->team & 1, other = own ^ 1;
+    struct ctf_flag *mine = &s->flag[own], *theirs = &s->flag[other];
+    /* its own flag lying out: sent home */
+    if (mine->state == FL_DROPPED && battle_near(k->p, mine->p, FLAG_R)) {
+      flag_home(s, own);
+      k->returns++, k->points++;
+      event(s, EV_FLAG, i, FE_RETURNED, k->p, (float)own);
+    }
+    /* the other team's flag, at home or lying out: taken */
+    if (k->carry < 0 && k->flag_cool == 0 && theirs->state != FL_CARRIED && battle_near(k->p, theirs->p, FLAG_R)) {
+      theirs->state = FL_CARRIED;
+      theirs->carrier = i;
+      theirs->p = k->p;
+      k->carry = other;
+      k->steals++, k->points++;
+      event(s, EV_FLAG, i, FE_TAKEN, k->p, (float)other);
+    }
+    /* home with it, its own flag at home: a capture */
+    if (k->carry >= 0 && mine->state == FL_HOME && battle_near(k->p, s->base[own], BASE_R)) {
+      int t = k->carry;
+      k->carry = -1;
+      flag_home(s, t);
+      s->team_score[own]++;
+      k->caps++, k->points += 3;
+      event(s, EV_FLAG, i, FE_CAPTURED, k->p, (float)own);
+    }
+  }
+}
+
+/* king of the mountain, every tick of the round: who is on the hill, the score, and the move */
+static void kotm_step(sim *s) {
+  const arena_def *d = s->arena->def;
+  if (--s->hill_left == HILL_WARN && d->nhills > 1) event(s, EV_HILL, -1, HE_SOON, s->hill, 0);
+  if (s->hill_left <= 0) {
+    int h = s->hill_i;
+    if (d->nhills > 1) h = (s->hill_i + 1 + (int)(rnd(s) % (uint32_t)(d->nhills - 1))) % d->nhills;
+    hill_put(s, h);
+    event(s, EV_HILL, -1, HE_MOVED, s->hill, 0);
+  }
+  int on = 0, who = -1;
+  for (int i = 0; i < MAXK; i++)
+    if (battle_able(&s->k[i]) && battle_near(s->k[i].p, s->hill, HILL_R)) on++, who = i;
+  int holder = on == 1 ? who : on > 1 ? -2 : -1;
+  if (holder >= 0) {
+    kart *k = &s->k[holder];
+    k->hill_ticks++;
+    k->points = k->hill_ticks / TICK_HZ;
+  }
+  if (holder != s->hill_holder) {
+    if (holder >= 0) event(s, EV_HILL, holder, HE_TAKEN, s->hill, 0);
+    else if (holder == -2) event(s, EV_HILL, -1, HE_CONTESTED, s->hill, 0);
+    s->hill_holder = holder;
+  }
+}
+
 /* PH_RACE in a battle: the clock and the end of the round */
 static void battle_phase(sim *s) {
   if (s->battle_left > 0) s->battle_left--;
+  if (s->amode == AM_CTF) ctf_step(s);
+  else if (s->amode == AM_KOTM) kotm_step(s);
   int humans = 0, humans_in = 0;
   for (int i = 0; i < MAXK; i++)
     if (s->k[i].on && s->k[i].human) humans++, humans_in += !s->k[i].out;
   if (humans > 0 && humans_in == 0 && s->humans_out_tick == 0) s->humans_out_tick = s->race_ticks;
   int end = BE_NONE;
-  if (s->nkarts > 1 && s->alive <= 1) end = BE_LAST;
+  if (s->amode == AM_CTF && (s->team_score[0] >= CTF_WIN || s->team_score[1] >= CTF_WIN)) end = BE_SCORE;
+  else if (s->nkarts > 1 && s->alive <= 1) end = BE_LAST;
   else if (s->battle_left <= 0) end = BE_TIME;
   else if (s->humans_out_tick > 0 && s->race_ticks - s->humans_out_tick > 150) end = BE_HUMANS;
   if (end != BE_NONE) {
+    if (s->amode == AM_CTF) s->win_team = s->team_score[0] > s->team_score[1] ? 0 : s->team_score[1] > s->team_score[0] ? 1 : -1;
+    battle_rank(s);
     s->battle_end = end;
     s->phase = PH_DONE;
     s->phase_ticks = 0;

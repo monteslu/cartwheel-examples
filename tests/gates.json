@@ -5380,6 +5380,93 @@
     "note": "racer battle in Crusher Yard, shortened for the gate (a 40 second round, six karts: two bot-driven humans in split screen and four CPUs): balloons, points, eliminations and the end of the round (the results screen, ui.mode 8) must match on every host. Missiles fly in the world here (floor-following, glancing off walls by ray casts into Box3D) and the CPU drivers feel the walls with rays, so this also proves those queries are deterministic."
   },
   {
+    "name": "racer-ctf",
+    "app": "racer",
+    "frames": 3000,
+    "startCmds": [
+      "bot 1",
+      "battle 2 2 40 8 1"
+    ],
+    "maxGt16": 0.08,
+    "fields": [
+      "race.loaded",
+      "race.phase",
+      "ticks",
+      "sim.hash",
+      "ui.mode",
+      "views",
+      "battle.mode",
+      "battle.left",
+      "battle.end",
+      "ctf.score",
+      "ctf.flag",
+      "karts.team",
+      "karts.caps",
+      "karts.points",
+      "karts.hits",
+      "karts.falls"
+    ],
+    "expect": {
+      "race.loaded": 1,
+      "race.phase": 3,
+      "ui.mode": 8,
+      "battle.mode": 1
+    },
+    "webgpu": {
+      "vsGl": 0.3,
+      "maxGt16": 0.08,
+      "hosts": [
+        "native",
+        "romdev"
+      ],
+      "note": "The dual cart on romdev against native WebGPU."
+    },
+    "note": "racer capture the flag in Spillway Basin, shortened for the gate (a 40 second round, eight karts: two bot-driven humans on red in split screen, the CPUs evening the teams up): the teams, the flags taken, dropped and captured, the score and the end of the round (the results screen, ui.mode 8) must match on every host. The CPU drivers play their roles (attack, guard, chase the carrier, carry it home) from the sim alone."
+  },
+  {
+    "name": "racer-koth",
+    "app": "racer",
+    "frames": 3000,
+    "startCmds": [
+      "bot 1",
+      "battle 3 1 40 6 2"
+    ],
+    "maxGt16": 0.08,
+    "fields": [
+      "race.loaded",
+      "race.phase",
+      "ticks",
+      "sim.hash",
+      "ui.mode",
+      "views",
+      "battle.mode",
+      "battle.left",
+      "battle.end",
+      "hill.holder",
+      "hill.spot",
+      "karts.hill",
+      "karts.points",
+      "karts.hits",
+      "karts.falls"
+    ],
+    "expect": {
+      "race.loaded": 1,
+      "race.phase": 3,
+      "ui.mode": 8,
+      "battle.mode": 2
+    },
+    "webgpu": {
+      "vsGl": 0.3,
+      "maxGt16": 0.08,
+      "hosts": [
+        "native",
+        "romdev"
+      ],
+      "note": "The dual cart on romdev against native WebGPU."
+    },
+    "note": "racer king of the mountain on Frost Lake, shortened for the gate (a 40 second round, six karts: one bot-driven human and five CPUs): who holds the hill, each kart's time on it, the hill's moves (a seeded pick) and the end of the round (the results screen, ui.mode 8) must match on every host."
+  },
+  {
     "name": "racer-trial",
     "app": "racer",
     "frames": 12000,

@@ -720,7 +720,9 @@ void audio_tick(const sim *s, const t3_vec3 *eye, int neyes) {
   A.missiles = 0;
   for (int h = 0; h < MAXHZ; h++) {
     const hazard *z = &s->hz[h];
-    bool fly = (z->kind == HZ_MISSILE || z->kind == HZ_HOMING);
+    /* a boomerang whirs: the same voice, low and wobbling as it spins */
+    bool boom = z->kind == HZ_BOOMERANG;
+    bool fly = (z->kind == HZ_MISSILE || z->kind == HZ_HOMING || boom);
     if (fly && A.missiles < MAX_MISSILE_VOICES && (neyes == 0 || nearest_eye(EYES, neyes, z->p) < 150.0f)) {
       A.missiles++;
       cw_play_desc dm = { .bus = A.bus[B_SFX], .spatial = true, .space = SPACE_ENGINE };
@@ -728,7 +730,8 @@ void audio_tick(const sim *s, const t3_vec3 *eye, int neyes) {
       dm.space.position = z->p;
       dm.space.velocity = v3mul(z->f, z->speed);
       dm.space.ref_distance = 6;
-      lslot_run(&A.missile[h], S_MISSILE, 0.55f, 0.95f + 0.1f * clampf(z->speed / 80.0f, 0, 1), &dm, 0.4f);
+      float pitch = boom ? 0.55f + 0.08f * sinf((float)z->age * 0.9f) : 0.95f + 0.1f * clampf(z->speed / 80.0f, 0, 1);
+      lslot_run(&A.missile[h], S_MISSILE, boom ? 0.45f : 0.55f, pitch, &dm, 0.4f);
       if (!null_voice(A.missile[h].v)) cw_voice_set_position(A.missile[h].v, z->p, v3mul(z->f, z->speed));
     } else lslot_kill(&A.missile[h], 0.05f);
   }
@@ -828,12 +831,19 @@ void audio_events(const sim *s) {
       case IT_OIL: kart_sfx(S_ITEM_USE, e->a, e->at, 0.7f, 0.8f); break;
       case IT_SHIELD: kart_sfx(S_SHIELD_ON, e->a, e->at, 0.8f, 1.0f); break;
       case IT_SHOCK: global_sfx(S_SHOCK, 1.0f, 1.0f); duck_to(0.8f); break;
+      case IT_BOOMERANG: kart_sfx(S_ITEM_USE, e->a, e->at, 0.85f, 1.35f); break; /* a quick high swish */
+      case IT_BOMB: kart_sfx(S_ITEM_USE, e->a, e->at, 0.85f, 0.7f), kart_sfx(S_MINE_ARM, e->a, e->at, 0.6f, 1.3f); break; /* a heave and the fuse lit */
       default: kart_sfx(S_ITEM_USE, e->a, e->at, 0.7f, 1.0f); break;
       }
       break;
     case EV_HIT: {
       int hz = (int)(e->k + 0.5f);
-      if (hz == HZ_MISSILE || hz == HZ_HOMING || hz == HZ_MINE) {
+      if (hz == HZ_BOMB) {
+        /* the blast itself (a = -1) booms, low and big; the karts caught in it are that same blast */
+        if (e->a < 0) kart_sfx(S_EXPLOSION, -1, e->at, 1.4f, 0.72f), duck_event(e->at, -1, 0.9f);
+      } else if (hz == HZ_BOOMERANG) {
+        kart_sfx(S_BUMP, e->a, e->at, 1.0f, 1.35f), kart_sfx(S_SPIN, e->a, e->at, 0.5f, 1.2f); /* a whack */
+      } else if (hz == HZ_MISSILE || hz == HZ_HOMING || hz == HZ_MINE) {
         kart_sfx(S_EXPLOSION, e->a, e->at, own_view(e->a) >= 0 ? 1.0f : 1.2f, hz == HZ_MINE ? 0.9f : 1.0f);
         duck_event(e->at, e->a, 0.75f);
       } else if (hz == HZ_OIL) kart_sfx(S_OIL, e->a, e->at, 0.9f, 1.0f);
@@ -851,6 +861,16 @@ void audio_events(const sim *s) {
     case EV_SHIELD: kart_sfx(S_SHIELD_POP, e->a, e->at, 0.9f, 1.0f); duck_event(e->at, e->a, 0.25f); break;
     case EV_POP: kart_sfx(S_POP, e->a, e->at, 1.0f, 0.95f + 0.05f * e->k); break;
     case EV_OUT: global_sfx(S_KO, 0.9f, 1.0f); break;
+    case EV_FLAG: /* capture the flag: a grab, a drop, a flag sent home, a capture (for everyone) */
+      if (e->b == FE_TAKEN) kart_sfx(S_ITEM_GET, e->a, e->at, 1.0f, 0.8f);
+      else if (e->b == FE_DROPPED) kart_sfx(S_POP, e->a, e->at, 0.9f, 0.75f);
+      else if (e->b == FE_RETURNED || e->b == FE_HOME) kart_sfx(S_CHIME, e->a, e->at, 0.7f, 1.2f);
+      else if (e->b == FE_CAPTURED) global_sfx(S_OVERTAKE, 1.0f, 0.9f), global_sfx(S_CHIME, 0.8f, 1.0f);
+      break;
+    case EV_HILL: /* king of the mountain: the hill moved; a new king */
+      if (e->b == HE_MOVED) global_sfx(S_CHIME, 0.7f, 0.75f);
+      else if (e->b == HE_TAKEN && ov >= 0 && !A.attract) play2d(S_CHIME, 0.6f * view_gain(), 1.5f, view_pan(ov));
+      break;
     case EV_OVERTAKE:
       if (ov >= 0 && !A.attract) play2d(S_OVERTAKE, 0.6f * view_gain(), 1.0f, view_pan(ov));
       break;

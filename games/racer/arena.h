@@ -73,6 +73,13 @@ typedef struct arena_def {
   const float (*boxes)[3];             /* x, z, the floor height under the box */
   int nboxes;
   arena_look look[AL_KINDS];
+  /* capture the flag: each team's base (x, z) at opposite ends, and eight starts (x, z, yaw): the first four red's, round
+   * its base, the last four blue's */
+  float base[2][2];
+  const float (*team_spawns)[3];
+  /* king of the mountain: the spots the hill stands on (x, z), the first where it starts; it moves to another every HILL_MOVE */
+  const float (*hills)[2];
+  int nhills;
 } arena_def;
 
 #define ARENA_MAXP 96
@@ -104,6 +111,12 @@ float arena_level(const arena_rt *rt, float x, float z);
 
 /* the arena of the race that is loading (set by the sim at sim_init, for the scenery and the HUD) */
 const arena_rt *arena_current(void);
+
+/* modes_gfx.c: capture the flag's bases and flags (on the floor, on a carrier's back) and king of the mountain's hill zone
+ * (render only, from the sim's state) */
+void modes_gfx_build(cw_node scene, const sim *s);
+void modes_gfx_reset(void);
+void modes_gfx_frame(const sim *s, float alpha);
 
 /* balloons.c: the balloons on every kart of a battle (render only; nothing is built for a race) */
 void balloons_build(cw_node scene, const sim *s); /* after the karts' nodes exist */

@@ -42,7 +42,7 @@ const vehicle_def VEH[NVEH] = {
   { "Pogo", "Springy and quick off the line. Boosts hit hardest.", 37.0f, 12.0f, 1.05f, 0.98f, 170, 1.05f, 1.25f, 1.10f, 0.68f, 0.36f },
 };
 
-const char *const ITEM_NAME[IT_KINDS] = { "-", "Turbo", "Triple Turbo", "Missile", "Homing Missile", "Oil Slick", "Mine", "Shield", "Shockwave" };
+const char *const ITEM_NAME[IT_KINDS] = { "-", "Turbo", "Triple Turbo", "Missile", "Homing Missile", "Oil Slick", "Mine", "Shield", "Shockwave", "Triple Missile", "Boomerang", "Bomb" };
 
 /* ── tuning ─────────────────────────────────────────────────────────── */
 
@@ -59,6 +59,15 @@ const char *const ITEM_NAME[IT_KINDS] = { "-", "Turbo", "Triple Turbo", "Missile
 #define BOOM_SPIN 85
 #define SHOCK_SPIN 80
 #define SHOCK_WARN 78 /* ticks between the alarm and the wave: a quick hop on the drift button clears it */
+/* the boomerang: out this far (metres, from where it was thrown) at this speed over the thrower's, then back */
+#define BOOM_OUT_M 40.0f
+#define BOOM_REL 36.0f
+#define BOOM_LIFE (5 * TICK_HZ)
+#define BOOM_HITS 2
+/* the bomb: lobbed, it fizzes this long once down, then a blast this wide (a kart inside BOMB_CORE is thrown) */
+#define BOMB_FUSE 60
+#define BOMB_R 7.0f
+#define BOMB_CORE 3.5f
 
 static struct {
   cw_world3d w;
@@ -77,7 +86,7 @@ static struct {
 /* battle mode (sim_battle.inc, included after spin_kart) */
 static void battle_place_all(sim *s);
 static void battle_boxes(sim *s);
-static void battle_pop(sim *s, int i, int by);
+static void battle_hit(sim *s, int i, int by);
 
 /* ── small maths ─────────────────────────────────────────────────────── */
 
@@ -388,7 +397,7 @@ void sim_set_class(sim *s, int cls) {
 void sim_restart(sim *s, uint32_t seed, int skip_ticks) {
   for (int i = 0; i < MAXK; i++) {
     kart *k = &s->k[i];
-    kart keep = { .on = k->on, .human = k->human, .veh = k->veh, .colour = k->colour, .place = i + 1 };
+    kart keep = { .on = k->on, .human = k->human, .veh = k->veh, .colour = k->colour, .place = i + 1, .team = k->team };
     *k = keep;
     PH.v0[i] = (t3_vec3){ 0, 0, 0 };
   }
@@ -425,7 +434,7 @@ void sim_put_branch(sim *s, int i, int b, float bs, float speed) {
 static void use_item(sim *s, int i);
 /* dev aid: kart i uses an item now, whatever it held */
 void sim_use(sim *s, int i, int item) {
-  s->k[i].item = item, s->k[i].item_count = 1;
+  s->k[i].item = item, s->k[i].item_count = item == IT_TURBO3 || item == IT_MISSILE3 ? 3 : 1;
   use_item(s, i);
 }
 
@@ -451,6 +460,7 @@ static void start_boost(sim *s, int i, int ticks, float strength, int source);
 static void spin_kart(sim *s, int i, int kind, int by) {
   kart *k = &s->k[i];
   if (k->respawn_ticks > 0 || k->finished) return;
+  if (by >= 0 && by < MAXK && by != i && !kart_foe(s, i, by)) return; /* capture the flag: no friendly fire */
   if (s->battle && (k->out || k->ram_cool > 0 || k->spin_ticks > 0 || s->phase != PH_RACE)) return; /* a moment's grace after each pop */
   if (k->shield_ticks > 0) {
     k->shield_ticks = 0;
@@ -474,10 +484,122 @@ static void spin_kart(sim *s, int i, int kind, int by) {
     bool looped = k->loc.i >= 0 && (s->track->s[k->loc.i].flags & TF_LOOP);
     cw_body3d_apply_impulse(PH.body[i], v3mul(kart_up(k), (looped ? 2.0f : 9.0f) * VEH[k->veh].mass), NULL);
   }
-  if (s->battle) battle_pop(s, i, by);
+  if (s->battle) battle_hit(s, i, by);
+}
+
+/* a bomb goes off at z->p: everyone within BOMB_R spins (thrown inside BOMB_CORE), its thrower too. One EV_HIT with no
+ * victim (a = -1) for the blast itself, then one for each kart caught (for the announcer; the effects skip those) */
+static void bomb_blast(sim *s, hazard *z) {
+  event(s, EV_HIT, -1, z->owner, z->p, (float)HZ_BOMB);
+  for (int j = 0; j < MAXK; j++) {
+    kart *o = &s->k[j];
+    if (!o->on || o->out || o->parked || o->respawn_ticks > 0) continue;
+    if (j != z->owner && z->owner >= 0 && !kart_foe(s, j, z->owner)) continue;
+    t3_vec3 d = v3sub(o->p, z->p);
+    float dd = v3dot(d, d);
+    if (dd > BOMB_R * BOMB_R) continue;
+    event(s, EV_HIT, j, z->owner, o->p, (float)HZ_BOMB);
+    spin_kart(s, j, dd < BOMB_CORE * BOMB_CORE ? SPIN_BOOM : SPIN_HIT, z->owner);
+  }
+  z->kind = HZ_NONE;
+}
+
+/* a hop timed as something arrives (the drift button in the last sixth of a second): it goes by underneath, with the near
+ * miss's little boost */
+static bool hopped(sim *s, int i, const hazard *z) {
+  kart *k = &s->k[i];
+  if (k->hop_tick <= 0 || s->tick - k->hop_tick > 10) return false;
+  event(s, EV_NEARMISS, i, z->owner, z->p, 0);
+  start_boost(s, i, 30, 0.7f * VEH[k->veh].boost, 6);
+  return true;
 }
 
 #include "sim_battle.inc"
+
+/* the road's wrapped distance from a to b (b ahead: positive) */
+static float road_ds(const track *t, float a, float b) {
+  float d = b - a;
+  if (t->circuit) {
+    if (d > t->length * 0.5f) d -= t->length;
+    if (d < -t->length * 0.5f) d += t->length;
+  }
+  return d;
+}
+
+/* a boomerang or a bomb on the road (track coordinates, as the missiles):
+ *   boomerang  out along the road at BOOM_REL over the thrower's speed for BOOM_OUT_M, then back to the thrower, who
+ *              catches it; any other kart it meets spins (once each, BOOM_HITS at most); a hop lets it by
+ *   bomb       an arc ahead (or behind) down onto the road, BOMB_FUSE of fizzing, then the blast; another kart running into
+ *              it sets it off at once */
+static void thrown_step(sim *s, hazard *z) {
+  const track *t = s->track;
+  z->age++;
+  if (--z->life <= 0) {
+    if (z->kind == HZ_BOMB) bomb_blast(s, z);
+    else z->kind = HZ_NONE;
+    return;
+  }
+  const kart *own = z->owner >= 0 ? &s->k[z->owner] : NULL;
+  if (z->kind == HZ_BOOMERANG) {
+    if (z->state == 0) {
+      z->s += z->speed * DT;
+      z->dist += BOOM_REL * DT;
+      if (z->dist >= BOOM_OUT_M) z->state = 1;
+    } else if (own && own->on && !own->finished) {
+      /* back to the thrower: at its speed and BOOM_REL more, along the road and across it */
+      float ds = road_ds(t, z->s, own->loc.br < 0 ? own->loc.ms : own->loc.s);
+      z->s += own->speed * DT + clampf(ds, -BOOM_REL * DT, BOOM_REL * DT);
+      z->lat += clampf((own->loc.br < 0 ? own->loc.lat : 0) - z->lat, -16 * DT, 16 * DT);
+      z->h += (1.0f - z->h) * 0.1f;
+    } else z->s += 30.0f * DT;
+  } else if (z->state == 0) {
+    z->s += z->speed * DT;
+    z->h += z->vy * DT;
+    z->vy -= GRAV * DT;
+    if (z->h <= 0.35f && z->vy < 0) z->h = 0.35f, z->state = 1, z->life = BOMB_FUSE;
+  }
+  if (t->circuit) z->s = fmodf(z->s + t->length, t->length);
+  else if (z->s > t->length || z->s < 0) {
+    if (z->kind == HZ_BOMB) z->s = clampf(z->s, 0, t->length);
+    else {
+      z->kind = HZ_NONE;
+      return;
+    }
+  }
+  tsample m = track_at(t, z->s);
+  z->p = v3add(m.p, v3add(v3mul(m.r, z->lat), v3mul(m.u, z->h)));
+  z->f = m.f;
+  for (int i = 0; i < MAXK; i++) {
+    kart *k = &s->k[i];
+    if (!k->on || k->respawn_ticks > 0 || k->finished) continue;
+    t3_vec3 d = v3sub(k->p, z->p);
+    if (z->kind == HZ_BOMB) {
+      /* down and fizzing: another kart running into it sets it off */
+      if (z->state == 1 && i != z->owner && v3dot(d, d) < 2.2f * 2.2f) {
+        bomb_blast(s, z);
+        return;
+      }
+      continue;
+    }
+    if (i == z->owner) {
+      /* caught on its way back */
+      if (z->state == 1 && z->age > 30 && v3dot(d, d) < 2.6f * 2.6f) {
+        z->kind = HZ_NONE;
+        return;
+      }
+      continue;
+    }
+    if ((z->hitmask >> i) & 1 || v3dot(d, d) > 1.9f * 1.9f) continue;
+    z->hitmask |= 1 << i;
+    if (hopped(s, i, z)) continue;
+    event(s, EV_HIT, i, z->owner, z->p, (float)HZ_BOOMERANG);
+    spin_kart(s, i, SPIN_HIT, z->owner);
+    if (++z->hits >= BOOM_HITS) {
+      z->kind = HZ_NONE;
+      return;
+    }
+  }
+}
 
 static void hazards_step(sim *s) {
   if (s->battle) {
@@ -488,6 +610,10 @@ static void hazards_step(sim *s) {
   for (int h = 0; h < MAXHZ; h++) {
     hazard *z = &s->hz[h];
     if (!z->kind) continue;
+    if (z->kind == HZ_BOOMERANG || z->kind == HZ_BOMB) {
+      thrown_step(s, z);
+      continue;
+    }
     z->age++;
     if (--z->life <= 0) {
       z->kind = HZ_NONE;
@@ -586,6 +712,9 @@ static const uint8_t ITEM_W[IT_KINDS][MAXK] = {
   [IT_MINE] = { 28, 20, 14, 10, 8, 6, 4, 2 },
   [IT_SHIELD] = { 12, 10, 10, 10, 10, 8, 6, 4 },
   [IT_SHOCK] = { 0, 0, 2, 6, 10, 16, 20, 22 },
+  [IT_MISSILE3] = { 0, 4, 8, 10, 10, 6, 3, 0 },
+  [IT_BOOMERANG] = { 4, 8, 10, 10, 8, 6, 4, 2 },
+  [IT_BOMB] = { 0, 2, 6, 10, 12, 14, 14, 12 },
 };
 /* metres behind the leader that count as each position for the odds: a kart far back draws from the back's table
  * whatever its place (Mario Kart 8 picks by distance; place alone gave a kart half a length behind the leader the
@@ -655,10 +784,11 @@ static void use_item(sim *s, int i) {
   kart *k = &s->k[i];
   if (k->item == IT_NONE || k->item_wait > 0 || k->item_cool > 0 || k->spin_ticks > 0) return;
   const vehicle_def *vd = &VEH[k->veh];
-  int item = k->item;
+  int item = k->item == IT_MISSILE3 ? IT_MISSILE : k->item; /* a triple missile fires missiles, one a press */
   event(s, EV_ITEM_USE, i, item, k->p, 0);
   k->item_cool = 18;
   if (s->battle && battle_use_item(s, i, item)) {
+    if (k->item == IT_MISSILE3 && --k->item_count > 0) return;
     k->item = IT_NONE;
     k->item_count = 0;
     return;
@@ -684,6 +814,19 @@ static void use_item(sim *s, int i) {
   case IT_MISSILE: {
     hazard *z = hz_add(s, HZ_MISSILE, i, il.s + 2.5f, il.lat, clampf(k->loc.height + 0.5f, 0.5f, 2.0f));
     if (z) z->speed = maxf(70.0f, k->speed + 38.0f);
+    if (k->item == IT_MISSILE3 && --k->item_count > 0) return;
+    break;
+  }
+  case IT_BOOMERANG: {
+    hazard *z = hz_add(s, HZ_BOOMERANG, i, il.s + 2.5f, il.lat, clampf(k->loc.height + 0.8f, 0.8f, 2.0f));
+    if (z) z->speed = maxf(k->speed, 0) + BOOM_REL, z->life = BOOM_LIFE;
+    break;
+  }
+  case IT_BOMB: {
+    /* lobbed ahead, or behind with the brake held; about 0.85 s in the air */
+    bool back = k->last_thr < -40;
+    hazard *z = hz_add(s, HZ_BOMB, i, il.s + (back ? -1.5f : 2.0f), il.lat, clampf(k->loc.height + 1.2f, 1.2f, 2.5f));
+    if (z) z->speed = maxf(k->speed, 0) + (back ? -14.0f : 26.0f), z->vy = 7.0f, z->life = 4 * TICK_HZ;
     break;
   }
   case IT_HOMING: {
@@ -868,6 +1011,7 @@ static void kart_control(sim *s, int i, kin in) {
   bool pressed_item = (in.btn & KB_ITEM) && !(k->last_btn & KB_ITEM);
   bool pressed_trick = (in.btn & KB_TRICK) && !(k->last_btn & KB_TRICK);
   float thr = in.thr / 127.0f, steer = in.steer / 127.0f, pitch = in.pitch / 127.0f;
+  k->last_thr = in.thr;
   if (s->phase != PH_RACE) thr = steer = pitch = 0;
   if (k->start_stall > 0) k->start_stall--, thr = 0;
   if (k->spin_ticks > 0) thr = steer = pitch = 0;
@@ -1167,7 +1311,7 @@ static void kart_control(sim *s, int i, kin in) {
   /* items */
   if (k->item_wait > 0 && --k->item_wait == 0) {
     k->item = s->battle ? roll_battle_item(s, i) : roll_item(s, k->place, item_gap_m(s, i), k->lap >= s->laps);
-    k->item_count = k->item == IT_TURBO3 ? 3 : 1;
+    k->item_count = k->item == IT_TURBO3 || k->item == IT_MISSILE3 ? 3 : 1;
   }
   if (k->item_cool > 0) k->item_cool--;
   {
@@ -1352,9 +1496,17 @@ static void hash_state(sim *s) {
     if (s->battle) {
       MIX(k->balloons);
       MIX(k->points);
+      MIX(k->carry);
+      MIX(k->hill_ticks);
     }
   }
-  if (s->battle) MIX(s->battle_left);
+  if (s->battle) {
+    MIX(s->battle_left);
+    MIX(s->team_score[0]);
+    MIX(s->team_score[1]);
+    MIX(s->hill_holder);
+    MIX(s->hill_i);
+  }
   MIX(s->rng);
   uint32_t ph = cw_world3d_stats(PH.w).hash;
   MIX(ph);
