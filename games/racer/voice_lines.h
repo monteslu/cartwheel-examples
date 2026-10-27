@@ -73,9 +73,9 @@ typedef struct voice_line {
 } voice_line;
 
 static const voice_line VOICE_LINES[VL_N] = {
-  [VL_THREE] = { "three", 1, { "audio/voice/three.ogg" }, { "Three!" }, { 581 } },
-  [VL_TWO] = { "two", 1, { "audio/voice/two.ogg" }, { "Two!" }, { 531 } },
-  [VL_ONE] = { "one", 1, { "audio/voice/one.ogg" }, { "One!" }, { 676 } },
+  [VL_THREE] = { "three", 1, { "audio/voice/three.ogg" }, { "Three!" }, { 612 } },
+  [VL_TWO] = { "two", 1, { "audio/voice/two.ogg" }, { "Two!" }, { 559 } },
+  [VL_ONE] = { "one", 1, { "audio/voice/one.ogg" }, { "One!" }, { 651 } },
   [VL_GO] = { "go", 2, { "audio/voice/go_1.ogg", "audio/voice/go_2.ogg" }, { "Go go go!", "Here we gooo!" }, { 942, 982 } },
   [VL_ROCKET_START] = { "rocket_start", 2, { "audio/voice/rocket_start_1.ogg", "audio/voice/rocket_start_2.ogg" }, { "Whoa! Rocket start, baby!", "Ohhh, what a launch!" }, { 1332, 1012 } },
   [VL_FLOODED] = { "flooded", 2, { "audio/voice/flooded_1.ogg", "audio/voice/flooded_2.ogg" }, { "Whoopsie! Flooded it!", "Easy on the gas, hotshot!" }, { 1122, 1492 } },

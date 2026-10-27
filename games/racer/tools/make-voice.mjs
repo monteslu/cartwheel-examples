@@ -223,7 +223,21 @@ function character(raw) {
   lp(a, 5000, 0.7); lp(a, 5000, 0.7);
   const honk = bp(Float32Array.from(a), 1250, 2.2), bite = bp(Float32Array.from(a), 2600, 1.6);
   for (let i = 0; i < a.length; i++) a[i] += honk[i] * 1.2 + bite[i] * 0.8;
+  /* the squeeze lifted the breath after a word's end to the level of speech, and the 2.6 kHz bite made it an "s"
+   * ("baby" heard as "babies", "winner" as "winners"): a gate keyed on the voice before the squeeze keeps what was
+   * quiet quiet (a 10 ms envelope, closed 30 dB under the line's peak, opening over 20 dB) */
+  const key = Float32Array.from(a);
   compress(a, { thresh: -30, ratio: 8, attack: 0.002, release: 0.05 });
+  {
+    let e = 0, pk = 1e-9;
+    const ka = 1 - Math.exp(-1 / (0.002 * SR)), kr = 1 - Math.exp(-1 / (0.012 * SR)), env = new Float32Array(a.length);
+    for (let i = 0; i < a.length; i++) { const x = Math.abs(key[i]); e += (x > e ? ka : kr) * (x - e); env[i] = e; if (e > pk) pk = e; }
+    const lo = pk * fromdb(-30), hi = pk * fromdb(-10);
+    for (let i = 0; i < a.length; i++) {
+      const t = Math.min(1, Math.max(0, (env[i] - lo) / (hi - lo)));
+      a[i] *= t * t * (3 - 2 * t);
+    }
+  }
   const g1 = 0.8 / (peakOf(a) || 1);
   for (let i = 0; i < a.length; i++) a[i] *= g1;
   softclip(a, 2.6);

@@ -835,6 +835,8 @@ void ui_enter_race(const race_setup *rs) {
 }
 
 bool ui_race_runs(void) {
+  /* the map is still settling behind the black (world_ready): the race waits for it */
+  if (game_loaded() && !world_ready()) return false;
   switch (U.mode) {
   case M_PAUSE: return false;
   case M_RACE: return true;
@@ -917,6 +919,8 @@ static void fade_tick(void) {
       run_pending();
     }
   } else if (U.fade_dir < 0) {
+    /* the loading screen: the black holds until the new map is ready (its scenery cleared from the lanes) */
+    if (game_loaded() && !world_ready()) return;
     U.fade -= 1.0f / 22.0f;
     if (U.fade <= 0) U.fade = 0, U.fade_dir = 0;
   }

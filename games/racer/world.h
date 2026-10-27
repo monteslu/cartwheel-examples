@@ -40,6 +40,7 @@ void kartgfx_drift_colour(int kart, float rgb[3]); /* the tyre smoke and spark c
 
 /* world.c */
 void world_build(cw_node scene, const sim *s, const map_def *map);
+bool world_ready(void); /* the map has settled (its scenery cleared from the lanes): the loading screen may lift */
 void world_reset(void);
 void world_tick(const sim *s);
 void world_frame(double alpha);   /* every frame: animated materials (boost strips, water), map scenery_frame */

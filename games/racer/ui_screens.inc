@@ -1099,7 +1099,8 @@ static void scr_tick(void) {
     N.ok = N.back = N.start = N.click = false;
   }
   /* the tracks build a few at a time while the title is up, so the map screen is ready */
-  if (U.ticks % 6 == 0)
+  /* never during a race: each one builds a whole track, a 40-100 ms hitch every sixth frame at the start of a race */
+  if (U.ticks % 6 == 0 && U.mode != M_RACE && U.mode != M_PAUSE)
     for (int i = 0; i < NMAPS; i++)
       if (!U.mm[i].ok) {
         mm_get(i);

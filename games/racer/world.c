@@ -65,6 +65,7 @@ static struct {
 } W;
 
 const track_geo *world_geo(void) { return &W.geo; }
+bool world_ready(void) { return !W.sim || !W.map || W.map->arena || W.cleaned || getenv("RACER_NOCLEAN"); }
 
 void world_reset(void) {
   props_reset();
@@ -235,7 +236,8 @@ void world_frame(double alpha) {
     /* a snapshot on the first frame, the clean on the fourth: what moved in between is left alone */
     if (ro && W.clean_frames == 0) geomclean_snapshot(ro);
     if (ro && ++W.clean_frames == 4) geomclean_begin(W.scene, ro, W.sim->track);
-    if (ro && W.clean_frames >= 4 && geomclean_step(20000)) W.cleaned = true, cw_info("geomclean: done on frame %d", W.clean_frames);
+    /* behind the loading screen's black (world_ready holds the fade and the race), so it takes big bites */
+    if (ro && W.clean_frames >= 4 && geomclean_step(400000)) W.cleaned = true, cw_info("geomclean: done on frame %d", W.clean_frames);
     if (ro && W.clean_frames >= 4) W.clean_frames++;
   }
   /* dev aid: RACER_GROUNDQ=x,z logs the ground's height there once */
