@@ -1,8 +1,9 @@
 /* ui_battle.inc: the arena rounds' screens and HUD (included by ui.c after the other parts; never built on its own).
  *
- *   the arena select   the arenas drawn from above (the map is the arena's own shapes, with the bases or the hill's spots
- *                      for the round picked), the round (battle, capture the flag, king of the mountain), the karts in it
- *                      (2..8, the humans first), its length and the CPU drivers' skill; START
+ *   the round          battle, capture the flag or king of the mountain: a card each with a picture and what it is
+ *   the arena select   the arenas made for that round (arena_def.modes) drawn from above (the map is the arena's own
+ *                      shapes, with the bases or the hill's spots), the karts in it (2..8, the humans first), its length and
+ *                      the CPU drivers' skill; START. Back returns to the round
  *   the HUD            per view: the item (top middle), the clock (top right), the arena map with everyone on it, the
  *                      feed under the item, and the round's own:
  *                        battle               balloons left and points (top left), "POP!" stamps, the karts still in,
@@ -14,10 +15,9 @@
  *   the results        the standings and AGAIN / NEXT ARENA / MENU */
 
 static const int BATTLE_SECS[4] = { 60, 120, 180, 300 };
-enum { BO_MODE, BO_KARTS, BO_TIME, BO_CPU, BO_KINDS };
-static const char *const BO_LABEL[BO_KINDS] = { "ROUND", "KARTS", "TIME", "CPU DRIVERS" };
+enum { BO_KARTS, BO_TIME, BO_CPU, BO_KINDS };
+static const char *const BO_LABEL[BO_KINDS] = { "KARTS", "TIME", "CPU DRIVERS" };
 static const char *const AM_NAME[AM_KINDS] = { "BATTLE", "CAPTURE THE FLAG", "KING OF THE MOUNTAIN" };
-static const char *const AM_SHORT[AM_KINDS] = { "Battle", "Capture the Flag", "King of the Mountain" };
 static const char *const TEAM_NAME[2] = { "RED", "BLUE" };
 static cw_color team_col(int t) { return kart_col(t & 1); }
 
@@ -98,22 +98,24 @@ static void arena_draw_map(const arena_def *d, cw_rect r, float pad, float s, co
   cw_vec2 a = arena_pt(&f, d->half_x + 1.5f, d->half_z + 1.5f), b = arena_pt(&f, -d->half_x - 1.5f, -d->half_z - 1.5f);
   cw_rect fl = cw_rect_make(fminf(a.x, b.x), fminf(a.y, b.y), fabsf(b.x - a.x), fabsf(b.y - a.y));
   cw_r2d_rect(cw_rect_make(fl.x - 3 * s, fl.y - 3 * s, fl.w + 6 * s, fl.h + 6 * s), rgba(0.02f, 0.02f, 0.03f, 0.95f));
-  cw_r2d_rect(fl, rgba(0.36f, 0.33f, 0.35f, 1));
+  cw_r2d_rect(fl, d->open ? rgba(0.03f, 0.035f, 0.07f, 1) : rgba(0.36f, 0.33f, 0.35f, 1)); /* open: the void round the decks */
   float lv_max = 0.01f;
   for (int i = 0; i < d->nprims; i++)
     if (d->prims[i].look == AL_DECK) lv_max = fmaxf(lv_max, d->prims[i].y + d->prims[i].h);
-  /* the floors first (decks and ramps), then what stands on them */
-  for (int pass = 0; pass < 2; pass++)
+  /* the floors first (decks and ramps), then what stands on them, then the decks held up high over them again (a roof) */
+  for (int pass = 0; pass < 3; pass++)
     for (int i = 0; i < d->nprims; i++) {
       const arena_prim *p = &d->prims[i];
       bool floorish = p->look == AL_DECK || p->look == AL_RAMP;
-      if (p->ghost || floorish != (pass == 0)) continue;
+      if (p->ghost || floorish != (pass != 1) || (pass == 2 && (p->look != AL_DECK || p->y < 4.0f))) continue;
       if (p->look != AL_DECK && p->look != AL_RAMP && p->look != AL_COVER && p->look != AL_FEATURE) continue;
       cw_vec2 q[4];
       arena_prim_corners(&f, p, q);
       if (p->kind == AP_POST) {
         cw_vec2 c = arena_pt(&f, p->x, p->z);
-        cw_color pc = p->look != AL_FEATURE ? rgba(0.09f, 0.08f, 0.1f, 1)
+        float lv = clamp01((p->y + p->h) / lv_max);
+        cw_color pc = p->look == AL_DECK ? mix(rgba(0.5f, 0.47f, 0.48f, 1), rgba(0.78f, 0.74f, 0.66f, 1), lv)
+                      : p->look != AL_FEATURE ? rgba(0.09f, 0.08f, 0.1f, 1)
                       : p->col ? rgba((float)((p->col >> 16) & 255) / 255.0f, (float)((p->col >> 8) & 255) / 255.0f, (float)(p->col & 255) / 255.0f, 1)
                                : rgba(0.95f, 0.55f, 0.15f, 1);
         cw_r2d_circle(c, p->w * 0.5f * f.sc + 0.5f, 14, pc);
@@ -142,12 +144,18 @@ static void arena_draw_map(const arena_def *d, cw_rect r, float pad, float s, co
         cw_r2d_line(cw_v2(mid.x - dir.x * k - n.x * k, mid.y - dir.y * k - n.y * k), cw_v2(mid.x + dir.x * k * 0.6f, mid.y + dir.y * k * 0.6f), 1.6f * s + 0.4f, INK);
       } else {
         cw_color c = p->col ? rgba((float)((p->col >> 16) & 255) / 255.0f, (float)((p->col >> 8) & 255) / 255.0f, (float)(p->col & 255) / 255.0f, 1) : rgba(0.12f, 0.11f, 0.13f, 1);
-        if (p->look == AL_FEATURE) c = rgba(0.95f, 0.55f, 0.15f, 1);
+        if (p->look == AL_FEATURE && !p->col) c = rgba(0.95f, 0.55f, 0.15f, 1);
         cw_r2d_polygon(q, 4, shade(c, 0.8f));
         cw_r2d_polygon_lines(q, 4, 1.2f * s + 0.3f, rgba(0.02f, 0.02f, 0.03f, 0.9f));
       }
     }
-  cw_r2d_rect_lines(fl, 3 * s + 0.5f, rgba(0.62f, 0.33f, 0.2f, 1));
+  if (!d->open) cw_r2d_rect_lines(fl, 3 * s + 0.5f, rgba(0.62f, 0.33f, 0.2f, 1));
+  /* the teleport pads: a ring in each one's light */
+  for (int i = 0; i < d->nteles; i++) {
+    uint32_t c = d->teles[i].col ? d->teles[i].col : 0x7fe8ff;
+    cw_color tc = rgba((float)((c >> 16) & 255) / 255.0f, (float)((c >> 8) & 255) / 255.0f, (float)(c & 255) / 255.0f, 1);
+    cw_r2d_circle_lines(arena_pt(&f, d->teles[i].x, d->teles[i].z), d->teles[i].r * f.sc + 1.5f * s, 1.5f * s + 0.5f, 14, tc);
+  }
   if (!S) {
     /* the boxes where they stand */
     for (int i = 0; i < d->nboxes && detail; i++) {
@@ -742,32 +750,189 @@ static void hud_battle_shared(float W, float H) {
   hud_b_table(&q, lx, ty, 8);
 }
 
+/* ── the round, then the arena ────────────────────────────────────────── */
+/* Picking an arena round is two screens: the round first (battle, capture the flag, king of the mountain: a card each with
+ * its picture and what it is), then the arenas made for that round (arena_def.modes: the capture the flag maps are long
+ * and listed under it alone) with the round's options and START. Back from the arenas comes back to the round. */
+
+/* the arenas listed under round mode, in ARENAS order: their indices into out, how many */
+static int arena_list(int mode, int out[NARENAS]) {
+  int n = 0;
+  for (int i = 0; i < NARENAS; i++)
+    if (arena_modes(ARENAS[i]->arena) & (1 << mode)) out[n++] = i;
+  return n;
+}
+
+static const char *const AM_BLURB[AM_KINDS] = {
+  "Three balloons each. Pop everyone else's and be the last kart with any left.",
+  "Two teams on long maps. Race to the far end, take their flag and bring it home.",
+  "One hill that moves round the arena. Hold it alone to score; the most time wins.",
+};
+
+typedef struct amlay {
+  float s;
+  cw_rect card[AM_KINDS];
+} amlay;
+
+static void arena_mode_layout(float W, float H, amlay *l) {
+  float s = lscale(W, H);
+  l->s = s;
+  float gx = W * 0.04f, gw = W * 0.92f, gap = 18 * s;
+  if (!is_portrait(W, H)) {
+    float top = 110 * s, ch = fminf(H - top - 96 * s, 420 * s), cw = (gw - 2 * gap) / 3;
+    top += (H - top - 96 * s - ch) * 0.35f;
+    for (int i = 0; i < AM_KINDS; i++) l->card[i] = cw_rect_make(gx + (float)i * (cw + gap), top, cw, ch);
+  } else {
+    float top = 100 * s, ch = fminf((H - top - 110 * s - 2 * gap) / 3, 230 * s);
+    for (int i = 0; i < AM_KINDS; i++) l->card[i] = cw_rect_make(gx, top + (float)i * (ch + gap), gw, ch);
+  }
+}
+
+/* each round's picture, in the box r */
+static void arena_mode_icon(int mode, cw_rect r, float s) {
+  cw_vec2 c = cw_v2(r.x + r.w * 0.5f, r.y + r.h * 0.5f);
+  float u = fminf(r.w, r.h);
+  if (mode == AM_BALLOON) {
+    /* three balloons over a kart's worth of string */
+    for (int k = 0; k < 3; k++) {
+      float a = (float)(k - 1) * 0.42f, rr = u * 0.17f;
+      cw_vec2 p = cw_v2(c.x + (float)(k - 1) * u * 0.3f, c.y - u * 0.14f - cw_cos(a) * u * 0.08f + 3 * s * cw_sin(U.time * 2 + (float)k));
+      cw_r2d_line(p, cw_v2(c.x, c.y + u * 0.36f), 1.5f * s + 0.5f, alpha(CREAM, 0.7f));
+      balloon_icon(p, rr, kart_col(k == 1 ? 0 : k == 0 ? 2 : 4), 1, 0, false);
+    }
+  } else if (mode == AM_CTF) {
+    /* a red flag and a blue flag at the two ends of a long road */
+    cw_vec2 a = cw_v2(r.x + r.w * 0.16f, c.y + u * 0.3f), b = cw_v2(r.x + r.w * 0.84f, c.y + u * 0.3f);
+    for (int k = 0; k < 9; k++) {
+      float t0 = (float)k / 9.0f + 0.02f, t1 = t0 + 0.06f;
+      cw_r2d_line(cw_v2(a.x + (b.x - a.x) * t0, a.y), cw_v2(a.x + (b.x - a.x) * t1, a.y), 3 * s, alpha(CREAM, 0.55f));
+    }
+    map_flag(cw_v2(a.x, a.y - 2 * s), u * 0.48f, team_col(0), 1);
+    map_flag(cw_v2(b.x - u * 0.2f, b.y - 2 * s), u * 0.48f, team_col(1), 1);
+  } else {
+    /* the hill: its ring and wall of light, a crown over it */
+    cw_vec2 h = cw_v2(c.x, c.y + u * 0.18f);
+    float pulse = 0.85f + 0.15f * cw_sin(U.time * 3);
+    cw_r2d_circle(h, u * 0.34f * pulse, 28, alpha(MUSTARD, 0.22f));
+    cw_r2d_circle_lines(h, u * 0.34f * pulse, 3 * s, 28, MUSTARD);
+    float cx = c.x, cy = c.y - u * 0.16f, w = u * 0.36f, hh = u * 0.24f;
+    cw_vec2 crown[7] = { cw_v2(cx - w * 0.5f, cy + hh * 0.5f), cw_v2(cx - w * 0.5f, cy - hh * 0.4f), cw_v2(cx - w * 0.22f, cy),
+                         cw_v2(cx, cy - hh * 0.55f), cw_v2(cx + w * 0.22f, cy), cw_v2(cx + w * 0.5f, cy - hh * 0.4f), cw_v2(cx + w * 0.5f, cy + hh * 0.5f) };
+    cw_r2d_polygon(crown, 7, MUSTARD);
+    cw_r2d_polygon_lines(crown, 7, 2 * s, INK);
+  }
+}
+
+static void arena_mode_go(void) {
+  int list[NARENAS], n = arena_list(U.bt.mode, list), keep = -1;
+  for (int i = 0; i < n; i++)
+    if (list[i] == U.bt.pick[U.bt.mode]) keep = list[i];
+  U.bt.arena = keep >= 0 ? keep : n > 0 ? list[0] : 0;
+  U.bt.focus = 0;
+  sfx_ok();
+  goto_mode(M_ARENA);
+}
+
+static void tick_arena_mode(float W, float H) {
+  amlay l;
+  arena_mode_layout(W, H, &l);
+  int d = is_portrait(W, H) ? N.dy : N.dx;
+  if (d) U.bt.mode = (U.bt.mode + d + AM_KINDS) % AM_KINDS, sfx_move();
+  bool go = N.ok && U.mt > 12, back = cw_action_just_pressed(0, U.a_back) && U.mt > 8;
+  if (pointer_mode() && N.moved)
+    for (int i = 0; i < AM_KINDS; i++)
+      if (in_rect(N.m, l.card[i]) && U.bt.mode != i) U.bt.mode = i, sfx_move();
+  if (N.click) {
+    for (int i = 0; i < AM_KINDS; i++)
+      if (in_rect(N.m, l.card[i])) {
+        if (U.bt.mode == i || U.device == DEV_TOUCH) go = true;
+        U.bt.mode = i;
+      }
+    if (in_rect(N.m, back_button_rect(W, H))) back = true;
+  }
+  if (go) {
+    arena_mode_go();
+    return;
+  }
+  if (back) {
+    sfx_back();
+    for (int i = 0; i < U.setup.humans; i++) U.ready[i] = false;
+    goto_mode(M_VEHICLE);
+    U.mt = 30;
+  }
+}
+
+static void draw_arena_mode(float W, float H, float s) {
+  backdrop(W, H, s, 0.86f);
+  header(W, H, s, "ARENA", "Choose a round");
+  amlay l;
+  arena_mode_layout(W, H, &l);
+  bool por = is_portrait(W, H);
+  for (int i = 0; i < AM_KINDS; i++) {
+    cw_rect r = l.card[i];
+    float ap = ease_back(((float)U.mt - (float)i * 4) / 16.0f);
+    if (ap <= 0) continue;
+    bool sel = U.bt.mode == i;
+    float pop = sel ? 1.02f + 0.008f * cw_sin(U.time * 7) : 1;
+    r.y += (1 - ap) * 70 * s;
+    cw_rect q = cw_rect_make(r.x - r.w * (pop - 1) * 0.5f, r.y - r.h * (pop - 1) * 0.5f, r.w * pop, r.h * pop);
+    slab(q, 0, sel ? rgba(0.2f, 0.15f, 0.1f, 0.95f) : rgba(0.1f, 0.075f, 0.09f, 0.88f), s);
+    cw_r2d_rect_lines(cw_rect_make(q.x + 3 * s, q.y + 3 * s, q.w - 6 * s, q.h - 6 * s), 3 * s, sel ? MUSTARD : rgba(0.4f, 0.36f, 0.36f, 0.6f));
+    /* the picture, the name, what it is, and how many arenas it has */
+    int list[NARENAS], n = arena_list(i, list);
+    char cnt[32];
+    snprintf(cnt, sizeof cnt, n == 1 ? "%d arena" : "%d arenas", n);
+    if (!por) {
+      cw_rect ir = cw_rect_make(q.x + 16 * s, q.y + 14 * s, q.w - 32 * s, q.h * 0.46f);
+      cw_r2d_round_rect(ir, 10 * s, 5, rgba(0.05f, 0.04f, 0.06f, 0.8f));
+      arena_mode_icon(i, cw_rect_make(ir.x + 10 * s, ir.y + 10 * s, ir.w - 20 * s, ir.h - 20 * s), s);
+      float ty = ir.y + ir.h + 32 * s;
+      tx_fit(U.f_title, AM_NAME[i], q.x + q.w * 0.5f, ty, 26 * s, q.w - 28 * s, sel ? MUSTARD : CREAM, CW_ALIGN_CENTER);
+      tx_para(U.f_hud, AM_BLURB[i], cw_rect_make(q.x + 20 * s, ty + 22 * s, q.w - 40 * s, q.y + q.h - ty - 60 * s), 17 * s, CREAM, CW_ALIGN_CENTER);
+      tx_fit(U.f_small, cnt, q.x + q.w * 0.5f, q.y + q.h - 22 * s, 15 * s, q.w - 28 * s, DIM, CW_ALIGN_CENTER);
+    } else {
+      cw_rect ir = cw_rect_make(q.x + 12 * s, q.y + 12 * s, q.h - 24 * s, q.h - 24 * s);
+      cw_r2d_round_rect(ir, 10 * s, 5, rgba(0.05f, 0.04f, 0.06f, 0.8f));
+      arena_mode_icon(i, cw_rect_make(ir.x + 8 * s, ir.y + 8 * s, ir.w - 16 * s, ir.h - 16 * s), s);
+      float tx = ir.x + ir.w + 16 * s, tw = q.x + q.w - tx - 16 * s;
+      tx_fit(U.f_title, AM_NAME[i], tx, q.y + 34 * s, 24 * s, tw, sel ? MUSTARD : CREAM, CW_ALIGN_LEFT);
+      tx_para(U.f_hud, AM_BLURB[i], cw_rect_make(tx, q.y + 52 * s, tw, q.h - 84 * s), 16 * s, CREAM, CW_ALIGN_LEFT);
+      tx_fit(U.f_small, cnt, tx, q.y + q.h - 18 * s, 14 * s, tw, DIM, CW_ALIGN_LEFT);
+    }
+  }
+  draw_button(back_button_rect(W, H), "BACK", false, true, s * 0.8f, 1);
+  hint_line(W, H, s, dev_hint("D-pad: choose   (A) go   (B) back", "Arrows choose   Enter: go   Esc: back", "Click a round, again to go", "Tap a round"));
+}
+
 /* ── the arena select ─────────────────────────────────────────────────── */
 
 typedef struct arlay {
   float s;
+  int n, list[NARENAS];              /* the arenas of the round picked (ARENAS indices), card i is list[i] */
   cw_rect card[NARENAS], detail, optrow[BO_KINDS], start;
 } arlay;
 
 static void arena_layout(float W, float H, arlay *l) {
   float s = lscale(W, H);
   l->s = s;
+  l->n = arena_list(U.bt.mode, l->list);
+  int n = l->n > 0 ? l->n : 1;
   float gx = W * 0.03f, gw = W * 0.94f, gap = 14 * s;
   /* the arenas in a grid two wide */
   if (!is_portrait(W, H)) {
     float top = 92 * s, bot = 70 * s, ch = H - top - bot;
-    float cw = (gw * 0.6f - gap) / 2, rows = (float)((NARENAS + 1) / 2), cr = (ch - gap * (rows - 1)) / rows;
-    for (int i = 0; i < NARENAS; i++) l->card[i] = cw_rect_make(gx + (float)(i % 2) * (cw + gap), top + (float)(i / 2) * (cr + gap), cw, cr);
+    float cw = (gw * 0.6f - gap) / 2, rows = (float)((n + 1) / 2), cr = (ch - gap * (rows - 1)) / rows;
+    for (int i = 0; i < n; i++) l->card[i] = cw_rect_make(gx + (float)(i % 2) * (cw + gap), top + (float)(i / 2) * (cr + gap), cw, cr);
     float ox = gx + gw * 0.6f + gap, ow = gw * 0.4f - gap;
-    l->detail = cw_rect_make(ox, top, ow, ch * 0.3f);
-    float rh = 40 * s, rg = 5 * s, oy = top + ch * 0.3f + 10 * s;
+    l->detail = cw_rect_make(ox, top, ow, ch * 0.34f);
+    float rh = 40 * s, rg = 5 * s, oy = top + ch * 0.34f + 10 * s;
     for (int i = 0; i < BO_KINDS; i++) l->optrow[i] = cw_rect_make(ox, oy + (float)i * (rh + rg), ow, rh);
     float sy = oy + (float)BO_KINDS * (rh + rg) + 6 * s;
     l->start = cw_rect_make(ox, sy, ow, fminf(52 * s, top + ch - sy));
   } else {
     float top = 96 * s, cw = (gw - gap) / 2, ch = cw * 0.8f;
-    for (int i = 0; i < NARENAS; i++) l->card[i] = cw_rect_make(gx + (float)(i % 2) * (cw + gap), top + (float)(i / 2) * (ch + gap), cw, ch);
-    float y = top + (float)((NARENAS + 1) / 2) * (ch + gap) + 4 * s;
+    for (int i = 0; i < n; i++) l->card[i] = cw_rect_make(gx + (float)(i % 2) * (cw + gap), top + (float)(i / 2) * (ch + gap), cw, ch);
+    float y = top + (float)((n + 1) / 2) * (ch + gap) + 4 * s;
     l->detail = cw_rect_make(gx, y, gw, 110 * s);
     y += 120 * s;
     float rh = 42 * s, rg = 5 * s;
@@ -779,7 +944,6 @@ static void arena_layout(float W, float H, arlay *l) {
 
 static void bo_text(int o, char *b, size_t n) {
   switch (o) {
-  case BO_MODE: snprintf(b, n, "%s", AM_SHORT[U.bt.mode % AM_KINDS]); break;
   case BO_KARTS: snprintf(b, n, "%d", U.bt.karts); break;
   case BO_TIME: snprintf(b, n, "%d:%02d", BATTLE_SECS[U.bt.secs_i] / 60, BATTLE_SECS[U.bt.secs_i] % 60); break;
   default: snprintf(b, n, "%s", SKILL_NAME[U.skill]); break;
@@ -787,7 +951,6 @@ static void bo_text(int o, char *b, size_t n) {
 }
 static void bo_bump(int o, int dir) {
   switch (o) {
-  case BO_MODE: U.bt.mode = (U.bt.mode + dir + AM_KINDS) % AM_KINDS; break;
   case BO_KARTS: {
     int lo = battle_karts_min();
     U.bt.karts += dir;
@@ -804,6 +967,7 @@ static void bo_bump(int o, int dir) {
 static void start_battle_from_menu(void) {
   race_setup rs = { .map = U.bt.arena, .laps = 1, .humans = U.setup.humans, .cpu_skill = U.skill, .items = true, .mode = RM_BATTLE,
                     .karts = U.bt.karts, .battle_secs = BATTLE_SECS[U.bt.secs_i], .arena_mode = U.bt.mode };
+  U.bt.pick[U.bt.mode % AM_KINDS] = U.bt.arena;
   U.cup.on = false;
   for (int i = 0; i < MAXV; i++) rs.vehicle[i] = U.veh[i], rs.colour[i] = U.col[i];
   rs.speed_class = U.cls, rs.assist_steer = (U.assist & 1) != 0, rs.assist_gas = (U.assist & 2) != 0;
@@ -817,6 +981,11 @@ static void tick_arena(float W, float H) {
   arlay l;
   arena_layout(W, H, &l);
   if (U.bt.karts < battle_karts_min() || U.bt.karts > MAXK) U.bt.karts = MAXK;
+  /* the arena's place in the round's list (an arena of another round: the first of this one) */
+  int at = 0;
+  for (int i = 0; i < l.n; i++)
+    if (l.list[i] == U.bt.arena) at = i;
+  if (l.n > 0) U.bt.arena = l.list[at];
   int dx = 0, dy = 0;
   {
     int hx = (cw_action_pressed(0, U.m_right) ? 1 : 0) - (cw_action_pressed(0, U.m_left) ? 1 : 0);
@@ -829,26 +998,26 @@ static void tick_arena(float W, float H) {
   bool start = false;
   if (dy) {
     /* down the grid of arenas, then the option rows */
-    if (U.bt.focus == 0 && dy > 0 && U.bt.arena + 2 < NARENAS) U.bt.arena += 2;
-    else if (U.bt.focus == 0 && dy < 0 && U.bt.arena >= 2) U.bt.arena -= 2;
+    if (U.bt.focus == 0 && dy > 0 && at + 2 < l.n) at += 2;
+    else if (U.bt.focus == 0 && dy < 0 && at >= 2) at -= 2;
     else U.bt.focus = CW_CLAMP(U.bt.focus + dy, 0, BO_KINDS + 1);
     sfx_move();
   }
   if (U.bt.focus == 0) {
-    if (dx) U.bt.arena = (U.bt.arena + dx + NARENAS) % NARENAS, sfx_move();
+    if (dx && l.n > 0) at = (at + dx + l.n) % l.n, sfx_move();
     if (ok) start = true;
   } else if (U.bt.focus <= BO_KINDS) {
     if (dx) bo_bump(U.bt.focus - 1, dx);
     if (ok) bo_bump(U.bt.focus - 1, 1);
   } else if (ok) start = true;
   if (pointer_mode() && N.moved)
-    for (int i = 0; i < NARENAS; i++)
-      if (in_rect(N.m, l.card[i]) && (U.bt.arena != i || U.bt.focus != 0)) U.bt.arena = i, U.bt.focus = 0, sfx_move();
+    for (int i = 0; i < l.n; i++)
+      if (in_rect(N.m, l.card[i]) && (at != i || U.bt.focus != 0)) at = i, U.bt.focus = 0, sfx_move();
   if (N.click) {
-    for (int i = 0; i < NARENAS; i++)
+    for (int i = 0; i < l.n; i++)
       if (in_rect(N.m, l.card[i])) {
-        if (U.bt.arena == i && U.device != DEV_TOUCH) start = true;
-        U.bt.arena = i, U.bt.focus = 0;
+        if (at == i && U.device != DEV_TOUCH) start = true;
+        at = i, U.bt.focus = 0;
       }
     for (int r = 0; r < BO_KINDS; r++)
       if (in_rect(N.m, l.optrow[r])) {
@@ -859,14 +1028,15 @@ static void tick_arena(float W, float H) {
     if (in_rect(N.m, l.start)) start = true;
     if (in_rect(N.m, back_button_rect(W, H))) back = true;
   }
-  if (start) {
+  if (l.n > 0) U.bt.arena = l.list[at];
+  if (start && l.n > 0) {
     start_battle_from_menu();
     return;
   }
   if (back) {
+    /* back to the round */
     sfx_back();
-    for (int i = 0; i < U.setup.humans; i++) U.ready[i] = false;
-    goto_mode(M_VEHICLE);
+    goto_mode(M_ARENA_MODE);
     U.mt = 30;
   }
 }
@@ -876,20 +1046,21 @@ static void draw_arena(float W, float H, float s) {
   header(W, H, s, AM_NAME[U.bt.mode % AM_KINDS], "Choose an arena");
   arlay l;
   arena_layout(W, H, &l);
-  for (int i = 0; i < NARENAS; i++) {
+  for (int i = 0; i < l.n; i++) {
+    int ai = l.list[i];
     cw_rect r = l.card[i];
     float ap = ease_back(((float)U.mt - (float)i * 4) / 16.0f);
     if (ap <= 0) continue;
     r.y += (1 - ap) * 70 * s;
-    bool sel = U.bt.arena == i;
+    bool sel = U.bt.arena == ai;
     slab(r, 0, sel ? rgba(0.2f, 0.15f, 0.1f, 0.95f) : rgba(0.1f, 0.075f, 0.09f, 0.88f), s);
     cw_r2d_rect_lines(cw_rect_make(r.x + 3 * s, r.y + 3 * s, r.w - 6 * s, r.h - 6 * s), 3 * s, sel ? (U.bt.focus == 0 ? MUSTARD : alpha(MUSTARD, 0.55f)) : rgba(0.4f, 0.36f, 0.36f, 0.6f));
     cw_rect mr = cw_rect_make(r.x + 8 * s, r.y + 8 * s, r.w - 16 * s, r.h - 40 * s);
-    arena_draw_map(ARENAS[i]->arena, mr, 4 * s, s * 0.8f, NULL, -1, true, U.bt.mode);
-    tx_fit(U.f_title, ARENAS[i]->name, r.x + r.w * 0.5f, r.y + r.h - 17 * s, 18 * s, r.w - 20 * s, sel ? MUSTARD : CREAM, CW_ALIGN_CENTER);
+    arena_draw_map(ARENAS[ai]->arena, mr, 4 * s, s * 0.8f, NULL, -1, true, U.bt.mode);
+    tx_fit(U.f_title, ARENAS[ai]->name, r.x + r.w * 0.5f, r.y + r.h - 17 * s, 18 * s, r.w - 20 * s, sel ? MUSTARD : CREAM, CW_ALIGN_CENTER);
   }
   /* the arena picked */
-  const map_def *md = ARENAS[U.bt.arena];
+  const map_def *md = ARENAS[U.bt.arena % NARENAS];
   const arena_def *ad = md->arena;
   float ap = clamp01(((float)U.mt - 10) / 14.0f);
   cw_rect d = l.detail;
@@ -897,18 +1068,18 @@ static void draw_arena(float W, float H, float s) {
   slab(d, 0, rgba(0.1f, 0.075f, 0.09f, 0.9f), s);
   tx_fit(U.f_title, md->name, d.x + 16 * s, d.y + 26 * s, 26 * s, d.w - 32 * s, MUSTARD, CW_ALIGN_LEFT);
   float bh = tx_para(U.f_hud, md->blurb, cw_rect_make(d.x + 16 * s, d.y + 46 * s, d.w - 32 * s, 60 * s), 16 * s, CREAM, CW_ALIGN_LEFT);
-  int ramps = 0, decks = 0, mounds = 0;
+  int ramps = 0, mounds = 0;
   for (int i = 0; i < ad->nprims; i++) {
     ramps += ad->prims[i].kind == AP_RAMP && !ad->prims[i].ghost;
     mounds += ad->prims[i].kind == AP_MOUND && !ad->prims[i].ghost;
-    decks += ad->prims[i].look == AL_DECK;
   }
   char b[96];
-  if (U.bt.mode == AM_CTF) snprintf(b, sizeof b, "Red base and blue base   first to %d captures", CTF_WIN);
-  else if (U.bt.mode == AM_KOTM) snprintf(b, sizeof b, "%d spots the hill moves between", ad->nhills);
+  if (U.bt.mode == AM_CTF) {
+    float dx = ad->base[0][0] - ad->base[1][0], dz = ad->base[0][1] - ad->base[1][1];
+    snprintf(b, sizeof b, "Flags %.0f m apart   first to %d captures", sqrtf(dx * dx + dz * dz), CTF_WIN);
+  } else if (U.bt.mode == AM_KOTM) snprintf(b, sizeof b, "%d spots the hill moves between", ad->nhills);
   else snprintf(b, sizeof b, "%.0f x %.0f m    %d ramps%s    %d item boxes", ad->half_x * 2, ad->half_z * 2, ramps, mounds ? " and a mound" : "", ad->nboxes);
   if (d.y + 46 * s + bh + 14 * s < d.y + d.h) tx_fit(U.f_small, b, d.x + 16 * s, d.y + 46 * s + bh + 12 * s, 16 * s, d.w - 32 * s, DIM, CW_ALIGN_LEFT);
-  (void)decks;
   for (int r = 0; r < BO_KINDS; r++) {
     char v[24];
     bo_text(r, v, sizeof v);

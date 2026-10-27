@@ -32,7 +32,7 @@
 #define NMAPS 8
 #define NVEH 6
 #define MAX_LAPS 5
-#define NARENAS 4  /* battle arenas (ARENAS[]; separate from the race maps) */
+#define NARENAS 6  /* arena maps (ARENAS[]; separate from the race maps): the battle arenas, then the capture the flag maps */
 #define BALLOONS 3 /* a battle kart's balloons at the start */
 #define BATTLE_SPIN_K 0.45f /* a battle spin lasts this share of a race spin (the pop is the cost; sim_battle.inc, kartgfx.c) */
 
@@ -181,6 +181,7 @@ typedef struct kart {
   int caps, steals, returns; /* flags captured, flags taken, its own team's flag sent home */
   int flag_cool;        /* ticks before it can take a flag again (it just dropped one) */
   int hill_ticks;       /* king of the mountain: ticks it has held the hill alone */
+  int tele_cool;        /* an arena's teleport pads: ticks before one takes this kart again */
 } kart;
 
 /* ── the race ───────────────────────────────────────────────────────── */
@@ -214,7 +215,8 @@ enum {
   EV_OUT,          /* battle: a = victim is out of the round, b = attacker */
   EV_RAM,          /* battle: a = rammed b under a boost (the pop follows as EV_POP) */
   EV_FLAG,         /* capture the flag: a = kart (-1: none), b = FE_*, k = the flag's team */
-  EV_HILL          /* king of the mountain: a = kart (-1: none), b = HE_* */
+  EV_HILL,         /* king of the mountain: a = kart (-1: none), b = HE_* */
+  EV_TELE          /* an arena's teleport pad: a = kart, b = the pad, at = where it left (it is at the far end now) */
 };
 enum { FE_TAKEN, FE_DROPPED, FE_RETURNED, FE_CAPTURED, FE_HOME /* left alone long enough, it went home by itself */ };
 enum { HE_SOON /* it moves in five seconds */, HE_MOVED, HE_TAKEN /* a = the kart holding it alone now */, HE_CONTESTED };
@@ -290,6 +292,7 @@ void sim_step(sim *s, const kin in[MAXK]);
 void sim_put(sim *s, int i, float s_dist, float lat, float speed);
 void sim_put_branch(sim *s, int i, int b, float bs, float speed); /* dev aid: on branch b, bs metres from its mouth */
 void sim_use(sim *s, int i, int item); /* dev aid: kart i uses this item now */
+void sim_battle_put(sim *s, int i, float x, float z, float yaw_deg, float speed); /* dev aid: kart i at (x, z) of the arena's own frame */
 /* battle: the round's length in ticks (call after sim_init; 0 keeps the default three minutes) */
 void sim_set_battle_time(sim *s, int ticks);
 /* an arena round's rules (AM_*): call after sim_init once the karts' human flags are set (capture the flag puts the humans
@@ -340,6 +343,7 @@ typedef struct ai_mem {
   t3_vec3 b_goal, b_last_p;
   int8_t take[4];     /* each branch (shortcut) on the way: 0 not decided yet, 1 taking it, -1 staying on the main road */
   int b_role;         /* capture the flag: 0 attacks the other flag, 1 stays back and guards its own */
+  int b_node, b_node_t; /* an arena with a route (arena_def.route): the point it is heading for (-1 none), ticks to the next look */
 } ai_mem;
 void ai_reset(ai_mem *m, int me, int skill, uint32_t seed);
 kin ai_think(const sim *s, int me, ai_mem *m);

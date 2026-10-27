@@ -5,7 +5,9 @@
  *   a flag     a pole with a waving cloth and a beam of light up from it (seen from across the arena): on its pedestal at
  *              home, on the carrier's back, or lying on the floor in a pulsing ring once dropped
  *   the hill   a ring on the floor, a faint disc and a see-through wall of light round it, gold while nobody holds it, the
- *              holder's colour, flashing red when contested; it blinks before it moves and swells up where it lands */
+ *              holder's colour, flashing red when contested; it blinks before it moves and swells up where it lands
+ *   a pad      an arena's teleport pads (every round): a column of light over the plate arena.c draws, rings rising up it,
+ *              brighter for a moment after it takes a kart */
 #include <math.h>
 #include <string.h>
 
@@ -30,18 +32,24 @@ static struct {
   t3_material *hill_ring_mat, *hill_disc_mat, *hill_wall_mat;
   int hill_i;
   float hill_pop;     /* 0..1: the swell where it lands */
-  t3_geometry *geo[12];
+  /* the teleport pads */
+  int ntele;
+  t3_object *tele_beam[ARENA_MAXT], *tele_ring[ARENA_MAXT][2];
+  t3_material *tele_beam_mat[ARENA_MAXT], *tele_ring_mat[ARENA_MAXT];
+  float tele_kick[ARENA_MAXT];  /* 0..1: the flare after it took a kart */
+  int tele_tick;
+  t3_geometry *geo[16];
   int ngeo;
-  t3_material *mats[24];
+  t3_material *mats[40];
   int nmat;
 } M;
 
 static t3_geometry *keep(t3_geometry *g) {
-  if (g && M.ngeo < 12) M.geo[M.ngeo++] = g;
+  if (g && M.ngeo < 16) M.geo[M.ngeo++] = g;
   return g;
 }
 static t3_material *keepm(t3_material *m) {
-  if (m && M.nmat < 24) M.mats[M.nmat++] = m;
+  if (m && M.nmat < 40) M.mats[M.nmat++] = m;
   return m;
 }
 
@@ -83,13 +91,36 @@ static t3_geometry *ring_geo(float a) {
   return keep(g);
 }
 
+static void tele_build(const arena_rt *a) {
+  t3_geometry *col = keep(t3_cylinder_geometry_new(1.0f, 1.0f, 1.0f, 32, 1, true));
+  t3_geometry_translate(col, 0, 0.5f, 0);
+  t3_geometry *ring = ring_geo(0.86f);
+  M.ntele = a->ntele;
+  for (int i = 0; i < a->ntele; i++) {
+    const struct arena_tele_rt *t = &a->tele[i];
+    uint32_t c = t->col ? t->col : 0x7fe8ff;
+    float rgb[3] = { (float)((c >> 16) & 255) / 255.0f, (float)((c >> 8) & 255) / 255.0f, (float)(c & 255) / 255.0f };
+    M.tele_beam_mat[i] = glow_mat(rgb, 0.2f);
+    M.tele_ring_mat[i] = glow_mat(rgb, 0.7f);
+    M.tele_beam[i] = mesh_in(M.root, col, M.tele_beam_mat[i], false);
+    t3_object_set_position(M.tele_beam[i], t->at.x, t->at.y + 0.15f, t->at.z);
+    t3_object_set_scale(M.tele_beam[i], t->r, 4.5f, t->r);
+    for (int k = 0; k < 2; k++) M.tele_ring[i][k] = mesh_in(M.root, ring, M.tele_ring_mat[i], false);
+  }
+}
+
 void modes_gfx_build(cw_node scene, const sim *s) {
   modes_gfx_reset();
   M.s = s;
-  if (!s->battle || s->amode == AM_BALLOON) return;
+  if (!s->battle || !s->arena || (s->amode == AM_BALLOON && s->arena->ntele <= 0)) return;
   M.root = t3_group_new();
   hang(scene, "ArenaMode", M.root);
   t3_release(M.root);
+  if (s->arena->ntele > 0) tele_build(s->arena);
+  if (s->amode == AM_BALLOON) {
+    M.built = true;
+    return;
+  }
   t3_geometry *ring = ring_geo(0.9f), *disc = keep(t3_circle_geometry_new(1.0f, 48));
   t3_geometry_rotate_x(disc, -PI * 0.5f);
   t3_geometry *wall = keep(t3_cylinder_geometry_new(1.0f, 1.0f, 1.0f, 48, 1, true));
@@ -156,9 +187,34 @@ static void place_flat(t3_object *o, t3_vec3 p, float r) {
   t3_object_set_scale(o, r, 1, r);
 }
 
+static void tele_frame(const sim *s, float t) {
+  /* a pad that just took a kart flares (the events of the ticks since the last frame) */
+  if (s->tick != M.tele_tick) {
+    M.tele_tick = s->tick;
+    for (int e = 0; e < s->ev_n; e++)
+      if (s->ev[e].kind == EV_TELE && s->ev[e].b >= 0 && s->ev[e].b < M.ntele) M.tele_kick[s->ev[e].b] = 1.0f;
+  }
+  for (int i = 0; i < M.ntele; i++) {
+    const struct arena_tele_rt *p = &s->arena->tele[i];
+    float kick = M.tele_kick[i];
+    M.tele_kick[i] = fmaxf(kick - 1.0f / 45.0f, 0);
+    M.tele_beam_mat[i]->opacity = 0.05f + 0.02f * sinf(t * 2.3f + (float)i) + 0.35f * kick;
+    t3_object_set_scale(M.tele_beam[i], p->r * (1.0f + 0.25f * kick), 4.5f + 3.0f * kick, p->r * (1.0f + 0.25f * kick));
+    for (int k = 0; k < 2; k++) {
+      float u = fmodf(t * 0.55f + (float)k * 0.5f + (float)i * 0.13f, 1.0f);
+      t3_object_set_position(M.tele_ring[i][k], p->at.x, p->at.y + 0.2f + u * 4.2f, p->at.z);
+      float r = p->r * (1.0f - 0.25f * u);
+      t3_object_set_scale(M.tele_ring[i][k], r, 1, r);
+    }
+    M.tele_ring_mat[i]->opacity = 0.5f + 0.4f * kick;
+  }
+}
+
 void modes_gfx_frame(const sim *s, float alpha) {
   if (!M.built || !s) return;
   float t = ((float)s->tick + alpha) / (float)TICK_HZ;
+  if (M.ntele > 0 && s->arena) tele_frame(s, t);
+  if (s->amode == AM_BALLOON) return;
   if (s->amode == AM_CTF) {
     for (int tm = 0; tm < 2; tm++) {
       const struct ctf_flag *f = &s->flag[tm];

@@ -11,7 +11,10 @@
  * ramps and decks, and glances off walls and cover (a few times, then it bursts); a homing missile turns after the
  * kart it locked at launch; oil and mines lie where they were dropped. A kart under any boost that drives into
  * another at RAM_SPEED or more pops one of its balloons (the TURBO RAM): turbos and drift boosts are weapons.
- * Item boxes stand where the arena puts them and come back six seconds after they are taken.
+ * Item boxes stand where the arena puts them and come back six seconds after they are taken. A kart that drives onto one
+ * of the arena's teleport pads (arena_tele) is at its far end the next tick, facing the pad's way at the pad's speed, with
+ * its item and any flag it carries (EV_TELE); a kart that falls off an open arena is put back at a spawn (its own team's in
+ * capture the flag) once it drops under the kill plane.
  *
  * The same arena plays two more rounds (sim.amode, sim_set_arena_mode), with no balloons and nobody out:
  *   capture the flag     two teams (red and blue), a flag on each team's base at opposite ends. Drive over the other
@@ -95,13 +98,14 @@ static void battle_locate(const sim *s, t3_vec3 p, float *sd, float *lat, float 
   *sd = l.s, *lat = l.lat, *h = l.height;
 }
 
-/* stands kart i at (x, z) on whatever floor is there, facing yaw (radians, 0 = +z) */
-static void battle_place(sim *s, int i, float x, float z, float yaw, float speed) {
+/* stands kart i on the floor found looking down from (x, y_from, z), facing yaw (radians, 0 = +z), moving at speed: its
+ * pose and velocity only (the item, the flag and the rest stay) */
+static t3_vec3 battle_pose(sim *s, int i, float x, float y_from, float z, float yaw, float speed) {
   kart *k = &s->k[i];
   float sn, cs;
   cw_sincos(yaw, &sn, &cs);
   t3_vec3 f = { sn, 0, cs }, u = { 0, 1, 0 }, r = v3cross(f, u);
-  float y = battle_floor(s, x, 30, z);
+  float y = battle_floor(s, x, y_from, z);
   if (y < -50) y = 0;
   t3_vec3 pos = { x, y + RIDE + 0.15f, z };
   t3_quat q = q_from_frame(r, u, f);
@@ -112,13 +116,55 @@ static void battle_place(sim *s, int i, float x, float z, float yaw, float speed
   cw_body3d_set_velocity(PH.body[i], v3mul(f, speed));
   cw_body3d_set_angular_velocity(PH.body[i], (t3_vec3){ 0, 0, 0 });
   k->p = pos, k->q = q, k->v = v3mul(f, speed), k->w = (t3_vec3){ 0, 0, 0 };
-  kart_reset_state(k);
   k->speed = speed;
-  k->hint = -1;
   track_locate(s->track, pos, -1, &k->loc);
   k->hint = k->loc.i;
-  k->prog = 0;
   PH.prev_s[i] = k->loc.s;
+  return pos;
+}
+
+/* an arena's boost strips and teleport pads: a kart on its wheels on a strip gets a pad's boost; one that drives onto a pad
+ * goes to its far end (the flag it carries with it) */
+static void battle_teleports(sim *s, int i) {
+  const arena_rt *a = s->arena;
+  kart *k = &s->k[i];
+  for (int b = 0; b < a->nboost && k->grounded && k->boost_ticks < 50 && !k->out && s->phase == PH_RACE; b++) {
+    const struct arena_boost_rt *o = &a->boost[b];
+    float dx = k->p.x - o->at.x, dz = k->p.z - o->at.z, lx = dx * o->cs - dz * o->sn, lz = dx * o->sn + dz * o->cs;
+    if (absf(lx) < o->hw && absf(lz) < o->hd && absf(k->p.y - RIDE - o->at.y) < 1.2f) start_boost(s, i, 70, 1.1f, 0);
+  }
+  if (k->tele_cool > 0) {
+    k->tele_cool--;
+    return;
+  }
+  if (a->ntele <= 0 || k->out || k->parked || k->respawn_ticks > 0 || s->phase != PH_RACE) return;
+  for (int t = 0; t < a->ntele; t++) {
+    const struct arena_tele_rt *p = &a->tele[t];
+    float dx = k->p.x - p->at.x, dz = k->p.z - p->at.z;
+    if (dx * dx + dz * dz > p->r * p->r || absf(k->p.y - RIDE - p->at.y) > 1.6f) continue;
+    t3_vec3 from = k->p;
+    battle_pose(s, i, p->to.x, p->to.y + 3.0f, p->to.z, p->yaw, p->speed);
+    k->drifting = false;
+    k->drift_ticks = k->drift_level = 0;
+    k->air_ticks = 0;
+    k->stall_ticks = k->stuck_ticks = 0;
+    k->tele_cool = TELE_COOL;
+    event(s, EV_TELE, i, t, from, 0);
+    return;
+  }
+}
+
+/* stands kart i at (x, z) on whatever floor is there, facing yaw (radians, 0 = +z) */
+static void battle_place(sim *s, int i, float x, float z, float yaw, float speed) {
+  kart *k = &s->k[i];
+  battle_pose(s, i, x, 30, z, yaw, speed);
+  kart_reset_state(k);
+  k->speed = speed;
+  k->prog = 0;
+}
+
+void sim_battle_put(sim *s, int i, float x, float z, float yaw_deg, float speed) {
+  if (s->battle && i >= 0 && i < MAXK && s->k[i].on) battle_place(s, i, x, z + ARENA_CZ, yaw_deg * (CW_PI / 180.0f), speed);
 }
 
 /* a point of the arena's own frame (x, z) in the world, standing on the floor there (the top of a deck or a mound) */
@@ -171,6 +217,7 @@ static void battle_place_all(sim *s) {
     k->carry = -1;
     k->caps = k->steals = k->returns = k->flag_cool = 0;
     k->hill_ticks = 0;
+    k->tele_cool = 0;
     n++;
   }
   s->alive = n;
@@ -777,6 +824,7 @@ static void battle_kart_after(sim *s, int i) {
     if (!k->parked && s->race_ticks - k->out_tick >= OUT_LINGER) battle_park(s, i);
     return;
   }
+  battle_teleports(s, i);
   bool lost = k->p.y < -14.0f;
   bool flipped = !k->grounded && kart_up(k).y < -0.3f && k->air_ticks > 30;
   if (s->phase == PH_RACE && k->respawn_ticks <= 0 && k->spin_ticks <= 0 && absf(k->speed) < 1.5f) k->stall_ticks++;
@@ -785,6 +833,7 @@ static void battle_kart_after(sim *s, int i) {
   else if (k->stuck_ticks > 0) k->stuck_ticks--;
   if (k->respawn_ticks <= 0 && (lost || k->stuck_ticks > 120 || k->stall_ticks > (k->human ? 300 : 170) || k->reset_hold > 55)) {
     if (lost) event(s, EV_FALL, i, 0, k->p, 0);
+    if (getenv("RACER_FALLLOG")) cw_info("battle respawn kart %d tick %d lost=%d stuck=%d stall=%d reset=%d p=(%.1f %.1f %.1f) v=(%.1f %.1f %.1f)", i, s->tick, lost, k->stuck_ticks, k->stall_ticks, k->reset_hold, k->p.x, k->p.y, k->p.z - ARENA_CZ, k->v.x, k->v.y, k->v.z);
     battle_respawn(s, i);
   }
 }

@@ -709,7 +709,7 @@ static void tick_vehicle(float W, float H) {
     U.sel = 0;
     U.mapfocus = 0;
     U.cup_focus = 0;
-    goto_mode(U.gmode == RM_CUP ? M_CUP : U.gmode == RM_BATTLE ? M_ARENA : M_MAP);
+    goto_mode(U.gmode == RM_CUP ? M_CUP : U.gmode == RM_BATTLE ? M_ARENA_MODE : M_MAP);
     sfx_ok();
   }
 }
@@ -1050,6 +1050,7 @@ static void scr_tick(void) {
   case M_STANDINGS: tick_standings(W, H); break;
   case M_CUPEND: tick_cupend(W, H); break;
   case M_ARENA: tick_arena(W, H); break;
+  case M_ARENA_MODE: tick_arena_mode(W, H); break;
   }
 }
 
@@ -1763,6 +1764,7 @@ static void scr_draw(float W, float H) {
   case M_STANDINGS: draw_standings(W, H, s); break;
   case M_CUPEND: draw_cupend(W, H, s); break;
   case M_ARENA: draw_arena(W, H, s); break;
+  case M_ARENA_MODE: draw_arena_mode(W, H, s); break;
   default: break;
   }
 }

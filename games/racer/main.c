@@ -18,12 +18,14 @@
  *                        accelerate (2) assists for the humans
  *   RACER_TEST_AT=s:speed  kart 0 (RACER_TEST_KART=n another) on the road at s metres when the lights go out; L<n>:speed
  *                        30 m before the n-th loop; B<n>:metres:speed on branch n (a shortcut), that far from its mouth
+ *   RACER_BATTLE_AT=x,z,yaw,speed  kart 0 at that point of an arena (its own frame) when the lights go out
  *   RACER_EYE=x,y,z,tx,ty,tz  a fixed camera there looking at the target, no HUD (a still of any part of a map)
  *   RACER_JITLOG=1       log each frame the drawn distance from view 0's camera to its kart (with CW_FRAME_HZ: is it steady);
  *                        RACER_NOINTERP=1 draws the karts at the tick rate, the old way, as a control
  *   RACER_SPLIT=a:b      log each kart's time from progress a to b (metres): what a shortcut is worth
  *   RACER_AI_TAKE=0|1    every CPU driver stays out of (0) or takes (1) every shortcut; RACER_AILOG=1 logs their choices
- *   RACER_MODE=battle    with RACER_MAP=n: a battle in arena n (0 Crusher Yard, 1 Foundry Pit, 2 Spillway Basin, 3 Frost Lake);
+ *   RACER_MODE=battle    with RACER_MAP=n: a battle in arena n (0 Crusher Yard, 1 Foundry Pit, 2 Spillway Basin, 3 Frost Lake,
+ *                        4 Twin Spires, 5 Mesa Run: the last two capture the flag only);
  *                        RACER_KARTS=2..8 karts in it (humans first, CPUs fill), RACER_BATTLE_TIME=secs the round's length (three
  *                        minutes otherwise). RACER_MODE=ctf and RACER_MODE=koth the same for capture the flag and king of the
  *                        mountain
@@ -642,8 +644,8 @@ static void trace(void) {
     int ti = atoi(getenv("RACER_TRACE_KART")) & 7;
     const kart *k = &G.S.k[ti];
     const ai_mem *m = &G.ai[ti];
-    fprintf(tr, "t%d p=(%.1f %.1f %.1f) spd=%.1f fwd=(%.2f %.2f) aim=(%.1f %.1f %.1f) feel=%.2f/%.2f/%.2f rev=%d slow=%d frust=%d roam=%d box=%d tgt=%d btn=%d spin=%d thr=%d\n", G.S.tick, k->p.x, k->p.z - 100, k->p.y, k->speed,
-            kart_fwd(k).x, kart_fwd(k).z, m->b_aim.x, m->b_aim.z - 100, m->b_aim.y, m->b_feel[0], m->b_feel[1], m->b_feel[2], m->b_reverse, m->b_slow, m->b_frust, m->b_roam, m->b_box, m->b_target, (int)G.S.k[ti].last_btn, k->spin_ticks, m->b_thr);
+    fprintf(tr, "t%d p=(%.1f %.1f %.1f) spd=%.1f fwd=(%.2f %.2f) aim=(%.1f %.1f %.1f) feel=%.2f/%.2f/%.2f rev=%d slow=%d frust=%d roam=%d box=%d tgt=%d btn=%d spin=%d thr=%d\n", G.S.tick, k->p.x, k->p.z - ARENA_CZ, k->p.y, k->speed,
+            kart_fwd(k).x, kart_fwd(k).z, m->b_aim.x, m->b_aim.z - ARENA_CZ, m->b_aim.y, m->b_feel[0], m->b_feel[1], m->b_feel[2], m->b_reverse, m->b_slow, m->b_frust, m->b_roam, m->b_box, m->b_target, (int)G.S.k[ti].last_btn, k->spin_ticks, m->b_thr);
     return;
   }
   /* the last tick each kart was spinning, backing out or put back (for the causes below) */
@@ -676,7 +678,7 @@ static void trace(void) {
       if (v3len(v3sub(G.ai[i].b_aim, k->p)) < 8.0f) *fp++ = 'G';
       *fp++ = G.ai[i].b_thr > 0 ? '+' : G.ai[i].b_thr < 0 ? '-' : '0';
       *fp = 0;
-      fprintf(tr, " | %.0f,%.0f,%.0f %.0f b%d p%d i%d f=%s%s%s", k->p.x, k->p.z - 100, k->p.y, k->speed, k->balloons, k->points, k->item, fl, G.ai[i].b_reverse ? " R" : "",
+      fprintf(tr, " | %.0f,%.0f,%.0f %.0f b%d p%d i%d f=%s%s%s", k->p.x, k->p.z - ARENA_CZ, k->p.y, k->speed, k->balloons, k->points, k->item, fl, G.ai[i].b_reverse ? " R" : "",
               k->out ? " OUT" : "");
     }
     fprintf(tr, "\n");
@@ -745,6 +747,15 @@ static void fixed(void *u, double dt) {
         if (!at_done) sim_put(&G.S, tk, sd, lat_at, sp);
         at_done = 1;
       }
+      /* dev aid: RACER_BATTLE_AT=x,z,yaw,speed puts kart 0 (RACER_TEST_KART=n another) at that point of the arena (its own
+       * frame, yaw in degrees), moving, when the lights go out */
+      static int bat_done;
+      if (!bat_done && G.S.battle && getenv("RACER_BATTLE_AT") && G.S.phase == PH_RACE && G.S.race_ticks == 1) {
+        float bx = 0, bz = 0, byaw = 0, bsp = 0;
+        sscanf(getenv("RACER_BATTLE_AT"), "%f,%f,%f,%f", &bx, &bz, &byaw, &bsp);
+        sim_battle_put(&G.S, getenv("RACER_TEST_KART") ? atoi(getenv("RACER_TEST_KART")) & 7 : 0, bx, bz, byaw, bsp);
+        bat_done = 1;
+      }
     }
     sim_step(&G.S, in);
     if (G.trial) {
@@ -752,6 +763,10 @@ static void fixed(void *u, double dt) {
       ghost_gfx_tick(&G.S);
       G.ghost_rec_n = ghost_rec_count(), G.ghost_rec_hash = ghost_rec_hash(), G.ghost_play_hash = ghost_play_hash();
     }
+    /* a teleport pad took a kart a view follows: the view cuts to the far end (no swing round across the arena) */
+    for (int e = 0; e < G.S.ev_n; e++)
+      for (int v = 0; v < G.nviews && G.S.ev[e].kind == EV_TELE; v++)
+        if (game_view_kart(v) == G.S.ev[e].a) G.rig[v].live = false, G.rig[v].snap = true;
     world_tick(&G.S);
     items_tick(&G.S);
     fx_events(&G.S);
@@ -863,7 +878,7 @@ static void cmd_cup(int argc, const char **argv, cw_reply *r) {
   if (r) cw_reply_printf(r, "{\"cup\":1}");
 }
 
-/* battle <arena 0..3> [humans] [secs] [karts] [mode]: an arena round now (secs 0: three minutes; karts 0: eight; mode 0 balloons,
+/* battle <arena 0..5> [humans] [secs] [karts] [mode]: an arena round now (secs 0: three minutes; karts 0: eight; mode 0 balloons,
  * 1 capture the flag, 2 king of the mountain) */
 static void cmd_battle(int argc, const char **argv, cw_reply *r) {
   int a = argc > 1 ? CW_CLAMP(atoi(argv[1]), 0, NARENAS - 1) : 0;
@@ -968,7 +983,7 @@ static void init(void *u) {
   cw_debug_command("trial", "trial <map 0..7> [runs]: start a time trial now (the bot drives <runs> runs when it is on)", cmd_trial);
   cw_debug_command("cup", "cup <0..1> [humans] [laps] [races]: a cup now, clicking through its own results (with `bot 1`)", cmd_cup);
   cw_debug_command("bot", "bot <0|1|2>: the human karts driven by the CPU driver (2: keyboard-style steering)", cmd_bot);
-  cw_debug_command("battle", "battle <arena 0..3> [humans] [secs] [karts] [mode 0 balloons|1 flag|2 hill]: an arena round now (secs 0: three minutes)", cmd_battle);
+  cw_debug_command("battle", "battle <arena 0..5> [humans] [secs] [karts] [mode 0 balloons|1 flag|2 hill]: an arena round now (secs 0: three minutes)", cmd_battle);
   cw_debug_i32("battle.mode", &G.amode);
   cw_debug_field("ctf.score", G.team_score, CW_DBG_I32, 2);
   cw_debug_field("ctf.flag", G.flag_state, CW_DBG_I32, 2);

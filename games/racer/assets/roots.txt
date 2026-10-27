@@ -11,6 +11,8 @@ scenes/dam.cwscene
 scenes/frost.cwscene
 scenes/temple.cwscene
 scenes/orbit.cwscene
+scenes/spires.cwscene
+scenes/mesa.cwscene
 fonts/Bungee-OFL.txt
 fonts/Bungee-Regular.ttf
 fonts/Fredoka-OFL.txt
