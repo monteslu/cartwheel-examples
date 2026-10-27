@@ -732,6 +732,13 @@ static void draw_battle_results(float W, float H, float s) {
     static const int ord[3] = { 1, 0, 2 };
     static const float hgt[3] = { 80, 118, 56 };
     float bw = pod.w / 3 - 6 * s;
+    /* the podium's stage: a window onto the 3D scene with the backdrop the real karts stand in front of */
+    cw_rect pod_back = cw_rect_make(pod.x - 8 * s, pod.y, pod.w + 12 * s, baseY + 8 * s - pod.y);
+    if (show_live()) {
+      cw_rect fr = pod_back;
+      fr.x -= 2 * s, fr.y -= 2 * s, fr.w += 4 * s, fr.h += 4 * s;
+      cw_r2d_rect_lines(fr, 3 * s, INK);
+    }
     draw_confetti(cw_rect_make(pod.x, pod.y - 40 * s, pod.w, pod.h + 40 * s), s, U.time);
     for (int c = 0; c < 3 && c < U.res_n; c++) {
       int pl = ord[c];
@@ -745,9 +752,16 @@ static void draw_battle_results(float W, float H, float s) {
         snprintf(nb, sizeof nb, "%d", pl + 1);
         tx_o(U.f_title, nb, bx + bw * 0.5f, blk.y + fminf(bh2 * 0.5f, 34 * s), 40 * s, INK, (txopt){ .align = CW_ALIGN_CENTER, .outline = 0.01f, .no_shadow = true });
       }
+      /* the kart itself on its block (rising with it): the arena's own model, three quarters on, the winner hopping with
+       * its arms up; the winner's slot also hangs the stage backdrop behind the whole podium */
       float u = bw / 4.2f, hop = pl == 0 ? fabsf(cw_sin(U.time * 4)) * 8 * s : 0;
       float gy = baseY - bh2 - hop, kx = bx + bw * 0.5f;
-      draw_kart_side(kx, gy, u, r->veh, r->colour, pl == 0 ? 0.8f : 0.2f, U.time * 0.6f);
+      if (show_live()) {
+        show_kart k = show_kart_on(W, H, kx, gy, bw * 0.72f, r->veh, r->colour, r->kart + 1);
+        k.yaw = -0.75f + 0.25f * cw_sin(U.time * 0.8f + (float)c), k.boost = pl == 0 ? 0.8f : 0, k.cheer = pl == 0 ? 1 : 0;
+        if (c == 1) show_back(&k, W, H, pod_back);
+        showroom_want(c, &k);
+      }
       for (int bi = 0; bi < r->tricks; bi++) {
         cw_vec2 bc = cw_v2(kx - u * 1.2f + ((float)bi - (float)(r->tricks - 1) * 0.5f) * u * 0.62f, gy - u * 3.0f + 4 * s * cw_sin(U.time * 2 + (float)(bi + c)) - (bi == 1 ? u * 0.25f : 0));
         cw_r2d_line(cw_v2(bc.x, bc.y + u * 0.3f), cw_v2(kx - u * 1.2f, gy - u * 1.2f), 1.2f * s, alpha(CREAM, 0.8f));

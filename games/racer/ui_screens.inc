@@ -3,146 +3,66 @@
  * Each screen has a layout function of the canvas size that the input and the drawing both use, so a click lands
  * on exactly what was drawn. Everything is laid out for 960x540 (or 540x960 portrait) and scaled. */
 
-/* ── a kart seen from the side: the vehicle select, the podium ──────── */
+/* ── the real karts on the menus: the vehicle select, the podiums ───── */
 
-static void poly_m(float cx, float gy, float u, const float *xy, int n, cw_color fill, cw_color line, float lw) {
-  cw_vec2 p[20];
-  for (int i = 0; i < n && i < 20; i++) p[i] = cw_v2(cx + xy[i * 2] * u, gy - xy[i * 2 + 1] * u);
-  cw_r2d_polygon(p, n, fill);
-  if (lw > 0) cw_r2d_polygon_lines(p, n, lw, line);
+/* The menus show the race's own kart models: kartgfx.c's showroom holds real karts in front of the camera of the scene
+ * behind the menu, each standing where a screen wants it. The 2D draws over the 3D, so a screen leaves a window open
+ * over each kart (a hole in the dark it lays over the scene). Without a scene (or in split screen) there is none. */
+static bool show_live(void) { return game_loaded() && game_views() == 1; }
+
+/* a kart for the showroom with its wheels on (cx, gy) of the canvas, len pixels long side on */
+static show_kart show_kart_on(float W, float H, float cx, float gy, float len, int veh, int colour, int number) {
+  return (show_kart){ .veh = veh, .colour = colour, .number = number, .nx = cx / W * 2 - 1, .ny = 1 - gy / H * 2, .half = len / H, .tilt = 0.3f, .t = U.time };
 }
-static void wheel_m(float cx, float gy, float u, float x, float r, float spin) {
-  cw_vec2 c = cw_v2(cx + x * u, gy - r * u);
-  cw_r2d_circle(c, r * u + 1.5f, 20, INK);
-  cw_r2d_circle(c, r * u, 20, rgba(0.16f, 0.15f, 0.17f, 1));
-  cw_r2d_circle(c, r * u * 0.6f, 16, rgba(0.62f, 0.6f, 0.62f, 1));
-  for (int i = 0; i < 5; i++) {
-    float a = spin + (float)i * CW_TAU / 5.0f;
-    cw_r2d_line(c, cw_v2(c.x + cw_cos(a) * r * u * 0.58f, c.y + cw_sin(a) * r * u * 0.58f), r * u * 0.11f + 1, rgba(0.28f, 0.27f, 0.3f, 1));
-  }
-  cw_r2d_circle(c, r * u * 0.16f, 8, INK);
+/* a stage backdrop behind the kart, across rect r of the canvas */
+static void show_back(show_kart *k, float W, float H, cw_rect r) {
+  k->back = true;
+  k->back_lo[0] = r.x / W * 2 - 1, k->back_lo[1] = 1 - (r.y + r.h) / H * 2;
+  k->back_hi[0] = (r.x + r.w) / W * 2 - 1, k->back_hi[1] = 1 - r.y / H * 2;
 }
 
-/* veh: a VEH index; flame 0..1 is the exhaust; t the time, for the wheels' turn and the bob */
-static void draw_kart_side(float cx, float gy, float u, int veh, int colour, float flame, float t) {
-  const vehicle_def *vd = &VEH[veh % NVEH];
-  float L = vd->len, r = vd->wheel_r;
-  cw_color c = kart_col(colour), dark = shade(c, 0.6f), lite = mix(c, rgba(1, 1, 1, 1), 0.4f);
-  float spin = t * 9.0f;
-  float wf = 0.62f * L, wr = -0.62f * L;
-  float rr = r;
-  if (veh % NVEH == 1) rr = r * 1.12f;
-  if (veh % NVEH == 5) rr = r * 1.18f;
-  /* the ground shadow */
-  cw_r2d_round_rect(cw_rect_make(cx - L * 1.25f * u, gy - 0.05f * u, L * 2.5f * u, 0.16f * u), 0.08f * u, 4, rgba(0, 0, 0, 0.35f));
-  /* the exhaust flame at the back */
-  if (flame > 0.01f) {
-    float fl = (0.55f + 0.45f * cw_sin(t * 40)) * flame;
-    float f[] = { -L * 1.0f, r * 1.25f, -L * 1.0f - (0.5f + 0.7f * fl), r * 1.4f, -L * 1.0f, r * 1.55f };
-    poly_m(cx, gy, u, f, 3, MUSTARD, INK, 0);
-    float f2[] = { -L * 1.0f, r * 1.32f, -L * 1.0f - (0.25f + 0.4f * fl), r * 1.4f, -L * 1.0f, r * 1.48f };
-    poly_m(cx, gy, u, f2, 3, CREAM, INK, 0);
-  }
-  switch (veh % NVEH) {
-  case 0: { /* Scrapper: an open buggy with a roll cage */
-    float body[] = { -L, r * 0.9f, L * 1.02f, r * 0.9f, L * 1.0f, r * 1.7f, L * 0.45f, r * 2.0f, -L * 0.25f, r * 2.0f, -L * 0.95f, r * 1.8f };
-    poly_m(cx, gy, u, body, 6, c, INK, 2.5f);
-    float strip[] = { -L, r * 0.9f, L * 1.02f, r * 0.9f, L * 1.0f, r * 1.15f, -L * 0.98f, r * 1.15f };
-    poly_m(cx, gy, u, strip, 4, dark, INK, 0);
-    cw_r2d_circle(cw_v2(cx - 0.02f * u, gy - r * 3.0f * u), r * 0.62f * u, 14, INK);
-    cw_r2d_circle(cw_v2(cx - 0.02f * u, gy - r * 3.0f * u), r * 0.52f * u, 14, CREAM);
-    cw_vec2 cage[5] = { cw_v2(cx - L * 0.35f * u, gy - r * 2.0f * u), cw_v2(cx - L * 0.22f * u, gy - r * 3.7f * u), cw_v2(cx + L * 0.2f * u, gy - r * 3.7f * u),
-                        cw_v2(cx + L * 0.3f * u, gy - r * 2.0f * u), cw_v2(cx + L * 0.3f * u, gy - r * 2.0f * u) };
-    cw_r2d_polyline(cage, 4, 0.1f * u + 3, false, INK);
-    cw_r2d_polyline(cage, 4, 0.1f * u, false, lite);
-    float hood[] = { L * 0.45f, r * 2.0f, L * 1.0f, r * 1.7f, L * 0.98f, r * 1.4f, L * 0.4f, r * 1.5f };
-    poly_m(cx, gy, u, hood, 4, lite, INK, 0);
-    wheel_m(cx, gy, u, wr, rr, spin);
-    wheel_m(cx, gy, u, wf, rr, spin);
-    break;
-  }
-  case 1: { /* Rhino: tall, heavy, a plough on the front */
-    float body[] = { -L, r * 0.9f, L, r * 0.9f, L, r * 2.3f, L * 0.55f, r * 2.55f, L * 0.1f, r * 3.2f, -L * 0.7f, r * 3.2f, -L, r * 2.6f };
-    poly_m(cx, gy, u, body, 7, c, INK, 2.5f);
-    float win[] = { L * 0.35f, r * 2.55f, L * 0.05f, r * 3.05f, -L * 0.4f, r * 3.05f, -L * 0.4f, r * 2.55f };
-    poly_m(cx, gy, u, win, 4, rgba(0.55f, 0.85f, 0.95f, 1), INK, 2);
-    float plough[] = { L, r * 0.7f, L * 1.3f, r * 0.55f, L * 1.22f, r * 2.1f, L, r * 2.3f };
-    poly_m(cx, gy, u, plough, 4, rgba(0.62f, 0.6f, 0.62f, 1), INK, 2.5f);
-    float strip[] = { -L, r * 0.9f, L, r * 0.9f, L, r * 1.25f, -L, r * 1.25f };
-    poly_m(cx, gy, u, strip, 4, dark, INK, 0);
-    wheel_m(cx, gy, u, wr, rr, spin);
-    wheel_m(cx, gy, u, wf, rr, spin);
-    break;
-  }
-  case 2: { /* Gnat: tiny, a tall wing behind */
-    float post[] = { -L * 0.78f, r * 1.7f, -L * 0.66f, r * 1.7f, -L * 0.66f, r * 3.2f, -L * 0.78f, r * 3.2f };
-    poly_m(cx, gy, u, post, 4, dark, INK, 2);
-    float wing[] = { -L * 1.12f, r * 3.2f, -L * 0.3f, r * 3.2f, -L * 0.3f, r * 3.55f, -L * 1.12f, r * 3.55f };
-    poly_m(cx, gy, u, wing, 4, lite, INK, 2.5f);
-    float body[] = { -L * 0.92f, r * 1.0f, L * 0.98f, r * 1.0f, L * 1.02f, r * 1.45f, L * 0.35f, r * 1.9f, -L * 0.6f, r * 1.9f, -L * 0.95f, r * 1.5f };
-    poly_m(cx, gy, u, body, 6, c, INK, 2.5f);
-    cw_r2d_circle(cw_v2(cx - L * 0.05f * u, gy - r * 2.7f * u), r * 0.55f * u, 14, INK);
-    cw_r2d_circle(cw_v2(cx - L * 0.05f * u, gy - r * 2.7f * u), r * 0.46f * u, 14, CREAM);
-    float nose[] = { L * 0.95f, r * 0.85f, L * 1.3f, r * 0.85f, L * 1.25f, r * 1.1f, L * 0.95f, r * 1.2f };
-    poly_m(cx, gy, u, nose, 4, lite, INK, 2);
-    wheel_m(cx, gy, u, wr, rr, spin);
-    wheel_m(cx, gy, u, wf, rr, spin);
-    break;
-  }
-  case 3: { /* Sidewinder: a low wedge with side pipes */
-    float body[] = { -L, r * 0.85f, L * 1.08f, r * 0.8f, L * 0.95f, r * 1.4f, L * 0.1f, r * 2.0f, -L * 0.55f, r * 1.95f, -L, r * 1.55f };
-    poly_m(cx, gy, u, body, 6, c, INK, 2.5f);
-    float stripe[] = { -L * 0.95f, r * 1.2f, L * 0.9f, r * 1.1f, L * 0.88f, r * 1.3f, -L * 0.95f, r * 1.4f };
-    poly_m(cx, gy, u, stripe, 4, lite, INK, 0);
-    float fin[] = { -L * 1.0f, r * 1.5f, -L * 0.78f, r * 1.9f, -L * 1.05f, r * 2.7f, -L * 1.15f, r * 2.7f, -L * 1.1f, r * 1.7f };
-    poly_m(cx, gy, u, fin, 5, dark, INK, 2);
-    float pipe[] = { -L * 0.6f, r * 0.95f, L * 0.25f, r * 0.95f, L * 0.25f, r * 1.12f, -L * 0.6f, r * 1.12f };
-    poly_m(cx, gy, u, pipe, 4, rgba(0.7f, 0.7f, 0.74f, 1), INK, 1.5f);
-    float win[] = { L * 0.3f, r * 1.55f, L * 0.05f, r * 1.95f, -L * 0.3f, r * 1.95f, -L * 0.3f, r * 1.6f };
-    poly_m(cx, gy, u, win, 4, rgba(0.55f, 0.85f, 0.95f, 1), INK, 2);
-    wheel_m(cx, gy, u, wr, rr, spin);
-    wheel_m(cx, gy, u, wf, rr, spin);
-    break;
-  }
-  case 4: { /* Longhaul: a long hood, a tall cab at the back, two stacks */
-    float body[] = { -L, r * 0.9f, L * 1.05f, r * 0.9f, L * 1.05f, r * 1.9f, L * 0.4f, r * 2.1f, L * 0.2f, r * 2.1f, -L, r * 2.1f };
-    poly_m(cx, gy, u, body, 6, c, INK, 2.5f);
-    float cab[] = { -L, r * 2.1f, -L * 0.92f, r * 3.3f, -L * 0.1f, r * 3.3f, L * 0.2f, r * 2.1f };
-    poly_m(cx, gy, u, cab, 4, lite, INK, 2.5f);
-    float win[] = { -L * 0.8f, r * 2.35f, -L * 0.78f, r * 3.05f, -L * 0.2f, r * 3.05f, L * 0.0f, r * 2.35f };
-    poly_m(cx, gy, u, win, 4, rgba(0.55f, 0.85f, 0.95f, 1), INK, 2);
-    for (int i = 0; i < 2; i++) {
-      float x0 = L * (0.25f + 0.2f * (float)i);
-      float st[] = { x0, r * 2.1f, x0 + 0.1f, r * 2.1f, x0 + 0.1f, r * 3.6f, x0, r * 3.6f };
-      poly_m(cx, gy, u, st, 4, rgba(0.72f, 0.72f, 0.76f, 1), INK, 1.5f);
+/* draw(u) clipped to the area outside the holes: the area cut into rows at the holes' edges, and each row's runs
+ * outside every hole clipped and drawn on their own */
+typedef void (*draw_fn)(void *u);
+static void sort_f(float *v, int n) {
+  for (int i = 1; i < n; i++)
+    for (int j = i; j > 0 && v[j] < v[j - 1]; j--) {
+      float t = v[j];
+      v[j] = v[j - 1], v[j - 1] = t;
     }
-    float grille[] = { L * 1.05f, r * 1.0f, L * 1.1f, r * 1.0f, L * 1.1f, r * 1.8f, L * 1.05f, r * 1.8f };
-    poly_m(cx, gy, u, grille, 4, rgba(0.62f, 0.6f, 0.62f, 1), INK, 1.5f);
-    wheel_m(cx, gy, u, wr, rr, spin);
-    wheel_m(cx, gy, u, wf, rr, spin);
-    break;
+}
+static void draw_around(cw_rect area, const cw_rect *holes, int nh, draw_fn draw, void *u) {
+  float xs[2 * SHOW_MAX + 2], ys[2 * SHOW_MAX + 2];
+  int n = 2;
+  nh = nh > SHOW_MAX ? SHOW_MAX : nh;
+  xs[0] = area.x, xs[1] = area.x + area.w, ys[0] = area.y, ys[1] = area.y + area.h;
+  for (int i = 0; i < nh; i++) {
+    xs[n] = cw_clampf(holes[i].x, xs[0], xs[1]), xs[n + 1] = cw_clampf(holes[i].x + holes[i].w, xs[0], xs[1]);
+    ys[n] = cw_clampf(holes[i].y, ys[0], ys[1]), ys[n + 1] = cw_clampf(holes[i].y + holes[i].h, ys[0], ys[1]);
+    n += 2;
   }
-  default: { /* Pogo: a round body on a spring */
-    float bob = 0.1f * cw_sin(t * 6);
-    cw_vec2 sp[7];
-    for (int i = 0; i < 7; i++) sp[i] = cw_v2(cx + (((i & 1) ? 0.22f : -0.22f)) * u, gy - (r * 1.1f + (r * 1.3f + bob) * (float)i / 6.0f) * u);
-    cw_r2d_polyline(sp, 7, 0.1f * u + 3, false, INK);
-    cw_r2d_polyline(sp, 7, 0.1f * u, false, rgba(0.72f, 0.72f, 0.76f, 1));
-    float body[18];
-    for (int i = 0; i < 9; i++) {
-      float a = (float)i / 9.0f * CW_TAU;
-      body[i * 2] = cw_cos(a) * L * 0.95f;
-      body[i * 2 + 1] = r * 3.0f + bob + cw_sin(a) * r * 1.0f;
+  sort_f(xs, n), sort_f(ys, n);
+  for (int r = 0; r + 1 < n; r++) {
+    float y0 = ys[r], y1 = ys[r + 1], run = -1;
+    if (y1 - y0 < 0.5f) continue;
+    for (int c = 0; c + 1 < n; c++) {
+      float x0 = xs[c], x1 = xs[c + 1];
+      if (x1 - x0 < 0.5f) continue;
+      bool in = false;
+      for (int h = 0; h < nh && !in; h++) in = in_rect(cw_v2((x0 + x1) * 0.5f, (y0 + y1) * 0.5f), holes[h]);
+      if (!in && run < 0) run = x0;
+      if (in && run >= 0) {
+        cw_r2d_push_clip(cw_rect_make(run, y0, x0 - run, y1 - y0));
+        draw(u);
+        cw_r2d_pop_clip();
+        run = -1;
+      }
     }
-    poly_m(cx, gy, u, body, 9, c, INK, 2.5f);
-    float win[] = { L * 0.55f, r * 3.2f + bob, L * 0.15f, r * 3.6f + bob, -L * 0.15f, r * 3.6f + bob, -L * 0.1f, r * 3.2f + bob };
-    poly_m(cx, gy, u, win, 4, rgba(0.55f, 0.85f, 0.95f, 1), INK, 2);
-    cw_r2d_line(cw_v2(cx - L * 0.7f * u, gy - (r * 3.8f + bob) * u), cw_v2(cx - L * 0.95f * u, gy - (r * 4.7f + bob) * u), 0.05f * u + 1.5f, INK);
-    cw_r2d_circle(cw_v2(cx - L * 0.95f * u, gy - (r * 4.7f + bob) * u), 0.1f * u, 10, RED);
-    wheel_m(cx, gy, u, wr, rr, spin);
-    wheel_m(cx, gy, u, wf, rr, spin);
-    break;
-  }
+    if (run >= 0) {
+      cw_r2d_push_clip(cw_rect_make(run, y0, xs[n - 1] - run, y1 - y0));
+      draw(u);
+      cw_r2d_pop_clip();
+    }
   }
 }
 
@@ -204,14 +124,24 @@ static void header(float W, float H, float s, const char *title, const char *sub
   if (sub && r.x + r.w + 24 * s + tx_width(U.f_hud, sub, 20 * s) < W - 170 * s) tx(U.f_hud, sub, r.x + r.w + 24 * s, r.y + 30 * s, 20 * s, alpha(CREAM, 0.85f * t), CW_ALIGN_LEFT);
 }
 
-static void backdrop(float W, float H, float s, float strength) {
+typedef struct scrim_args { float W, H, a; } scrim_args;
+static void scrim_cb(void *u) {
+  const scrim_args *a = u;
+  scrim(a->W, a->H, a->a);
+}
+
+/* the dark over the scene, with windows left open onto it (holes: the real karts stand in them) */
+static void backdrop_open(float W, float H, float s, float strength, const cw_rect *holes, int nh) {
   if (!game_loaded()) {
     vgrad(cw_rect_make(0, 0, W, H), rgba(0.2f, 0.12f, 0.1f, 1), rgba(0.05f, 0.04f, 0.08f, 1));
   }
-  scrim(W, H, strength);
+  scrim_args sa = { W, H, strength };
+  if (nh > 0) draw_around(cw_rect_make(0, 0, W, H), holes, nh, scrim_cb, &sa);
+  else scrim(W, H, strength);
   tape(cw_rect_make(-10, -2, W + 20, 13 * s), s, U.time * 18 * s);
   tape(cw_rect_make(-10, H - 11 * s, W + 20, 13 * s), s, -U.time * 18 * s);
 }
+static void backdrop(float W, float H, float s, float strength) { backdrop_open(W, H, s, strength, NULL, 0); }
 
 static void draw_button(cw_rect r, const char *label, bool sel, bool enabled, float s, float appear) {
   float a = clamp01(appear * 1.4f);
@@ -1218,6 +1148,23 @@ static void stat_bar(cw_rect r, float f, cw_color c, float sp) {
   cw_r2d_round_rect_lines(r, r.h * 0.4f, 1.8f * sp, 3, INK);
 }
 
+typedef struct slab_args { cw_rect r; cw_color fill; float s; } slab_args;
+static void slab_cb(void *u) {
+  const slab_args *a = u;
+  slab(a->r, 0, a->fill, a->s);
+}
+
+/* player i's stage as drawn this frame (it rises with the card); empty before the card shows */
+static cw_rect vstage_rect(int i, int n, float W, float H) {
+  float ap = ease_back(((float)U.mt - (float)i * 4) / 18.0f);
+  if (ap <= 0) return cw_rect_make(0, 0, 0, 0);
+  vlay l;
+  vlayout(vpanel_rect(i, n, W, H), &l);
+  cw_rect st = l.stage;
+  st.y += (1 - ap) * 60 * lscale(W, H);
+  return st;
+}
+
 static void draw_vpanel(int i, int n, float W, float H, float s) {
   cw_rect P = vpanel_rect(i, n, W, H);
   vlay l;
@@ -1225,13 +1172,16 @@ static void draw_vpanel(int i, int n, float W, float H, float s) {
   float sp = l.sp;
   float ap = ease_back(((float)U.mt - (float)i * 4) / 18.0f);
   if (ap <= 0) return;
-  bool ready = U.ready[i];
+  bool ready = U.ready[i], live = show_live();
   const vehicle_def *vd = &VEH[U.veh[i]];
   cw_color pc = kart_col(U.col[i]);
-  /* the card */
+  /* the card (open over the stage, where the real kart stands in the scene behind) */
   cw_rect card = P;
   card.y += (1 - ap) * 60 * s;
-  slab(card, 0, rgba(0.1f, 0.075f, 0.09f, 0.9f), s);
+  cw_rect stage_open = vstage_rect(i, n, W, H);
+  slab_args sa = { card, rgba(0.1f, 0.075f, 0.09f, 0.9f), s };
+  if (live) draw_around(cw_rect_make(card.x - 4 * s, card.y - 4 * s, card.w + 12 * s, card.h + 14 * s), &stage_open, 1, slab_cb, &sa);
+  else slab(card, 0, sa.fill, s);
   cw_r2d_rect_lines(cw_rect_make(card.x + 3 * s, card.y + 3 * s, card.w - 6 * s, card.h - 6 * s), 3 * s, alpha(ready ? LIME : pc, ready ? 1 : 0.75f));
   /* offset every part by the slide */
   float dy = (1 - ap) * 60 * s;
@@ -1249,21 +1199,23 @@ static void draw_vpanel(int i, int n, float W, float H, float s) {
     arrow(cw_v2(SHIFT(l.arrow_l).x + 15 * sp + wob, nm.y + nm.h * 0.5f), 9 * sp, -1, MUSTARD, sp);
     arrow(cw_v2(SHIFT(l.arrow_r).x + 15 * sp - wob, nm.y + nm.h * 0.5f), 9 * sp, 1, MUSTARD, sp);
   }
-  /* the stage: a spotlight, the floor, the ride sliding in */
+  /* the stage: a window onto the 3D scene, where the real kart turns on its turntable in front of a backdrop (a change
+   * of ride whips it round; ready, it faces out, lights its exhaust and cheers) */
   cw_rect st = SHIFT(l.stage);
-  cw_r2d_round_rect(st, 10 * sp, 5, rgba(0.17f, 0.13f, 0.15f, 1));
-  cw_r2d_push_clip(st);
-  vgrad(cw_rect_make(st.x, st.y, st.w, st.h * 0.7f), rgba(0.3f, 0.24f, 0.2f, 0.9f), rgba(0.13f, 0.1f, 0.12f, 1));
-  cw_r2d_rect(cw_rect_make(st.x, st.y + st.h * 0.78f, st.w, st.h * 0.22f), rgba(0.09f, 0.07f, 0.09f, 1));
-  cw_r2d_set_blend(CW_BLEND_ADD);
-  cw_r2d_circle(cw_v2(st.x + st.w * 0.5f, st.y + st.h * 0.62f), st.h * 0.62f, 28, rgba(0.35f, 0.24f, 0.12f, 0.35f));
-  cw_r2d_circle(cw_v2(st.x + st.w * 0.5f, st.y + st.h * 0.62f), st.h * 0.38f, 24, rgba(0.35f, 0.24f, 0.12f, 0.3f));
-  cw_r2d_set_blend(CW_BLEND_ALPHA);
-  float slide = (1 - ease_out((float)U.veh_anim[i] / 16.0f)) * (float)U.veh_dir[i] * st.w * 0.5f;
-  float u = fminf(st.w / 3.9f, st.h / 2.15f);
-  float bob = ready ? 0 : 1.2f * sp * cw_sin(U.time * 3.2f + (float)i);
-  draw_kart_side(st.x + st.w * 0.5f + slide, st.y + st.h * 0.8f + bob, u, U.veh[i], U.col[i], ready ? 1.0f : 0.25f, U.time + (float)i);
-  cw_r2d_pop_clip();
+  if (live) {
+    float whip = (1 - ease_out((float)U.veh_anim[i] / 16.0f)) * (float)U.veh_dir[i] * 2.4f;
+    show_kart k = show_kart_on(W, H, st.x + st.w * 0.5f, st.y + st.h * 0.72f, fminf(st.w * 0.42f, st.h * 0.9f), U.veh[i], U.col[i], i + 1);
+    k.yaw = (ready ? -0.55f : U.time * 0.7f + (float)i * 1.3f) + whip;
+    k.boost = ready ? 0.8f : 0, k.cheer = ready ? 1 : 0, k.stand = true;
+    show_back(&k, W, H, st);
+    showroom_want(i, &k);
+  } else {
+    cw_r2d_round_rect(st, 10 * sp, 5, rgba(0.17f, 0.13f, 0.15f, 1));
+    cw_r2d_push_clip(st);
+    vgrad(cw_rect_make(st.x, st.y, st.w, st.h * 0.7f), rgba(0.3f, 0.24f, 0.2f, 0.9f), rgba(0.13f, 0.1f, 0.12f, 1));
+    cw_r2d_rect(cw_rect_make(st.x, st.y + st.h * 0.78f, st.w, st.h * 0.22f), rgba(0.09f, 0.07f, 0.09f, 1));
+    cw_r2d_pop_clip();
+  }
   cw_r2d_round_rect_lines(st, 10 * sp, 2.5f * sp, 5, INK);
   for (int v = 0; v < NVEH; v++) {
     cw_vec2 d = l.dot[v];
@@ -1308,8 +1260,10 @@ static void draw_vpanel(int i, int n, float W, float H, float s) {
 }
 
 static void draw_vehicle(float W, float H, float s) {
-  backdrop(W, H, s, 0.82f);
-  int n = U.setup.humans;
+  int n = U.setup.humans;  cw_rect open[MAXV];
+  int no = 0;
+  for (int i = 0; i < n && i < MAXV && show_live(); i++) open[no++] = vstage_rect(i, n, W, H);
+  backdrop_open(W, H, s, 0.82f, open, no);
   header(W, H, s, n > 1 ? "CHOOSE YOUR RIDES" : "CHOOSE YOUR RIDE", NULL);
   for (int i = 0; i < n; i++) draw_vpanel(i, n, W, H, s);
   if (n == 3 && !is_portrait(W, H)) {
@@ -1745,6 +1699,13 @@ static void draw_results(float W, float H, float s) {
       static const int ord[3] = { 1, 0, 2 };
       static const float hgt[3] = { 80, 118, 56 };
       float bw = pod.w / 3 - 6 * s;
+      /* the podium's stage: a window onto the 3D scene with the backdrop the real karts stand in front of */
+      cw_rect pod_back = cw_rect_make(pod.x - 8 * s, pod.y, pod.w + 12 * s, baseY + 8 * s - pod.y);
+      if (show_live()) {
+        cw_rect fr = pod_back;
+        fr.x -= 2 * s, fr.y -= 2 * s, fr.w += 4 * s, fr.h += 4 * s;
+        cw_r2d_rect_lines(fr, 3 * s, INK);
+      }
       draw_confetti(cw_rect_make(pod.x, pod.y - 60 * s, pod.w, pod.h + 60 * s), s, U.time);
       for (int c = 0; c < 3 && c < U.res_n; c++) {
         int pl = ord[c];
@@ -1758,11 +1719,18 @@ static void draw_results(float W, float H, float s) {
           snprintf(b, sizeof b, "%d", pl + 1);
           tx_o(U.f_title, b, bx + bw * 0.5f, blk.y + fminf(bh2 * 0.5f, 34 * s), 40 * s, INK, (txopt){ .align = CW_ALIGN_CENTER, .outline = 0.01f, .no_shadow = true });
         }
-        float u = bw / 4.2f;
+        /* the kart itself on its block (rising with it): the race's own model, three quarters on, the winner hopping with
+         * its arms up; the winner's slot also hangs the stage backdrop behind the whole podium */
+        float len = bw * 0.72f;
         float hop = pl == 0 ? fabsf(cw_sin(U.time * 4)) * 8 * s : 0;
-        draw_kart_side(bx + bw * 0.5f, baseY - bh2 - hop, u, r->veh, r->colour, pl == 0 ? 0.8f : 0.2f, U.time * 0.6f);
+        if (show_live()) {
+          show_kart k = show_kart_on(W, H, bx + bw * 0.5f, baseY - bh2 - hop, len, r->veh, r->colour, r->kart + 1);
+          k.yaw = -0.75f + 0.25f * cw_sin(U.time * 0.8f + (float)c), k.boost = pl == 0 ? 0.8f : 0, k.cheer = pl == 0 ? 1 : 0;
+          if (c == 1) show_back(&k, W, H, pod_back);
+          showroom_want(c, &k);
+        }
         driver_name(r, nm, sizeof nm);
-        tx_fit(U.f_hud, nm, bx + bw * 0.5f, baseY - bh2 - u * 1.9f - hop - 6 * s, 15 * s, bw + 4 * s, CREAM, CW_ALIGN_CENTER);
+        tx_fit(U.f_hud, nm, bx + bw * 0.5f, baseY - bh2 - len * 0.62f - hop - 6 * s, 15 * s, bw + 4 * s, CREAM, CW_ALIGN_CENTER);
       }
     }
     /* the buttons */
