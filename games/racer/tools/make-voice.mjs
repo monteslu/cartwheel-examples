@@ -112,17 +112,17 @@ const LINES = [
   /* capture the flag */
   { id: 'flag_got', say: ['Flag taken! Bring it home, baby!', 'Got the flag! Now hit the gas!'] },
   { id: 'flag_stolen', say: ['They have your flag!', 'Hey! They swiped your flag!'] },
-  { id: 'flag_captured', say: ['Captured! Score!', 'Captured! Oh yeah!'] },
+  { id: 'flag_captured', say: ['Captured! That\'s a point!', 'Captured! Oh yeah!'] },
   { id: 'flag_lost', say: ['Ouch! They scored!', 'They got one! Get it back!'] },
-  { id: 'flag_saved', say: ['Flag\'s back home!', 'Nice save! Flag\'s home!'] },
+  { id: 'flag_saved', say: ['Flag\'s back home!', 'Nice save! Your flag is home!'] },
   { id: 'team_win', say: ['Your team wins! Woo!', 'Team victory, baby!'] },
   /* king of the mountain */
   { id: 'king', say: ['King of the mountain!', 'Top of the world, baby!'] },
-  { id: 'hill_moving', say: ['The hill is moving!', 'Heads up! The hill\'s on the move!'] },
+  { id: 'hill_moving', say: ['Look out! The hill is on the move!', 'Heads up! The hill\'s on the move!'] },
   { id: 'contested', say: ['Push em off the hill!', 'Crowded up there!'] },
   /* the new weapons */
-  { id: 'bomb_hit', say: ['Ka-blammo!', 'Bombs away, baby!'] },
-  { id: 'boomerang_hit', say: ['Boing! Boomerang, baby!', 'Whack! Didn\'t see that comin back!'] },
+  { id: 'bomb_hit', say: ['Ka-boom! Bomb hit!', 'Bombs away, baby!'] },
+  { id: 'boomerang_hit', say: ['Boomerang! Gotcha!', 'Whack! Didn\'t see that comin back!'] },
 ];
 const MAX_VARIANTS = 6;
 
