@@ -88,3 +88,30 @@ void stats_events(const sim *s) {
           T.boosts[3], T.boosts[1], T.warns, T.shock_hits, T.shields, T.hits, T.spins, T.falls, cuts, items[0], items[1],
           items[2]);
 }
+
+/* dev aid RACER_BUMPLOG=1: a kart that loses more than 8 m/s in a tenth of a second with nothing to show for it (no wall,
+ * no kart, no hit, no spin, no landing, no water or slow ground) has met something it should not have: an obstacle no
+ * one can see. Each one is logged with where it was. */
+void bumpcheck_events(const sim *s) {
+  static int on = -1;
+  if (on < 0) on = getenv("RACER_BUMPLOG") != NULL;
+  if (!on || s->battle || s->phase != PH_RACE) return;
+  static float spd[MAXK][8];
+  static int why[MAXK]; /* the last tick something explained a slow-down */
+  for (int e = 0; e < s->ev_n; e++) {
+    const struct sim_event *v = &s->ev[e];
+    if (v->kind == EV_WALL || v->kind == EV_HIT || v->kind == EV_SPIN || v->kind == EV_LAND || v->kind == EV_WATER || v->kind == EV_FALL || v->kind == EV_RESPAWN) why[v->a & 7] = s->tick;
+    if (v->kind == EV_BUMP) why[v->a & 7] = why[v->b & 7] = s->tick;
+  }
+  for (int i = 0; i < s->nkarts; i++) {
+    const kart *k = &s->k[i];
+    float now = v3len(k->v), was = spd[i][s->tick & 7];
+    spd[i][s->tick & 7] = now;
+    if (!k->on || k->finished || k->respawn_ticks > 0 || k->spin_ticks > 0 || k->loc.i < 0) continue;
+    const tsample *a = &s->track->s[k->loc.i];
+    if (a->flags & (TF_SLOW | TF_WATER | TF_GAP)) continue;
+    if (was - now > 8.0f && s->tick - why[i] > 12 && s->race_ticks > 60)
+      cw_info("bumpcheck: kart %d lost %.0f m/s at s %.0f lat %.1f h %.1f br %d tick %d (flags 0x%x, p %.0f,%.0f,%.0f)", i, was - now,
+              k->loc.ms, k->loc.lat, k->loc.height, k->loc.br, s->tick, (unsigned)a->flags, k->p.x, k->p.y, k->p.z);
+  }
+}

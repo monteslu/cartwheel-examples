@@ -1280,7 +1280,9 @@ static void contacts(sim *s) {
       if (vn > 0 && nl > 0.2f) v = v3sub(v, v3mul(n, vn * 1.0f + clampf(vn * 0.35f, 0, 4.0f)));
       float vu = v3dot(v, up0);
       if (vu > 1.0f) v = v3sub(v, v3mul(up0, vu - 1.0f));
-      v = v3mul(v, h->speed > 8 ? 0.93f : 0.99f);
+      /* the speed lost goes with how square the hit is: a graze along the wall costs next to nothing, a head-on
+       * thump up to 15% (a flat 7% a tick of contact made a scrape feel like being grabbed) */
+      v = v3mul(v, 1.0f - clampf(fmaxf(vn, 0.0f) * 0.02f, 0.0f, 0.15f));
       cw_body3d_set_velocity(PH.body[ki], v);
       t3_vec3 w = cw_body3d_angular_velocity(PH.body[ki]);
       t3_vec3 up = kart_up(k);
@@ -1434,12 +1436,19 @@ void sim_step(sim *s, const kin in_raw[MAXK]) {
       k->v = v3add(k->v, v3mul(lm.r, (want - vlat) * 0.1f));
       cw_body3d_set_velocity(PH.body[i], k->v);
     }
-    if (k->loc.i >= 0 && (s->track->s[k->loc.i].flags & TF_LOOP)) {
+    bool loop_near = false; /* in a loop, or one coming within 40 m */
+    if (k->loc.i >= 0 && k->loc.br < 0)
+      for (int j = 0; j <= 40 && !loop_near; j += 4) loop_near = (s->track->s[(k->loc.i + j) % s->track->n].flags & TF_LOOP) != 0;
+    else if (k->loc.i >= 0) loop_near = (s->track->s[k->loc.i].flags & TF_LOOP) != 0;
+    if (loop_near) {
       static float capv = -1;
-      if (capv < 0) capv = getenv("RACER_LOOPCAP") ? (float)atof(getenv("RACER_LOOPCAP")) : 40.0f;
-      float cap = capv;
-      if (sp > cap) {
-        k->v = v3mul(k->v, cap / sp);
+      if (capv < 0) capv = getenv("RACER_LOOPCAP") ? (float)atof(getenv("RACER_LOOPCAP")) : 45.0f;
+      /* eased on the approach, never snapped: a kart above it sheds at most 0.45 m/s a tick over the last 40 m before the
+       * loop. (A hard clamp at 40 inside took 10-15 m/s off a turboed kart in one tick at the mouth of every loop: an
+       * invisible wall) */
+      if (sp > capv) {
+        float to = maxf(capv, sp - 0.45f);
+        k->v = v3mul(k->v, to / sp);
         cw_body3d_set_velocity(PH.body[i], k->v);
       }
     }

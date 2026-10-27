@@ -83,6 +83,7 @@ void geomclean_begin(cw_node scene, t3_object *root, const track *t); /* at load
 bool geomclean_step(int budget);                                       /* the next frames, budget triangles a frame (geomcheck.c) */
 void geomclean_snapshot(t3_object *root); /* the places of everything on the first frame: what moves is not cleaned */
 void stats_events(const sim *s);      /* fixed tick: dev aid RACER_STATS=1 logs the race's dynamics when it ends (stats.c) */
+void bumpcheck_events(const sim *s);  /* fixed tick: dev aid RACER_BUMPLOG=1 logs sudden unexplained stops (stats.c) */
 void rumble_tick(const sim *s);       /* fixed tick: the rumbles that last (boost, drift, rough road) */
 void rumble_set_enabled(bool on);
 bool rumble_enabled(void);
