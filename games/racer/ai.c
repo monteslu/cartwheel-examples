@@ -241,7 +241,10 @@ kin ai_think(const sim *s, int me, ai_mem *m) {
       for (int j = 0; j < MAXK && !on_branch; j++) {
         if (j == me || !s->k[j].on) continue;
         float ds = s->k[j].loc.ms - k->loc.ms;
-        if (ds > 6 && ds < 90 && (k->item == IT_HOMING || fabsf(s->k[j].loc.lat - k->loc.lat) < 3.0f)) use = true;
+        /* at a human, the weaker drivers hold fire: a Rookie never, a Pro only from far enough back that the
+         * INCOMING warning gives time to hop it (the player was hit most of anyone, from where they cannot see) */
+        float min_ds = s->k[j].human ? (m->skill == 0 ? 1e9f : m->skill == 1 ? 25.0f : 6.0f) : 6.0f;
+        if (ds > min_ds && ds < 90 && (k->item == IT_HOMING || fabsf(s->k[j].loc.lat - k->loc.lat) < 3.0f)) use = true;
       }
       break;
     case IT_OIL:
