@@ -202,7 +202,9 @@ kin ai_think(const sim *s, int me, ai_mem *m) {
     if (fl & (TF_GAP | TF_RAMP | TF_LOOP)) in.thr = 127;
   }
   /* drift through the sharp ones (the skilled; not on a narrow branch) */
-  if (m->skill >= 1 && !on_branch && curv > 0.012f && spd > 22 && fabsf(ang) > 0.15f && !(here.flags & (TF_LOOP | TF_GAP | TF_RAMP))) in.btn |= KB_DRIFT;
+  /* an Ace drifts the medium bends too (radius under 125 m), the others only the sharp ones (under 83 m) */
+  float drift_curv = m->skill >= 2 ? 0.008f : 0.012f;
+  if (m->skill >= 1 && !on_branch && curv > drift_curv && spd > 22 && fabsf(ang) > 0.12f && !(here.flags & (TF_LOOP | TF_GAP | TF_RAMP))) in.btn |= KB_DRIFT;
   /* in a drift, hold it while the line still bends that way, so the mini-turbo charges; let go as soon as the driver
    * wants to straighten (holding through the whole bend ran them wide into the walls) */
   if (m->skill >= 1 && k->drifting && !on_branch && spd > 16 && m->steer_smooth * (float)k->drift_dir > 0.22f && !(here.flags & (TF_LOOP | TF_GAP | TF_RAMP))) in.btn |= KB_DRIFT;
