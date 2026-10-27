@@ -23,6 +23,7 @@
 
 #include "cartwheel/math.h"
 #include "cartwheel/particles.h"
+#include "arena.h"
 #include "fx_int.h"
 
 /* ── recipes ────────────────────────────────────────────────────────── */
@@ -624,6 +625,27 @@ static void on_event(const sim *s, const struct sim_event *e) {
     sparkle_burst(v3add(s->k[a].p, v3mul(up, 0.6f)), up, 1, 1, 1);
     light_flash(s->k[a].p, 14, 8, 0.2f, 0.8f, 1, 0.8f);
     break;
+  case EV_TELE: {
+    /* a teleport pad: a ring and a flash of the pad's light where it left, the same where it came out */
+    if (!ka) break;
+    const arena_rt *ar = s->arena;
+    float c[3] = { 0.5f, 0.9f, 1.0f };
+    if (ar && e->b >= 0 && e->b < ar->ntele && ar->tele[e->b].col) {
+      uint32_t col = ar->tele[e->b].col;
+      c[0] = (float)((col >> 16) & 255) / 255.0f, c[1] = (float)((col >> 8) & 255) / 255.0f, c[2] = (float)(col & 255) / 255.0f;
+    }
+    t3_vec3 up0 = v3(0, 1, 0);
+    for (int end = 0; end < 2; end++) {
+      t3_vec3 at = end ? s->k[a].p : e->at;
+      ring_at(at, up0, fwd, c[0], c[1], c[2], 4.0f);
+      sparkle_burst(at, up0, c[0], c[1], c[2]);
+      sparkle_burst(v3add(at, v3mul(up0, 1.2f)), up0, 1, 1, 1);
+      flare_at(v3add(at, v3mul(up0, 0.8f)), 2.2f, c[0], c[1], c[2]);
+      light_flash(v3add(at, v3mul(up0, 1.0f)), 40, 12, 0.22f, c[0], c[1], c[2]);
+    }
+    shake_add(a, 0.3f);
+    break;
+  }
   case EV_FALL:
     if (!ka) break;
     cloud_burst(e->at, v3(0, 1, 0), 0.5f, 0.5f, 0.52f, 0.5f, 1.8f);

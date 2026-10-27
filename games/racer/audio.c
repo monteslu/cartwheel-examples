@@ -867,6 +867,10 @@ void audio_events(const sim *s) {
       else if (e->b == FE_RETURNED || e->b == FE_HOME) kart_sfx(S_CHIME, e->a, e->at, 0.7f, 1.2f);
       else if (e->b == FE_CAPTURED) global_sfx(S_OVERTAKE, 1.0f, 0.9f), global_sfx(S_CHIME, 0.8f, 1.0f);
       break;
+    case EV_TELE: /* a teleport pad: the respawn shimmer pitched up, a chime over it, heard where the kart comes out */
+      kart_sfx(S_RESPAWN, e->a, s->k[e->a & (MAXK - 1)].p, 0.9f, 1.45f);
+      kart_sfx(S_CHIME, e->a, s->k[e->a & (MAXK - 1)].p, 0.55f, 1.9f);
+      break;
     case EV_HILL: /* king of the mountain: the hill moved; a new king */
       if (e->b == HE_MOVED) global_sfx(S_CHIME, 0.7f, 0.75f);
       else if (e->b == HE_TAKEN && ov >= 0 && !A.attract) play2d(S_CHIME, 0.6f * view_gain(), 1.5f, view_pan(ov));

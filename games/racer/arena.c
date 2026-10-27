@@ -27,19 +27,111 @@ static void add(arena_rt *rt, arena_prim p) {
   rt->n++;
 }
 
+/* the top of floor-like shape p (arena frame) at (x, z), or false when (x, z) is not on it */
+static bool deck_top(const arena_prim *p, float x, float z, float *top) {
+  if (p->ghost || (p->look != AL_DECK && p->look != AL_RAMP)) return false;
+  float sn, cs;
+  cw_sincos(p->yaw * (CW_PI / 180.0f), &sn, &cs);
+  float dx = x - p->x, dz = z - p->z, lx = dx * cs - dz * sn, lz = dx * sn + dz * cs;
+  if (p->kind == AP_POST) {
+    if (lx * lx + lz * lz > p->w * p->w * 0.25f) return false;
+  } else if (lx < -p->w * 0.5f || lx > p->w * 0.5f || lz < -p->d * 0.5f || lz > p->d * 0.5f) return false;
+  *top = p->kind == AP_RAMP ? p->y + p->h * (lz / p->d + 0.5f) : p->y + p->h;
+  if (p->kind == AP_MOUND) *top = p->y + fminf(p->h, fminf(p->w * 0.5f - fabsf(lx), p->d * 0.5f - fabsf(lz)) / MOUND_RUN);
+  return true;
+}
+
+/* another deck (not shape self) carries on from (x, z) at about this height: the rail stops there, a way off */
+static bool deck_beyond(const arena_def *def, int self, float x, float z, float top) {
+  for (int j = 0; j < def->nprims; j++) {
+    float t;
+    if (j != self && deck_top(&def->prims[j], x, z, &t) && fabsf(t - top) < 0.6f) return true;
+  }
+  return false;
+}
+
+/* deck i's rails (arena_prim.rail): round its edge, inside it, stopping wherever another deck carries on from it. A box's
+ * four sides in straight runs, a round deck's rim in chords */
+static void add_rails(arena_rt *rt, const arena_def *def, int i) {
+  const arena_prim *p = &def->prims[i];
+  const float rw = 0.6f, out = 1.2f;
+  float top = p->y + p->h, sn, cs;
+  if (p->kind == AP_POST) {
+    float r = p->w * 0.5f;
+    int n = (int)(CW_TAU * r / 3.0f);
+    n = n < 12 ? 12 : n;
+    for (int k = 0; k < n; k++) {
+      float a = ((float)k + 0.5f) * (CW_TAU / (float)n);
+      cw_sincos(a, &sn, &cs);
+      if (deck_beyond(def, i, p->x + sn * (r + out), p->z + cs * (r + out), top)) continue;
+      float rr = r - rw * 0.5f, len = 2.0f * rr * cw_sin(CW_PI / (float)n) + 0.35f;
+      add(rt, (arena_prim){ AP_BOX, AL_TRIM, p->x + sn * rr, p->z + cs * rr, top, rw, p->rail, len, a * (180.0f / CW_PI) + 90.0f, false, 0 });
+    }
+    return;
+  }
+  cw_sincos(p->yaw * (CW_PI / 180.0f), &sn, &cs);
+  for (int side = 0; side < 4; side++) {
+    /* the side's run in the deck's frame: along u from -half to half, at v across (vn the way out) */
+    bool alongz = side < 2;
+    float vn = side & 1 ? 1.0f : -1.0f;
+    float half = alongz ? p->d * 0.5f : p->w * 0.5f, v = vn * (alongz ? p->w * 0.5f : p->d * 0.5f);
+    int steps = (int)(half * 2.0f) + 1;
+    float du = half * 2.0f / (float)steps;
+    int run0 = -1;
+    for (int k = 0; k <= steps; k++) {
+      bool keep = false;
+      if (k < steps) {
+        float u = -half + ((float)k + 0.5f) * du;
+        float lx = alongz ? v + vn * out : u, lz = alongz ? u : v + vn * out;
+        keep = !deck_beyond(def, i, p->x + lx * cs + lz * sn, p->z - lx * sn + lz * cs, top);
+      }
+      if (keep && run0 < 0) run0 = k;
+      if (!keep && run0 >= 0) {
+        float u0 = -half + (float)run0 * du, u1 = -half + (float)k * du;
+        float um = (u0 + u1) * 0.5f, vin = v - vn * rw * 0.5f;
+        float lx = alongz ? vin : um, lz = alongz ? um : vin;
+        add(rt, (arena_prim){ AP_BOX, AL_TRIM, p->x + lx * cs + lz * sn, p->z - lx * sn + lz * cs, top, alongz ? rw : u1 - u0, p->rail,
+                              alongz ? u1 - u0 : rw, p->yaw, false, 0 });
+        run0 = -1;
+      }
+    }
+  }
+}
+
 void arena_rt_build(arena_rt *rt, const arena_def *def) {
   memset(rt, 0, sizeof *rt);
   rt->def = def;
   rt->half_x = def->half_x, rt->half_z = def->half_z;
   rt->centre = (t3_vec3){ 0, 0, ARENA_CZ };
   float hx = def->half_x, hz = def->half_z, wt = 3.0f, wh = def->wall_h > 0 ? def->wall_h : 3.0f;
-  /* the floor, a slab under y = 0 reaching under the walls, and the four walls round it */
-  add(rt, (arena_prim){ AP_BOX, AL_FLOOR, 0, 0, -2.0f, hx * 2 + wt * 2, 2.0f, hz * 2 + wt * 2, 0, false });
-  add(rt, (arena_prim){ AP_BOX, AL_WALL, 0, hz + wt * 0.5f, 0, hx * 2 + wt * 2, wh, wt, 0, false });
-  add(rt, (arena_prim){ AP_BOX, AL_WALL, 0, -hz - wt * 0.5f, 0, hx * 2 + wt * 2, wh, wt, 0, false });
-  add(rt, (arena_prim){ AP_BOX, AL_WALL, hx + wt * 0.5f, 0, 0, wt, wh, hz * 2, 0, false });
-  add(rt, (arena_prim){ AP_BOX, AL_WALL, -hx - wt * 0.5f, 0, 0, wt, wh, hz * 2, 0, false });
+  if (!def->open) {
+    /* the floor, a slab under y = 0 reaching under the walls, and the four walls round it */
+    add(rt, (arena_prim){ AP_BOX, AL_FLOOR, 0, 0, -2.0f, hx * 2 + wt * 2, 2.0f, hz * 2 + wt * 2, 0, false });
+    add(rt, (arena_prim){ AP_BOX, AL_WALL, 0, hz + wt * 0.5f, 0, hx * 2 + wt * 2, wh, wt, 0, false });
+    add(rt, (arena_prim){ AP_BOX, AL_WALL, 0, -hz - wt * 0.5f, 0, hx * 2 + wt * 2, wh, wt, 0, false });
+    add(rt, (arena_prim){ AP_BOX, AL_WALL, hx + wt * 0.5f, 0, 0, wt, wh, hz * 2, 0, false });
+    add(rt, (arena_prim){ AP_BOX, AL_WALL, -hx - wt * 0.5f, 0, 0, wt, wh, hz * 2, 0, false });
+  }
   for (int i = 0; i < def->nprims; i++) add(rt, def->prims[i]);
+  for (int i = 0; i < def->nprims; i++)
+    if (def->prims[i].rail > 0) add_rails(rt, def, i);
+  rt->ntele = def->nteles > ARENA_MAXT ? ARENA_MAXT : def->nteles;
+  for (int i = 0; i < rt->ntele; i++) {
+    const arena_tele *t = &def->teles[i];
+    struct arena_tele_rt *o = &rt->tele[i];
+    o->at = (t3_vec3){ t->x, t->y, t->z + ARENA_CZ };
+    o->to = (t3_vec3){ t->tx, t->ty, t->tz + ARENA_CZ };
+    o->r = t->r, o->speed = t->speed, o->col = t->col;
+    o->yaw = t->tyaw * (CW_PI / 180.0f), o->in_yaw = t->in_yaw * (CW_PI / 180.0f);
+  }
+  rt->nboost = def->nboosts > ARENA_MAXB ? ARENA_MAXB : def->nboosts;
+  for (int i = 0; i < rt->nboost; i++) {
+    const arena_boost *b = &def->boosts[i];
+    struct arena_boost_rt *o = &rt->boost[i];
+    o->at = (t3_vec3){ b->x, b->y, b->z + ARENA_CZ };
+    o->hw = b->w * 0.5f, o->hd = b->d * 0.5f;
+    cw_sincos(b->yaw * (CW_PI / 180.0f), &o->sn, &o->cs);
+  }
   rt->nspawn = def->nspawns > 16 ? 16 : def->nspawns;
   for (int i = 0; i < rt->nspawn; i++) {
     rt->spawn[i][0] = def->spawns[i][0];
@@ -80,7 +172,7 @@ void arena_prim_local(const arena_rt *rt, int i, t3_vec3 p, float *lx, float *lz
   *lz = dx * sn + dz * cs;
 }
 
-float arena_level(const arena_rt *rt, float x, float z) {
+static float level_under(const arena_rt *rt, float x, float z, float y_max) {
   float best = 0;
   for (int i = 0; i < rt->n; i++) {
     const arena_prim *p = &rt->prim[i];
@@ -93,10 +185,13 @@ float arena_level(const arena_rt *rt, float x, float z) {
       float e = fminf(p->w * 0.5f - fabsf(lx), p->d * 0.5f - fabsf(lz));
       top = p->y + fminf(p->h, e / MOUND_RUN);
     }
-    if (top > best) best = top;
+    if (top > best && top <= y_max) best = top;
   }
   return best;
 }
+
+float arena_level(const arena_rt *rt, float x, float z) { return level_under(rt, x, z, 1e9f); }
+float arena_level_below(const arena_rt *rt, float x, float y, float z) { return level_under(rt, x, z, y + 1.5f); }
 
 void arena_phys_build(const arena_rt *rt, cw_body3d b, int track_layer, int wall_layer) {
   for (int i = 0; i < rt->n; i++) {
@@ -108,8 +203,9 @@ void arena_phys_build(const arena_rt *rt, cw_body3d b, int track_layer, int wall
     sd.material.friction = floorish ? 0.9f : 0.0f;
     sd.material.restitution = 0.0f;
     if (p->kind == AP_BOX) {
-      cw_xform3 x = { { p->x, p->y + p->h * 0.5f, p->z }, yaw_q(rt->sn[i], rt->cs[i]) };
-      cw_shape3d_box(b, &sd, (t3_vec3){ p->w * 0.5f, p->h * 0.5f, p->d * 0.5f }, x);
+      float h = p->look == AL_TRIM && rt->def->fence > p->h ? rt->def->fence : p->h;
+      cw_xform3 x = { { p->x, p->y + h * 0.5f, p->z }, yaw_q(rt->sn[i], rt->cs[i]) };
+      cw_shape3d_box(b, &sd, (t3_vec3){ p->w * 0.5f, h * 0.5f, p->d * 0.5f }, x);
     } else if (p->kind == AP_RAMP) {
       /* the sides flare out at the foot (RAMP_SKIRT): a kart running along the edge slides off it instead of hanging on it */
       float hx = p->w * 0.5f, hz = p->d * 0.5f, e = RAMP_SKIRT * p->h;
@@ -231,4 +327,58 @@ void arena_gfx_build(cw_node scene, const arena_rt *rt, uint32_t seed) {
     if (count) pmc_finish(c, root, NAME[look], look != AL_FLOOR && look != AL_PAINT, L->tex);
     else pmc_finish(c, root, NAME[look], false, -1);
   }
+  if (rt->nboost > 0) {
+    /* the boost strips: a dark plate and lit chevrons on it pointing the way it throws you */
+    pmc *c = pmc_new(48.0f, seed + 971u);
+    pcol hot = glow(hex(0xff9a2e), 3.0f), plate = hex(0x2a2a30);
+    for (int i = 0; i < rt->nboost; i++) {
+      const struct arena_boost_rt *o = &rt->boost[i];
+      pm *b = pmc_at(c, o->at);
+      pm_push(b);
+      pm_move(b, o->at.x, o->at.y, o->at.z);
+      pm_roty(b, cw_atan2(o->sn, o->cs));
+      pm_layer(b, PL_METAL);
+      pm_box(b, o->hw * 2, 0.05f, o->hd * 2, plate, plate);
+      pm_layer(b, PL_GLOW);
+      int n = (int)(o->hd * 2 / 2.2f);
+      for (int k = 0; k < n; k++) {
+        float z = -o->hd + 1.1f + (float)k * 2.2f;
+        for (int sd = -1; sd <= 1; sd += 2) {
+          pm_push(b);
+          pm_move(b, (float)sd * o->hw * 0.27f, 0.05f, z);
+          pm_roty(b, (float)sd * 0.75f);
+          pm_box(b, 0.32f, 0.03f, o->hw * 0.72f, hot, hot);
+          pm_pop(b);
+        }
+      }
+      pm_pop(b);
+    }
+    pmc_finish(c, root, "ArenaBoosts", false, -1);
+  }
+  if (rt->ntele <= 0) return;
+  /* the teleport pads: a dark plate a hand high, a lit rim and a ring of studs round it (modes_gfx.c adds the light over it) */
+  pmc *c = pmc_new(48.0f, seed + 977u);
+  for (int i = 0; i < rt->ntele; i++) {
+    const struct arena_tele_rt *t = &rt->tele[i];
+    pcol lit = glow(hex(t->col ? t->col : 0x7fe8ff), 3.2f), plate = hex(0x23262e), edge = hex(0x5d6370);
+    pm *b = pmc_at(c, t->at);
+    pm_push(b);
+    pm_move(b, t->at.x, t->at.y, t->at.z);
+    pm_layer(b, PL_METAL);
+    pm_cyl(b, t->r + 0.7f, t->r + 0.5f, 0.12f, 28, edge, edge);
+    pm_cyl(b, t->r + 0.1f, t->r + 0.1f, 0.14f, 28, plate, plate);
+    pm_layer(b, PL_GLOW);
+    for (int k = 0; k < 16; k++) {
+      float sn, cs;
+      cw_sincos((float)k * (CW_TAU / 16.0f), &sn, &cs);
+      pm_push(b);
+      pm_move(b, sn * (t->r + 0.32f), 0.12f, cs * (t->r + 0.32f));
+      pm_roty(b, (float)k * (CW_TAU / 16.0f));
+      pm_box(b, 0.7f, 0.05f, 0.16f, lit, lit);
+      pm_pop(b);
+    }
+    pm_cyl(b, t->r * 0.35f, t->r * 0.35f, 0.16f, 20, lit, lit);
+    pm_pop(b);
+  }
+  pmc_finish(c, root, "ArenaPads", false, -1);
 }

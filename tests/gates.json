@@ -5382,10 +5382,10 @@
   {
     "name": "racer-ctf",
     "app": "racer",
-    "frames": 3000,
+    "frames": 4300,
     "startCmds": [
       "bot 1",
-      "battle 2 2 40 8 1"
+      "battle 5 2 60 8 1"
     ],
     "maxGt16": 0.08,
     "fields": [
@@ -5421,7 +5421,51 @@
       ],
       "note": "The dual cart on romdev against native WebGPU."
     },
-    "note": "racer capture the flag in Spillway Basin, shortened for the gate (a 40 second round, eight karts: two bot-driven humans on red in split screen, the CPUs evening the teams up): the teams, the flags taken, dropped and captured, the score and the end of the round (the results screen, ui.mode 8) must match on every host. The CPU drivers play their roles (attack, guard, chase the carrier, carry it home) from the sim alone."
+    "note": "racer capture the flag on Mesa Run, a long capture the flag map (the flags 504 m apart), shortened for the gate (a 60 second round, eight karts: two bot-driven humans on red in split screen, the CPUs evening the teams up): the teams, the flags taken, dropped and captured, the score and the end of the round (the results screen, ui.mode 8) must match on every host. The CPU drivers play their roles (attack, guard, chase the carrier, carry it home) from the sim alone, finding their way round the butte and up the mesas by the map's route, and the boost strips throw them along the wash and the causeway."
+  },
+  {
+    "name": "racer-ctf-spires",
+    "app": "racer",
+    "frames": 4300,
+    "startCmds": [
+      "bot 1",
+      "battle 4 2 60 8 1"
+    ],
+    "maxGt16": 0.08,
+    "fields": [
+      "race.loaded",
+      "race.phase",
+      "ticks",
+      "sim.hash",
+      "ui.mode",
+      "views",
+      "battle.mode",
+      "battle.left",
+      "battle.end",
+      "ctf.score",
+      "ctf.flag",
+      "karts.team",
+      "karts.caps",
+      "karts.points",
+      "karts.hits",
+      "karts.falls"
+    ],
+    "expect": {
+      "race.loaded": 1,
+      "race.phase": 3,
+      "ui.mode": 8,
+      "battle.mode": 1
+    },
+    "webgpu": {
+      "vsGl": 0.3,
+      "maxGt16": 0.08,
+      "hosts": [
+        "native",
+        "romdev"
+      ],
+      "note": "The dual cart on romdev against native WebGPU."
+    },
+    "note": "racer capture the flag on Twin Spires, the long open map over the void (the flags 476 m apart, no floor: a kart knocked off falls past the kill plane and comes back at its base), shortened for the gate (a 60 second round, eight karts, two bot-driven humans on red in split screen): the teams, the flags, the score, the falls and the end of the round must match on every host. The towers' teleport pads (each hall up to its roof, each roof back out onto a walkway) move karts in the sim (EV_TELE: a way up to the view and the roofs' boxes); boost strips, crests and the rails laid round every deck (arena.c) are all in the static world the ray queries see."
   },
   {
     "name": "racer-koth",

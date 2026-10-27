@@ -174,9 +174,11 @@ static void phys_free(void) {
   memset(&PH, 0, sizeof PH);
 }
 
-static void car_make(int i, const vehicle_def *vd) {
+static void car_make(int i, const vehicle_def *vd, bool arena) {
   cw_vehicle3d_def d = cw_vehicle3d_default_def();
-  d.mask = 1u << L_TRACK | 1u << L_WALL;
+  /* in an arena the tyres stand on its floors only (the floor, decks, ramps): a kart pressed along a wall or a rail rolled
+   * onto it and drove up it and over the top */
+  d.mask = arena ? 1u << L_TRACK : 1u << L_TRACK | 1u << L_WALL;
   d.rolling_resistance = 0.01f;
   d.drag = 0.0f;
   d.roll_influence = 0.25f;
@@ -264,7 +266,7 @@ static void world_make(sim *s, const map_def *map, const bool on[MAXK], const in
     b3MassData md = b3Body_GetMassData(cw_body3d_raw(PH.body[i]));
     md.center = (b3Vec3){ 0, -0.25f, 0 };
     b3Body_SetMassData(cw_body3d_raw(PH.body[i]), md);
-    car_make(i, vd);
+    car_make(i, vd, s->battle);
   }
   PH.ready = true;
 }
@@ -1081,8 +1083,9 @@ static void kart_control(sim *s, int i, kin in) {
     float press = STICK * clampf(sp / 14.0f, 0, 1) * GRAV * mass;
     if (grounded || touching) cw_body3d_apply_force(b, v3mul(m.u, -press * attach), NULL);
   }
-  if (s->battle && (grounded || touching)) {
-    /* an arena has no track gravity: the same downforce, along the kart's own down (ramps and decks) */
+  if (s->battle && (grounded || touching) && up.y > 0.7f) {
+    /* an arena has no track gravity: the same downforce, along the kart's own down (ramps and decks); never while it leans on
+     * a wall (rolled over against one, its own down is into the wall: it rode up it and over the top) */
     float press = STICK * clampf(absf(k->speed) / 14.0f, 0, 1) * GRAV * mass;
     cw_body3d_apply_force(b, v3mul(up, -press), NULL);
   }

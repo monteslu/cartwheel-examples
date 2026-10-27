@@ -4,13 +4,15 @@
  *   an item      the nearest kart worth hitting, ahead first; fire when the shot is lined up and clear
  *   always       a steering field of nine rays (sim_ray) picks the open heading nearest the goal, wary of mines, oil
  *                and other karts; it brakes when the way ends too soon, and a kart pinned or nosed into a corner
- *                backs out briefly with the nose swinging to the open side, then drives on
+ *                backs out briefly with the nose swinging to the open side, then drives on. A goal on another level
+ *                goes by a ramp up to it, or by a teleport pad when no ramp does (a tower's roof, and back down)
  *
  * The other arena rounds give it an objective (mode_goal) that stands in for roaming, and it only turns aside for a box or
  * a kart close by:
  *   capture the flag     a carrier heads home; its own flag taken, the guards and the nearest chase the carrier, its own
  *                        flag lying out, the nearest sends it home; attackers go for the other flag (or escort their
- *                        carrier home); a guard circles its base and goes for whoever comes near. Teammates are never
+ *                        carrier home), racing: a turbo goes on a long clear run at the goal; a guard idles round a
+ *                        post just out in front of its base and goes for whoever comes near. Teammates are never
  *                        targets
  *   king of the mountain onto the hill and round it, fighting whoever else is on it
  *
@@ -60,6 +62,8 @@ static int pick_box(const sim *s, int me, const ai_mem *m, float max_d) {
     if (m->lane_ticks > 0 && (int)m->lane_want == b) continue; /* it just got stuck going for this one */
     float d = flat_dist(x->p, k->p), a = fabsf(bearing(k, x->p));
     if (d > max_d) continue;
+    if (s->amode != AM_BALLOON && fabsf(x->p.y - k->p.y) > 3.0f) continue; /* a round with a goal: not up a tower for a box */
+    if (s->amode == AM_CTF && a > 1.0f) continue; /* capture the flag: a box on the way, never one to turn round for */
     float score = d + a * 16.0f + (fabsf(x->p.y - k->p.y) > 2.0f ? 18.0f : 0);
     if (!clear_line(s, k->p, x->p)) score += 40;
     /* another kart is nearer to it and heading there: leave it */
@@ -101,8 +105,8 @@ static int pick_target(const sim *s, int me, ai_mem *m, float max_d) {
 }
 
 /* a goal up on a deck is reached by a ramp: on one (or lined up at its foot) aim off its top, else go to the foot of the
- * one that makes the shortest way */
-static t3_vec3 via_ramp(const sim *s, const kart *k, t3_vec3 goal, float goal_lv) {
+ * one that makes the shortest way (*found false: no ramp goes up there) */
+static t3_vec3 via_ramp(const sim *s, const kart *k, t3_vec3 goal, float goal_lv, bool *found) {
   const arena_rt *a = s->arena;
   int best = -1;
   float bc = 1e9f;
@@ -111,13 +115,41 @@ static t3_vec3 via_ramp(const sim *s, const kart *k, t3_vec3 goal, float goal_lv
     if (p->kind != AP_RAMP || p->ghost || p->h < 1.8f || fabsf(p->y + p->h - goal_lv) > 0.8f) continue;
     float lx, lz;
     arena_prim_local(a, i, k->p, &lx, &lz);
-    if (fabsf(lx) < p->w * 0.5f - 0.6f && lz > -p->d * 0.5f - 9.0f && lz < p->d * 0.5f + 1.0f) return arena_prim_point(a, i, lx * 0.5f, p->h, p->d * 0.5f + 6.0f);
+    if (fabsf(lx) < p->w * 0.5f - 0.6f && lz > -p->d * 0.5f - 9.0f && lz < p->d * 0.5f + 1.0f) {
+      *found = true;
+      return arena_prim_point(a, i, lx * 0.5f, p->h, p->d * 0.5f + 6.0f);
+    }
     t3_vec3 foot = arena_prim_point(a, i, 0, 0, -p->d * 0.5f - 7.0f), top = arena_prim_point(a, i, 0, p->h, p->d * 0.5f);
     float c = flat_dist(k->p, foot) + flat_dist(top, goal);
     if (c < bc) bc = c, best = i;
   }
+  *found = best >= 0;
   if (best < 0) return goal;
   return arena_prim_point(a, best, 0, 0, -a->prim[best].d * 0.5f - 7.0f);
+}
+
+/* a goal on another level that no ramp reaches (a tower's roof, or the floor from a walled roof): the teleport pad on
+ * this level whose far end is nearest the goal's level and makes the shortest way, driven onto along its way in (lined
+ * up 14 m out first). False when no pad helps */
+static bool via_tele(const sim *s, const kart *k, float my_lv, t3_vec3 goal, float goal_lv, t3_vec3 *at) {
+  const arena_rt *a = s->arena;
+  int best = -1;
+  float bc = 1e9f;
+  for (int i = 0; i < a->ntele; i++) {
+    const struct arena_tele_rt *t = &a->tele[i];
+    if (fabsf(t->at.y - my_lv) > 1.5f || fabsf(t->to.y - goal_lv) > fabsf(my_lv - goal_lv) - 1.0f) continue;
+    float c = flat_dist(k->p, t->at) + flat_dist(t->to, goal);
+    if (c < bc) bc = c, best = i;
+  }
+  if (best < 0) return false;
+  const struct arena_tele_rt *t = &a->tele[best];
+  float sn, cs;
+  cw_sincos(t->in_yaw, &sn, &cs);
+  float dx = k->p.x - t->at.x, dz = k->p.z - t->at.z, along = dx * sn + dz * cs, side = fabsf(dx * cs - dz * sn);
+  /* in the funnel in front of it: straight on; otherwise to the mouth of the funnel */
+  if (along < 0.5f && along > -18.0f && side < 2.0f - along * 0.2f) *at = t->at;
+  else *at = (t3_vec3){ t->at.x - sn * 14.0f, t->at.y, t->at.z - cs * 14.0f };
+  return true;
 }
 
 /* the free way out: rays fanned round the line to the goal; the longest clear one that heads most nearly there, a point along it */
@@ -136,6 +168,67 @@ static t3_vec3 pick_detour(const sim *s, const kart *k, t3_vec3 goal) {
     if (score > best) best = score, at = v3add(k->p, v3mul(dir, clampf(free - 2.5f, 3.0f, 12.0f)));
   }
   return at;
+}
+
+/* the route's shortest distances between its points (arena_def.route, links), worked out once per arena */
+static struct {
+  const arena_def *def;
+  float d[ARENA_MAXR][ARENA_MAXR];
+} RT;
+
+static void route_prep(const arena_def *def) {
+  if (RT.def == def) return;
+  RT.def = def;
+  int n = def->nroute > ARENA_MAXR ? ARENA_MAXR : def->nroute;
+  for (int a = 0; a < n; a++)
+    for (int b = 0; b < n; b++) RT.d[a][b] = a == b ? 0 : 1e9f;
+  for (int l = 0; l < def->nlinks; l++) {
+    int a = def->links[l][0], b = def->links[l][1];
+    if (a >= n || b >= n) continue;
+    float dx = def->route[a][0] - def->route[b][0], dz = def->route[a][1] - def->route[b][1];
+    RT.d[a][b] = RT.d[b][a] = sqrtf(dx * dx + dz * dz);
+  }
+  for (int k = 0; k < n; k++)
+    for (int a = 0; a < n; a++)
+      for (int b = 0; b < n; b++)
+        if (RT.d[a][k] + RT.d[k][b] < RT.d[a][b]) RT.d[a][b] = RT.d[a][k] + RT.d[k][b];
+}
+
+static t3_vec3 route_pt(const sim *s, int i) {
+  const arena_def *d = s->arena->def;
+  float z = d->route[i][1] + ARENA_CZ;
+  return (t3_vec3){ d->route[i][0], arena_level(s->arena, d->route[i][0], z), z };
+}
+
+/* on an arena with a route: the goal itself when it is in sight, else the route's point in sight that makes the shortest way
+ * to it (looked at every few ticks, kept in between) */
+static t3_vec3 route_to(const sim *s, const kart *k, ai_mem *m, t3_vec3 goal) {
+  const arena_def *d = s->arena->def;
+  int n = d->nroute > ARENA_MAXR ? ARENA_MAXR : d->nroute;
+  if (n <= 0) return goal;
+  route_prep(d);
+  if (--m->b_node_t > 0) return m->b_node >= 0 ? route_pt(s, m->b_node) : goal;
+  m->b_node_t = 8;
+  int was = m->b_node;
+  m->b_node = -1;
+  if (fabsf(goal.y - k->p.y) < 3.0f && clear_line(s, k->p, goal)) return goal;
+  /* the points the goal can be reached from (in sight of it), with the last stretch */
+  float tail[ARENA_MAXR];
+  for (int i = 0; i < n; i++) {
+    t3_vec3 p = route_pt(s, i);
+    tail[i] = clear_line(s, p, goal) ? flat_dist(p, goal) : 1e9f;
+  }
+  float best = 1e9f;
+  for (int i = 0; i < n; i++) {
+    t3_vec3 p = route_pt(s, i);
+    if (fabsf(p.y - (k->p.y - 0.6f)) > 3.0f || !clear_line(s, k->p, p)) continue;
+    float rest = 1e9f;
+    for (int j = 0; j < n; j++) rest = fminf(rest, RT.d[i][j] + tail[j]);
+    float c = flat_dist(k->p, p) + rest;
+    if (c < best) best = c, m->b_node = i;
+  }
+  if (m->b_node != was) m->b_best_d = 0; /* a new point to make for: no nearer to it yet is not being stuck */
+  return m->b_node >= 0 ? route_pt(s, m->b_node) : goal;
 }
 
 /* a point going round c at radius r (each driver its own way round), for holding a place without parking on it */
@@ -172,9 +265,9 @@ static int foe_near(const sim *s, int me, t3_vec3 p, float r) {
 
 /* capture the flag and king of the mountain: where this driver means to be, the kart to chase on the way (*chase, -1
  * none) and whether that is too urgent to turn aside for a box (*busy) */
-static t3_vec3 mode_goal(const sim *s, int me, int *chase, bool *busy) {
+static t3_vec3 mode_goal(const sim *s, int me, int *chase, bool *busy, bool *hold) {
   const kart *k = &s->k[me];
-  *chase = -1, *busy = false;
+  *chase = -1, *busy = false, *hold = false;
   if (s->amode == AM_KOTM) {
     float d = flat_dist(k->p, s->hill);
     *busy = d < HILL_R + 2.0f; /* off it, a box close by is worth the turn: an armed kart takes the hill back */
@@ -201,8 +294,14 @@ static t3_vec3 mode_goal(const sim *s, int me, int *chase, bool *busy) {
     return mine->p;
   }
   if (guard) {
-    *chase = foe_near(s, me, s->base[own], 30.0f);
-    return orbit(s, me, s->base[own], 11.0f);
+    /* round a point a little out in front of the base (towards the middle), not into whatever stands behind it */
+    t3_vec3 b = s->base[own], c = { 0, b.y, ARENA_CZ };
+    float l = flat_dist(b, c);
+    t3_vec3 at = l > 1 ? v3add(b, v3mul(v3sub(c, b), 4.0f / l)) : b;
+    at.y = b.y;
+    *chase = foe_near(s, me, b, 30.0f);
+    *hold = *chase < 0; /* nobody near: it idles round there (flat out it only ran wide into whatever stands behind) */
+    return orbit(s, me, at, 8.0f);
   }
   if (theirs->state == FL_CARRIED) {
     /* a teammate has it: escort it home, after whoever closes on it */
@@ -231,10 +330,10 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
                              k->item == IT_MISSILE3 || k->item == IT_BOOMERANG || k->item == IT_BOMB);
   bool modes = s->amode != AM_BALLOON && s->arena;
   int chase = -1;
-  bool busy = false;
+  bool busy = false, hold = false;
   t3_vec3 obj = { 0, 0, ARENA_CZ };
   if (modes) {
-    obj = mode_goal(s, me, &chase, &busy);
+    obj = mode_goal(s, me, &chase, &busy, &hold);
     if (chase >= 0 && chase != m->b_target) m->b_target = chase, m->b_box = -1; /* a carrier to run down: at once */
   }
   /* rethink the goal now and then */
@@ -276,10 +375,16 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
     }
   }
   if (s->arena) {
-    float my_lv = arena_level(s->arena, k->p.x, k->p.z), goal_lv = arena_level(s->arena, goal.x, goal.z);
-    if (goal_lv > my_lv + 1.5f) goal = via_ramp(s, k, goal, goal_lv);
+    /* its own level is what it stands on (in a hall under a roof, the hall's floor); the goal's the top there */
+    float my_lv = arena_level_below(s->arena, k->p.x, k->p.y, k->p.z), goal_lv = arena_level(s->arena, goal.x, goal.z);
+    bool ramp = false;
+    t3_vec3 pad;
+    if (goal_lv > my_lv + 1.5f) goal = via_ramp(s, k, goal, goal_lv, &ramp);
+    if (!ramp && fabsf(goal_lv - my_lv) > 3.0f && via_tele(s, k, my_lv, goal, goal_lv, &pad)) goal = pad;
+    goal = route_to(s, k, m, goal);
   }
   float ang = bearing(k, goal), dist = flat_dist(goal, k->p);
+  if (flat_dist(goal, m->b_aim) > 8.0f) m->b_best_d = 0; /* a new goal (not one on the move): no nearer to it yet is not being stuck */
   /* no nearer to it for a few seconds (a wall between, a kart that keeps away): give up on it for a while. Circling its
    * objective close by (a guard at its base, a king on the hill) is not being stuck */
   if (dist < m->b_best_d - 1.0f || m->b_best_d <= 0 || (modes && m->b_roam == 0 && flat_dist(k->p, obj) < 14.0f)) m->b_best_d = dist, m->b_frust = 0;
@@ -288,6 +393,7 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
     const arena_rt *a = s->arena;
     int sp = a && a->nspawn ? (int)(rnd(m) % (uint32_t)a->nspawn) : 0;
     if (rnd(m) % 3u && m->b_roam == 0) m->b_goal = pick_detour(s, k, goal), m->b_roam = 80;
+    else if (a && a->def->nroute > 0) m->b_goal = route_pt(s, (int)(rnd(m) % (uint32_t)a->def->nroute)), m->b_roam = 120, m->b_box = -1; /* a point on the way round */
     else m->b_goal = a && a->nspawn ? (t3_vec3){ a->spawn[sp][0] * 0.55f, 0, (a->spawn[sp][1] - ARENA_CZ) * 0.55f + ARENA_CZ } : (t3_vec3){ 0, 0, ARENA_CZ }, m->b_roam = 120, m->b_box = -1;
     m->b_frust = 0, m->b_best_d = 0;
   }
@@ -407,6 +513,7 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
     if (round || back_m > 6.0f || m->b_reverse == 0 || (behind && m->b_reverse < 54)) m->b_reverse = 0, m->b_commit = 30, in.thr = 127;
   }
 
+  if (hold && flat_dist(k->p, obj) < 14.0f && in.thr > 55) in.thr = 55; /* a guard with nobody near: easy round its post */
   m->b_thr = in.thr;
   /* a Shockwave is coming: hop it */
   if (m->skill >= 1 && k->shock_warn > 0 && k->shock_warn <= 9 + 2 * (2 - m->skill)) in.btn |= KB_DRIFT;
@@ -469,6 +576,8 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
       /* a ram: the target close ahead and lined up */
       if (tgt >= 0 && flat_dist(s->k[tgt].p, k->p) < 26 && fabsf(bearing(k, s->k[tgt].p)) < 0.18f && clear_line(s, k->p, s->k[tgt].p)) use = true;
       if (m->b_hold > 8 * TICK_HZ && fc > 0.9f) use = true;
+      /* capture the flag: on a long clear run at the goal, a turbo is speed (an attacker going for the flag, a carrier home) */
+      if (modes && s->amode == AM_CTF && fabsf(ang) < 0.22f && dist > 30.0f && fc > 0.98f && spd > 14.0f && m->b_hold > 20) use = true;
       break;
     case IT_SHOCK:
       for (int j = 0; j < MAXK; j++) {

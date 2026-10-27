@@ -14,7 +14,9 @@
  *                                                                          or, for pause and results, a race)
  *   RACER_RES=WxH        window size (a portrait window for example: 540x960)
  *   RACER_PLAYERS=n      humans for join / vehicle / race (1..4)
- *   RACER_UI_MAP=n      the map of a pause / results dev screen
+ *   RACER_UI_MAP=n      the map of a pause / results dev screen (the arena of arena / bpause)
+ *   RACER_UI=around|arena  the arena rounds' first screen (the round: RACER_UI_ROUND=0..2 picks one) or the arena select for
+ *                        the round RACER_UI_ROUND
  *   RACER_UI_FAKE=1      with RACER_UI=results: fill the sim with a finished race so the table can be looked at
  *   RACER_UI=trial|trialres|cup|standings|cupend|assist   the time trial's map select, a finished trial's results (RACER_UI_MEDAL=0..4
  *                        picks the medal, RACER_UI_RECORD=1 a new record), the cup select, the standings between two races, the
@@ -71,7 +73,7 @@ static float ease_io(float t) { t = clamp01(t); return t * t * (3 - 2 * t); }
 
 /* ── state ──────────────────────────────────────────────────────────── */
 
-enum { M_TITLE, M_JOIN, M_VEHICLE, M_MAP, M_OPTIONS, M_CONTROLS, M_RACE, M_PAUSE, M_RESULTS, M_MODES, M_CUP, M_STANDINGS, M_CUPEND, M_ARENA };
+enum { M_TITLE, M_JOIN, M_VEHICLE, M_MAP, M_OPTIONS, M_CONTROLS, M_RACE, M_PAUSE, M_RESULTS, M_MODES, M_CUP, M_STANDINGS, M_CUPEND, M_ARENA, M_ARENA_MODE };
 /* what waits behind a fade to black */
 enum { PD_NONE, PD_START_RACE, PD_TO_MENU, PD_ATTRACT, PD_RESTART, PD_NEXT_MAP, PD_CUP_NEXT };
 enum { DEV_MOUSE, DEV_PAD, DEV_KEYS, DEV_TOUCH };
@@ -181,6 +183,7 @@ static struct {
     int arena, karts, secs_i;      /* the arena, the karts in the round (2..8), the round's length (BATTLE_SECS index) */
     int mode;                      /* AM_*: battle, capture the flag, king of the mountain */
     int focus;                     /* the arena screen: 0 the arenas, 1.. the option rows, then START */
+    int pick[AM_KINDS];            /* the arena last picked for each round (the map select comes back to it) */
   } bt;
   bool auto_cup;                   /* dev/gates: a cup that clicks through its own results and standings (the bot drives) */
   /* options */
@@ -712,6 +715,9 @@ static void battle_hud_tick(void);
 static void hud_battle_shared(float W, float H);
 static void tick_arena(float W, float H);
 static void draw_arena(float W, float H, float s);
+static void tick_arena_mode(float W, float H);
+static void draw_arena_mode(float W, float H, float s);
+static int arena_list(int mode, int out[NARENAS]);
 static void battle_results_build(void);
 static void tick_battle_results(float W, float H);
 static void draw_battle_results(float W, float H, float s);
@@ -877,7 +883,11 @@ static void run_pending(void) {
   case PD_NEXT_MAP: {
     race_setup rs = U.last;
     if (rs.mode == RM_BATTLE) {
-      rs.map = (rs.map + 1) % NARENAS;
+      /* the next arena made for the same round */
+      int list[NARENAS], n = arena_list(rs.arena_mode, list), at = 0;
+      for (int i = 0; i < n; i++)
+        if (list[i] == rs.map) at = i;
+      rs.map = n > 0 ? list[(at + 1) % n] : 0;
       U.bt.arena = rs.map;
       ui_enter_race(&rs);
       break;
@@ -948,6 +958,12 @@ static void dev_screen(void) {
     if (getenv("RACER_UI_MAP")) U.bt.arena = atoi(getenv("RACER_UI_MAP")) % NARENAS;
     if (getenv("RACER_UI_ROUND")) U.bt.mode = atoi(getenv("RACER_UI_ROUND")) % AM_KINDS; /* dev aid: 0 battle, 1 capture the flag, 2 king of the mountain */
     goto_mode(M_ARENA);
+  } else if (!strcmp(d, "around")) {
+    /* the arena rounds' first screen: battle, capture the flag or king of the mountain (RACER_UI_ROUND picks one) */
+    U.gmode = RM_BATTLE;
+    U.setup.humans = n;
+    if (getenv("RACER_UI_ROUND")) U.bt.mode = atoi(getenv("RACER_UI_ROUND")) % AM_KINDS;
+    goto_mode(M_ARENA_MODE);
   } else if (!strcmp(d, "bpause")) {
     /* a battle paused (RACER_UI_MAP picks the arena, RACER_UI_ROUND the round) */
     race_setup rs = { .map = getenv("RACER_UI_MAP") ? atoi(getenv("RACER_UI_MAP")) % NARENAS : 0, .laps = 1, .humans = n, .cpu_skill = 3, .items = true, .mode = RM_BATTLE,

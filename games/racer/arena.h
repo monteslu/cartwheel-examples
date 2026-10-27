@@ -10,15 +10,21 @@
  * cosine worked out once (cw_sincos: the same on every host).
  *
  * The CPU drivers read the boxes and spawns from the sim (sim.box[], arena_rt.spawn) and feel the walls with
- * sim_ray; the HUD's map draws the shapes from above (arena_rt.prim). */
+ * sim_ray; the HUD's map draws the shapes from above (arena_rt.prim).
+ *
+ * An arena may also be open (no floor or wall round it: decks over the void, a fall puts the kart back), lay rails round
+ * its decks (arena_prim.rail: arena.c leaves the ways on to the next deck open), and have teleport pads (arena_tele: the
+ * sim moves a kart that drives onto one to its far end, arena.c draws the pad and modes_gfx.c its light) and boost strips
+ * (arena_boost). A long one gives the CPU drivers a route (points and the runs between them) and names the rounds it is
+ * made for (arena_def.modes: the capture the flag maps are listed under that round alone). */
 #ifndef RACER_ARENA_H
 #define RACER_ARENA_H
 
 #include "game.h"
 
-/* the straight the arena stands on: 200 m along +z, the middle at z = ARENA_CZ */
-#define ARENA_LEN 200.0f
-#define ARENA_CZ 100.0f
+/* the straight the arena stands on: 800 m along +z (room for a long capture the flag map), the middle at z = ARENA_CZ */
+#define ARENA_LEN 800.0f
+#define ARENA_CZ 400.0f
 extern const track_spec ARENA_TRACK;
 
 enum {
@@ -52,7 +58,26 @@ typedef struct arena_prim {
   float yaw;          /* degrees, about +y */
   bool ghost;         /* drawn only: no collision (a sign, a light) */
   uint32_t col;       /* 0xRRGGBB paint for this one (0: the look's tint) */
+  float rail;         /* a deck: a rail this high round its edge (AL_TRIM), stopping where another deck carries on, 0 none */
 } arena_prim;
+
+/* a teleport pad: drive onto it (within r of x, z, on the floor at y) and you are put at the far end, facing tyaw (degrees)
+ * at `speed` m/s; then a moment (TELE_COOL ticks) before a pad takes that kart again. in_yaw is the way a driver comes onto
+ * it (the CPU drivers line up on it from 16 m out) */
+typedef struct arena_tele {
+  float x, z, y, r;
+  float tx, tz, ty, tyaw;
+  float speed;
+  float in_yaw;
+  uint32_t col;       /* 0xRRGGBB of its light */
+} arena_tele;
+#define TELE_COOL 75
+
+/* a boost strip: a kart on its wheels on it (w across, d along, turned yaw degrees, its floor at y) gets a pad's boost,
+ * the way a race's boost pads give one */
+typedef struct arena_boost {
+  float x, z, y, w, d, yaw;
+} arena_boost;
 
 typedef struct arena_look {
   int tex;            /* textures.h TEX_* or -1 */
@@ -80,9 +105,33 @@ typedef struct arena_def {
   /* king of the mountain: the spots the hill stands on (x, z), the first where it starts; it moves to another every HILL_MOVE */
   const float (*hills)[2];
   int nhills;
+  /* an open arena has no floor and no wall round it: decks over the void (rails where it says), and a kart that drops off
+   * falls to the kill plane (sim_battle.inc) and is put back */
+  bool open;
+  float fence;                         /* rails (AL_TRIM) collide at least this high, an unseen fence over the drawn rail: a kart
+                                        * that hits one flat out at a corner otherwise bounces up over it. 0: as drawn */
+  const arena_tele *teles;
+  int nteles;
+  const arena_boost *boosts;
+  int nboosts;
+  /* the CPU drivers' way round (a long map whose decks make corridors): points (x, z) on the floor and the straight runs
+   * between them (pairs of indices). A driver that cannot see its goal heads for the point it can see that makes the
+   * shortest way there along the runs */
+  const float (*route)[2];
+  int nroute;
+  const uint8_t (*links)[2];
+  int nlinks;
+  /* the rounds it is made for (1 << AM_*): the arena select lists it under those. 0: battle and king of the mountain */
+  int modes;
 } arena_def;
 
-#define ARENA_MAXP 96
+/* the rounds an arena is listed under */
+static inline int arena_modes(const arena_def *d) { return d->modes ? d->modes : (1 << AM_BALLOON) | (1 << AM_KOTM); }
+
+#define ARENA_MAXP 400
+#define ARENA_MAXT 8
+#define ARENA_MAXB 24
+#define ARENA_MAXR 24
 typedef struct arena_rt {
   const arena_def *def;
   int n;
@@ -92,6 +141,17 @@ typedef struct arena_rt {
   float half_x, half_z;
   int nspawn;
   float spawn[16][3];                  /* world x, z, yaw (radians) */
+  int ntele;
+  struct arena_tele_rt {
+    t3_vec3 at, to;                    /* the pad (its floor) and the far end (its floor), world */
+    float r, yaw, speed, in_yaw;       /* yaws in radians */
+    uint32_t col;
+  } tele[ARENA_MAXT];
+  int nboost;
+  struct arena_boost_rt {
+    t3_vec3 at;                        /* its middle, on its floor, world */
+    float hw, hd, sn, cs;              /* half sizes, the sine and cosine of its yaw */
+  } boost[ARENA_MAXB];
 } arena_rt;
 
 /* fills rt from def (world space) */
@@ -108,12 +168,14 @@ void arena_prim_local(const arena_rt *rt, int i, t3_vec3 p, float *lx, float *lz
 /* the floor height under (x, z) from the shapes alone (the top of the highest floor-like shape there, else 0): the CPU drivers
  * and the HUD map use it to tell the levels apart */
 float arena_level(const arena_rt *rt, float x, float z);
+/* the same, only the shapes whose top is at most y + 1.5 (what something at height y stands on: under a deck, the floor) */
+float arena_level_below(const arena_rt *rt, float x, float y, float z);
 
 /* the arena of the race that is loading (set by the sim at sim_init, for the scenery and the HUD) */
 const arena_rt *arena_current(void);
 
-/* modes_gfx.c: capture the flag's bases and flags (on the floor, on a carrier's back) and king of the mountain's hill zone
- * (render only, from the sim's state) */
+/* modes_gfx.c: capture the flag's bases and flags (on the floor, on a carrier's back), king of the mountain's hill zone and
+ * the arena's teleport pads' light (render only, from the sim's state) */
 void modes_gfx_build(cw_node scene, const sim *s);
 void modes_gfx_reset(void);
 void modes_gfx_frame(const sim *s, float alpha);
