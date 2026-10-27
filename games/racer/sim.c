@@ -1042,7 +1042,10 @@ static void kart_control(sim *s, int i, kin in) {
       if (along > 0) {
         float pull = k->land_grace > 0 ? 0.35f : 0.06f;
         t3_vec3 lat = v3sub(vp, v3mul(fp, along));
-        t3_vec3 nvp = v3add(v3mul(fp, along + v3len(lat) * pull * 0.7f), v3mul(lat, 1 - pull));
+        /* the slide turns into travel along the nose at the same speed: a crooked landing costs direction, not pace */
+        t3_vec3 nvp = v3add(v3mul(fp, along), v3mul(lat, 1 - pull));
+        float nl = v3len(nvp);
+        if (nl > 1e-3f) nvp = v3mul(nvp, sp2 / nl);
         cw_body3d_set_velocity(b, v3add(nvp, v3mul(up, vn)));
       }
     }
