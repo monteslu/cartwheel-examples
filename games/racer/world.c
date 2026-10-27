@@ -238,6 +238,24 @@ void world_frame(double alpha) {
     if (ro && W.clean_frames >= 4 && geomclean_step(20000)) W.cleaned = true, cw_info("geomclean: done on frame %d", W.clean_frames);
     if (ro && W.clean_frames >= 4) W.clean_frames++;
   }
+  /* dev aid: RACER_GROUNDQ=x,z logs the ground's height there once */
+  static int gq = 0;
+  if (!gq && getenv("RACER_GROUNDQ") && W.sim) {
+    float qx, qz;
+    gq = 1;
+    if (sscanf(getenv("RACER_GROUNDQ"), "%f,%f", &qx, &qz) == 2)
+      for (int d = -12; d <= 12; d += 3) cw_info("groundq %.0f,%.0f: %.2f", qx + (float)d, qz, ground_height_cb(qx + (float)d, qz, NULL));
+    for (int i = 0; i < W.sim->track->n; i++) {
+      const tsample *a = &W.sim->track->s[i];
+      if (fabsf(a->p.z - qz) < 1.0f && fabsf(a->p.x - qx) < 20) cw_info("groundq sample %d s %.0f p %.1f,%.1f,%.1f hw %.1f r %.2f,%.2f,%.2f flags 0x%x", i, a->s, a->p.x, a->p.y, a->p.z, a->hw, a->r.x, a->r.y, a->r.z, (unsigned)a->flags);
+    }
+  }
+  static int gvd = 0;
+  if (!gvd && getenv("RACER_GROUNDV") && W.frame_time > 0.4f) {
+    gvd = 1;
+    float qx, qz;
+    if (sscanf(getenv("RACER_GROUNDV"), "%f,%f", &qx, &qz) == 2) groundv_run(W.scene, cw_node3d_object(W.scene), qx, qz);
+  }
   /* dev aid: RACER_GEOMCHECK=1, once the map has stood a moment, lists geometry standing in the lanes (geomcheck.c) */
   if (!W.checked && W.frame_time > 0.5f && W.sim && !W.map->arena && getenv("RACER_GEOMCHECK")) {
     W.checked = true;

@@ -975,6 +975,30 @@ float road_gap_idx(const track *t, float x, float z, float *road_y, int *idx) {
 float road_gap(const track *t, float x, float z, float *road_y) { return road_gap_idx(t, x, z, road_y, NULL); }
 /* the lowest road surface (the low edge of a banked road) of every sample whose road comes within `reach` of (x, z), or
  * 1e9 when none does: where roads cross, the ground under them must stay under the lower one */
+/* the highest the ground may stand at (x, z): just under every road near it, rising a metre for each metre out from
+ * that road's edge (a bank), up to `reach` out; 1e9 when no road is that near. The ground mesh is coarse away from the
+ * road: capping only right at the road left big triangles whose corners were clear of it spanning over the deck */
+float road_cap_y(const track *t, float x, float z, float reach) {
+  road_index_build(t);
+  float cap = 1e9f;
+  int cx = (int)floorf((x - RI.x0) / RC), cz = (int)floorf((z - RI.z0) / RC), rr = (int)ceilf(reach / RC) + 2;
+  for (int dz = -rr; dz <= rr; dz++)
+    for (int dx = -rr; dx <= rr; dx++) {
+      int ix = cx + dx, iz = cz + dz;
+      if (ix < 0 || iz < 0 || ix >= RI.w || iz >= RI.h) continue;
+      int c = iz * RI.w + ix;
+      for (int k = RI.start[c]; k < RI.start[c + 1]; k++) {
+        const tsample *s = &t->s[RI.items[k]];
+        if (s->flags & (TF_GAP | TF_TUNNEL)) continue;
+        float ex = s->p.x - x, ez = s->p.z - z;
+        float out = sqrtf(ex * ex + ez * ez) - sample_reach(s);
+        if (out > reach) continue;
+        float y = s->p.y - s->hw * fabsf(s->r.y) - 0.25f + fmaxf(out, 0.0f);
+        if (y < cap) cap = y;
+      }
+    }
+  return cap;
+}
 float road_low_y(const track *t, float x, float z, float reach) {
   road_index_build(t);
   float lo = 1e9f;

@@ -104,6 +104,7 @@ static struct {
 
 float road_gap_idx(const track *t, float x, float z, float *road_y, int *idx);
 float road_low_y(const track *t, float x, float z, float reach);
+float road_cap_y(const track *t, float x, float z, float reach);
 
 static float base_height(const ground_opts *o, float x, float z) { return o->height ? o->height(x, z, o->height_ud) : o->base_y; }
 
@@ -140,8 +141,8 @@ float ground_height_at(const ground_opts *o, float x, float z) {
    * above the lowest road beside it. Where roads cross the nearest road can be the one overhead, and the land rose to
    * it and stood across the road beneath as a slab; a map's own terrain put mounds through the deck */
   if (G.have && G.t) {
-    float low = road_low_y(G.t, x, z, 0.5f);
-    if (low < 1e8f && g > low - 0.25f) g = low - 0.25f;
+    float cap = road_cap_y(G.t, x, z, 12.0f);
+    if (g > cap) g = cap;
   }
   return g;
 }
@@ -284,10 +285,16 @@ static void split(gbuild *B, float x0, float z0, float S) {
   float cx = x0 + S * 0.5f, cz = z0 + S * 0.5f;
   bool sub = false;
   if (S > o->near_cell * 1.01f && B->t) {
-    float dist;
-    road_nearest(B->t, cx, cz, &dist);
     float range = o->detail_range * (S / o->near_cell - 1.0f);
-    sub = dist - S * 0.71f < range;
+    /* any road point inside the cell (grown by the detail range) splits it. The nearest-road lookup from the cell's
+     * middle gave up past ~150 m, so a big cell with a road along its edge stayed coarse and its huge triangles rose
+     * over the deck (the Refinery's straight before the line) */
+    float m = range + 12.0f;
+    for (int i = 0; i < B->t->nall && !sub; i += 2) {
+      const tsample *q = &B->t->s[i];
+      sub = q->p.x > x0 - m && q->p.x < x0 + S + m && q->p.z > z0 - m && q->p.z < z0 + S + m;
+    }
+    (void)cx, (void)cz;
   }
   if (sub) {
     float h = S * 0.5f;

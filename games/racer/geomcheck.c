@@ -30,7 +30,7 @@ static void hit1(const char *name, const track *t, t3_vec3 p, bool main_only) {
   if (a->flags & TF_GAP) return;
   /* a collision wall is invisible where it is not drawn: anything of it more than 0.15 m inside a lane counts */
   float edge = strcmp(name, "(collision wall)") ? 0.5f : 0.15f;
-  if (fabsf(l.lat) > a->hw - edge || l.height < 0.3f || l.height > 2.2f) return;
+  if (fabsf(l.lat) > a->hw - edge || l.height < 0.3f || l.height > 4.0f) return;
   struct rep *r = NULL;
   for (int i = 0; i < nrep; i++)
     if (!strcmp(R[i].name, name) && fabsf(R[i].s1 - l.ms) < 40) r = &R[i];
@@ -300,4 +300,27 @@ void geomcheck_run(cw_node scene, t3_object *root, const track *t) {
   cw_info("geomcheck: %d intrusions into the lanes", nrep);
   for (int i = 0; i < nrep; i++)
     cw_info("geomcheck: %-28s s %.0f..%.0f lat %.1f h %.1f (%d points) at %.1f,%.1f,%.1f", R[i].name, R[i].s0, R[i].s1, R[i].lat, R[i].h, R[i].n, R[i].p.x, R[i].p.y, R[i].p.z);
+}
+
+/* dev aid RACER_GROUNDV=x,z: the drawn ground's vertices within 4 m of (x, z), world space */
+static void gv_walk(const t3_object *o, const char *name, float qx, float qz, int *n) {
+  const char *nm = name_of(o);
+  if (nm && nm[0]) name = nm;
+  if (o->type == T3_MESH && name && !strcmp(name, "Ground")) {
+    const t3_mesh *m = (const t3_mesh *)o;
+    const t3_attribute *pa = m->geometry ? m->geometry->attributes[T3_ATTR_POSITION] : NULL;
+    for (int i = 0; pa && i < pa->count && *n < 40; i++) {
+      const float *v = (const float *)pa->array + i * pa->item_size;
+      t3_vec3 w = xf(&o->matrix_world, (t3_vec3){ v[0], v[1], v[2] });
+      if (fabsf(w.x - qx) < 8 && fabsf(w.z - qz) < 8) cw_info("groundv %.2f %.2f %.2f", w.x, w.y, w.z), (*n)++;
+    }
+  }
+  for (int i = 0; i < o->child_count; i++) gv_walk(o->children[i], name, qx, qz, n);
+}
+void groundv_run(cw_node scene, t3_object *root, float qx, float qz) {
+  nnm = 0;
+  name_nodes(scene);
+  t3_object_update_matrix_world(root, true);
+  int n = 0;
+  gv_walk(root, NULL, qx, qz, &n);
 }

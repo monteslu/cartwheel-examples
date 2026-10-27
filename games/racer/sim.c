@@ -746,20 +746,24 @@ static void drive(sim *s, int i, float thr, float st, bool grounded_front) {
   cw_vehicle3d *c = &PH.car[i];
   float spd = k->speed;
   float top = vd->top * s->class_top * (k->boost_ticks > 0 ? 1.0f + 0.42f * k->boost_k : 1.0f);
-  /* the CPU karts hold the pack together: a kart far behind the leading human gets up to 7% more, one far ahead 4% less */
+  /* the CPU karts hold the pack together: one behind the leading human gets up to 4% more, one ahead up to 12% less
+   * (full at 60 m clear), and none is faster flat out than 39 m/s whatever it drives: a CPU in the Longhaul (41) used to
+   * pull away for good, "flat out faster and can't be caught" */
   float rb = 0, accel_k = 1;
   if (!k->human) {
     float lead = -1e9f;
     for (int j = 0; j < MAXK; j++)
       if (s->k[j].on && s->k[j].human && s->k[j].prog > lead) lead = s->k[j].prog;
-    if (lead > -1e8f) rb = clampf((lead - k->prog) / 900.0f, -0.04f, 0.04f);
+    if (lead > -1e8f) rb = lead >= k->prog ? minf((lead - k->prog) / 900.0f, 0.04f) : -minf((k->prog - lead) / 500.0f, 0.12f);
+    float vt = vd->top * s->class_top;
+    if (vt > 39.0f * s->class_top) top *= 39.0f * s->class_top / vt;
   }
   if (k->human) {
-    /* a human far behind the pack gets up to 4% more top speed: the road is long, and so is the gap, but never hopeless */
+    /* a human behind the pack gets up to 6% more top speed (full at 40 m back): the gap is never hopeless */
     float lead = k->prog;
     for (int j = 0; j < MAXK; j++)
       if (s->k[j].on && s->k[j].prog > lead) lead = s->k[j].prog;
-    rb = clampf((lead - k->prog) / 1500.0f, 0, 0.04f);
+    rb = clampf((lead - k->prog) / 660.0f, 0, 0.06f);
   }
   top *= 1.0f + rb;
   /* the slipstream: close behind another kart in its lane the air is thin. A little more top speed while it lasts, and a
