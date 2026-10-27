@@ -47,6 +47,7 @@ void kartgfx_set_eyes(const t3_vec3 *e, int n) {
 cw_node kartgfx_node(int i) { return K.node[i]; }
 
 void kartgfx_reset(void) {
+  showroom_reset();
   for (int i = 0; i < MAXK; i++)
     if (K.rig[i].root) rig_free(&K.rig[i]);
   memset(&K, 0, sizeof K);
@@ -210,6 +211,8 @@ static void arm(kart_rig *r, int side, t3_vec3 S, t3_vec3 H, float L, float sgn)
 static t3_quat qaxis(float x, float y, float z, float a) { return t3_quat_from_axis_angle((t3_vec3){ x, y, z }, a); }
 static t3_quat qmul(t3_quat a, t3_quat b) { return t3_quat_multiply(a, b); }
 
+static void pose_driver(kart_rig *r, const float *P, float tsec, bool both_hands);
+
 /* every frame: pose the parts of each kart between the last two ticks */
 void kartgfx_frame(const sim *s, float alpha) {
   if (!s) s = K.sim;
@@ -223,7 +226,6 @@ void kartgfx_frame(const sim *s, float alpha) {
     float P[KP_COUNT];
     for (int j = 0; j < KP_COUNT; j++) P[j] = lerp_(st->prev[j], st->cur[j], alpha);
     float tsec = ((float)s->tick + alpha) / (float)TICK_HZ;
-    float ds = vg->driver_scale;
 
     /* a kart far from every view loses what cannot be seen at that size: the arms and the scarf first, then the driver */
     float near2 = 1e12f;
@@ -304,6 +306,25 @@ void kartgfx_frame(const sim *s, float alpha) {
       }
     }
 
+    pose_driver(r, P, tsec, st->trick_kind == 0 || k->finished);
+    /* the shield bubble: pulses, flickers out in its last seconds */
+    int sht = (int)P[KP_SHIELD];
+    bool shield_on = sht > 0 && (sht > 90 || ((sht / 6) & 1));
+    r->shield->visible = shield_on;
+    if (shield_on) {
+      float pulse = 1.0f + 0.03f * sinf(tsec * 7.0f);
+      t3_object_set_scale(r->shield, pulse, pulse * 0.92f, pulse);
+      r->shield_mat->opacity = 0.2f + 0.07f * sinf(tsec * 5.0f);
+    }
+  }
+}
+
+/* the driver, the scarf, the antenna, the flames and the lamps of one rig from its blended pose numbers (both_hands: a
+ * cheer raises both arms, else only the left, a salute mid trick) */
+static void pose_driver(kart_rig *r, const float *P, float tsec, bool both_hands) {
+  {
+    const veh_geo *vg = r->vg;
+    float ds = vg->driver_scale;
     /* the driver: torso leans, head turns, hands on the wheel (or up in the air) */
     float lean = vg->torso_lean + P[KP_TLEAN];
     t3_quat qt = qmul(qaxis(0, 1, 0, P[KP_TTWIST]), qmul(qaxis(1, 0, 0, -lean), qaxis(0, 0, 1, P[KP_TROLL])));
@@ -325,7 +346,7 @@ void kartgfx_frame(const sim *s, float alpha) {
       float wave = sinf(tsec * 13.0f + sg * 1.7f);
       if (ch > 0.01f) {
         t3_vec3 Hc = v3add(S, t3_vec3_apply_quat(v3(sg * (0.12f + 0.05f * wave) * ds, (0.5f + 0.04f * wave) * ds, 0.06f * ds), qt));
-        if (st->trick_kind == 0 || k->finished) H = v3add(v3mul(H, 1 - ch), v3mul(Hc, ch));
+        if (both_hands) H = v3add(v3mul(H, 1 - ch), v3mul(Hc, ch));
         else if (side == 0) H = v3add(v3mul(H, 1 - ch), v3mul(Hc, ch)); /* a one-handed salute mid trick */
       }
       float fl = P[KP_FLAIL];
@@ -370,14 +391,220 @@ void kartgfx_frame(const sim *s, float alpha) {
     r->mat[S_PAINT]->emissive_intensity = 2.2f * P[KP_FLASH];
     r->mat[S_PAINT2]->emissive = r->mat[S_PAINT]->emissive;
     r->mat[S_PAINT2]->emissive_intensity = 2.2f * P[KP_FLASH];
-    /* the shield bubble: pulses, flickers out in its last seconds */
-    int sht = (int)P[KP_SHIELD];
-    bool shield_on = sht > 0 && (sht > 90 || ((sht / 6) & 1));
-    r->shield->visible = shield_on;
-    if (shield_on) {
-      float pulse = 1.0f + 0.03f * sinf(tsec * 7.0f);
-      t3_object_set_scale(r->shield, pulse, pulse * 0.92f, pulse);
-      r->shield_mat->opacity = 0.2f + 0.07f * sinf(tsec * 5.0f);
+  }
+}
+
+/* ── the showroom: real karts held in front of a camera, where a menu draws them ── */
+
+#define SHOW_RIDE 0.62f /* sim.c's RIDE: the body origin's height over the ground at rest */
+#define SHOW_DEPTH 3.0f      /* metres in front of the eye: close, so the world seldom stands between (scaled down to fit) */
+#define SHOW_BACK_DEPTH 4.2f /* the backdrop behind it */
+
+typedef struct show_slot {
+  kart_rig rig;
+  cw_node node, back;
+  t3_material *back_mat;
+  show_kart want;
+  bool wanted, built, stand;
+  float pop; /* 0..1 since the kart was (re)built: it pops in */
+} show_slot;
+
+static struct {
+  show_slot s[SHOW_MAX];
+  cw_node cam;
+} SR;
+
+static void show_no_shadows(t3_object *o, void *u) {
+  (void)u;
+  o->cast_shadow = false; /* it still receives them: the same materials (and programs) as the race's karts */
+}
+
+static void show_drop(show_slot *sl) {
+  if (cw_node_valid(sl->node)) cw_node_free(sl->node);
+  if (sl->rig.root) rig_free(&sl->rig);
+  sl->node = (cw_node){ 0 };
+  sl->built = false;
+}
+
+static void show_drop_back(show_slot *sl) {
+  if (cw_node_valid(sl->back)) cw_node_free(sl->back);
+  if (sl->back_mat) t3_release(sl->back_mat);
+  sl->back = (cw_node){ 0 };
+  sl->back_mat = NULL;
+}
+
+/* The backdrop behind a kart on show: a unit pane facing the eye, unlit, warm where a spotlight falls on it low in the
+ * middle and dark at the edges (the old 2D stage's colours). It is opaque and writes depth: the scene's fog and sky are
+ * drawn after the transparent things and by depth, so a see-through pane darkening the scene was washed out again. */
+static cw_node show_backdrop(cw_node cam, t3_material **mat_out) {
+  enum { GX = 12, GY = 8 };
+  mb m = { 0 };
+  for (int y = 0; y <= GY; y++)
+    for (int x = 0; x <= GX; x++) {
+      float u = (float)x / GX - 0.5f, v = (float)y / GY - 0.5f;
+      float dx = u * 1.3f, dy = (v + 0.12f) * 1.6f, k = clampf_(1.0f - sqrtf(dx * dx + dy * dy) * 1.25f, 0, 1);
+      k = k * k * (3 - 2 * k);
+      float floor = v < -0.28f ? clampf_((-0.28f - v) * 6.0f, 0, 1) : 0; /* a darker floor band along the bottom */
+      float rgb[3] = { 0.1f + 0.2f * k, 0.08f + 0.15f * k, 0.09f + 0.1f * k };
+      for (int c = 0; c < 3; c++) rgb[c] *= 1.0f - 0.45f * floor;
+      t3_color l = lin(rgb[0], rgb[1], rgb[2]);
+      float lc[3] = { l.r, l.g, l.b };
+      mb_vert(&m, v3(u, v, 0), v3(0, 0, 1), lc);
     }
+  for (int y = 0; y < GY; y++)
+    for (int x = 0; x < GX; x++) {
+      int a = y * (GX + 1) + x;
+      mb_tri(&m, a, a + 1, a + GX + 2);
+      mb_tri(&m, a, a + GX + 2, a + GX + 1);
+    }
+  t3_geometry *g = mb_done(&m);
+  t3_material *mat = t3_mesh_basic_material_new(0xffffff);
+  mat->vertex_colors = true, mat->fog = false;
+  t3_mesh *pane = t3_mesh_new(g, mat);
+  pane->base.cast_shadow = pane->base.receive_shadow = false;
+  pane->base.frustum_culled = false; /* its bounds are the unit pane's, before the node scales it */
+  t3_release(g);
+  cw_node n = hang(cam, "ShowroomBack", &pane->base);
+  cw_node_set(n, "interpolate", cw_val_bool(false));
+  t3_release(pane);
+  *mat_out = mat;
+  return n;
+}
+
+/* the turntable under a kart on show: a dark steel plate on a rim in its paint, under the wheels */
+static void show_turntable(kart_rig *r, const vehicle_def *vd) {
+  float rad = vd->len * 1.3f, y = -SHOW_RIDE;
+  static const float plate[3] = { 0.2f, 0.19f, 0.21f }, white[3] = { 1, 1, 1 };
+  mb m = { 0 };
+  mb_cyl(&m, xf_at(0, y - 0.03f, 0), rad, rad, 0.06f, 40, plate);
+  t3_geometry *g = mb_done(&m);
+  t3_mesh *me = t3_mesh_new(g, r->mat[S_METAL]);
+  me->base.receive_shadow = true; /* as every part of the kart: the same programs */
+  t3_object_add(r->root, me);
+  t3_release(me), t3_release(g);
+  mb rim = { 0 };
+  mb_cyl(&rim, xf_at(0, y - 0.05f, 0), rad * 1.05f, rad * 1.07f, 0.07f, 40, white);
+  g = mb_done(&rim);
+  me = t3_mesh_new(g, r->mat[S_PAINT]);
+  me->base.receive_shadow = true;
+  t3_object_add(r->root, me);
+  t3_release(me), t3_release(g);
+}
+
+void showroom_reset(void) {
+  for (int i = 0; i < SHOW_MAX; i++) show_drop(&SR.s[i]), show_drop_back(&SR.s[i]);
+  memset(&SR, 0, sizeof SR);
+}
+
+void showroom_want(int slot, const show_kart *k) {
+  if (slot < 0 || slot >= SHOW_MAX) return;
+  SR.s[slot].want = *k;
+  SR.s[slot].wanted = true;
+}
+
+/* the rotation whose columns are the axes x, y, z */
+static t3_quat quat_basis(t3_vec3 x, t3_vec3 y, t3_vec3 z) {
+  float tr = x.x + y.y + z.z;
+  t3_quat q;
+  if (tr > 0) {
+    float s = 0.5f / sqrtf(tr + 1.0f);
+    q = (t3_quat){ (y.z - z.y) * s, (z.x - x.z) * s, (x.y - y.x) * s, 0.25f / s };
+  } else if (x.x > y.y && x.x > z.z) {
+    float s = 2.0f * sqrtf(1.0f + x.x - y.y - z.z);
+    q = (t3_quat){ 0.25f * s, (y.x + x.y) / s, (z.x + x.z) / s, (y.z - z.y) / s };
+  } else if (y.y > z.z) {
+    float s = 2.0f * sqrtf(1.0f + y.y - x.x - z.z);
+    q = (t3_quat){ (y.x + x.y) / s, 0.25f * s, (z.y + y.z) / s, (z.x - x.z) / s };
+  } else {
+    float s = 2.0f * sqrtf(1.0f + z.z - x.x - y.y);
+    q = (t3_quat){ (z.x + x.z) / s, (z.y + y.z) / s, 0.25f * s, (x.y - y.x) / s };
+  }
+  return t3_quat_normalize(q);
+}
+
+void showroom_frame(cw_node cam, float fov_deg, float aspect) {
+  /* a new camera (another scene): the old karts went with the old one */
+  if (memcmp(&cam, &SR.cam, sizeof cam) != 0) {
+    for (int i = 0; i < SHOW_MAX; i++) show_drop(&SR.s[i]), show_drop_back(&SR.s[i]);
+    SR.cam = cam;
+  }
+  bool live = cw_node_valid(cam);
+  float th = tanf(fov_deg * 0.5f * 0.0174533f);
+  for (int i = 0; i < SHOW_MAX; i++) {
+    show_slot *sl = &SR.s[i];
+    const show_kart *w = &sl->want;
+    if (!sl->wanted || !live) {
+      if (cw_node_valid(sl->node)) cw_node_set(sl->node, "visible", cw_val_bool(false));
+      if (cw_node_valid(sl->back)) cw_node_set(sl->back, "visible", cw_val_bool(false));
+      sl->wanted = false;
+      continue;
+    }
+    sl->wanted = false;
+    /* the backdrop: an opaque pane behind it, lit like a stage (see show_backdrop) */
+    if (w->back) {
+      if (!cw_node_valid(sl->back)) {
+        show_drop_back(sl);
+        sl->back = show_backdrop(cam, &sl->back_mat);
+      }
+      float D = SHOW_BACK_DEPTH;
+      t3_vec3 lo = v3(w->back_lo[0] * D * th * aspect, w->back_lo[1] * D * th, -D), hi = v3(w->back_hi[0] * D * th * aspect, w->back_hi[1] * D * th, -D);
+      cw_node3d_set_position(sl->back, v3mul(v3add(lo, hi), 0.5f));
+      cw_node3d_set_scale(sl->back, v3(fabsf(hi.x - lo.x), fabsf(hi.y - lo.y), 1));
+      cw_node_set(sl->back, "visible", cw_val_bool(true));
+    } else if (cw_node_valid(sl->back)) cw_node_set(sl->back, "visible", cw_val_bool(false));
+    if (sl->built && (!cw_node_valid(sl->node) || sl->rig.veh != w->veh % NVEH || sl->rig.colour != (w->colour & 7) || sl->rig.number != w->number || sl->stand != w->stand))
+      show_drop(sl);
+    if (!sl->built) {
+      rig_build(&sl->rig, w->veh, w->colour, w->number);
+      if (w->stand) show_turntable(&sl->rig, &VEH[sl->rig.veh]);
+      sl->node = hang(cam, "Showroom", sl->rig.root);
+      cw_node_set(sl->node, "interpolate", cw_val_bool(false)); /* placed each frame in the camera's own frame */
+      t3_release(sl->rig.root);
+      /* it throws no shadow: it hangs in the air in front of the eye, it would throw one on the world below */
+      t3_object_traverse(sl->rig.root, show_no_shadows, NULL);
+      sl->built = true;
+      sl->stand = w->stand;
+      sl->pop = 0;
+    }
+    cw_node_set(sl->node, "visible", cw_val_bool(true));
+    kart_rig *r = &sl->rig;
+    const vehicle_def *vd = &VEH[r->veh];
+    /* where it stands: the ground point on the view, SHOW_DEPTH in front of the eye (camera space: -z ahead, y up) */
+    t3_vec3 g = v3(w->nx * SHOW_DEPTH * th * aspect, w->ny * SHOW_DEPTH * th, -SHOW_DEPTH);
+    sl->pop = fminf(sl->pop + 1.0f / 14.0f, 1.0f);
+    float p = sl->pop, pk = 1.0f + 0.12f * sinf(p * 3.14159265f); /* swells a little as it arrives */
+    float sc = w->half * SHOW_DEPTH * th / (vd->len * 1.3f) * (0.55f + 0.45f * ease(p)) * pk;
+    /* turned to face the eye along its own line of sight, so a kart to the side of the view is framed like one in the
+     * middle; then side on (nose to the right) turned by yaw, its top tipped toward the eye by tilt */
+    t3_vec3 bz = v3norm(v3mul(g, -1.0f));
+    t3_vec3 by = v3norm(v3sub(v3(0, 1, 0), v3mul(bz, bz.y)));
+    t3_vec3 bx = v3cross(by, bz);
+    t3_quat q = qmul(quat_basis(bx, by, bz), qmul(qaxis(1, 0, 0, w->tilt), qaxis(0, 1, 0, 1.5707963f + w->yaw)));
+    t3_vec3 up = t3_vec3_apply_quat(v3(0, 1, 0), q);
+    cw_node3d_set_position(sl->node, v3add(g, v3mul(up, SHOW_RIDE * sc)));
+    cw_node3d_set_quaternion(sl->node, q);
+    cw_node3d_set_scale(sl->node, v3(sc, sc, sc));
+    /* the pose: standing on its wheels, the driver at the wheel (or cheering), the exhaust lit for a boost */
+    t3_object_set_position(r->root, 0, 0, 0);
+    t3_object_set_quaternion(r->root, (t3_quat){ 0, 0, 0, 1 });
+    t3_object_set_position(r->body, 0, 0, 0);
+    t3_object_set_quaternion(r->body, (t3_quat){ 0, 0, 0, 1 });
+    t3_vec3 wp[4];
+    for (int k = 0; k < 4; k++) {
+      float wb = vd->len * 0.72f, tw = vd->wid * 0.95f; /* where sim.c's car_make hangs the wheels */
+      wp[k] = v3(k & 1 ? -tw : tw, -SHOW_RIDE + vd->wheel_r, k < 2 ? wb : -wb);
+      t3_object_set_position(r->wheel[k], wp[k].x, wp[k].y, wp[k].z);
+      t3_object_set_quaternion(r->wheel[k], qaxis(1, 0, 0, w->spin));
+    }
+    if (r->vg->struts)
+      for (int k = 0; k < 4; k++) {
+        t3_vec3 top = r->vg->strut_top[k < 2 ? 0 : 1];
+        if (k & 1) top.x = -top.x;
+        place_tube(r->strut[k], top, v3add(wp[k], v3(0, 0.02f, 0)));
+      }
+    r->shield->visible = false;
+    float P[KP_COUNT] = { 0 };
+    P[KP_CHEER] = w->cheer, P[KP_BOOST] = w->boost, P[KP_HEADYAW] = w->look;
+    pose_driver(r, P, w->t, true);
   }
 }

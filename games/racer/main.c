@@ -895,6 +895,14 @@ static void render(void *u, double alpha) {
   cw_r2d_begin(&(cw_r2d_pass_desc){ .clear = false });
   cw_vec2 cs = cw_r2d_canvas_size();
   if (!getenv("RACER_STUDIO") && !getenv("RACER_EYE")) ui_render(cs.x, cs.y); /* models agent: the studio view has no HUD over the kart */
+  {
+    /* the menus' real karts (kartgfx.c's showroom) hang under view 0's camera, the one view the menus draw over; what
+     * ui_render asked for above is placed for the next frame */
+    cw_node cam = G.have_track && G.nviews == 1 ? G.rig[0].cam : (cw_node){ 0 };
+    cw_value fov = { 0 };
+    if (!cw_node_valid(cam) || !cw_node_get_prop(cam, "fov", &fov)) fov.f = 64;
+    showroom_frame(cam, (float)fov.f, cs.y > 0 ? cs.x / cs.y : 16.0f / 9.0f);
+  }
   cw_quality_menu_draw(&(cw_quality_menu_style){ .font = ui_menu_font() /* ui agent */, .accent = (cw_color){ 1.0f, 0.80f, 0.15f, 1 } });
   cw_r2d_end();
 }

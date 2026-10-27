@@ -38,6 +38,26 @@ cw_node kartgfx_node(int i);
 void kartgfx_frame(const sim *s, float alpha); /* every frame: body, driver, wheels, flames, shield posed between the last two ticks (s may be NULL: the last sim) */
 void kartgfx_drift_colour(int kart, float rgb[3]); /* the tyre smoke and spark colour of this kart's drift charge: grey, blue, orange, purple */
 
+/* The showroom (kartgfx.c): the menus show real karts, the race's own rigs, held in front of the view's camera (its
+ * children: they move with it) so each stands where a menu wants it on the screen. Render only: no sim state. A slot
+ * asked for this frame is drawn from the next one on; a slot not asked for is hidden. A new vehicle, paint or number
+ * builds that slot's rig again. */
+#define SHOW_MAX 4
+typedef struct show_kart {
+  int veh, colour, number;
+  float nx, ny;          /* where its wheels meet the ground on the view: -1..1, y up */
+  float half;            /* half its length on the view, in half heights of the view */
+  float yaw, tilt;       /* turned about its own up (0: side on, nose to the right), its top tipped toward the eye (radians) */
+  float spin, look;      /* the wheels' turn, the driver's head turned (radians) */
+  float boost, cheer, t; /* the exhaust flame 0..1, the driver's arms up 0..1, the time (seconds) for the flicker */
+  bool stand;            /* on a turntable in its paint */
+  bool back;             /* a stage backdrop behind it, across back_lo..back_hi of the view (-1..1, y up) */
+  float back_lo[2], back_hi[2];
+} show_kart;
+void showroom_want(int slot, const show_kart *k);
+void showroom_frame(cw_node cam, float fov_deg, float aspect); /* each frame: places the karts asked for, hides the rest */
+void showroom_reset(void);
+
 /* world.c */
 void world_build(cw_node scene, const sim *s, const map_def *map);
 bool world_ready(void); /* the map has settled (its scenery cleared from the lanes): the loading screen may lift */
