@@ -227,9 +227,7 @@ static void fmt_clock(char *b, size_t n, int ticks) {
 static void hud_b_balloons(const hv *g, const bhud *h) {
   float s = g->s, x = g->x + 14 * s, y = g->y + 12 * s;
   const kart *k = g->k;
-  cw_rect r = cw_rect_make(x, y, 196 * s, 86 * s);
-  float flash = h->popped_t > 0 ? 1 - (float)h->popped_t / 40.0f : 0;
-  slab(r, 14 * s, mix(PANEL, rgba(0.6f, 0.12f, 0.1f, 0.92f), flash * 0.8f), s);
+  /* no panel (as the race HUD): the balloons and the count stand on the scene */
   cw_color kc = kart_col(k->colour);
   for (int i = 0; i < BALLOONS; i++) {
     cw_vec2 c = cw_v2(x + 34 * s + (float)i * 36 * s, y + 34 * s + 2 * s * cw_sin(U.time * 3 + (float)i));
@@ -243,7 +241,7 @@ static void hud_b_balloons(const hv *g, const bhud *h) {
   snprintf(b, sizeof b, "%d", k->points);
   float pop = h->pts_t > 0 ? 1 + 0.5f * (1 - ease_back((float)h->pts_t / 14.0f)) : 1;
   tx_o(U.f_title, b, x + 168 * s, y + 38 * s, 40 * s * pop, h->pts_t > 0 ? LIME : MUSTARD, (txopt){ .align = CW_ALIGN_CENTER, .outline = 2 * s });
-  tx(U.f_small, k->points == 1 ? "POP" : "POPS", x + 168 * s, y + 70 * s, hpx(14, s, 10), DIM, CW_ALIGN_CENTER);
+  tx_o(U.f_small, k->points == 1 ? "POP" : "POPS", x + 168 * s, y + 70 * s, hpx(14, s, 10), CREAM, (txopt){ .align = CW_ALIGN_CENTER, .outline = 2 * s });
 }
 
 /* top right: the clock and who is still in */
@@ -252,16 +250,14 @@ static void hud_b_clock(const hv *g) {
   float s = g->s, w = 170 * s, x = g->x + g->w - w - 14 * s, y = g->y + 12 * s;
   int left = S->phase == PH_RACE || S->phase == PH_DONE ? S->battle_left : S->battle_limit;
   bool hurry = S->phase == PH_RACE && left < 10 * TICK_HZ;
-  cw_color fill = hurry && ((S->tick / 15) & 1) ? rgba(0.55f, 0.1f, 0.08f, 0.92f) : PANEL;
-  slab(cw_rect_make(x, y, w, 62 * s), 12 * s, fill, s);
+  /* no panels: the clock in an outline, flashing red in the last ten seconds */
   char b[24];
   fmt_clock(b, sizeof b, left);
-  tx(U.f_title, b, x + w * 0.5f + 4 * s, y + 31 * s, 38 * s, hurry ? CREAM : left < 30 * TICK_HZ ? RUST : CREAM, CW_ALIGN_CENTER);
+  cw_color cc = hurry && ((S->tick / 15) & 1) ? RED : left < 30 * TICK_HZ ? RUST : CREAM;
+  tx_o(U.f_title, b, x + w - 4 * s, y + 31 * s, 38 * s, cc, (txopt){ .align = CW_ALIGN_RIGHT, .outline = 2.6f * s });
   if (g->compact) return;
-  cw_rect r2 = cw_rect_make(x, y + 68 * s, w, 34 * s);
-  slab(r2, 12 * s, PANEL, s);
   snprintf(b, sizeof b, "%d OF %d IN", S->alive, S->nkarts);
-  tx(U.f_hud, b, x + w * 0.5f + 4 * s, r2.y + 17 * s, 18 * s, CREAM, CW_ALIGN_CENTER);
+  tx_o(U.f_hud, b, x + w - 4 * s, y + 70 * s, 18 * s, CREAM, (txopt){ .align = CW_ALIGN_RIGHT, .outline = 2 * s });
 }
 
 /* the points table: everyone in standing order, their balloons as dots */
@@ -409,15 +405,15 @@ static void hud_battle_view(const hv *g, int nviews) {
   hud_b_clock(g);
   const arena_rt *a = arena_current();
   if (a) {
-    float ms = (g->compact || g->medium ? 205 : 180) * g->s; /* a split view has no table: the map can be bigger */
+    float ms = (g->compact || g->medium ? 160 : 140) * g->s;
     cw_rect mr = cw_rect_make(g->x + 14 * g->s, g->y + g->h - ms - 14 * g->s, ms, ms);
     if (U.touch_on) mr = cw_rect_make(g->x + 14 * g->s, g->y + 104 * g->s, 128 * g->s, 128 * g->s);
     if (!(nviews == 3)) {
-      rslab(mr, 10 * g->s, rgba(0.07f, 0.06f, 0.08f, 0.8f), g->s);
+      cw_r2d_round_rect(mr, 10 * g->s, 6, rgba(0.07f, 0.06f, 0.08f, 0.3f));
       arena_draw_map(a->def, mr, 8 * g->s, g->s, S, g->kart, false);
     }
   }
-  if (!g->medium && !U.touch_on) hud_b_table(g, g->x + 14 * g->s, g->y + 108 * g->s, MAXK);
+  /* no standings list during the round (as the race): the map shows who is where, the results the order */
   hud_speed(g);
   hud_drift(g);
   hud_b_banner(g);
