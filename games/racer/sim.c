@@ -1090,6 +1090,16 @@ static void kart_control(sim *s, int i, kin in) {
         break;
       }
     }
+  /* and through a loop or corkscrew it keeps a kart rolling: one slowed by a bump in the tube used to stall there until the
+   * stuck timer put it back (3.5 s gone) */
+  if (touching && (ts->flags & TF_LOOP) && !s->battle && k->spin_ticks == 0) {
+    float along = v3dot(k->v, ts->f);
+    if (along < 14.0f) {
+      float need = fminf(14.0f - along, 0.6f);
+      cw_body3d_set_velocity(b, v3add(k->v, v3mul(ts->f, need)));
+      k->v = v3add(k->v, v3mul(ts->f, need));
+    }
+  }
   float attach = 0;
   if (!gap && lat_over < ((ts->flags & TF_LOOP) ? 6.0f : 2.5f) && h > -1.0f && !s->battle) {
     /* in a loop or corkscrew the road keeps its hold a long way out: a kart bounced off it upside down was dropped out
