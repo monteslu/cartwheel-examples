@@ -153,6 +153,10 @@ static void mesa_scenery(cw_node scene, const track *t, uint32_t seed) {
   ground_plane(scene, t, &g);
 
   prop_set *ps = ps_new(scene, "MesaProps");
+  /* the red rock: the strata's own colours, no mossy texture (this is desert) */
+  ps_style(ps, PK_MESA, -1, hex(0xf2b08a), 1.0f);
+  ps_style(ps, PK_SPIRE, -1, hex(0xf0a47c), 1.0f);
+  ps_style(ps, PK_BOULDERS, TEX_GROUND_ROCK, hex(0xf0a07a), 1.0f);
   float hx = a->half_x, hz = a->half_z, cz = ARENA_CZ;
   /* the butte's rock over its block: three banded stacks along it */
   for (int i = -1; i <= 1; i++)
