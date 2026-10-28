@@ -99,6 +99,8 @@ grades/temple.cube
 grades/refinery.cube
 # (tools/frost_grade.mjs)
 grades/frost.cube
+# (tools/dam_grade.mjs)
+grades/dam.cube
 # voice (tools/make-voice.mjs)
 audio/voice/three.ogg
 audio/voice/two.ogg

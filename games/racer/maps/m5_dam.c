@@ -387,6 +387,9 @@ static float land_road(float x, float z, int *kind) {
     /* round the loop and the corkscrew the rock stays under the lowest of its road (it stood up inside the tube) */
     if (kind) *kind = KIND_ROCK;
     float flr = track_loop_floor(t, idx) - 0.6f;
+    /* the corkscrew rolls inside its tube: upside down the tube's roof hangs as far below the road as it stood above
+     * it, and the land at the road's floor cut through the tube as a red slab. Under a roof keep the rock under that */
+    if (fl & TF_TUNNEL) flr -= 10.0f;
     return g < 14.0f ? fminf(h0, flr) : fminf(h0, flr + SLOPE_K * (g - 14.0f));
   }
   if (fl & TF_GAP) {
@@ -1291,6 +1294,10 @@ static float mask_ground(float x, float z, void *ud) {
 
 static void build_land_props(cw_node parent, const track *t) {
   prop_set *ps = ps_new(parent, "Land");
+  /* the far rock is the canyon's own sandstone: in their stock grey and buff the mesas read as stacked boxes on the red */
+  ps_style(ps, PK_MESA, prop_tex(PK_MESA), rgb(1.0f, 0.72f, 0.56f), 1.0f);
+  ps_style(ps, PK_SPIRE, prop_tex(PK_SPIRE), rgb(1.0f, 0.74f, 0.58f), 1.0f);
+  ps_style(ps, PK_CANYON_WALL, prop_tex(PK_CANYON_WALL), rgb(1.0f, 0.7f, 0.54f), 1.0f);
   int n = 0;
   float cx = 215, cz = -80;
   /* far: mesas, spires and cliff slabs round the whole bowl, to give the horizon a silhouette */
