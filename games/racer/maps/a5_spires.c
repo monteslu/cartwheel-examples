@@ -101,7 +101,7 @@ static float half_at(float x, float z, float *top) {
    * corner PATH_A out to the side) and runs straight in again to the island (z PATH_L), one east, one west: a diamond
    * of void between them, and through the crossing they carry straight on into the other half's (an X). The distance
    * across a path is measured square to its line. Their edges wander a little, never at the seam */
-  const float e = 0.24f, norm = sqrtf(1.0f + e * e) - e;
+  const float e = 0.09f, norm = sqrtf(1.0f + e * e) - e; /* e: how round the bend at the side is (small: a sharp diamond corner) */
   float v = 2.0f * fminf(z, PATH_L) / PATH_L - 1.0f, sa = sqrtf(v * v + e * e);
   float xc = PATH_A * (1.0f - (sa - e) / norm), sl = z < PATH_L ? -PATH_A / PATH_L * 2.0f * v / sa / norm : 0;
   float k = 1.0f / sqrtf(1.0f + sl * sl), fade = smooth01(z / 24.0f);
