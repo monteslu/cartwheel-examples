@@ -901,9 +901,16 @@ static const tbtn TB[] = {
   { &U.t_brake, "BRAKE", { 0.85f, 0.25f, 0.2f, 1 }, 370, 290, 170, 90 },
 };
 
+/* the stick's home, in 540-high units from the bottom left corner, and its throw */
+#define STICK_X 150.0f
+#define STICK_Y 140.0f
+#define STICK_R 70.0f
+
 static void touch_layout(float ww, float wh) {
   float k = wh / 540.0f;
-  if (U.t_stick >= 0) cw_touch_set_rect(U.t_stick, 0, wh * 0.28f, ww * 0.42f, wh * 0.72f);
+  /* the stick sits still in the bottom left corner where it is drawn: a touch anywhere in its square steers from that
+   * centre (a floating stick over the left half of the screen jumped to wherever the thumb landed) */
+  if (U.t_stick >= 0) cw_touch_set_rect(U.t_stick, (STICK_X - STICK_R * 1.6f) * k, wh - (STICK_Y + STICK_R * 1.6f) * k, STICK_R * 3.2f * k, STICK_R * 3.2f * k);
   for (unsigned i = 0; i < sizeof TB / sizeof TB[0]; i++) {
     const tbtn *b = &TB[i];
     if (*b->id >= 0) cw_touch_set_rect(*b->id, ww - b->x * k, wh - b->y * k, b->w * k, b->h * k);
@@ -911,7 +918,9 @@ static void touch_layout(float ww, float wh) {
 }
 
 static void touch_setup(void) {
-  U.t_stick = cw_touch_add_stick(0, 0, 10, 10, 70, true);
+  int sw, sh;
+  cw_window_size(&sw, &sh);
+  U.t_stick = cw_touch_add_stick(0, 0, 10, 10, STICK_R * (sh > 0 ? (float)sh / 540.0f : 1.0f), false); /* throw scaled to the screen */
   U.t_gas = cw_touch_add_button(0, 0, 1, 1);
   U.t_item = cw_touch_add_button(0, 0, 1, 1);
   U.t_trick = cw_touch_add_button(0, 0, 1, 1);
@@ -952,8 +961,7 @@ static void touch_draw(float W, float H) {
   cw_window_size(&ww, &wh);
   float k = (float)wh / 540.0f, s = H / 540.0f;
   bool on = cw_touch_control_active(U.t_stick);
-  cw_vec2 c = cw_touch_stick_center(U.t_stick);
-  if (!on) c = cw_v2(150 * k, (float)wh - 140 * k);
+  cw_vec2 c = cw_v2(STICK_X * k, (float)wh - STICK_Y * k);
   cw_vec2 cc = touch_to_canvas(c.x, c.y);
   float r = touch_to_canvas(70 * k, 0).x;
   cw_r2d_circle(cc, r + 4, 40, rgba(0.02f, 0.02f, 0.03f, 0.35f));
