@@ -155,16 +155,17 @@ static void battle_teleports(sim *s, int i) {
 }
 
 /* stands kart i at (x, z) on whatever floor is there, facing yaw (radians, 0 = +z) */
-static void battle_place(sim *s, int i, float x, float z, float yaw, float speed) {
+static void battle_place_from(sim *s, int i, float x, float y, float z, float yaw, float speed) {
   kart *k = &s->k[i];
-  battle_pose(s, i, x, 30, z, yaw, speed);
+  battle_pose(s, i, x, y, z, yaw, speed);
   kart_reset_state(k);
   k->speed = speed;
   k->prog = 0;
 }
+static void battle_place(sim *s, int i, float x, float z, float yaw, float speed) { battle_place_from(s, i, x, 30, z, yaw, speed); }
 
-void sim_battle_put(sim *s, int i, float x, float z, float yaw_deg, float speed) {
-  if (s->battle && i >= 0 && i < MAXK && s->k[i].on) battle_place(s, i, x, z + ARENA_CZ, yaw_deg * (CW_PI / 180.0f), speed);
+void sim_battle_put(sim *s, int i, float x, float y, float z, float yaw_deg, float speed) {
+  if (s->battle && i >= 0 && i < MAXK && s->k[i].on) battle_place_from(s, i, x, y, z + ARENA_CZ, yaw_deg * (CW_PI / 180.0f), speed);
 }
 
 /* a point of the arena's own frame (x, z) in the world, standing on the floor there (the top of a deck or a mound) */

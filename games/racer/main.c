@@ -18,7 +18,7 @@
  *                        accelerate (2) assists for the humans
  *   RACER_TEST_AT=s:speed  kart 0 (RACER_TEST_KART=n another) on the road at s metres when the lights go out; L<n>:speed
  *                        30 m before the n-th loop; B<n>:metres:speed on branch n (a shortcut), that far from its mouth
- *   RACER_BATTLE_AT=x,z,yaw,speed  kart 0 at that point of an arena (its own frame) when the lights go out
+ *   RACER_BATTLE_AT=x,z,yaw,speed[,y]  kart 0 at that point of an arena (its own frame; on what is under y, default 30) when the lights go out
  *   RACER_EYE=x,y,z,tx,ty,tz  a fixed camera there looking at the target, no HUD (a still of any part of a map)
  *   RACER_JITLOG=1       log each frame the drawn distance from view 0's camera to its kart (with CW_FRAME_HZ: is it steady);
  *                        RACER_NOINTERP=1 draws the karts at the tick rate, the old way, as a control
@@ -751,9 +751,9 @@ static void fixed(void *u, double dt) {
        * frame, yaw in degrees), moving, when the lights go out */
       static int bat_done;
       if (!bat_done && G.S.battle && getenv("RACER_BATTLE_AT") && G.S.phase == PH_RACE && G.S.race_ticks == 1) {
-        float bx = 0, bz = 0, byaw = 0, bsp = 0;
-        sscanf(getenv("RACER_BATTLE_AT"), "%f,%f,%f,%f", &bx, &bz, &byaw, &bsp);
-        sim_battle_put(&G.S, getenv("RACER_TEST_KART") ? atoi(getenv("RACER_TEST_KART")) & 7 : 0, bx, bz, byaw, bsp);
+        float bx = 0, bz = 0, byaw = 0, bsp = 0, by = 30;
+        sscanf(getenv("RACER_BATTLE_AT"), "%f,%f,%f,%f,%f", &bx, &bz, &byaw, &bsp, &by);
+        sim_battle_put(&G.S, getenv("RACER_TEST_KART") ? atoi(getenv("RACER_TEST_KART")) & 7 : 0, bx, by, bz, byaw, bsp);
         bat_done = 1;
       }
     }

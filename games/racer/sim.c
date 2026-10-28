@@ -1023,6 +1023,11 @@ static void kart_control(sim *s, int i, kin in) {
   int contacts = car->contacts;
   bool touching = contacts > 0;
   bool grounded = contacts >= 2;
+  /* the first touch after a long drop in an arena (off a tower's roof): the fall stops there, no tumble, the run kept */
+  if (touching && s->battle && k->air_ticks > 60) {
+    cw_body3d_set_angular_velocity(b, (t3_vec3){ 0, 0, 0 });
+    cw_body3d_set_velocity(b, (t3_vec3){ k->v.x, fmaxf(k->v.y, 0), k->v.z });
+  }
   if (grounded) {
     if (!k->grounded && k->air_ticks > 14) {
       float hard = clampf(-v3dot(k->v, up) / 22.0f, 0, 1);
@@ -1040,6 +1045,14 @@ static void kart_control(sim *s, int i, kin in) {
   } else if (!touching) {
     k->air_ticks++;
     if (k->loc.height > k->air_peak) k->air_peak = k->loc.height;
+    /* a long drop in an arena (off a tower's roof) lands, it does not crash: coming down hard over a floor, the fall
+     * eases to a firm landing in the last quarter second, the run along the nose kept */
+    if (s->battle && k->air_ticks > 20 && k->v.y < -8.0f && k->trick_ticks == 0)
+      cw_body3d_set_angular_velocity(b, v3mul(v3cross(up, (t3_vec3){ 0, 1, 0 }), 4.0f)); /* level out, the heading kept */
+    if (s->battle && k->v.y < -14.0f) {
+      float fl = arena_level_below(s->arena, k->p.x, k->p.y, k->p.z);
+      if ((fl > 0.5f || arena_on_terrain(s->arena, k->p)) && k->p.y - fl < -k->v.y * 0.25f) cw_body3d_set_velocity(b, (t3_vec3){ k->v.x, -14.0f, k->v.z });
+    }
   }
   k->grounded = grounded;
   /* every hop's tick: a missile met just after one goes by underneath */

@@ -292,7 +292,7 @@ void sim_step(sim *s, const kin in[MAXK]);
 void sim_put(sim *s, int i, float s_dist, float lat, float speed);
 void sim_put_branch(sim *s, int i, int b, float bs, float speed); /* dev aid: on branch b, bs metres from its mouth */
 void sim_use(sim *s, int i, int item); /* dev aid: kart i uses this item now */
-void sim_battle_put(sim *s, int i, float x, float z, float yaw_deg, float speed); /* dev aid: kart i at (x, z) of the arena's own frame */
+void sim_battle_put(sim *s, int i, float x, float y, float z, float yaw_deg, float speed); /* dev aid: kart i at (x, z) of the arena's own frame, on what is under height y */
 /* battle: the round's length in ticks (call after sim_init; 0 keeps the default three minutes) */
 void sim_set_battle_time(sim *s, int ticks);
 /* an arena round's rules (AM_*): call after sim_init once the karts' human flags are set (capture the flag puts the humans

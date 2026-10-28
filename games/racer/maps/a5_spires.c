@@ -37,6 +37,7 @@
 #define BASE_Z 246.0f   /* the flags, each side of the middle (inside the gatehouse's hall) */
 #define ROOF_Y 184.0f   /* the towers' roofs */
 #define SHAFT_Z 298.0f  /* the middle of each tower */
+#define BOARD_X 11.0f   /* the roof's diving board, off to the east (red) or west (blue) of the pad down */
 
 /* ── the rock ─────────────────────────────────────────────────────────────────────────────────────────
  * Worked out on the red half (z >= 0) and turned half round for blue, so the two ends are the same and the seam at z = 0
@@ -91,6 +92,8 @@ static const float ISLE[][2] = {
 };
 static const float SPUR_E[][2] = { { 70, 165 }, { 118, 128 }, { 150, 150 }, { 140, 196 }, { 105, 214 } };
 static const float SPUR_W[][2] = { { -80, 290 }, { -118, 262 }, { -150, 298 }, { -128, 345 }, { -82, 340 } };
+/* a tongue of rock off the island's front onto the east path, where a kart off the roof's diving board comes down */
+static const float APRON_E[][2] = { { 22, 152 }, { 28, 122 }, { 50, 116 }, { 62, 162 } };
 #define NP(a) (int)(sizeof a / sizeof a[0])
 
 static float half_at(float x, float z, float *top) {
@@ -107,6 +110,7 @@ static float half_at(float x, float z, float *top) {
   float in = fmaxf(PATH_W + wa - fabsf(x - xc) * k, PATH_W + wb - fabsf(x + xc) * k);
   /* the island and its spurs, their faces broken a little */
   float isl = fmaxf(poly_in(ISLE, NP(ISLE), x, z), fmaxf(poly_in(SPUR_E, NP(SPUR_E), x, z), poly_in(SPUR_W, NP(SPUR_W), x, z)));
+  isl = fmaxf(isl, poly_in(APRON_E, NP(APRON_E), x, z));
   isl += 1.6f * vnoise(x * 0.07f, z * 0.07f, 31) + 0.6f * vnoise(x * 0.23f, z * 0.23f, 32);
   in = fmaxf(in, isl);
   /* the rise: flat on the islands, up to the crossing, flat over its top; and over it all the rock's own lumps (a hand
@@ -142,6 +146,11 @@ static const arena_terrain ROCK = {
   DECO(AL_COVER, 0, S * SHAFT_Z, 152, 62, 4, 62, 0, 0),                                                               \
   BOX(AL_FEATURE, 0, S * SHAFT_Z, 156, 48, 27, 48, 0, 0),                                                             \
   { AP_BOX, AL_DECK, 0, S * SHAFT_Z, ROOF_Y - 1, 50, 1, 50, 0, false, 0, RAIL_H },                                    \
+  /* the diving board: a gap in the roof's front parapet and a deck out past the ledges below, a kicker at its end, both \
+   * turned 10 degrees out towards the east (red) or west (blue) path, so a kart driven off it at any speed comes down on \
+   * the island or on that path, never in the void between the two (the battlements stop where it carries on) */      \
+  { AP_BOX, AL_DECK, S * (BOARD_X + 1.7f), S * (SHAFT_Z - 33.85f), ROOF_Y - 1, 12, 1, 20, S > 0 ? 170.0f : 350.0f, false, 0, 0 }, \
+  { AP_RAMP, AL_RAMP, S * (BOARD_X + 4.0f), S * (SHAFT_Z - 46.65f), ROOF_Y, 12, 1.4f, 6, S > 0 ? 170.0f : 350.0f, false, 0 }, \
   BOX(AL_FEATURE, 21.5f, S * (SHAFT_Z - 21.5f), ROOF_Y, 7, 14, 7, 0, 0), BOX(AL_FEATURE, -21.5f, S * (SHAFT_Z - 21.5f), ROOF_Y, 7, 14, 7, 0, 0), \
   BOX(AL_FEATURE, 21.5f, S * (SHAFT_Z + 21.5f), ROOF_Y, 7, 14, 7, 0, 0), BOX(AL_FEATURE, -21.5f, S * (SHAFT_Z + 21.5f), ROOF_Y, 7, 14, 7, 0, 0), \
   /* the team's light: under the cornice, round the arch, bands up the tower's front corners and under its ledges, round   \
@@ -676,7 +685,11 @@ static void spires_scenery(cw_node scene, const track *t, uint32_t seed) {
     for (int k = 0; k < 4; k++) {
       float sx = k & 1 ? 1.0f : -1.0f;
       if (k < 2) merlons(st, sx * 24.6f, zc - 15, sx * 24.6f, zc + 15, ROOF_Y + RAIL_H, 5.0f, 1.0f, 1.8f);
-      else merlons(st, -15, zc + sx * 24.6f, 15, zc + sx * 24.6f, ROOF_Y + RAIL_H, 5.0f, 1.0f, 1.8f);
+      else if (sx == -S) { /* the front: none over the diving board */
+        float g = S * BOARD_X;
+        if (g - 7 > -15) merlons(st, -15, zc + sx * 24.6f, g - 7, zc + sx * 24.6f, ROOF_Y + RAIL_H, 5.0f, 1.0f, 1.8f);
+        if (g + 7 < 15) merlons(st, g + 7, zc + sx * 24.6f, 15, zc + sx * 24.6f, ROOF_Y + RAIL_H, 5.0f, 1.0f, 1.8f);
+      } else merlons(st, -15, zc + sx * 24.6f, 15, zc + sx * 24.6f, ROOF_Y + RAIL_H, 5.0f, 1.0f, 1.8f);
     }
     for (int k = 0; k < 4; k++) {
       float x = k & 1 ? 21.5f : -21.5f, z = zc + (k & 2 ? 21.5f : -21.5f), y = ROOF_Y + 14.0f;
