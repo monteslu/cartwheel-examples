@@ -278,7 +278,9 @@ kin ai_think(const sim *s, int me, ai_mem *m) {
         float ds = s->k[j].loc.ms - k->loc.ms;
         /* at a human, the weaker drivers hold fire: a Rookie never, a Pro only from far enough back that the
          * INCOMING warning gives time to hop it (the player was hit most of anyone, from where they cannot see) */
-        float min_ds = s->k[j].human ? (m->skill == 0 ? 1e9f : m->skill == 1 ? 25.0f : 6.0f) : 6.0f;
+        /* (an Ace from 15 m: at 6 the warning came with the missile; and nobody at a human in the first 8 s, while the
+         * pack is still bunched and the player cannot see what is behind) */
+        float min_ds = s->k[j].human ? (m->skill == 0 || s->race_ticks < 8 * TICK_HZ ? 1e9f : m->skill == 1 ? 25.0f : 15.0f) : 6.0f;
         if (ds > min_ds && ds < 90 && (k->item == IT_HOMING || fabsf(s->k[j].loc.lat - k->loc.lat) < 3.0f)) use = true;
       }
       break;

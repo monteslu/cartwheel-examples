@@ -470,9 +470,13 @@ static void spin_kart(sim *s, int i, int kind, int by) {
     return;
   }
   if (k->spin_ticks > 20 && kind != SPIN_BOOM) return;
+  /* a race: a second after a spin is over before another can start (a missile, a mine or oil right as it recovered
+   * spun it again with no way to answer) */
+  if (!s->battle && k->ram_cool > 0 && kind != SPIN_BOOM) return;
   k->spin_kind = kind;
   if (k->trailing) k->trailing = false, k->item = IT_NONE, k->item_count = 0; /* a hit knocks the held item away */
   k->spin_ticks = kind == SPIN_OIL ? OIL_SPIN : kind == SPIN_BOOM ? BOOM_SPIN : kind == SPIN_SHOCK ? SHOCK_SPIN : HIT_SPIN;
+  if (!s->battle) k->ram_cool = k->spin_ticks + TICK_HZ;
   k->spin_dir = (rnd(s) & 1) ? 1.0f : -1.0f;
   k->drifting = false;
   k->drift_ticks = 0;
@@ -1127,6 +1131,8 @@ static void kart_control(sim *s, int i, kin in) {
     cw_body3d_apply_force(b, v3mul(up, -press), NULL);
   }
 
+  /* (a race's grace after a spin: the ticks left before the kart can be spun again) */
+  if (!s->battle && k->ram_cool > 0) k->ram_cool--;
   /* spin out: no control, a spin about the up axis, and the road still holds it */
   if (k->spin_ticks > 0) {
     k->spin_ticks--;
