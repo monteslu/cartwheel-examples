@@ -6,3 +6,4 @@
 *.wasc
 __pycache__/
 *.pyc
+.claude
