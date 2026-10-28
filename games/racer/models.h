@@ -138,10 +138,15 @@ typedef struct kart_rig {
   t3_material *flame_mat[2], *shield_mat;
   const veh_geo *vg;
   int veh, colour, number;
+  /* distance detail: lod shows near (every part above, posed each frame) close to a view's camera and far (the same parts
+   * at rest, merged into one mesh per material: a few draws instead of thirty) past rig_far_distance; each view picks */
+  t3_lod *lod;
+  t3_object *near, *far;
 } kart_rig;
 
 void rig_build(kart_rig *r, int veh, int colour, int number);
 void rig_free(kart_rig *r);
+void rig_far_distance(kart_rig *r, float metres); /* where a view switches this kart to its merged far version */
 void place_tube(t3_object *o, t3_vec3 a, t3_vec3 b); /* a unit y cylinder object stretched from a to b */
 
 #endif

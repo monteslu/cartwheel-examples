@@ -277,4 +277,6 @@ typedef struct track_phys {
 void track_phys_build(track_phys *road, track_phys *walls, const track *t, const track_mesh_opts *o);
 void track_phys_free(track_phys *p);
 
+void trackmesh_set_chunk(int samples); /* track meshes are cut into chunks this many samples long (80 by default) */
+
 #endif

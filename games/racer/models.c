@@ -623,6 +623,90 @@ static void driver_build(kart_rig *r, const veh_geo *vg, t3_object *body) {
   t3_release(g);
 }
 
+/* the far kart: every part the rig shows at rest, merged into one mesh per material slot (the materials are the rig's
+ * own, so the paint flash and a team rim show on it too). The arms are left out: they are only placed when posed */
+typedef struct far_ctx {
+  kart_rig *r;
+  mb b[S_COUNT];
+} far_ctx;
+static void far_visit(t3_object *o, void *ud) {
+  far_ctx *c = ud;
+  kart_rig *r = c->r;
+  if (o->type != T3_MESH || !o->visible) return;
+  for (int s = 0; s < 2; s++)
+    if (o == r->arm_up[s] || o == r->arm_lo[s] || o == r->hand[s]) return;
+  t3_mesh *me = (t3_mesh *)o;
+  if (!me->geometry || me->material_count < 1) return;
+  int slot = -1;
+  for (int i = 0; i < S_COUNT; i++)
+    if (r->mat[i] && me->materials[0] == r->mat[i]) slot = i;
+  if (slot < 0) return;
+  const t3_geometry *g = me->geometry;
+  const t3_attribute *P = g->attributes[T3_ATTR_POSITION], *N = g->attributes[T3_ATTR_NORMAL], *C = g->attributes[T3_ATTR_COLOR];
+  if (!P || !N) return;
+  const float *e = o->matrix_world.e, *p = P->array, *n = N->array, *col = C ? C->array : NULL;
+  mb *b = &c->b[slot];
+  int base = b->nv;
+  static const float white[3] = { 1, 1, 1 };
+  for (int i = 0; i < P->count; i++) {
+    float x = p[i * 3], y = p[i * 3 + 1], z = p[i * 3 + 2];
+    t3_vec3 q = { e[0] * x + e[4] * y + e[8] * z + e[12], e[1] * x + e[5] * y + e[9] * z + e[13], e[2] * x + e[6] * y + e[10] * z + e[14] };
+    x = n[i * 3], y = n[i * 3 + 1], z = n[i * 3 + 2];
+    t3_vec3 nn = v3norm((t3_vec3){ e[0] * x + e[4] * y + e[8] * z, e[1] * x + e[5] * y + e[9] * z, e[2] * x + e[6] * y + e[10] * z });
+    mb_vert(b, q, nn, col && C->item_size >= 3 ? col + i * C->item_size : white);
+  }
+  float det = e[0] * (e[5] * e[10] - e[9] * e[6]) - e[4] * (e[1] * e[10] - e[9] * e[2]) + e[8] * (e[1] * e[6] - e[5] * e[2]);
+  if (g->index) {
+    const uint32_t *ix = g->index->array;
+    const uint16_t *ix16 = g->index->array;
+    for (int i = 0; i + 2 < g->index->count; i += 3) {
+      int a, bb, d;
+      if (g->index->type == T3_UINT16) a = ix16[i], bb = ix16[i + 1], d = ix16[i + 2];
+      else a = (int)ix[i], bb = (int)ix[i + 1], d = (int)ix[i + 2];
+      if (det < 0) mb_tri(b, base + a, base + d, base + bb);
+      else mb_tri(b, base + a, base + bb, base + d);
+    }
+  } else {
+    for (int i = 0; i + 2 < P->count; i += 3) {
+      if (det < 0) mb_tri(b, base + i, base + i + 2, base + i + 1);
+      else mb_tri(b, base + i, base + i + 1, base + i + 2);
+    }
+  }
+}
+
+static void rig_build_far(kart_rig *r) {
+  /* everything built so far moves under near; the far version is merged from it at rest */
+  r->near = t3_group_new();
+  /* (the shield bubble stays out of it: it shows at any distance) */
+  for (int i = 0; i < r->root->child_count;) {
+    if (r->root->children[i] == r->shield) i++;
+    else t3_object_add(r->near, r->root->children[i]);
+  }
+  t3_object_update_matrix_world(r->near, true);
+  far_ctx c = { .r = r };
+  t3_object_traverse(r->near, far_visit, &c);
+  r->far = t3_group_new();
+  for (int i = 0; i < S_COUNT; i++) {
+    t3_geometry *g = mb_done(&c.b[i]);
+    if (!g) continue;
+    t3_mesh *me = t3_mesh_new(g, r->mat[i]);
+    me->base.cast_shadow = i != S_GLASS && i != S_LAMP && i != S_TAIL;
+    me->base.receive_shadow = true;
+    t3_object_add(r->far, me);
+    t3_release(me), t3_release(g);
+  }
+  r->lod = t3_lod_new();
+  t3_lod_add_level(r->lod, r->near, 0);
+  t3_lod_add_level(r->lod, r->far, 1e9f);
+  t3_release(r->near), t3_release(r->far);
+  t3_object_add(r->root, r->lod);
+  t3_release(r->lod);
+}
+
+void rig_far_distance(kart_rig *r, float metres) {
+  if (r->lod && r->lod->level_count > 1) r->lod->levels[1].distance = metres;
+}
+
 void rig_build(kart_rig *r, int veh, int colour, int number) {
   memset(r, 0, sizeof *r);
   veh %= NVEH;
@@ -768,6 +852,7 @@ void rig_build(kart_rig *r, int veh, int colour, int number) {
   t3_object_add(r->root, sh);
   r->shield = &sh->base;
   t3_release(sh);
+  rig_build_far(r);
 }
 
 void rig_free(kart_rig *r) {

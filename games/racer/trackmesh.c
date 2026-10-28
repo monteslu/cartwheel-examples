@@ -19,7 +19,10 @@
 #include "track.h"
 
 #define MAX_RP 40
-#define CHUNK 80
+/* samples per chunk: 80 (about 80 m) for one view; split screen asks for longer ones (trackmesh_set_chunk): four views
+ * each drawing every short chunk they see cost a draw apiece, and a longer one culls nearly as well at that size */
+static int CHUNK = 80;
+void trackmesh_set_chunk(int samples) { CHUNK = samples > 8 ? samples : 8; }
 #define ARC_N 14
 #define WALL_T 0.55f
 

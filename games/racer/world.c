@@ -135,6 +135,7 @@ void world_build(cw_node scene, const sim *s, const map_def *map) {
   W.root = cw_node_new("Node3D", "World");
   cw_node_add_child(scene, W.root);
   /* a battle arena's track is only the sim's frame under the floor: nothing of it is drawn (arena.c draws the arena) */
+  trackmesh_set_chunk(game_planned_views() > 1 ? 200 : 80);
   if (!map->arena) track_geo_build(&W.geo, s->track, &map->mesh);
   W.built = true;
   const map_look *L = &map->look;

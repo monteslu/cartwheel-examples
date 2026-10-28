@@ -10,6 +10,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "world.h"
+
 #include "cartwheel/base.h"
 #include "cartwheel/math.h"
 #include "props.h"
@@ -885,6 +887,9 @@ void ps_finish(prop_set *s) {
       bool cast = s->shadows && KINDS[e->kind].shadow && l != PL_GLOW && e->model.height > 1.5f && e->lod == 0;
       /* far copies are coarse too: bigger cells, far fewer draws */
       float ch = s->chunk > 0 ? s->chunk : 110.0f;
+      /* split screen: bigger cells (each view draws every cell it sees, a draw apiece; a quarter-screen view culls
+       * nearly as well with them) */
+      if (game_planned_views() > 1) ch *= 2.5f;
       pb_chunk(e->batch[l], e->lod ? ch * 2.4f : ch);
       pb_finish(e->batch[l], group, nm, cast);
       e->batch[l] = NULL;
