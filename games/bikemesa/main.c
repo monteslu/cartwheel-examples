@@ -2607,7 +2607,7 @@ static void draw_touch(float W, float H, float s) {
   int n = touch_table((float)ww, (float)wh, B);
   { /* the lean stick: a ring where the thumb landed (a resting ring bottom left), the knob where it is */
     bool on = cw_touch_control_active(TOUCH_STICK);
-    cw_vec2 c = on ? cw_touch_stick_center(TOUCH_STICK) : cw_v2(fmaxf(110 * k, 80), wh - fmaxf(120 * k, 90)), v = cw_touch_stick_value(TOUCH_STICK);
+    cw_vec2 c = cw_touch_stick_center(TOUCH_STICK), v = cw_touch_stick_value(TOUCH_STICK); /* the engine keeps the ring at its home */
     float R = 60 * k;
     cw_vec2 ring[32];
     for (int j = 0; j < 32; j++) ring[j] = cw_v2((c.x + R * cw_cos(j * 0.19635f)) * kx, (c.y + R * cw_sin(j * 0.19635f)) * ky);

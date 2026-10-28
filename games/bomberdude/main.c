@@ -1496,7 +1496,7 @@ static void draw_touch(float W, float H, float s) {
   float k = (float)wh / 540.0f;
   cw_vec2 a = cw_r2d_window_to_canvas(cw_v2(0, 0)), b = cw_r2d_window_to_canvas(cw_v2((float)ww, (float)wh));
   float sx = (b.x - a.x) / (float)ww;
-  cw_vec2 wc = on ? cw_touch_stick_center(TOUCH_STICK) : cw_v2(150 * k, (float)wh - 150 * k);
+  cw_vec2 wc = cw_touch_stick_center(TOUCH_STICK); /* the engine keeps the ring at its home */
   cw_vec2 c = cw_r2d_window_to_canvas(wc);
   float R = 62 * k * sx;
   cw_r2d_circle(c, R * 1.25f, 40, rgba(0.08f, 0.05f, 0.12f, on ? 0.45f : 0.3f));

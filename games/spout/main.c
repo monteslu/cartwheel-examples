@@ -662,7 +662,7 @@ static void draw_touch(void) {
   float k = (float)wh / 540.0f, jx, jy, jr, bx, by, br;
   touch_rects(&jx, &jy, &jr, &bx, &by, &br);
   bool on = cw_touch_control_active(T_STICK);
-  cw_vec2 wc = on ? cw_touch_stick_center(T_STICK) : cw_v2(140 * k, (float)wh - 140 * k);
+  cw_vec2 wc = cw_touch_stick_center(T_STICK); /* the engine keeps the ring at its home */
   cw_vec2 c = cw_r2d_window_to_canvas(wc), e = cw_r2d_window_to_canvas(cw_v2(wc.x + 60 * k, wc.y));
   float R = e.x - c.x;
   cw_r2d_circle(c, R * 1.25f, 36, rgba(1, 0.98f, 0.9f, on ? 0.5f : 0.35f));
