@@ -200,6 +200,11 @@ static t3_vec3 route_pt(const sim *s, int i) {
   return (t3_vec3){ d->route[i][0], arena_level(s->arena, d->route[i][0], z), z };
 }
 
+/* two points both on the arena's rock: one level however far apart in height (one surface, its slopes driven: arena_terrain) */
+static bool same_level(const sim *s, t3_vec3 a, t3_vec3 b) {
+  return s->arena->def->terrain && arena_on_terrain(s->arena, a) && arena_on_terrain(s->arena, b);
+}
+
 /* on an arena with a route: the goal itself when it is in sight, else the route's point in sight that makes the shortest way
  * to it (looked at every few ticks, kept in between) */
 static t3_vec3 route_to(const sim *s, const kart *k, ai_mem *m, t3_vec3 goal) {
@@ -211,7 +216,7 @@ static t3_vec3 route_to(const sim *s, const kart *k, ai_mem *m, t3_vec3 goal) {
   m->b_node_t = 8;
   int was = m->b_node;
   m->b_node = -1;
-  if (fabsf(goal.y - k->p.y) < 3.0f && clear_line(s, k->p, goal)) return goal;
+  if ((fabsf(goal.y - k->p.y) < 3.0f || same_level(s, goal, k->p)) && clear_line(s, k->p, goal)) return goal;
   /* the points the goal can be reached from (in sight of it), with the last stretch */
   float tail[ARENA_MAXR];
   for (int i = 0; i < n; i++) {
@@ -221,7 +226,7 @@ static t3_vec3 route_to(const sim *s, const kart *k, ai_mem *m, t3_vec3 goal) {
   float best = 1e9f;
   for (int i = 0; i < n; i++) {
     t3_vec3 p = route_pt(s, i);
-    if (fabsf(p.y - (k->p.y - 0.6f)) > 3.0f || !clear_line(s, k->p, p)) continue;
+    if ((fabsf(p.y - (k->p.y - 0.6f)) > 3.0f && !same_level(s, p, k->p)) || !clear_line(s, k->p, p)) continue;
     float rest = 1e9f;
     for (int j = 0; j < n; j++) rest = fminf(rest, RT.d[i][j] + tail[j]);
     float c = flat_dist(k->p, p) + rest;

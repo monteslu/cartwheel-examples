@@ -16,7 +16,8 @@
  * its decks (arena_prim.rail: arena.c leaves the ways on to the next deck open), and have teleport pads (arena_tele: the
  * sim moves a kart that drives onto one to its far end, arena.c draws the pad and modes_gfx.c its light) and boost strips
  * (arena_boost). A long one gives the CPU drivers a route (points and the runs between them) and names the rounds it is
- * made for (arena_def.modes: the capture the flag maps are listed under that round alone). */
+ * made for (arena_def.modes: the capture the flag maps are listed under that round alone). An open arena may also stand on
+ * a rock of its own shape (arena_terrain: one continuous top with slopes, cut to any outline, a rim round its edge). */
 #ifndef RACER_ARENA_H
 #define RACER_ARENA_H
 
@@ -88,6 +89,25 @@ typedef struct arena_look {
   float glow;         /* emissive intensity (AL_GLOW) */
 } arena_look;
 
+/* a rock to drive on (arena_def.terrain): one continuous top over the void, any outline and any gentle slopes, from the
+ * map's own function. at(x, z, &top) says how far (x, z) is inside the rock (metres, negative off it) and how high its top
+ * is there (asked anywhere in the area, so it must run on past the edge smoothly; plain arithmetic only: the sim builds its
+ * collision from it, and every host must get the same numbers). arena.c samples it every `cell` metres: the top is drawn
+ * and collides as triangles cut to the outline (marching squares, so a diagonal edge is a straight edge), with a rough rim
+ * round the edge (a wall to the karts, arena_def.fence over it) and the rock hanging under it. The CPU drivers and the HUD
+ * read its height (arena_level) and its outline (arena_terrain_runs) */
+typedef struct arena_terrain {
+  float x0, z0, x1, z1;                /* the area it may cover (arena frame) */
+  float cell;                          /* metres between samples */
+  float (*at)(float x, float z, float *top);
+  float lip;                           /* the drawn rim's height, 0 none (and nothing stops a kart at the edge) */
+  float depth, belly;                  /* the rock under the top: this deep at the edge, deeper by belly per metre in from it */
+  uint32_t top_col, side_col;          /* 0xRRGGBB tints */
+  int tex;                             /* textures.h kind for the top, and metres per repeat */
+  float tex_m;
+  int side_tex;                        /* textures.h kind for the rim, the face and the underside (0: the top's) */
+} arena_terrain;
+
 typedef struct arena_def {
   float half_x, half_z;                /* the floor inside the walls */
   float wall_h;                        /* the perimeter wall's height (arena.c builds it round the floor) */
@@ -123,6 +143,8 @@ typedef struct arena_def {
   int nlinks;
   /* the rounds it is made for (1 << AM_*): the arena select lists it under those. 0: battle and king of the mountain */
   int modes;
+  /* a rock to drive on as well as (or instead of) the decks, NULL none */
+  const arena_terrain *terrain;
 } arena_def;
 
 /* the rounds an arena is listed under */
@@ -170,6 +192,12 @@ void arena_prim_local(const arena_rt *rt, int i, t3_vec3 p, float *lx, float *lz
 float arena_level(const arena_rt *rt, float x, float z);
 /* the same, only the shapes whose top is at most y + 1.5 (what something at height y stands on: under a deck, the floor) */
 float arena_level_below(const arena_rt *rt, float x, float y, float z);
+
+/* the arena's rock (arena_def.terrain): is the point p (world) standing on it (its top within 2.5 m under p, or over it).
+ * The CPU drivers take two points both on the rock for one level, however far apart in height: its slopes are driven */
+bool arena_on_terrain(const arena_rt *rt, t3_vec3 p);
+/* its outline for a map drawn flat: n runs (x0, z0, x1, z1, top) in the arena's frame, rows of a coarse grid */
+int arena_terrain_runs(const arena_def *d, const float (**runs)[5]);
 
 /* the arena of the race that is loading (set by the sim at sim_init, for the scenery and the HUD) */
 const arena_rt *arena_current(void);

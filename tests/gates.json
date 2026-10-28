@@ -5465,7 +5465,7 @@
       ],
       "note": "The dual cart on romdev against native WebGPU."
     },
-    "note": "racer capture the flag on Twin Spires, the long open map over the void (the flags 476 m apart, no floor: a kart knocked off falls past the kill plane and comes back at its base), shortened for the gate (a 60 second round, eight karts, two bot-driven humans on red in split screen): the teams, the flags, the score, the falls and the end of the round must match on every host. The towers' teleport pads (each hall up to its roof, each roof back out onto a walkway) move karts in the sim (EV_TELE: a way up to the view and the roofs' boxes); boost strips, crests and the rails laid round every deck (arena.c) are all in the static world the ray queries see."
+    "note": "racer capture the flag on Twin Spires, the long open map over the void (the flags 492 m apart on one asteroid, no floor: a kart knocked off falls past the kill plane and comes back at its base), shortened for the gate (a 60 second round, eight karts, two bot-driven humans on red in split screen): the teams, the flags, the score, the falls and the end of the round must match on every host. The rock the karts drive on is an arena_terrain: arena.c samples the map's function into a collision mesh and a rim of hulls round its edge on every host, so this also proves that build is deterministic. The towers' teleport pads (each hall up to its roof, each roof back down onto the island) move karts in the sim (EV_TELE: a way up to the view and the roofs' boxes); the boost strips, the rock's rim and the roofs' rails are all in the static world the ray queries see."
   },
   {
     "name": "racer-koth",

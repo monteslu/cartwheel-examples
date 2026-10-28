@@ -102,6 +102,17 @@ static void arena_draw_map(const arena_def *d, cw_rect r, float pad, float s, co
   float lv_max = 0.01f;
   for (int i = 0; i < d->nprims; i++)
     if (d->prims[i].look == AL_DECK) lv_max = fmaxf(lv_max, d->prims[i].y + d->prims[i].h);
+  /* the arena's rock (arena_def.terrain): its rows, lighter the higher */
+  const float (*runs)[5];
+  int nruns = arena_terrain_runs(d, &runs);
+  float rk_max = 0.01f;
+  for (int i = 0; i < nruns; i++) rk_max = fmaxf(rk_max, runs[i][4]);
+  for (int i = 0; i < nruns; i++) {
+    cw_vec2 p0 = arena_pt(&f, runs[i][0], runs[i][1]), p1 = arena_pt(&f, runs[i][2], runs[i][3]);
+    float h = clamp01(runs[i][4] / rk_max);
+    cw_r2d_rect(cw_rect_make(fminf(p0.x, p1.x), fminf(p0.y, p1.y), fabsf(p1.x - p0.x) + 0.6f, fabsf(p1.y - p0.y) + 0.6f),
+                mix(rgba(0.36f, 0.33f, 0.31f, 1), rgba(0.62f, 0.58f, 0.52f, 1), h));
+  }
   /* the floors first (decks and ramps), then what stands on them, then the decks held up high over them again (a roof) */
   for (int pass = 0; pass < 3; pass++)
     for (int i = 0; i < d->nprims; i++) {

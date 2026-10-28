@@ -1,10 +1,12 @@
 /* racer's battle arenas: the layout in the world, its physics shapes and its drawn geometry (see arena.h). */
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "arena.h"
 #include "cartwheel/math.h"
 #include "props.h"
+#include "props_gen.h"
 
 static const piece ARENA_PIECES[] = {
   WALLS(0, 0),
@@ -190,10 +192,186 @@ static float level_under(const arena_rt *rt, float x, float z, float y_max) {
   return best;
 }
 
-float arena_level(const arena_rt *rt, float x, float z) { return level_under(rt, x, z, 1e9f); }
-float arena_level_below(const arena_rt *rt, float x, float y, float z) { return level_under(rt, x, z, y + 1.5f); }
+/* ── the rock (arena_def.terrain) ─────────────────────────────────────────────────────────────────────
+ * Sampled once per arena (the sim and the scenery share it): the top cut to the outline as triangles, the edge as short
+ * segments (each with the way out), all in the arena's frame. Marching squares: a cell's corners inside the rock (at() >
+ * 0) and the points where its sides cross the edge (at() interpolated along the side) make its piece of the top, and the
+ * crossings pair up into the edge. A side's crossing is worked out from its two ends in one order whichever cell asks, so
+ * neighbouring cells share it exactly and the top has no cracks. */
+
+static struct terr {
+  const arena_terrain *def;
+  int ntri, nseg, nruns;
+  float *tri;       /* ntri x 9: three corners (x, y, z) wound so the face looks up */
+  float *seg;       /* nseg x 8: two ends (x, y, z), then the way out (x, z) */
+  float (*runs)[5];
+  const arena_terrain *runs_def;
+} T;
+
+static bool terr_in(float v) { return v > 0; }
+
+/* where the side between samples a and b (a first, the lower index) crosses the edge */
+static t3_vec3 terr_cross(const arena_terrain *d, float xa, float za, float va, float xb, float zb, float vb) {
+  float t = va / (va - vb), x = xa + (xb - xa) * t, z = za + (zb - za) * t, top = 0;
+  d->at(x, z, &top);
+  return (t3_vec3){ x, top, z };
+}
+
+static void terr_build(const arena_terrain *d) {
+  if (T.def == d) return;
+  free(T.tri), free(T.seg);
+  T.tri = T.seg = NULL;
+  T.ntri = T.nseg = 0;
+  T.def = d;
+  if (!d) return;
+  int nx = (int)((d->x1 - d->x0) / d->cell) + 2, nz = (int)((d->z1 - d->z0) / d->cell) + 2;
+  float *v = malloc(sizeof(float) * (size_t)(nx * nz)), *h = malloc(sizeof(float) * (size_t)(nx * nz));
+  for (int j = 0; j < nz; j++)
+    for (int i = 0; i < nx; i++) v[j * nx + i] = d->at(d->x0 + (float)i * d->cell, d->z0 + (float)j * d->cell, &h[j * nx + i]);
+  int cap_t = 4096, cap_s = 1024;
+  T.tri = malloc(sizeof(float) * 9 * (size_t)cap_t);
+  T.seg = malloc(sizeof(float) * 8 * (size_t)cap_s);
+  for (int j = 0; j + 1 < nz; j++)
+    for (int i = 0; i + 1 < nx; i++) {
+      /* the corners round the cell, and each side's two ends in the canonical (lower index first) order */
+      static const int CI[4] = { 0, 1, 1, 0 }, CJ[4] = { 0, 0, 1, 1 };
+      bool in[4];
+      int nin = 0;
+      for (int k = 0; k < 4; k++) nin += in[k] = terr_in(v[(j + CJ[k]) * nx + i + CI[k]]);
+      if (nin == 0) continue;
+      t3_vec3 poly[8], X[4];
+      int np = 0, nxc = 0;
+      for (int k = 0; k < 4; k++) {
+        int ia = i + CI[k], ja = j + CJ[k], ib = i + CI[(k + 1) & 3], jb = j + CJ[(k + 1) & 3];
+        if (in[k]) poly[np++] = (t3_vec3){ d->x0 + (float)ia * d->cell, h[ja * nx + ia], d->z0 + (float)ja * d->cell };
+        if (in[k] != in[(k + 1) & 3]) {
+          if (ib < ia || jb < ja) { int t = ia; ia = ib, ib = t; t = ja; ja = jb, jb = t; }
+          X[nxc] = terr_cross(d, d->x0 + (float)ia * d->cell, d->z0 + (float)ja * d->cell, v[ja * nx + ia], d->x0 + (float)ib * d->cell,
+                              d->z0 + (float)jb * d->cell, v[jb * nx + ib]);
+          poly[np++] = X[nxc++];
+        }
+      }
+      for (int k = 1; k + 1 < np; k++) {
+        if (T.ntri >= cap_t) cap_t *= 2, T.tri = realloc(T.tri, sizeof(float) * 9 * (size_t)cap_t);
+        t3_vec3 a = poly[0], b = poly[k], c = poly[k + 1];
+        /* up: (b - a) x (c - a) has +y */
+        if ((b.z - a.z) * (c.x - a.x) - (b.x - a.x) * (c.z - a.z) < 0) { t3_vec3 t = b; b = c, c = t; }
+        float *o = &T.tri[T.ntri++ * 9];
+        o[0] = a.x, o[1] = a.y, o[2] = a.z, o[3] = b.x, o[4] = b.y, o[5] = b.z, o[6] = c.x, o[7] = c.y, o[8] = c.z;
+      }
+      /* the edge: two crossings make one piece, four (a saddle, the two inside corners joined) two, each cutting off an
+       * outside corner */
+      int pairs = nxc / 2;
+      for (int p = 0; p < pairs; p++) {
+        t3_vec3 A, B;
+        if (nxc == 2) A = X[0], B = X[1];
+        else if (in[0]) A = X[p * 2], B = X[p * 2 + 1];
+        else A = X[p * 2 + 1], B = X[(p * 2 + 2) & 3];
+        float dx = B.x - A.x, dz = B.z - A.z, l = sqrtf(dx * dx + dz * dz);
+        if (l < 1e-4f) continue;
+        float nxo = dz / l, nzo = -dx / l, mx = (A.x + B.x) * 0.5f, mz = (A.z + B.z) * 0.5f, t0, t1;
+        /* the way out is towards the lower inside measure */
+        if (d->at(mx + nxo * 0.3f, mz + nzo * 0.3f, &t0) > d->at(mx - nxo * 0.3f, mz - nzo * 0.3f, &t1)) nxo = -nxo, nzo = -nzo;
+        if (T.nseg >= cap_s) cap_s *= 2, T.seg = realloc(T.seg, sizeof(float) * 8 * (size_t)cap_s);
+        float *o = &T.seg[T.nseg++ * 8];
+        o[0] = A.x, o[1] = A.y, o[2] = A.z, o[3] = B.x, o[4] = B.y, o[5] = B.z, o[6] = nxo, o[7] = nzo;
+      }
+    }
+  free(v), free(h);
+}
+
+static float terr_top(const arena_terrain *d, float x, float z, float *top) { return d->at(x, z - ARENA_CZ, top); }
+
+bool arena_on_terrain(const arena_rt *rt, t3_vec3 p) {
+  const arena_terrain *d = rt->def->terrain;
+  float top = 0;
+  if (!d || terr_top(d, p.x, p.z, &top) < -0.5f) return false;
+  return p.y > top - 1.0f && p.y < top + 2.5f;
+}
+
+int arena_terrain_runs(const arena_def *def, const float (**runs)[5]) {
+  const arena_terrain *d = def->terrain;
+  *runs = NULL;
+  if (!d) return 0;
+  if (T.runs_def != d) {
+    /* rows 4 m apart, runs along them of 4 m cells whose middles are on the rock */
+    free(T.runs);
+    T.runs_def = d, T.nruns = 0;
+    int cap = 256;
+    T.runs = malloc(sizeof(float[5]) * (size_t)cap);
+    const float c = 4.0f;
+    for (float z = d->z0; z < d->z1; z += c) {
+      float x0 = 0, hs = 0;
+      int n = 0;
+      for (float x = d->x0; x <= d->x1 + c; x += c) {
+        float top = 0;
+        bool on = x <= d->x1 && d->at(x + c * 0.5f, z + c * 0.5f, &top) > 0;
+        if (on) {
+          if (!n) x0 = x, hs = 0;
+          n++, hs += top;
+        } else if (n) {
+          if (T.nruns >= cap) cap *= 2, T.runs = realloc(T.runs, sizeof(float[5]) * (size_t)cap);
+          float *r = T.runs[T.nruns++];
+          r[0] = x0, r[1] = z, r[2] = x, r[3] = z + c, r[4] = hs / (float)n;
+          n = 0;
+        }
+      }
+    }
+  }
+  *runs = (const float (*)[5])T.runs;
+  return T.nruns;
+}
+
+float arena_level(const arena_rt *rt, float x, float z) { return arena_level_below(rt, x, 1e9f, z); }
+float arena_level_below(const arena_rt *rt, float x, float y, float z) {
+  float best = level_under(rt, x, z, y + 1.5f), top = 0;
+  const arena_terrain *d = rt->def ? rt->def->terrain : NULL;
+  if (d && terr_top(d, x, z, &top) > 0 && top <= y + 1.5f && top > best) best = top;
+  return best;
+}
+
+/* the rock's collision: its top as one triangle mesh (floor), its rim as a short block on each piece of the edge (wall) */
+static cw_mesh3d TERR_MESH;
+
+static void terr_phys(const arena_rt *rt, cw_body3d b, int track_layer, int wall_layer) {
+  /* the last arena's mesh: its world is gone (the sim frees the world before it makes the next) */
+  if (TERR_MESH.id) cw_mesh3d_destroy(TERR_MESH);
+  TERR_MESH = (cw_mesh3d){ 0 };
+  const arena_terrain *d = rt->def->terrain;
+  if (!d) return;
+  terr_build(d);
+  int nv = T.ntri * 3;
+  t3_vec3 *vs = malloc(sizeof(t3_vec3) * (size_t)nv);
+  int32_t *ix = malloc(sizeof(int32_t) * (size_t)nv);
+  for (int k = 0; k < nv; k++) {
+    const float *p = &T.tri[k * 3];
+    vs[k] = (t3_vec3){ p[0], p[1], p[2] + ARENA_CZ };
+    ix[k] = k;
+  }
+  TERR_MESH = cw_mesh3d_create(vs, nv, ix, T.ntri);
+  free(vs), free(ix);
+  cw_shape3d_def sd = cw_shape3d_default_def();
+  sd.layer = track_layer;
+  sd.material.friction = 0.9f;
+  sd.material.restitution = 0.0f;
+  cw_shape3d_mesh(b, &sd, TERR_MESH, (t3_vec3){ 1, 1, 1 });
+  if (d->lip <= 0) return;
+  sd.layer = wall_layer;
+  sd.material.friction = 0.0f;
+  float up = fmaxf(rt->def->fence, d->lip), in = 0.9f;
+  for (int s = 0; s < T.nseg; s++) {
+    const float *g = &T.seg[s * 8];
+    float ox = g[6], oz = g[7], z0 = g[2] + ARENA_CZ, z1 = g[5] + ARENA_CZ;
+    t3_vec3 pts[8] = {
+      { g[0], g[1] - 1.5f, z0 }, { g[3], g[4] - 1.5f, z1 }, { g[0] - ox * in, g[1] - 1.5f, z0 - oz * in }, { g[3] - ox * in, g[4] - 1.5f, z1 - oz * in },
+      { g[0], g[1] + up, z0 }, { g[3], g[4] + up, z1 }, { g[0] - ox * in, g[1] + up, z0 - oz * in }, { g[3] - ox * in, g[4] + up, z1 - oz * in },
+    };
+    cw_shape3d_hull(b, &sd, pts, 8);
+  }
+}
 
 void arena_phys_build(const arena_rt *rt, cw_body3d b, int track_layer, int wall_layer) {
+  terr_phys(rt, b, track_layer, wall_layer);
   for (int i = 0; i < rt->n; i++) {
     const arena_prim *p = &rt->prim[i];
     if (p->ghost) continue;
@@ -280,10 +458,91 @@ static void draw_prim(pm *b, const arena_prim *p, const arena_look *L, int i) {
   pm_pop(b);
 }
 
+/* the drawn rock: its top in faceted triangles (a little lighter and darker in drifts), a rough rim along the edge, the
+ * face below it falling away jagged, and its underside sagging deeper the farther in (the belly of an asteroid) */
+static float terr_n(float x, float z, float f, uint32_t seed) { return pm_noise3(x * f, 0.37f, z * f, seed); }
+
+static void terr_gfx(cw_node root, const arena_def *ad, uint32_t seed) {
+  const arena_terrain *d = ad->terrain;
+  if (!d) return;
+  terr_build(d);
+  pcol top = hex(d->top_col ? d->top_col : 0x5a524a), side = hex(d->side_col ? d->side_col : 0x3e3934);
+  pmc *c = pmc_new(64.0f, seed + 701u);
+  pmc_texture_metres(c, d->tex_m > 0 ? d->tex_m : 8.0f);
+  float cz = ARENA_CZ;
+  for (int t = 0; t < T.ntri; t++) {
+    const float *p = &T.tri[t * 9];
+    t3_vec3 a = { p[0], p[1], p[2] + cz }, b = { p[3], p[4], p[5] + cz }, e = { p[6], p[7], p[8] + cz };
+    t3_vec3 u = { b.x - a.x, b.y - a.y, b.z - a.z }, w = { e.x - a.x, e.y - a.y, e.z - a.z };
+    t3_vec3 n = { u.y * w.z - u.z * w.y, u.z * w.x - u.x * w.z, u.x * w.y - u.y * w.x };
+    float l = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
+    if (l < 1e-6f) continue;
+    n = (t3_vec3){ n.x / l, n.y / l, n.z / l };
+    pcol k[3];
+    const t3_vec3 *v3[3] = { &a, &b, &e };
+    for (int q = 0; q < 3; q++) {
+      float x = v3[q]->x, z = v3[q]->z;
+      float m = 0.72f + 0.3f * terr_n(x, z, 0.03f, seed + 3u) + 0.2f * terr_n(x, z, 0.12f, seed + 5u) + 0.1f * terr_n(x, z, 0.4f, seed + 7u);
+      k[q] = pc_mix(pc_mul(top, m), pc_mul(side, m), 0.5f + 0.5f * terr_n(x, z, 0.05f, seed + 9u));
+    }
+    pm *pb = pmc_at(c, (t3_vec3){ (a.x + b.x + e.x) / 3, (a.y + b.y + e.y) / 3, (a.z + b.z + e.z) / 3 });
+    pm_tri_n(pb, a, n, k[0], b, n, k[1], e, n, k[2]);
+  }
+  pmc_finish(c, root, "ArenaRockTop", false, d->tex);
+
+  /* the rim, the face and the underside: one rock below the top */
+  c = pmc_new(64.0f, seed + 709u);
+  pmc_texture_metres(c, d->tex_m > 0 ? d->tex_m : 8.0f);
+  for (int s = 0; s < T.nseg; s++) {
+    const float *g = &T.seg[s * 8];
+    float ox = g[6], oz = g[7];
+    t3_vec3 P[2] = { { g[0], g[1], g[2] + cz }, { g[3], g[4], g[5] + cz } }, foot[2], crest[2], rim[2], mid[2], low[2];
+    for (int q = 0; q < 2; q++) {
+      float x = P[q].x, z = P[q].z, ft = 0;
+      float kh = 0.75f + 0.45f * terr_n(x, z, 0.35f, seed + 21u), jag = 1.6f + 1.6f * terr_n(x, z, 0.09f, seed + 23u);
+      float dep = d->depth * (0.75f + 0.4f * terr_n(x, z, 0.04f, seed + 25u));
+      terr_top(d, x - ox * 2.4f, z - oz * 2.4f, &ft);
+      foot[q] = (t3_vec3){ x - ox * 2.4f, ft + 0.02f, z - oz * 2.4f };
+      crest[q] = (t3_vec3){ x - ox * 0.7f, P[q].y + d->lip * kh, z - oz * 0.7f };
+      rim[q] = (t3_vec3){ x + ox * 0.35f, P[q].y + d->lip * kh * 0.45f, z + oz * 0.35f };
+      mid[q] = (t3_vec3){ x + ox * jag, P[q].y - dep * 0.4f, z + oz * jag };
+      low[q] = (t3_vec3){ x, P[q].y - dep, z };
+    }
+    /* the rim only where there is one; the face always */
+    pm *pb = pmc_at(c, P[0]);
+    pcol sc = pc_mul(side, 0.85f + 0.2f * terr_n(P[0].x, P[0].z, 0.2f, seed + 27u));
+    if (d->lip > 0) {
+      pm_quad(pb, foot[0], foot[1], crest[1], crest[0], pc_mul(top, 0.92f));
+      pm_quad(pb, foot[0], crest[0], crest[1], foot[1], pc_mul(top, 0.92f));
+      pm_quad(pb, crest[0], crest[1], rim[1], rim[0], sc);
+      pm_quad(pb, crest[0], rim[0], rim[1], crest[1], sc);
+    } else rim[0] = P[0], rim[1] = P[1];
+    pm_quad(pb, rim[0], rim[1], mid[1], mid[0], sc);
+    pm_quad(pb, rim[0], mid[0], mid[1], rim[1], sc);
+    pm_quad(pb, mid[0], mid[1], low[1], low[0], pc_mul(sc, 0.8f));
+    pm_quad(pb, mid[0], low[0], low[1], mid[1], pc_mul(sc, 0.8f));
+  }
+  /* the underside: every piece of the top again, lower by the face's depth at the edge and the belly in from it */
+  for (int t = 0; t < T.ntri; t++) {
+    const float *p = &T.tri[t * 9];
+    t3_vec3 v[3];
+    for (int q = 0; q < 3; q++) {
+      float x = p[q * 3], z = p[q * 3 + 2] + cz, ft = 0;
+      float inside = fmaxf(terr_top(d, x, z, &ft), 0);
+      float dep = d->depth * (0.75f + 0.4f * terr_n(x, z, 0.04f, seed + 25u)) + d->belly * fminf(inside, 60.0f) * (0.8f + 0.4f * terr_n(x, z, 0.02f, seed + 29u));
+      v[q] = (t3_vec3){ x, p[q * 3 + 1] - dep, z };
+    }
+    pm *pb = pmc_at(c, v[0]);
+    pm_tri(pb, v[0], v[2], v[1], pc_mul(side, 0.6f));
+  }
+  pmc_finish(c, root, "ArenaRock", true, d->side_tex ? d->side_tex : d->tex);
+}
+
 void arena_gfx_build(cw_node scene, const arena_rt *rt, uint32_t seed) {
   const arena_def *d = rt->def;
   cw_node root = cw_node_new("Node3D", "Arena");
   cw_node_add_child(scene, root);
+  terr_gfx(root, d, seed);
   for (int look = 0; look < AL_KINDS; look++) {
     const arena_look *L = &d->look[look];
     pmc *c = pmc_new(look == AL_FLOOR ? 30.0f : 48.0f, seed + (uint32_t)look * 31u);
