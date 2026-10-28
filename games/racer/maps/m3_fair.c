@@ -28,11 +28,12 @@ static const piece SPEC[] = {
   ASTRAIGHT(40),
   ITEMS(),
   BOOST(30),
-  STRAIGHT(30),
-  SLOPE(70, 24),
-  SLOPE(40, 24),
-  SLOPE(36, 0),
-  STRAIGHT(20),
+  STRAIGHT(45),
+  /* the lift hill: a long rounded crest (56 m from the climb to level), so a fast kart tops it with its wheels down
+   * instead of being thrown off the summit into the air over the drop. Same height, length and place as before. */
+  SLOPE(60, 24),
+  SLOPE(35, 24),
+  SLOPE(56, 0),
   /* tall walls from the top of the drop round the whole helix: a kart comes off the drop at up to 74 m/s (boosted, fast
    * class) and must bounce along them, never ride over onto the grass under the helix deck */
   WALLS(3, 3),
@@ -46,13 +47,15 @@ static const piece SPEC[] = {
   MOVE(24, 0, KEEP, 24, KEEP),
   HILL(320, 360, 8),
   MOVE(20, 0, KEEP, 0, KEEP),
-  WALLS(2, 2),
+  /* and on down the high run off the helix to the jump ramp: karts knocked about by items there went over the low
+   * walls and fell */
   CHECK(),
   SLOPE(140, -4),
   SLOPE(80, 0),
   STRAIGHT(30),
   BOOST(30),
   STRAIGHT(30),
+  WALLS(2, 2),
   SLOPE(36, 20),
   SLOPE(20, 20),
   JUMP(0, 29),
@@ -2113,7 +2116,9 @@ const map_def map_fair = {
   .blurb = "The old park's coaster is the course: loops, corkscrews, a ferris wheel.",
   .scene = "scenes/fair.cwscene",
   .spec = MAP_SPEC,
-  .mesh = { .wall_h = { 0, 0.9f, 1.6f, 3.2f }, .curb_w = 0.9f, .tile_v = 8.0f, .tunnel_clear = 8.0f },
+  /* the tall walls (the drop, the helix and the run off it) stand 4.4 m: at 3.2 a kart knocked sideways at the foot of
+   * the drop at 55 m/s still climbed over them */
+  .mesh = { .wall_h = { 0, 0.9f, 1.6f, 4.4f }, .curb_w = 0.9f, .tile_v = 8.0f, .tunnel_clear = 8.0f },
   .look = { .road = { 0.95f, 0.82f, 0.7f }, .kerb_a = { 0.86f, 0.22f, 0.18f }, .kerb_b = { 0.96f, 0.92f, 0.8f }, .wall = { 1.32f, 1.24f, 1.08f },
             .wall_top = { 0.96f, 0.9f, 0.76f }, .road_tex = TEX_ROAD_WOOD, .wall_tex = TEX_WALL_WOOD, .road_rough = 0.8f },
   .laps = 3,
