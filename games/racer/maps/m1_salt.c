@@ -952,7 +952,8 @@ static void build_clouds(cw_node parent) {
         float t = 6.2832f * (float)i / 20.0f;
         float lx = cosf(t) * len * k * (1.0f + 0.12f * sinf(t * 3.0f + (float)c)), lz = sinf(t) * wid * k;
         float wx = cx + lx * cosf(rot) - lz * sinf(rot), wz = cz + lx * sinf(rot) + lz * cosf(rot);
-        sv(&s, V(wx, y + 4.0f * sinf(t * 2.0f), wz), V(0, -1, 0), (pcol){ 1, 1, 1 });
+        /* the rim adds nothing: each layer is a soft lens, so a cloud seen from below has no hard polygon edge */
+        sv(&s, V(wx, y + 4.0f * sinf(t * 2.0f), wz), V(0, -1, 0), (pcol){ 0, 0, 0 });
         if (i > 0) st(&s, c0, c0 + i + 1, c0 + i);
       }
     }
@@ -962,7 +963,9 @@ static void build_clouds(cw_node parent) {
     float sunk = 0.5f + 0.5f * cosf(a - 0.75f);
     m->color = (t3_color){ lerpf(0.6f, 2.0f, sunk), lerpf(0.65f, 0.95f, sunk), lerpf(0.85f, 0.85f, sunk) };
     m->transparent = true;
-    m->opacity = SPLIT ? 0.09f : 0.045f;
+    m->blending = T3_ADDITIVE_BLENDING;
+    m->vertex_colors = true;
+    m->opacity = SPLIT ? 0.08f : 0.036f;
     m->depth_write = false;
     m->side = T3_DOUBLE_SIDE;
     t3_mesh *me = t3_mesh_new(g, m);

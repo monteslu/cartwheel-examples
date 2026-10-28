@@ -2474,6 +2474,12 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
    * tinted film lit by the environment instead (the film over the fords keeps its own look) */
   cw_node sea = water_surface(root, L.cx, L.cz, 4200, 4200, SEA_Y, &wo);
   if (nv > 1) cw_node_set(sea, "reflection", cw_val_bool(false));
+  /* the glass tube runs under this sea, and the engine draws a camera under the surface as seen through the water: with
+   * the default 5 m of clarity the tube was a wall of teal haze (the kart ahead half gone, nothing outside the glass). The
+   * tube is air, so the water reads clear enough to see the ribs ahead, the jellyfish and the drowned blocks, and its
+   * light shafts are softened so they streak the view instead of whiting it out. */
+  cw_node_set(sea, "clarity", cw_val_float(60.0f));
+  cw_node_set(sea, "caustics", cw_val_float(0.28f));
   PLAN_VIEWS = nv;
 
   fx_ambient_follow(scene, FXA_RAIN, 1.0f);
