@@ -17,6 +17,7 @@
 #include "cartwheel/math.h"
 #include "cartwheel/water.h"
 #include "props.h"
+#include "world.h"
 
 static float hash2(int x, int z, uint32_t seed) {
   uint32_t h = (uint32_t)x * 73856093u ^ (uint32_t)z * 19349663u ^ seed * 83492791u;
@@ -233,7 +234,10 @@ static void build_cell(gbuild *B, float x0, float z0, float S, int n) {
       float ry;
       gp[j * W + i] = (o->darken_edge > 0 && B->t) ? road_gap(B->t, x, z, &ry) : 100.0f;
     }
-  int64_t key = ((int64_t)floorf((x0 + S * 0.5f) / 128.0f) + 4096) * 100000 + (int64_t)floorf((z0 + S * 0.5f) / 128.0f) + 4096;
+  /* (256 m blocks in split screen: each view draws every block it sees, and a quarter-screen view culls nearly as well
+   * with the bigger ones) */
+  float blk = game_planned_views() > 1 ? 256.0f : 128.0f;
+  int64_t key = ((int64_t)floorf((x0 + S * 0.5f) / blk) + 4096) * 100000 + (int64_t)floorf((z0 + S * 0.5f) / blk) + 4096;
   int bi = 0;
   while (bi < B->nblk && B->blk[bi].key != key) bi++;
   if (bi == B->nblk) {

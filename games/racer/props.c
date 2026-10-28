@@ -609,6 +609,7 @@ struct prop_batch {
   float *mat, *col;
   int n, cap;
   float chunk;
+  float radius; /* the model's bounding radius at scale 1: a cell of them too small to see from a view is not drawn there */
   bool tinted;
 };
 
@@ -621,6 +622,7 @@ prop_batch *pb_begin(t3_geometry *g, t3_material *m) {
   return b;
 }
 void pb_chunk(prop_batch *b, float metres) { b->chunk = metres > 5 ? metres : 5; }
+void pb_radius(prop_batch *b, float r) { b->radius = r; }
 int pb_count(const prop_batch *b) { return b ? b->n : 0; }
 void pb_add_c(prop_batch *b, t3_vec3 pos, t3_quat q, t3_vec3 scale, pcol tint) {
   if (!b) return;
@@ -676,7 +678,42 @@ cw_node pb_finish(prop_batch *b, cw_node parent, const char *name, bool cast_sha
       }
       im->mesh.base.cast_shadow = cast_shadow;
       im->mesh.base.receive_shadow = true;
-      t3_object_add(group, im);
+      /* screen-size culling: past the distance where the biggest copy in the cell is under two pixels tall in a view
+       * (that view's height and field of view), the cell is not drawn there; three.c's LOD picks per view. The distance
+       * is from the cell's middle, so the cell's own size is added */
+      float cull = 0;
+      if (b->radius > 0) {
+        t3_vec3 c = { 0, 0, 0 };
+        float smax = 0;
+        for (int k = i; k < j; k++) {
+          const float *e = b->mat + ck[k].idx * 16;
+          c.x += e[12], c.y += e[13], c.z += e[14];
+          smax = fmaxf(smax, sqrtf(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]));
+        }
+        c = (t3_vec3){ c.x / (float)(j - i), c.y / (float)(j - i), c.z / (float)(j - i) };
+        float spread = 0;
+        for (int k = i; k < j; k++) {
+          const float *e = b->mat + ck[k].idx * 16;
+          float dx = e[12] - c.x, dy = e[13] - c.y, dz = e[14] - c.z;
+          spread = fmaxf(spread, sqrtf(dx * dx + dy * dy + dz * dz));
+        }
+        bool split = game_planned_views() > 1;
+        /* a view 1080 px tall at 64 degrees, or 540 px at no wider than 48 in split screen; two pixels */
+        float px_per = split ? 540.0f / (2.0f * 0.445f) : 1080.0f / (2.0f * 0.625f);
+        cull = b->radius * smax * 2.0f * px_per / 2.0f + spread + b->radius * smax;
+        if (cull < 2600.0f) {
+          t3_lod *lod = t3_lod_new();
+          t3_object_set_position(lod, c.x, c.y, c.z);
+          t3_object_set_position(im, -c.x, -c.y, -c.z);
+          t3_lod_add_level(lod, im, 0);
+          t3_object *none = t3_group_new();
+          t3_lod_add_level(lod, none, cull);
+          t3_release(none);
+          t3_object_add(group, lod);
+          t3_release(lod);
+        }
+      }
+      if (!(cull > 0 && cull < 2600.0f)) t3_object_add(group, im);
       t3_release(im);
       i = j;
     }
@@ -891,6 +928,7 @@ void ps_finish(prop_set *s) {
        * nearly as well with them) */
       if (game_planned_views() > 1) ch *= 2.5f;
       pb_chunk(e->batch[l], e->lod ? ch * 2.4f : ch);
+      pb_radius(e->batch[l], fmaxf(e->model.radius, e->model.height * 0.5f));
       pb_finish(e->batch[l], group, nm, cast);
       e->batch[l] = NULL;
     }
