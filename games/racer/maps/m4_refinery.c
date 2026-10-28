@@ -1904,6 +1904,125 @@ static void landing_targets(void) {
 }
 
 /* a gantry of floodlights over the verge: a post and a bar of lamps aimed at the road, a halo on the bar */
+/* The cutting: after the second jump the road runs 22 m below the plant for half a kilometre, between bare slopes in
+ * the haze. Shotcrete retaining walls with buttresses line its foot, a sodium lamp on every other buttress gives the
+ * walls a warm rhythm you can read the speed from, and pipe bridges on lattice towers cross high overhead. */
+static void cutting(void) {
+  const track *t = R.t;
+  pmc *c = pmc_new(200, 951u); /* big cells: the walls are cheap in triangles, it is draws that cost */
+  const pcol conc = rgb(0.56f, 0.52f, 0.48f), conc_d = rgb(0.34f, 0.31f, 0.3f);
+  const pcol sodium = glow(rgb(1, 0.58f, 0.2f), 6.0f);
+  int panels = 0, lamps = 0, bridges = 0;
+  const float step = 4.0f;
+  for (int side = -1; side <= 1; side += 2) {
+    int k = 0;
+    for (float s = 0; s < t->length; s += step, k++) {
+      tsample a = track_at(t, s), b2 = track_at(t, s + step);
+      if ((a.flags | b2.flags) & (TF_GAP | TF_TUNNEL)) continue;
+      float deep = sst(7.0f, 13.0f, -fminf(a.p.y, b2.p.y));
+      if (deep <= 0.0f || near_gap(s, 24)) continue;
+      float H = 4.6f * deep;
+      float lat0 = (float)side * (a.hw + 2.4f), lat1 = (float)side * (b2.hw + 2.4f);
+      t3_vec3 p0 = road_pt(s, lat0, 0), p1 = road_pt(s + step, lat1, 0);
+      /* the foot sits a little into the ground, the top stands H over the road's edge there */
+      float e0 = road_pt(s, (float)side * a.hw, 0).y, e1 = road_pt(s + step, (float)side * b2.hw, 0).y;
+      t3_vec3 A = V3(p0.x, fminf(terrain(p0.x, p0.z, NULL), e0) - 0.5f, p0.z), B = V3(p1.x, fminf(terrain(p1.x, p1.z, NULL), e1) - 0.5f, p1.z);
+      t3_vec3 C = V3(p1.x, e1 + H, p1.z), D = V3(p0.x, e0 + H, p0.z);
+      pm *m = pmc_at(c, p0);
+      pm_push(m);
+      pm_layer(m, PL_MAIN);
+      pcol col = (k / 3) & 1 ? conc : pc_mix(conc, conc_d, 0.25f); /* pours of slightly different concrete */
+      pm_quad(m, A, B, C, D, col), pm_quad(m, D, C, B, A, col);
+      /* a dark stained band along the foot and a cap along the top */
+      t3_vec3 A2 = V3(A.x, e0 + 0.9f * deep, A.z), B2 = V3(B.x, e1 + 0.9f * deep, B.z);
+      t3_vec3 off = v3mul(V3(a.r.x, 0, a.r.z), -(float)side * 0.04f);
+      pm_quad(m, v3add(A, off), v3add(B, off), v3add(B2, off), v3add(A2, off), conc_d);
+      pm_quad(m, v3add(A2, off), v3add(B2, off), v3add(B, off), v3add(A, off), conc_d);
+      pm_beam(m, D, C, 0.5f, conc_d);
+      pm_pop(m);
+      panels++;
+      /* a buttress every 12 m, and a lamp on every other one */
+      if (k % 3 == 0 && deep > 0.5f) {
+        t3_vec3 rr = v3norm(V3(a.r.x, 0, a.r.z)), ff = v3norm(V3(a.f.x, 0, a.f.z));
+        t3_vec3 base = v3add(A, v3mul(rr, -(float)side * 0.35f));
+        pm *q = pmc_at(c, base);
+        pm_push(q);
+        pm_basis(q, base, rr, V3(0, 1, 0), ff);
+        pm_layer(q, PL_MAIN);
+        pm_box(q, 0.8f, (e0 - A.y) + H + 0.5f, 1.1f, conc_d, conc);
+        if (k % 6 == 0) {
+          float ly = (e0 - A.y) + H - 0.9f;
+          pm_push(q), pm_move(q, -(float)side * 0.75f, ly + 0.25f, 0), pm_box_c(q, 0.9f, 0.18f, 0.5f, SOOT), pm_pop(q);
+          pm_layer(q, PL_GLOW);
+          pm_push(q), pm_move(q, -(float)side * 0.9f, ly, 0), pm_box_c(q, 0.5f, 0.34f, 0.9f, sodium), pm_pop(q);
+          lamps++;
+        }
+        pm_pop(q);
+      }
+    }
+  }
+  /* pipe bridges across the cutting, high over the road, every 150 m or so where it is deepest */
+  float last = -1000.0f;
+  for (float s = 0; s < t->length; s += 10.0f) {
+    tsample a = track_at(t, s);
+    if (a.p.y > -16.0f || (a.flags & (TF_GAP | TF_TUNNEL)) || near_special(s, 30) || s - last < 150.0f) continue;
+    if (fabsf(track_curvature(t, s, 30.0f)) > 0.004f) continue; /* on the straights: across a bend it would cross the road twice */
+    last = s;
+    t3_vec3 rr = v3norm(V3(a.r.x, 0, a.r.z));
+    float span = a.hw + 34.0f;
+    t3_vec3 e[2];
+    float top = -1e9f;
+    for (int k = 0; k < 2; k++) {
+      e[k] = v3add(V3(a.p.x, 0, a.p.z), v3mul(rr, (k ? 1.0f : -1.0f) * span));
+      e[k].y = terrain(e[k].x, e[k].z, NULL);
+      top = fmaxf(top, e[k].y);
+    }
+    top += 6.0f;
+    for (int k = 0; k < 2; k++) {
+      pm *b = pmc_at(c, e[k]);
+      pm_push(b);
+      lattice(b, e[k].x, e[k].z, e[k].y - 0.5f, top + 1.2f, 1.6f, 1.1f);
+      pm_pop(b);
+    }
+    t3_vec3 mid = V3((e[0].x + e[1].x) * 0.5f, top, (e[0].z + e[1].z) * 0.5f);
+    pm *b = pmc_at(c, mid);
+    pm_push(b);
+    pm_layer(b, PL_METAL);
+    /* a box truss: two chords each side and diagonals, carrying three pipes on top */
+    t3_vec3 ff = v3norm(V3(a.f.x, 0, a.f.z));
+    for (int sd = -1; sd <= 1; sd += 2) {
+      t3_vec3 o = v3mul(ff, (float)sd * 1.0f);
+      t3_vec3 l0 = v3add(e[0], o), l1 = v3add(e[1], o);
+      l0.y = l1.y = top, pm_beam(b, l0, l1, 0.22f, STEEL_D);
+      t3_vec3 u0 = l0, u1 = l1;
+      u0.y = u1.y = top + 1.2f, pm_beam(b, u0, u1, 0.2f, STEEL_D);
+      for (int i = 0; i < 16; i++) {
+        float f0 = (float)i / 16.0f, f1 = (float)(i + 1) / 16.0f;
+        t3_vec3 a0 = v3add(l0, v3mul(v3sub(l1, l0), f0)), a1 = v3add(u0, v3mul(v3sub(u1, u0), f1));
+        pm_beam(b, a0, a1, 0.12f, STEEL);
+      }
+    }
+    pcol pc[3] = { STEEL, HAZARD, RUST };
+    float pr[3] = { 0.55f, 0.42f, 0.7f };
+    for (int k = 0; k < 3; k++) {
+      t3_vec3 o = v3mul(ff, (float)(k - 1) * 0.75f);
+      t3_vec3 q0 = v3add(e[0], o), q1 = v3add(e[1], o);
+      q0.y = q1.y = top + 1.3f + pr[k];
+      pm_rod(b, q0, q1, pr[k], 10, pc[k]);
+    }
+    /* sodium lamps hung under the middle, over the road */
+    pm_layer(b, PL_GLOW);
+    for (int i = -1; i <= 1; i++) {
+      t3_vec3 lp = v3add(V3(a.p.x, top - 0.25f, a.p.z), v3mul(rr, (float)i * 4.0f));
+      pm_push(b), pm_move(b, lp.x, lp.y, lp.z), pm_box_c(b, 0.9f, 0.3f, 0.5f, sodium), pm_pop(b);
+    }
+    pm_pop(b);
+    bridges++;
+  }
+  pmc_finish(c, R.root, "Cutting", true, TEX_WALL_CONCRETE);
+  cw_info("refinery: cutting %d wall panels, %d lamps, %d pipe bridges", panels, lamps, bridges);
+}
+
 static void floodlights(void) {
   const track *t = R.t;
   pmc *c = pmc_new(60, 811u);
@@ -2287,6 +2406,7 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
   go.patch_scale = 50;
   go.follow_road = false;
   go.darken_edge = 0.35f;
+  go.lumpy = 0.55f; /* blotches of soot and dust, so the cracked mud does not read as one tiled floor */
   go.seed = 9;
   if (!off("ground")) ground_plane(R.root, t, &go);
 
@@ -2337,6 +2457,7 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
   if (!off("smoke")) smoke_columns();
   landing_targets();
   if (!off("floods")) floodlights();
+  if (!off("cutting")) cutting();
   if (!off("jets")) steam_jets();
   if (!off("puddles")) puddles();
   slag_pools();

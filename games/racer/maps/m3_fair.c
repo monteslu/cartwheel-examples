@@ -28,11 +28,12 @@ static const piece SPEC[] = {
   ASTRAIGHT(40),
   ITEMS(),
   BOOST(30),
-  STRAIGHT(30),
-  SLOPE(70, 24),
-  SLOPE(40, 24),
-  SLOPE(36, 0),
-  STRAIGHT(20),
+  STRAIGHT(45),
+  /* the lift hill: a long rounded crest (56 m from the climb to level), so a fast kart tops it with its wheels down
+   * instead of being thrown off the summit into the air over the drop. Same height, length and place as before. */
+  SLOPE(60, 24),
+  SLOPE(35, 24),
+  SLOPE(56, 0),
   /* tall walls from the top of the drop round the whole helix: a kart comes off the drop at up to 74 m/s (boosted, fast
    * class) and must bounce along them, never ride over onto the grass under the helix deck */
   WALLS(3, 3),
@@ -46,13 +47,15 @@ static const piece SPEC[] = {
   MOVE(24, 0, KEEP, 24, KEEP),
   HILL(320, 360, 8),
   MOVE(20, 0, KEEP, 0, KEEP),
-  WALLS(2, 2),
+  /* and on down the high run off the helix to the jump ramp: karts knocked about by items there went over the low
+   * walls and fell */
   CHECK(),
   SLOPE(140, -4),
   SLOPE(80, 0),
   STRAIGHT(30),
   BOOST(30),
   STRAIGHT(30),
+  WALLS(2, 2),
   SLOPE(36, 20),
   SLOPE(20, 20),
   JUMP(0, 29),
@@ -118,6 +121,7 @@ static int THIN; /* 1 when the race has split views: the clutter far from the ro
 static cw_node find_type(cw_node n, const char *type);
 static void report_meshes(cw_node root);
 static bool room(const track *t, float x, float z, float r);
+static bool mid_clear(float x, float z, float r);
 
 static t3_vec3 V3(float x, float y, float z) { return (t3_vec3){ x, y, z }; }
 
@@ -1351,7 +1355,7 @@ static void build_scatter(cw_node root, const track *t) {
       tsample a = track_at(t, s + rr(0, 14));
       float lat = a.hw + 13.0f + powf(rf(), 1.6f) * 95.0f;
       t3_vec3 p = track_point(t, a.s, side * lat, 0);
-      if (!room(t, p.x, p.z, 4.0f)) continue;
+      if (!room(t, p.x, p.z, 4.0f) || !mid_clear(p.x, p.z, 2.0f)) continue;
       p.y = fair_ground(p.x, p.z, NULL) - 0.1f;
       int lod = lat > 55.0f ? 1 : 0;
       float pick = rf();
@@ -1398,6 +1402,78 @@ static void balloons(pmc *c, t3_vec3 at, int n, uint32_t seed) {
     pm_ball(b, 0.62f, 0.78f, 0.62f, 1, 0, pc_mix(col, BLACK, 0.25f), pc_mix(col, CREAM, 0.15f));
     pm_pop(b);
   }
+}
+
+/* what the midway put down, so the scatter keeps its bushes and trees out of the stalls */
+static struct { float x, z, r; } MID[96];
+static int nmid;
+static bool mid_clear(float x, float z, float r) {
+  for (int i = 0; i < nmid; i++)
+    if (hypotf(x - MID[i].x, z - MID[i].z) < r + MID[i].r) return false;
+  return true;
+}
+
+/* the midway: the open grass between the attractions (the straight up to the lift hill, the run home) was bare from
+ * the road, so it gets the park's leftovers in clusters a few steps back from the walls: game stalls facing the road,
+ * striped tents, a little carousel, and the junk an abandoned park collects (dead dodgem cars, tyre piles, hay) */
+static void build_midway(prop_set *ps, pmc *st, pmc *wood, gcells *steady, const track *t) {
+  static const struct { float x, z, r; } busy[] = {
+    { -20, 212, 52 }, { 0, 38, 30 }, { -62, 78, 26 }, { 66, 88, 24 }, { 112, -150, 34 }, { 120, -50, 28 }, { 164, -120, 30 }, { 252, -120, 30 },
+    { 70, -215, 28 }, { 130, 10, 28 }, { 36, 560, 46 }, { -5, 650, 26 }, { 96, 650, 26 }, { 60, -300, 30 }, { 120, -330, 26 }, { 41, 735, 36 }, { 97, -395, 38 },
+  };
+  RS = 5150;
+  nmid = 0;
+  int nb = 0, nt = 0, nj = 0;
+  float step = THIN ? 64.0f : 34.0f;
+  for (float s = 30; s < t->length - 30; s += step) {
+    tsample a = track_at(t, s);
+    float pick = rf(), sidef = rf(), latf = rf(), jit = rf();
+    if (a.flags & (TF_LOOP | TF_GAP)) continue;
+    int side = sidef < 0.5f ? -1 : 1;
+    float lat = side * (a.hw + 20.0f + latf * 14.0f);
+    t3_vec3 p = track_point(t, s + jit * 10.0f, lat, 0);
+    if (!room(t, p.x, p.z, 9.0f)) continue;
+    bool ok = hypotf(p.x - P.helix_c.x, p.z - P.helix_c.z) > P.helix_r + 40.0f;
+    for (int i = 0; ok && i < (int)(sizeof busy / sizeof busy[0]); i++)
+      if (hypotf(p.x - busy[i].x, p.z - busy[i].z) < busy[i].r + 8.0f) ok = false;
+    if (!ok || !mid_clear(p.x, p.z, 9.0f) || nmid >= 90) continue;
+    float gy = fair_ground(p.x, p.z, NULL);
+    t3_vec3 rp = track_point(t, s, 0, 0);
+    float face = yaw_to(p, rp);
+    t3_vec3 at = V3(p.x, gy - 0.05f, p.z);
+    t3_quat q = t3_quat_from_axis_angle(V3(0, 1, 0), face);
+    if (pick < 0.34f) {
+      /* a game stall facing the road, its balloons tied to the corner */
+      frame f = fr(p.x, gy, p.z, face);
+      build_booth(wood, steady, &f, 40u + (uint32_t)nb);
+      balloons(st, fw(&f, 2.8f, 3.4f, 1.0f), 5, 60u + (uint32_t)nb);
+      nb++;
+    } else if (pick < 0.62f) {
+      /* two striped tents side by side */
+      for (int k = -1; k <= 1; k += 2) {
+        t3_vec3 tp = V3(p.x + cosf(face) * 4.6f * (float)k, gy - 0.05f, p.z - sinf(face) * 4.6f * (float)k);
+        float sc = 0.95f + 0.1f * (float)(k > 0);
+        ps_add_ex(ps, PK_TENT, (nt + (k > 0)) & 1, 0, tp, q, V3(sc, sc, sc), (pcol){ 1, 1, 1 }, 1700u + (uint32_t)nt * 2u + (uint32_t)(k > 0));
+      }
+      nt++;
+    } else if (pick < 0.74f) {
+      /* a little carousel, still lit */
+      ps_add_ex(ps, PK_CAROUSEL, 0, 0, at, q, V3(1, 1, 1), (pcol){ 1, 1, 1 }, 1800u + (uint32_t)nj);
+      balloons(st, V3(p.x + 6.0f, gy + 0.2f, p.z + 1.0f), 6, 80u + (uint32_t)nj);
+    } else {
+      /* the dodgem graveyard: wrecks nose to tail, a tyre pile and a hay bale */
+      for (int k = 0; k < 3; k++) {
+        float ox = (float)(k - 1) * 3.6f, oz = (k == 1) ? 1.4f : 0.0f;
+        t3_vec3 wp = V3(p.x + cosf(face) * ox + sinf(face) * oz, gy - 0.05f, p.z - sinf(face) * ox + cosf(face) * oz);
+        float yw = face + 0.5f * (float)(k - 1) + 0.3f;
+        ps_add_ex(ps, PK_WRECK_CAR, 0, 0, wp, t3_quat_from_axis_angle(V3(0, 1, 0), yw), V3(1, 1, 1), (pcol){ 1, 1, 1 }, 1900u + (uint32_t)nj * 3u + (uint32_t)k);
+      }
+      ps_add_ex(ps, PK_TYRE_STACK, 0, 0, V3(p.x + sinf(face) * -3.5f, gy - 0.05f, p.z + cosf(face) * -3.5f), q, V3(1, 1, 1), (pcol){ 1, 1, 1 }, 2000u + (uint32_t)nj);
+    }
+    nj++;
+    MID[nmid].x = p.x, MID[nmid].z = p.z, MID[nmid].r = 8.0f, nmid++;
+  }
+  cw_info("fair: midway %d slots (%d stalls, %d tent pairs)", nmid, nb, nt);
 }
 
 static void build_park(cw_node root, pmc *st, pmc *wood, gcells *chase[3], gcells *steady, gcells *flick[2], const track *t) {
@@ -1488,6 +1564,7 @@ static void build_park(cw_node root, pmc *st, pmc *wood, gcells *chase[3], gcell
     cw_info("fair: %d chevron boards", n);
   }
 
+  build_midway(ps, st, wood, steady, t);
   ps_finish(ps);
 }
 
@@ -1733,7 +1810,7 @@ static void build_fences(cw_node root, const track *t) {
       tsample a = track_at(t, s);
       bool ok = a.p.y < 1.0f && !(a.flags & (TF_LOOP | TF_GAP)) && fabsf(a.f.y) < 0.05f;
       t3_vec3 p = track_point(t, s, side * (a.hw + 13.0f), 0);
-      if (ok && !room(t, p.x, p.z, 2.0f)) ok = false;
+      if (ok && (!room(t, p.x, p.z, 2.0f) || !mid_clear(p.x, p.z, 1.0f))) ok = false;
       if (!ok) {
         have = false;
         continue;
@@ -1804,8 +1881,15 @@ static void build_paving(cw_node root, const track *t) {
         pm *p = pmc_at(c, V3(cxx, gy, czz));
         pm_layer(p, PL_MAIN);
         pcol col = a;
-        t3_vec3 q0 = V3(x, gy, z + 10.0f), q1 = V3(x + 10.0f, gy, z + 10.0f), q2 = V3(x + 10.0f, gy, z), q3 = V3(x, gy, z);
-        pm_quad(p, q0, q1, q2, q3, col);
+        /* the slabs follow the rolling ground corner by corner, in 2.5 m steps: one flat 10 m slab on a slope sank
+         * into the grass along half its length and read from the road as grey stripes */
+        for (int i = 0; i < 4; i++)
+          for (int j = 0; j < 4; j++) {
+            float x0 = x + 2.5f * (float)i, x1 = x0 + 2.5f, z0 = z + 2.5f * (float)j, z1 = z0 + 2.5f;
+            t3_vec3 q0 = V3(x0, fair_ground(x0, z1, NULL) + 0.14f, z1), q1 = V3(x1, fair_ground(x1, z1, NULL) + 0.14f, z1);
+            t3_vec3 q2 = V3(x1, fair_ground(x1, z0, NULL) + 0.14f, z0), q3 = V3(x0, fair_ground(x0, z0, NULL) + 0.14f, z0);
+            pm_quad(p, q0, q1, q2, q3, col);
+          }
         n++;
       }
   pmc_finish(c, root, "Paving", false, TEX_ROAD_CONCRETE);
@@ -2032,8 +2116,10 @@ const map_def map_fair = {
   .blurb = "The old park's coaster is the course: loops, corkscrews, a ferris wheel.",
   .scene = "scenes/fair.cwscene",
   .spec = MAP_SPEC,
-  .mesh = { .wall_h = { 0, 0.9f, 1.6f, 3.2f }, .curb_w = 0.9f, .tile_v = 8.0f, .tunnel_clear = 8.0f },
-  .look = { .road = { 0.95f, 0.82f, 0.7f }, .kerb_a = { 0.86f, 0.22f, 0.18f }, .kerb_b = { 0.96f, 0.92f, 0.8f }, .wall = { 0.75f, 1.0f, 0.92f },
+  /* the tall walls (the drop, the helix and the run off it) stand 4.4 m: at 3.2 a kart knocked sideways at the foot of
+   * the drop at 55 m/s still climbed over them */
+  .mesh = { .wall_h = { 0, 0.9f, 1.6f, 4.4f }, .curb_w = 0.9f, .tile_v = 8.0f, .tunnel_clear = 8.0f },
+  .look = { .road = { 0.95f, 0.82f, 0.7f }, .kerb_a = { 0.86f, 0.22f, 0.18f }, .kerb_b = { 0.96f, 0.92f, 0.8f }, .wall = { 1.32f, 1.24f, 1.08f },
             .wall_top = { 0.96f, 0.9f, 0.76f }, .road_tex = TEX_ROAD_WOOD, .wall_tex = TEX_WALL_WOOD, .road_rough = 0.8f },
   .laps = 3,
   .par_lap = 60,
