@@ -16,7 +16,11 @@ cd "$R"
 export CW_RUN_TIMEOUT_MS="${CW_RUN_TIMEOUT_MS:-900000}"
 BIN="build/native/games/racer/racer"
 [ -n "${RACER_AUTOBUILD:-}" ] && BIN="build/native/games/racer/racer_auto"
-timeout "${RUN_TIMEOUT:-1000}" node deps/cartwheel-engine/tools/run-cart.mjs --host native --app racer --exe "$BIN" --frames "$F" \
+# through the machine-wide GPU suite lock (one GPU job at a time: the test GPU is shared; RACER_NOLOCK=1 when already
+# inside a suite)
+LOCK=(node deps/cartwheel-engine/tools/with-gpu-suite.mjs racer-run)
+[ -n "${RACER_NOLOCK:-}" ] && LOCK=()
+timeout "${RUN_TIMEOUT:-1000}" "${LOCK[@]}" node deps/cartwheel-engine/tools/run-cart.mjs --host native --app racer --exe "$BIN" --frames "$F" \
   --shot "out/racer-$N.png" --state "out/racer-$N.json" --log "out/racer-$N.log" ${GPU:+--gpu $GPU} 2>&1 | tail -3
 grep -E "skipped|\[warn\]|\[error\]" "$R/out/racer-$N.log" | head -8
 echo "wrote $R/out/racer-$N.png $R/out/racer-$N.json $R/out/racer-$N.log"
