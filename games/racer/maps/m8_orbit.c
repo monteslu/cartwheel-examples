@@ -78,9 +78,11 @@ static const piece SPACEWALK[] = {
   ASTRAIGHT(8),
   END(),
 };
+/* (4.4 m half width: at 3.4 a pack of CPU karts going in together lost one to four of themselves off its first bend each
+ * pass at the Fast class; it is still a narrow gantry next to the 8 m road) */
 static const branch_spec BRANCHES[] = {
   { .name = "spacewalk", .s0 = 984, .lat0 = -4.6f, .s1 = 1296, .lat1 = -4.6f, .pieces = SPACEWALK, .npieces = sizeof SPACEWALK / sizeof SPACEWALK[0],
-    .hw0 = 3.4f, .walls_l = 0, .walls_r = 0, .ai_take = { 0.08f, 0.4f, 0.85f } },
+    .hw0 = 4.4f, .walls_l = 0, .walls_r = 0, .ai_take = { 0.08f, 0.4f, 0.85f } },
 };
 #define MAP_SPEC (&(track_spec){ .name = "orbit", .pieces = SPEC, .npieces = sizeof SPEC / sizeof SPEC[0], .hw0 = 8, .circuit = true, .branches = BRANCHES, .nbranches = 1 })
 
