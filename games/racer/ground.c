@@ -108,6 +108,9 @@ float road_cap_y(const track *t, float x, float z, float reach);
 
 static float base_height(const ground_opts *o, float x, float z) { return o->height ? o->height(x, z, o->height_ud) : o->base_y; }
 
+void ground_forget(void) { G.have = false; }
+bool ground_have(void) { return G.have; }
+
 float ground_height_at(const ground_opts *o, float x, float z) {
   if (!o) o = G.have ? &G.o : NULL;
   if (!o) return 0;

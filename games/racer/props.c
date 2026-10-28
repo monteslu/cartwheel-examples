@@ -855,6 +855,11 @@ void ps_add_ex(prop_set *s, prop_kind k, int variant, int lod, t3_vec3 pos, t3_q
   if (variant < 0) variant = (int)(hash32(seed * 31u + 7u) % (uint32_t)nv);
   ps_entry *e = ps_entry_get(s, k, variant % nv, lod);
   for (int l = 0; l < PL_COUNT; l++) pb_add_c(e->batch[l], pos, q, scale, tint);
+  /* dev aid: RACER_FLOATLOG=1 logs a prop set down over a metre above the ground as drawn (scenery in the air) */
+  if (ground_have() && getenv("RACER_FLOATLOG")) {
+    float gh = ground_height_at(NULL, pos.x, pos.z);
+    if (pos.y - gh > 1.0f) cw_info("floatlog: %s at %.0f %.1f %.0f, %.1f m over the ground", KINDS[k].name, pos.x, pos.y, pos.z, pos.y - gh);
+  }
   s->count++;
 }
 void ps_add(prop_set *s, prop_kind k, t3_vec3 pos, float yaw, float scale, uint32_t seed) {
@@ -1161,6 +1166,9 @@ static bool try_place(prop_set *s, const track *t, const scatter_opts *o, float 
     if (fabsf(gy - ry) < 7) return false;
   }
   float gy = o->ground ? o->ground(x, z, o->ground_ud) : o->base_y;
+  /* never over the ground as drawn: it is cut down beside the roads, and a rock set on the land before that cut hung
+   * in the air (Frostbite's boulders over the snow slope) */
+  if (o->ground && ground_have()) gy = fminf(gy, ground_height_at(NULL, x, z));
   t3_vec3 pos = V(x, gy - o->sink * sc, z);
   float yaw = hashf(h + 11u) * CW_TAU;
   t3_quat q = t3_quat_from_axis_angle(V(0, 1, 0), yaw);

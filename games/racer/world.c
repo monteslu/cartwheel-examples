@@ -211,6 +211,7 @@ void world_build(cw_node scene, const sim *s, const map_def *map) {
     t3_release(m);
   }
   kartgfx_build(W.root, s);
+  ground_forget(); /* the last map's ground must not stand in for this one's */
   if (map->scenery) map->scenery(scene, s->track, 1234);
   {
     /* dev aid: RACER_LIST=1 logs the scene's nodes (to a depth of three) with their child counts; RACER_HIDE=text hides the nodes whose name contains it (draw-call attribution) */

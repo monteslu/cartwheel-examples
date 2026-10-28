@@ -368,6 +368,8 @@ ground_opts ground_defaults(void);
  * skirts at the seams; returns the node (a Node3D holding the chunks). Heights it uses are what ground_height_at
  * returns, so scatter and dressing can agree with it. */
 cw_node ground_plane(cw_node parent, const track *t, const ground_opts *o);
+void ground_forget(void);                                      /* a new world: no ground built yet */
+bool ground_have(void);                                        /* a ground_plane has been built (ground_height_at has one) */
 float ground_height_at(const ground_opts *o, float x, float z);   /* o NULL: the last ground_plane's */
 /* A ground_fn answering with the final height of the last ground_plane (your hills and basins and the grade to the
  * road): hand it to scatter_opts.ground, deco_supports and anything else that must stand on the ground drawn. */

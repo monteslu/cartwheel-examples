@@ -1313,7 +1313,7 @@ static void build_forest(cw_node root, const track *t) {
   o.from_s = 0, o.to_s = t->length;
   o.spacing = 22.0f / THIN, o.jitter = 1.0f;
   o.lat_min = 3.0f, o.lat_max = 60.0f, o.lat_curve = 1.5f;
-  o.sink = 0.55f;
+  o.sink = 0.9f; /* half drowned: shallower, a rock on the steep snow showed its underside and read as hanging in the air */
   o.seed = 21;
   n += scatter_along(ps, t, &o);
   cw_info("frost: %d trees and rocks", n);
@@ -1386,7 +1386,7 @@ static void build_outcrops(cw_node root, const track *t) {
   o.cx = 330, o.cz = -100, o.half_x = 900, o.half_z = 1000;
   o.density = 0.5f * THIN;
   o.margin = 9.0f;
-  o.sink = 0.8f;
+  o.sink = 1.1f;
   o.lod_dist = 90.0f, o.far_thin = 0.45f;
   o.seed = 51;
   int n = scatter_area(ps, t, &o);
