@@ -733,7 +733,7 @@ static void spires_scenery(cw_node scene, const track *t, uint32_t seed) {
     pcol team = hex(s > 0 ? RED : BLUE);
     point_light(root, s > 0 ? "RedHall" : "BlueHall", V3(0, 12.0f, cz + S * 250.0f), pc_mix(team, hex(0xffffff), 0.15f), 900.0f, 34.0f);
     point_light(root, s > 0 ? "RedGate" : "BlueGate", V3(0, 22.0f, cz + S * 214.0f), hex(WARM), 1500.0f, 48.0f);
-    point_light(root, s > 0 ? "RedFace" : "BlueFace", V3(0, 60.0f, cz + S * 246.0f), team, 2600.0f, 70.0f);
+    point_light(root, s > 0 ? "RedTowerLight" : "BlueTowerLight", V3(0, 60.0f, cz + S * 246.0f), team, 2600.0f, 70.0f);
     point_light(root, s > 0 ? "RedFork" : "BlueFork", V3(0, 12.0f, cz + S * 158.0f), hex(WARM), 900.0f, 40.0f);
     if (!split) point_light(root, s > 0 ? "RedRoof" : "BlueRoof", V3(0, ROOF_Y + 9.0f, cz + S * SHAFT_Z), team, 900.0f, 34.0f);
   }
