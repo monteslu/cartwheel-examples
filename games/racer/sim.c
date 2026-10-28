@@ -469,6 +469,16 @@ static void spin_kart(sim *s, int i, int kind, int by) {
     event(s, EV_SHIELD, i, by, k->p, 1);
     return;
   }
+  /* inside a loop or corkscrew a hit only shakes a kart and costs it speed: spun round in the tube it rolled through the rest
+   * of it backwards (Wreck Orbit's first corkscrew, 17 s), and it cannot steer out of a tube anyway */
+  if (!s->battle && k->loc.i >= 0 && (s->track->s[k->loc.i].flags & TF_LOOP)) {
+    t3_vec3 v = cw_body3d_velocity(PH.body[i]);
+    cw_body3d_set_velocity(PH.body[i], v3mul(v, 0.75f));
+    k->hits_taken++;
+    if (by >= 0 && by != i) s->k[by].hits_given++;
+    event(s, EV_SPIN, i, by, k->p, (float)kind);
+    return;
+  }
   if (k->spin_ticks > 20 && kind != SPIN_BOOM) return;
   /* a race: a second after a spin is over before another can start (a missile, a mine or oil right as it recovered
    * spun it again with no way to answer) */
@@ -1470,6 +1480,34 @@ static int kart_of(cw_body3d b) {
   return -1;
 }
 
+/* a kart is never a ramp: one riding up onto another (a spun-out kart sideways in the lane) loses the climb every tick it
+ * is over it, not only on the tick the contact began. A fast kart that met a stopped one climbed it nose up and took off
+ * 8 m, over the Dam's outer wall before its tunnel. The road's up decides "up" (a kart already tipping has its own
+ * tilted) */
+static void no_kart_ramps(sim *s) {
+  for (int a = 0; a < MAXK; a++) {
+    kart *ka = &s->k[a];
+    if (!ka->on || ka->respawn_ticks > 0) continue;
+    t3_vec3 up = (s->battle || ka->loc.i < 0) ? (t3_vec3){ 0, 1, 0 } : s->track->s[ka->loc.i].u;
+    for (int b = 0; b < MAXK; b++) {
+      const kart *kb = &s->k[b];
+      if (b == a || !kb->on || kb->respawn_ticks > 0) continue;
+      t3_vec3 d = v3sub(ka->p, kb->p);
+      float h = v3dot(d, up);
+      t3_vec3 flat = v3sub(d, v3mul(up, h));
+      if (h < 0.15f || h > 2.5f || v3dot(flat, flat) > 2.6f * 2.6f) continue;
+      /* a is on top of b: no rising off it, and its nose-up (or roll) spin from the climb taken out */
+      t3_vec3 v = cw_body3d_velocity(PH.body[a]);
+      float vu = v3dot(v, up);
+      if (vu > 1.0f) cw_body3d_set_velocity(PH.body[a], v3sub(v, v3mul(up, vu - 1.0f)));
+      t3_vec3 w = cw_body3d_angular_velocity(PH.body[a]);
+      float wy = v3dot(w, up);
+      cw_body3d_set_angular_velocity(PH.body[a], v3add(v3mul(v3sub(w, v3mul(up, wy)), 0.5f), v3mul(up, wy)));
+      break;
+    }
+  }
+}
+
 static void contacts(sim *s) {
   int ne = 0;
   const cw_phys_event3d *ev = cw_world3d_events(PH.w, &ne);
@@ -1717,6 +1755,7 @@ void sim_step(sim *s, const kin in_raw[MAXK]) {
     }
   }
   contacts(s);
+  no_kart_ramps(s);
   if (s->battle) battle_unscrum(s);
   boxes_step(s);
   hazards_step(s);
