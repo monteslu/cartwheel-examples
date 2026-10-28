@@ -2114,7 +2114,7 @@ const map_def map_fair = {
   .scene = "scenes/fair.cwscene",
   .spec = MAP_SPEC,
   .mesh = { .wall_h = { 0, 0.9f, 1.6f, 3.2f }, .curb_w = 0.9f, .tile_v = 8.0f, .tunnel_clear = 8.0f },
-  .look = { .road = { 0.95f, 0.82f, 0.7f }, .kerb_a = { 0.86f, 0.22f, 0.18f }, .kerb_b = { 0.96f, 0.92f, 0.8f }, .wall = { 0.75f, 1.0f, 0.92f },
+  .look = { .road = { 0.95f, 0.82f, 0.7f }, .kerb_a = { 0.86f, 0.22f, 0.18f }, .kerb_b = { 0.96f, 0.92f, 0.8f }, .wall = { 1.32f, 1.24f, 1.08f },
             .wall_top = { 0.96f, 0.9f, 0.76f }, .road_tex = TEX_ROAD_WOOD, .wall_tex = TEX_WALL_WOOD, .road_rough = 0.8f },
   .laps = 3,
   .par_lap = 60,
