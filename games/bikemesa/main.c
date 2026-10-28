@@ -50,8 +50,9 @@ static int visible_tracks(void) {
 }
 #define RIDER_CHARACTER_COUNT 3
 #define RIDER_BIKE_COUNT BIKE_MODEL_COUNT
+static bool person_preview_build;
 static const char *const RIDER_NAMES[RIDER_CHARACTER_COUNT] = { "LM", "LJ", "JP" };
-static const char *const BIKE_NAMES[RIDER_BIKE_COUNT] = { "FOLDING 16\"", "CRUISER 26\"", "E-BIKE 27.5\"" };
+static const char *const BIKE_NAMES[RIDER_BIKE_COUNT] = { "FOLDING 16\"", "CRUISER 26\"", "E-BIKE 27.5\"", "DJ CARGO 26/20\"", "PENNY FARTHING 60/16\"", "BMX 20\"", "ADULT BIG WHEEL 26/12\"" };
 static const char *const COLOR_NAMES[BIKE_COLOR_COUNT] = { "GREEN", "RED", "BLUE", "YELLOW", "ORANGE", "PURPLE", "BLACK", "WHITE" };
 int TRACK_COUNT;
 const track_desc *track_get(int i) { return i >= 0 && i < (int)CW_ARRAY_LEN(TRACKS) ? &TRACKS[i] : NULL; }
@@ -79,7 +80,7 @@ const track_desc *track_get(int i) { return i >= 0 && i < (int)CW_ARRAY_LEN(TRAC
 #define LAND_PERFECT 0.12f
 #define LAND_CLEAN 0.35f
 #define SAVE_MAGIC 0x534D4B42u /* 'BKMS' */
-#define SAVE_VERSION 10
+#define SAVE_VERSION 11
 #define SAVE_V3_SIZE 204
 #define SAVE_V8_SIZE 208
 #define SAVE_V9_SIZE 220
@@ -147,7 +148,7 @@ static struct {
   int bump_tile, bump_ticks;  /* a locked tile shaking */
   int32_t replays;            /* debug field: wipeout replays shown */
   int32_t replay_ticks;       /* debug field replay.ticks: the run's ticks the last replay played (REPLAY_TICKS unless skipped) */
-  float bike_pos[2], cam_pos[3];
+  float bike_pos[2], bike_velocity[2], cam_pos[3];
   uint32_t state_hash;
   /* local multiplayer: pads 2-4 join on the player select */
   int32_t players;           /* riders in the next race (1 = solo) */
@@ -358,7 +359,7 @@ static void save_check(void) {
   if (SAVE.magic == SAVE_MAGIC && SAVE.version == 8 && SAVE.size == SAVE_V8_SIZE && SAVE.checksum == save_sum()) {
     uint32_t old_quality;
     memcpy(&old_quality, (const uint8_t *)&SAVE + 204, sizeof old_quality);
-    memset(&SAVE.tr[16], 0, 2 * sizeof SAVE.tr[16]);
+    memset(&SAVE.tr[16], 0, 3 * sizeof SAVE.tr[16]);
     SAVE.quality = old_quality;
     SAVE.version = SAVE_VERSION;
     SAVE.size = (uint16_t)sizeof SAVE;
@@ -367,11 +368,16 @@ static void save_check(void) {
   if (SAVE.magic == SAVE_MAGIC && SAVE.version == 9 && SAVE.size == SAVE_V9_SIZE && SAVE.checksum == save_sum()) {
     uint32_t old_quality;
     memcpy(&old_quality, (const uint8_t *)&SAVE + 216, sizeof old_quality);
-    memset(&SAVE.tr[17], 0, sizeof SAVE.tr[17]);
+    memset(&SAVE.tr[17], 0, 2 * sizeof SAVE.tr[17]);
     SAVE.quality = old_quality;
     SAVE.version = SAVE_VERSION;
     SAVE.size = (uint16_t)sizeof SAVE;
     SAVE.checksum = save_sum();
+  }
+  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 10 && SAVE.size == 232 && SAVE.checksum == save_sum()) {
+    uint32_t old_quality;memcpy(&old_quality,(const uint8_t *)&SAVE+228,sizeof old_quality);
+    memset(&SAVE.tr[18],0,sizeof SAVE.tr[18]);SAVE.quality=old_quality;
+    SAVE.version=SAVE_VERSION;SAVE.size=(uint16_t)sizeof SAVE;SAVE.checksum=save_sum();
   }
   if (SAVE.magic != SAVE_MAGIC || SAVE.version != SAVE_VERSION || SAVE.size != sizeof SAVE || SAVE.checksum != save_sum()) {
     if (SAVE.magic) cw_warn("bikemesa: save data rejected (magic %08x version %u), starting fresh", SAVE.magic, SAVE.version);
@@ -490,7 +496,10 @@ static bool load_track(int index, bool attract, int riders) {
   bike_world_create(G.t); /* first: the scenery asks it for the ground's height */
   view_build(G.scene, G.t, index);
   crash_world_build(G.t); /* after the scenery: a crash tumbles against the bank and the rocks it placed */
-  for (int i = 0; i < MAX_RIDERS; i++) models_set_selection(i, G.chr[i], G.bike[i], G.color[i]);
+  for (int i = 0; i < MAX_RIDERS; i++) {
+    models_set_selection(i, G.chr[i], G.bike[i], G.color[i]);
+    models_person_only(i,person_preview_build&&G.slot[i]==SLOT_RIDER);
+  }
   models_build(G.scene);
   NRID = CW_CLAMP(riders, 1, MAX_RIDERS);
   memset(RD, 0, sizeof RD);
@@ -542,13 +551,19 @@ static int joined_count(void) {
  * start straight, a few metres apart, a view each when more than one plays */
 #define PREVIEW_GAP 7.0f
 static void preview_load(void) {
+  person_preview_build=true;
   load_track(0, true, joined_count());
+  person_preview_build=false;
   for (int i = 0; i < NRID; i++) {
     use_rider(i);
     bike_spawn(2 + i * PREVIEW_GAP, 0, 0);
     const bike_state *b = bike_get();
     P->cam_at = P->cam_prev_at = (t3_vec3){ b->x + 0.1f, b->y + (NRID > 1 ? 0.55f : 0.9f), rider_z(i) };
-    P->cam_dist = P->cam_prev_dist = 4.2f;
+    P->cam_dist = P->cam_prev_dist = G.bike[i] == BIKE_DJ ? 5.4f : G.bike[i] == BIKE_PENNY ? 5.2f : 4.2f;
+    if(G.slot[i]==SLOT_RIDER) {
+      P->cam_at=P->cam_prev_at=(t3_vec3){b->x,track_height_at(b->x,NULL)+1,rider_z(i)};
+      P->cam_dist=P->cam_prev_dist=3.7f;
+    }
     P->cam_snap = true;
   }
   use_rider(0);
@@ -596,6 +611,7 @@ static void respawn(void) {
   P->cam_snap = false;
 }
 
+static float dbg_crank, dbg_steering, dbg_bike_angle;
 static int32_t dbg_hops, dbg_loops, dbg_pose, dbg_poses, dbg_quality;
 
 /* ── local multiplayer: the riders, their lanes and views ────────────────
@@ -614,6 +630,13 @@ static void use_rider(int i) {
   bike_select(i);
   PL = i;
 }
+static int lane_ticks(int i) { return G.bike[i] == BIKE_DJ ? 48 : LANE_TICKS; }
+static float rider_steering(int i) {
+  const rider_t *r=&RD[i];
+  if((G.bike[i]!=BIKE_DJ && G.bike[i]!=BIKE_PENNY && G.bike[i]!=BIKE_BIGWHEEL) || r->lane_t<=0) return 0;
+  float u=r->lane_t/(float)lane_ticks(i);
+  return -(r->lane_to-r->lane_from)*.40f*cw_sin(6.2831853f*u);
+}
 /* where rider i is drawn across the track: its lane, or between two while changing */
 static float rider_z(int i) {
   const rider_t *r = &RD[i];
@@ -623,7 +646,7 @@ static float rider_z(int i) {
   bike_select(keep);
   if (shift > 0) return lane_z(r->lane_to + 2 * shift);
   if (r->lane_t <= 0) return lane_z((float)r->lane_to);
-  float u = cw_smoothstep(0, 1, r->lane_t / (float)LANE_TICKS);
+  float u = cw_smoothstep(0, 1, r->lane_t / (float)lane_ticks(i));
   return lane_z(r->lane_from + (r->lane_to - r->lane_from) * u);
 }
 static float rider_x(int i) {
@@ -790,7 +813,18 @@ static bool players_set; /* the players command chose the riders: the pads' join
 
 /* ── debug channel ──────────────────────────────────────────────────── */
 
+/* Explicit debug camera for visual inspection; never changes the rider. */
+static bool inspect_camera;
+static t3_vec3 inspect_eye,inspect_at;
+static void cmd_inspect(int argc,const char **argv,cw_reply *r) {
+  if(argc==2&&!strcmp(argv[1],"off")) {inspect_camera=false;cw_reply_printf(r,"{\"inspect\":false}");return;}
+  if(argc!=7){cw_reply_error(r,"usage: inspect off | inspect eyeX eyeY eyeZ targetX targetY targetZ");return;}
+  inspect_eye=(t3_vec3){atof(argv[1]),atof(argv[2]),atof(argv[3])};
+  inspect_at=(t3_vec3){atof(argv[4]),atof(argv[5]),atof(argv[6])};
+  inspect_camera=true;cw_reply_printf(r,"{\"inspect\":true}");
+}
 static int pending_track = -1;
+static int pending_checkpoint;
 /* respawn_sweep [ticks] [raw]: a test's check that no checkpoint loops a respawn */
 static bool sweeping;         /* the sweep is riding: no dust, no wind (presentation) */
 static int pending_sweep = 0; /* ticks each respawn must ride clean (0: none asked) */
@@ -808,6 +842,7 @@ static void cmd_track(int argc, const char **argv, cw_reply *r) {
     return;
   }
   pending_track = n - 1;
+  pending_checkpoint = argc > 2 ? atoi(argv[2]) : 0;
   cw_reply_printf(r, "{\"track\":%d}", n);
 }
 /* Repeatable inspection aid; no scoring special case in normal gameplay. */
@@ -833,7 +868,10 @@ static void cmd_players(int argc, const char **argv, cw_reply *r) {
 }
 /* Inspection hook: same selection and reload path as the player carousel. */
 static void cmd_bike_pick(int argc, const char **argv, cw_reply *r) {
-  if (argc > 1) G.bike[0] = CW_CLAMP(atoi(argv[1]), 0, BIKE_MODEL_COUNT - 1);
+  if (argc > 1) {
+    G.bike[0] = CW_CLAMP(atoi(argv[1]), 0, BIKE_MODEL_COUNT - 1);
+    G.color[0] = bike_default_color(G.bike[0]);
+  }
   if (argc > 2) G.color[0] = CW_CLAMP(atoi(argv[2]), 0, BIKE_COLOR_COUNT - 1);
   if (argc > 1) {
     int st = G.state;
@@ -923,8 +961,15 @@ static void camera_tick(void) {
     dist = 8.5f;
   }
   if (G.state == GS_CHARACTER) {
-    at = (t3_vec3){ b->x + 0.1f, b->y + (NRID > 1 ? 0.55f : 0.9f), rider_z((int)(P - RD)) }; /* split: the rider higher, clear of the labels */
-    dist = 4.2f;
+    at = (t3_vec3){ b->x + (G.bike[(int)(P-RD)]==BIKE_DJ?.40f:.1f), b->y + (NRID > 1 ? 0.55f : 0.9f), rider_z((int)(P - RD)) }; /* split: the rider higher, clear of the labels */
+    dist = G.bike[(int)(P-RD)] == BIKE_DJ ? 5.4f : G.bike[(int)(P-RD)] == BIKE_PENNY ? 5.2f : 4.2f;
+  }
+  if(G.state==GS_CHARACTER&&G.bike[(int)(P-RD)]==BIKE_BIGWHEEL) {at.x=b->x-.35f;at.y=b->y+.35f;dist=3.8f;}
+  if(G.state==GS_CHARACTER&&G.slot[(int)(P-RD)]==SLOT_RIDER) {
+    at=(t3_vec3){b->x,track_height_at(b->x,NULL)+1,rider_z((int)(P-RD))};dist=3.7f;
+  }
+  if(G.t&&!strcmp(G.t->theme,"nightburbs")&&(G.state==GS_RIDE||G.state==GS_COUNT)) {
+    at.y=b->y+.6f;dist=fmaxf(dist,air?19:13);
   }
   if (G.state == GS_FINISH) dist = 8;
   if(P->finished&&!strcmp(G.t->theme,"toybox")) {
@@ -963,6 +1008,16 @@ static void camera_tick(void) {
 static void camera_frame(double alpha) {
   cw_node cam = NRID > 1 ? P->cam : G.camera;
   if (!cw_node_valid(cam)) return;
+  if(inspect_camera) {
+    cw_node3d_set_position(cam,inspect_eye);
+    cw_node3d_look_at(cam,inspect_at,(t3_vec3){0,1,0});
+    /* Keep the real shadow map at the inspected scenery, including while paused. */
+    if(cw_node_valid(G.sun)) {
+      const t3_mat4 *m=cw_node3d_global_transform(G.sun);
+      cw_node3d_set_position(G.sun,(t3_vec3){inspect_at.x+m->e[8]*60,inspect_at.y+m->e[9]*60,inspect_at.z+m->e[10]*60});
+    }
+    return;
+  }
   float a = (float)alpha;
   t3_vec3 at = { P->cam_prev_at.x + (P->cam_at.x - P->cam_prev_at.x) * a, P->cam_prev_at.y + (P->cam_at.y - P->cam_prev_at.y) * a,
                  P->cam_prev_at.z + (P->cam_at.z - P->cam_prev_at.z) * a };
@@ -975,6 +1030,7 @@ static void camera_frame(double alpha) {
   float cork_view = G.state == GS_RIDE ? corkscrew_camera_weight(G.t, at.x, NULL) : 0;
   float stunt_view = G.state == GS_RIDE ? stunt_camera_weight(G.t, at.x, NULL) : 0;
   t3_vec3 eye = { at.x - d * 0.16f, at.y + d * (city_view ? .18f : .36f - .18f * cork_view - .13f * stunt_view), at.z + d };
+  if(NRID==1&&G.t&&!strcmp(G.t->theme,"nightburbs")&&(G.state==GS_RIDE||G.state==GS_COUNT))eye.y=at.y+d*(.12f-.195f*cw_smoothstep(13,18,d));
   if (getenv("BIKEMESA_CAM_34")) eye = (t3_vec3){ at.x - d * 0.75f, at.y + d * 0.5f, d * 0.7f }; /* dev aid: a three-quarter view from ahead */
   if (getenv("BIKEMESA_CAM_TOP")) eye = (t3_vec3){ at.x, at.y + 16, 0.5f }; /* dev aid: from above */
   if (getenv("BIKEMESA_CAM_WIDE")) { /* dev aid: pulled back and level, the distant land in view */
@@ -1004,6 +1060,8 @@ static void replay_pose(int i, float f, bike_pose *out) {
   out->front = cw_xform2_lerp(a->front, b->front, t);
   out->cap = cw_xform2_lerp(a->cap, b->cap, t);
   out->z = a->z + (b->z - a->z) * t;
+  if(a->alien_gone==b->alien_gone)for(int j=0;j<ALIEN_PARTS;j++)out->alien[j]=cw_xform3_lerp(a->alien[j],b->alien[j],t);
+  out->steering = a->steering + (b->steering-a->steering)*t;
   if (a->ragdoll != b->ragdoll) return;
   if (b->ragdoll) {
     for (int k2 = 0; k2 < RAG_COUNT; k2++) out->limb3[k2] = cw_xform3_lerp(a->limb3[k2], b->limb3[k2], t);
@@ -1099,6 +1157,26 @@ static void view_hook(int view, void *u) {
     }
 }
 
+/* A relaxed standing pose for the rider-only selection step. */
+static void person_preview_pose(int i,bike_pose *p) {
+  if(G.state!=GS_CHARACTER||G.slot[i]!=SLOT_RIDER)return;
+  float x=p->frame.p.x,y=track_height_at(x,NULL),leg=bike_leg_length(G.bike[i]);
+  float hip=y+2*leg+.10f,shoulder=hip+.52f;
+  p->ragdoll=false;p->steering=0;p->lean=0;
+  p->frame=(cw_xform2){{x,y},cw_rot2_from_angle(0)};
+  p->limb[RAG_TORSO]=(cw_xform2){{x,hip},cw_rot2_from_angle(1.5707963f)};
+  p->limb[RAG_HEAD]=(cw_xform2){{x,shoulder+.22f},cw_rot2_from_angle(0)};
+  p->cap=(cw_xform2){{x-.005f,shoulder+.245f},cw_rot2_from_angle(0)};
+  for(int side=0;side<2;side++) {
+    int ua=side?RAG_UARM_R:RAG_UARM_L,fa=side?RAG_FARM_R:RAG_FARM_L;
+    int th=side?RAG_THIGH_R:RAG_THIGH_L,sn=side?RAG_SHIN_R:RAG_SHIN_L;
+    p->limb[ua]=(cw_xform2){{x,shoulder},cw_rot2_from_angle(-1.65f)};
+    p->limb[fa]=(cw_xform2){{x-.024f,shoulder-.299f},cw_rot2_from_angle(-1.40f)};
+    p->limb[th]=(cw_xform2){{x,hip},cw_rot2_from_angle(-1.5707963f)};
+    p->limb[sn]=(cw_xform2){{x,hip-leg},cw_rot2_from_angle(-1.5707963f)};
+  }
+}
+
 static void frame_hook(cw_tree *t, double alpha, void *u) {
   (void)t;
   (void)u;
@@ -1120,9 +1198,13 @@ static void frame_hook(cw_tree *t, double alpha, void *u) {
     for (int i = 0; i < NRID; i++) {
       use_rider(i);
       bike_pose_get((float)alpha, &P->live);
+      if(i==0) dbg_crank=P->live.crank;
       P->live.z = rider_z(i);
+      P->live.steering = rider_steering(i);
+      if(i==0) dbg_steering=P->live.steering;
+      person_preview_pose(i,&P->live);
       models_sync_rider(i, &P->live, P->live.z);
-      if (G.state == GS_CHARACTER) models_turntable(i, -1.45f + G.state_ticks * 0.014f, P->live.frame.p.x + 0.05f);
+      if (G.state == GS_CHARACTER) models_turntable(i, -1.45f + G.state_ticks * 0.014f, P->live.frame.p.x + (G.slot[i]==SLOT_RIDER?0:G.bike[i]==BIKE_DJ?.40f:G.bike[i]==BIKE_BIGWHEEL?-.35f:.05f));
       if (P->replay_t > 0) {
         replay_pose(i, replay_tick(P, alpha), &P->replay);
         deer_pose deer[DEER_CROSSINGS];
@@ -1138,8 +1220,12 @@ static void frame_hook(cw_tree *t, double alpha, void *u) {
     return;
   }
   bike_pose_get((float)alpha, &p);
+  dbg_crank=p.crank;
+  p.steering = rider_steering(0);
+  dbg_steering=p.steering;
+  person_preview_pose(0,&p);
   models_sync_rider(0, &p, rider_z(0));
-  if (G.state == GS_CHARACTER) models_turntable(0, -1.45f + G.state_ticks * 0.014f, p.frame.p.x + 0.05f);
+  if (G.state == GS_CHARACTER) models_turntable(0, -1.45f + G.state_ticks * 0.014f, p.frame.p.x + (G.slot[0]==SLOT_RIDER?0:G.bike[0]==BIKE_DJ?.40f:G.bike[0]==BIKE_BIGWHEEL?-.35f:.05f));
   view_frame((float)alpha);
   camera_frame(alpha);
   view_stream(&G.camera,1);
@@ -1313,6 +1399,14 @@ static void init(void *u) {
 
   cw_debug_i32("game.state", &G.state);
   cw_debug_i32("game.track", &G.track);
+  cw_debug_i32("bike.model", &G.bike[0]);
+  cw_debug_i32("bike.color", &G.color[0]);
+  cw_debug_f32("bike.crank", &dbg_crank);
+  cw_debug_f32("bike.steering", &dbg_steering);
+  cw_debug_f32("bike.angle", &dbg_bike_angle);
+  cw_debug_field("race.models", G.bike, CW_DBG_I32, MAX_RIDERS);
+  cw_debug_field("race.colors", G.color, CW_DBG_I32, MAX_RIDERS);
+  cw_debug_i32("bike.lane_ticks", &RD[0].lane_t);
   cw_debug_i32("ticks", &G.ticks);
   cw_debug_i32("ride.ticks", &G.ride_ticks);
   cw_debug_i32("crashes", &P->crashes);
@@ -1355,25 +1449,27 @@ static void init(void *u) {
   cw_debug_i32("finished", &P->finished);
   cw_debug_i32("input.mode", &input_mode);
   cw_debug_f32_array("bike.pos", G.bike_pos, 2);
+  cw_debug_f32_array("bike.velocity", G.bike_velocity, 2);
   cw_debug_f32_array("cam.pos", G.cam_pos, 3);
   cw_debug_u32("state.hash", &G.state_hash);
   cw_debug_u32("tex.hash", &tex_hash);
   cw_debug_u32("wind.hash", &wind_hash);
   cw_debug_i32("save.unlocked", &dbg_unlocked);
   cw_debug_bytes("save.bytes", &SAVE, sizeof SAVE);
-  cw_debug_command("track", "track <1..n>: ride a track now", cmd_track);
+  cw_debug_command("inspect", "inspect off | inspect eyeX eyeY eyeZ targetX targetY targetZ: inspection camera", cmd_inspect);
+  cw_debug_command("track", "track <1..n> [checkpoint]: ride a track or resume at a checkpoint", cmd_track);
   cw_debug_command("respawn_sweep", "respawn_sweep [ticks] [raw]: respawn at every checkpoint of every track, in every lane, with inputs held through the wipeout; each must ride clean for ticks (sweep.*)", cmd_respawn_sweep);
   cw_debug_i32("sweep.cases", &dbg_sweep_cases);
   cw_debug_i32("sweep.fails", &dbg_sweep_fails);
   cw_debug_field("sweep.fail", dbg_sweep_fail, CW_DBG_I32, 5);
   cw_debug_command("chocolate", "chocolate [crash|ride [1|2]]: inspect decals or exercise either river",cmd_chocolate);
   cw_debug_command("players", "players <1..4>: riders in the next race (split screen)", cmd_players);
-  cw_debug_command("bike_pick", "bike_pick <0..2> <0..7>: inspect a frame and paint", cmd_bike_pick);
+  cw_debug_command("bike_pick", "bike_pick <0..6> <0..7>: inspect a frame and paint", cmd_bike_pick);
   cw_debug_command("progress", "progress [show | preset <n>]: the save data", cmd_progress);
   cw_tree_add_hook(cw_scene_app_tree(), 2, 0, frame_hook, NULL);
   G.state_hash = CW_HASH32_INIT;
   G.players = 1;
-  for (int p = 0; p < MAX_RIDERS; p++) G.bike[p] = 0, G.color[p] = p;
+  for (int p = 0; p < MAX_RIDERS; p++) G.bike[p] = 0, G.color[p] = bike_default_color(0);
   cw_pipeline_set_view_hook(cw_pipeline_of(cw_scene_app_tree()), view_hook, NULL);
   load_track(0, true, 1);
   enter(GS_TITLE);
@@ -1797,11 +1893,12 @@ static void mp_tick(void) {
     ride_post();
     if (P->replay_t == 0) { /* the replay ring: every tick but the replay's own */
       bike_pose_get(1, &ring[i][P->ring_n % RING]);
+      ring[i][P->ring_n % RING].steering=rider_steering(i);
       bike_deer_visual_poses(1,deer_ring[i][P->ring_n % RING]);
       P->ring_n++;
     }
     rider_replay();
-    if (P->lane_t > 0 && ++P->lane_t > LANE_TICKS) P->lane_t = 0;
+    if (P->lane_t > 0 && ++P->lane_t > lane_ticks((int)(P-RD))) P->lane_t = 0;
     camera_tick();
     dbg_lanes[i] = P->lane_to;
     dbg_race_x[i] = bike_get()->x;
@@ -1833,6 +1930,10 @@ static void mp_tick(void) {
  * pads 2-4 join with (A) and leave with (B) from the rider pick, P1's (B)
  * there goes back to the title. P1 has the keyboard, and alone on the
  * screen the mouse and taps too. Everyone ready: P1 picks the track. */
+static cw_rect color_swatch_rect(int i,float x,float y,float width,float scale) {
+  float size=30*scale,gap=10*scale,total=BIKE_COLOR_COUNT*(size+gap)-gap;
+  return cw_rect_make(x+(width-total)*.5f+i*(size+gap),y,size,size);
+}
 static void slot_set(int p, int st) {
   G.slot[p] = st;
   G.slot_ticks[p] = 0;
@@ -1855,13 +1956,18 @@ static void players_tick(cw_vec2 m, cw_vec2 cs, bool ok1) {
       if (in_rect(m, choice_rect(0, cs.x, cs.y))) step = -1;
       else if (in_rect(m, choice_rect(1, cs.x, cs.y))) step = 1;
       else if (in_rect(m, confirm_rect(cs.x, cs.y))) ok = true;
+      else if(G.slot[p]==SLOT_COLOR)for(int c=0;c<BIKE_COLOR_COUNT;c++) {
+        if(in_rect(m,color_swatch_rect(c,0,cs.y*.055f+58*(cs.y/540),cs.x,cs.y/540))) {
+          G.color[p]=c;changed=true;game_sfx(SFX_SELECT,.5f);break;
+        }
+      }
     }
     ok = ok && G.slot_ticks[p] > 10;
     switch (G.slot[p]) {
     case SLOT_OUT:
       if (ok) {
         slot_set(p, SLOT_RIDER);
-        G.color[p] = p; /* each player's own colour to begin with */
+        G.color[p] = bike_default_color(G.bike[p]);
         changed = true;
         game_sfx(SFX_SELECT, 0.7f);
       }
@@ -1873,7 +1979,8 @@ static void players_tick(cw_vec2 m, cw_vec2 cs, bool ok1) {
         game_sfx(SFX_SELECT, 0.5f);
       } else if (ok) {
         slot_set(p, SLOT_BIKE);
-        if (p == 0) G.color[0] = G.chr[0] == 1 ? 1 : G.chr[0] == 2 ? 2 : 0, changed = true;
+        G.color[p] = bike_default_color(G.bike[p]);
+        changed = true;
         game_sfx(SFX_SELECT, 1);
       } else if (back && p == 0) {
         for (int q = 1; q < MAX_RIDERS; q++)
@@ -1890,12 +1997,13 @@ static void players_tick(cw_vec2 m, cw_vec2 cs, bool ok1) {
     case SLOT_BIKE:
       if (step) {
         G.bike[p] = (G.bike[p] + step + RIDER_BIKE_COUNT) % RIDER_BIKE_COUNT;
+        G.color[p] = bike_default_color(G.bike[p]);
         changed = true;
         game_sfx(SFX_SELECT, 0.5f);
       } else if (ok) {
         slot_set(p, SLOT_COLOR);
         game_sfx(SFX_SELECT, 1);
-      } else if (back) slot_set(p, SLOT_RIDER);
+      } else if (back) {slot_set(p, SLOT_RIDER);changed=true;}
       break;
     case SLOT_COLOR:
       if (step) {
@@ -1945,6 +2053,14 @@ static void fixed(void *u, double dt) {
   if (G.bump_ticks > 0) G.bump_ticks--;
   if (pending_track >= 0) {
     start_track(pending_track);
+    if (pending_checkpoint > 0 && pending_checkpoint <= G.t->check_count) {
+      P->checkpoint = P->next_check = pending_checkpoint;
+      P->check_x = G.t->checks[(pending_checkpoint-1)*2];
+      P->check_y = G.t->checks[(pending_checkpoint-1)*2+1];
+      respawn();
+      enter(GS_RIDE);
+    }
+    pending_checkpoint = 0;
     pending_track = -1;
   }
   if (pending_sweep > 0) {
@@ -2077,12 +2193,13 @@ static void fixed(void *u, double dt) {
     }
     if (G.state == GS_RIDE) lane_input(), auto_lane();
     ride_tick(in2);
-    if (P->lane_t > 0 && ++P->lane_t > LANE_TICKS) P->lane_t = 0;
+    if (P->lane_t > 0 && ++P->lane_t > lane_ticks((int)(P-RD))) P->lane_t = 0;
     dbg_lanes[0] = P->lane_to;
     dbg_race_x[0] = bike_get()->x;
     dbg_race_z[0] = rider_z(0);
     dbg_race_crashes[0] = P->crashes;
     bike_pose_get(1, &ring[0][P->ring_n % RING]);
+    ring[0][P->ring_n % RING].steering=rider_steering(0);
     bike_deer_visual_poses(1,deer_ring[0][P->ring_n % RING]);
     P->ring_n++;
     if (G.state == GS_CRASH && G.state_ticks >= CRASH_TICKS) {
@@ -2160,10 +2277,13 @@ static void fixed(void *u, double dt) {
   if (trace && (G.ticks % 6 == 0 || bike_crashed_this_tick()))
     fprintf(trace, "t=%d st=%d x=%.2f y=%.2f a=%.2f v=%.1f,%.1f gr=%d%d air=%d rot=%.2f alive=%d%s", G.ticks, G.state, b->x, b->y, b->angle, b->vx,
             b->vy, b->grounded_rear, b->grounded_front, b->air_ticks, b->air_rot, b->alive, bike_crashed_this_tick() ? " CRASH\n" : "\n");
+  dbg_bike_angle=b->angle;
   dbg_hops = b->hops;
   dbg_loops = b->loops;
   G.bike_pos[0] = b->x;
   G.bike_pos[1] = b->y;
+  G.bike_velocity[0] = b->vx;
+  G.bike_velocity[1] = b->vy;
   int32_t ints[] = { G.state, G.track, G.ride_ticks, P->crashes, P->checkpoint, P->score, P->flips };
   G.state_hash = cw_hash32(ints, sizeof ints, G.state_hash);
   for (int i = 1; i < NRID; i++) { /* every other rider's race too */
@@ -2314,12 +2434,24 @@ static void draw_title(float W, float H, float s) {
   controls_card(W * 0.5f - 340 * s, H * 0.885f, 680 * s, s);
 }
 
+static void draw_color_swatches(int selected,float x,float y,float width,float scale) {
+  for(int i=0;i<BIKE_COLOR_COUNT;i++) {
+    cw_rect r=color_swatch_rect(i,x,y,width,scale);
+    bool on=i==selected;
+    if(on)round_rect(cw_rect_make(r.x-5*scale,r.y-5*scale,r.w+10*scale,r.h+10*scale),5*scale,rgba(1,.78f,.16f,1));
+    round_rect(cw_rect_make(r.x-2*scale,r.y-2*scale,r.w+4*scale,r.h+4*scale),3*scale,rgba(.12f,.13f,.15f,1));
+    cw_r2d_rect(r,rgba(BIKE_PAINT[i][0],BIKE_PAINT[i][1],BIKE_PAINT[i][2],1));
+    if(on)text("v",r.x,r.y-24*scale,18*scale,rgba(1,1,1,1),CW_ALIGN_CENTER,r.w);
+  }
+}
+
 static void draw_carousel(float W, float H, float s) {
   bool rider = G.slot[0] == SLOT_RIDER;
   bool paint = G.slot[0] == SLOT_COLOR;
   const char *name = rider ? RIDER_NAMES[G.chr[0]] : paint ? COLOR_NAMES[G.color[0]] : BIKE_NAMES[G.bike[0]];
-  title_text(rider ? "CHOOSE YOUR RIDER" : paint ? "CHOOSE YOUR COLOR" : "CHOOSE YOUR BIKE", 0, H * 0.055f, 44 * s,
+  title_text(rider ? "CHOOSE YOUR RIDER" : paint ? "PICK COLOR" : "CHOOSE YOUR BIKE", 0, H * 0.055f, 44 * s,
              rgba(1, 0.67f, 0.22f, 1), CW_ALIGN_CENTER, W);
+  if(paint)draw_color_swatches(G.color[0],0,H*.055f+58*s,W,s);
   if (rider) {
     text(name, 18 * s, H - 30 * s, 10 * s, rgba(1, 1, 1, 0.65f), CW_ALIGN_LEFT, 0);
   } else {
@@ -2353,8 +2485,9 @@ static void draw_player_views(float W, float H, float s) {
     char b[48];
     snprintf(b, sizeof b, "P%d", v + 1);
     title_text(b, r.x + 14 * k, r.y + 10 * k, 40 * k, rider_col(v, 1), CW_ALIGN_LEFT, 0);
-    const char *head = st == SLOT_RIDER ? "CHOOSE YOUR RIDER" : st == SLOT_BIKE ? "CHOOSE YOUR BIKE" : st == SLOT_COLOR ? "CHOOSE YOUR COLOR" : "READY!";
+    const char *head = st == SLOT_RIDER ? "CHOOSE YOUR RIDER" : st == SLOT_BIKE ? "CHOOSE YOUR BIKE" : st == SLOT_COLOR ? "PICK COLOR" : "READY!";
     title_text(head, r.x, r.y + 14 * k, 30 * k, st == SLOT_READY ? rgba(0.45f, 1, 0.5f, 1) : rgba(1, 0.67f, 0.22f, 1), CW_ALIGN_CENTER, r.w);
+    if(st==SLOT_COLOR)draw_color_swatches(G.color[v],r.x,r.y+64*k,r.w,k);
     const char *name = st == SLOT_RIDER ? RIDER_NAMES[G.chr[v]] : st == SLOT_COLOR ? COLOR_NAMES[G.color[v]] : BIKE_NAMES[G.bike[v]];
     if (st == SLOT_READY) snprintf(b, sizeof b, "%s %s", COLOR_NAMES[G.color[v]], BIKE_NAMES[G.bike[v]]);
     else snprintf(b, sizeof b, "<   %s   >", name);

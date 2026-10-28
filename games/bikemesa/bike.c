@@ -35,6 +35,12 @@ enum { L_TRACK, L_BIKE, L_LOOP_A, L_LOOP_B, L_LANE0, L_RAMP0 = L_LANE0 + 4 };
 #define MAX_LOOPS 4
 /* Wheel and rider fit comes from bike_fit_for for the selected frame. */
 #define WHEEL_R (B.fit.wheel_r)
+#define FRONT_R (B.fit.front_r > 0 ? B.fit.front_r : WHEEL_R)
+#define CARGO (B.model == BIKE_DJ)
+#define PENNY (B.model == BIKE_PENNY)
+#define BIGWHEEL (B.model == BIKE_BIGWHEEL)
+#define DIRECT (PENNY || BIGWHEEL)
+static const cw_vec2 BIG_HULL[]={{-.99f,-.22f},{-.58f,-.22f},{.035f,-.03f},{.035f,.40f},{-.13f,.40f},{-.30f,-.10f}};
 #define HOP_V 5.5f   /* the hop: the upward speed it gives the bike, m/s */
 #define SUBSTEPS 3        /* Box2D steps a tick (see bike_step) */
 #define TOP_SPIN 80.0f    /* rad/s the legs can turn the rear wheel: 16 m/s */
@@ -91,18 +97,20 @@ static struct {
   cw_body3d plank3[MAX_PLANKS], mover3[MAX_MOVERS], log3[MAX_MOVERS][MAX_LOGS];
 } WD;
 static int deer_hits;
+static float alien_debug[ALIEN_PARTS*7];
 
 /* one bicycle and its rider (up to MAX_RIDERS share the world, each on its
  * own lane: a collision layer, so riders in one lane bump and riders in
  * different lanes pass through each other) */
 typedef struct bk {
-  int idx, lane;
+  int idx, lane, model;
   bike_fit fit;
   cw_body2d frame, rear, front;
   cw_joint2d j_rear, j_front;
   cw_shape2d torso, head;
   /* a crash, in the 3D crash world: the rider, the bike, the cap */
-  bool down3;
+  bool down3, alien_gone;
+  cw_body3d alien[ALIEN_PARTS];
   cw_body3d rag[RAG_COUNT], frame3, rear3, front3, cap;
   cw_joint3d grip;           /* one hand still on the bars a moment, dragged by the bike till it tears free */
   int grip_ticks;
@@ -123,7 +131,7 @@ typedef struct bk {
   bool loop_b[MAX_LOOPS];    /* past the top of loop i: riding its descent */
   int loop_layer;            /* the loop layer the bike collides with now */
   bool loop_zone;            /* over a loop's footprint: the ground assists stand down */
-  cw_shape2d frame_sh, rear_sh, front_sh;
+  cw_shape2d frame_sh, rear_sh, front_sh, cargo_sh;
   bool air_leaned;
   int hop_cool, hop_phase, hop_buf; /* ticks until the next hop; the hop's second beat; a press waiting for both wheels */
   float crank;
@@ -328,6 +336,9 @@ void bike_world_create(const track_desc *t) {
   for(int i=0;i<DEER_CROSSINGS;i++)WD.deer_start[i]=WD.deer_hit_tick[i]=-1;
   deer_hits = 0;
   cw_debug_i32("deer.hits", &deer_hits);
+  cw_debug_field("alien.gone", &BK[0].alien_gone, CW_DBG_U8, 1);
+  memset(alien_debug,0,sizeof alien_debug);
+  cw_debug_f32_array("alien.parts",alien_debug,ALIEN_PARTS*7);
   /* a wall past the run-out */
   const track_piece *last = &t->pieces[t->piece_count - 1];
   float ex = last->pts[(last->count - 1) * 2], ey = last->pts[(last->count - 1) * 2 + 1];
@@ -352,13 +363,13 @@ void bike_set_riders(int n) { NB = CW_CLAMP(n, 1, MAX_RIDERS); }
 int bike_riders(void) { return NB; }
 int bike_bumps(void) { return WD.bumps; }
 void bike_select(int i) { cur = &BK[CW_CLAMP(i, 0, MAX_RIDERS - 1)]; }
-void bike_set_model(int model) { B.fit = bike_fit_for(model); }
+void bike_set_model(int model) { B.model = model; B.fit = bike_fit_for(model); }
 
 /* the layer and mask of the riding bike's shapes */
 static uint32_t bike_mask(void) { return 1u << L_TRACK | 1u << B.loop_layer | 1u << (L_LANE0 + B.lane) | 1u << (L_RAMP0 + B.lane); }
 static void bike_relayer(void) {
-  cw_shape2d sh[5] = { B.frame_sh, B.rear_sh, B.front_sh, B.torso, B.head };
-  for (int k = 0; k < 5; k++)
+  cw_shape2d sh[] = { B.frame_sh, B.rear_sh, B.front_sh, B.torso, B.head, B.cargo_sh };
+  for (int k = 0; k < (int)CW_ARRAY_LEN(sh); k++)
     if (sh[k].id && cw_shape2d_valid(sh[k])) cw_shape2d_set_layer(sh[k], L_LANE0 + B.lane, bike_mask());
 }
 void bike_set_lane(int lane) {
@@ -457,14 +468,14 @@ static void destroy_bike(void) {
   if (cw_body2d_valid(B.front)) cw_body2d_destroy(B.front);
   B.frame = B.rear = B.front = (cw_body2d){ 0 };
   B.torso = B.head = (cw_shape2d){ 0 };
-  B.frame_sh = B.rear_sh = B.front_sh = (cw_shape2d){ 0 };
+  B.frame_sh = B.rear_sh = B.front_sh = B.cargo_sh = (cw_shape2d){ 0 };
   memset(B.loop_b, 0, sizeof B.loop_b);
   B.loop_layer = L_LOOP_A;
   B.loop_zone = false;
   B.loop_t = 0;
 }
 
-static cw_body2d wheel(cw_vec2 at, float spin) {
+static cw_body2d wheel(cw_vec2 at, float spin, float radius) {
   cw_body2d_def bd = cw_body2d_default_def();
   bd.position = cw_pos2_from(at);
   bd.angular_velocity = spin;
@@ -474,12 +485,12 @@ static cw_body2d wheel(cw_vec2 at, float spin) {
   sd.layer = L_LANE0 + B.lane;
   sd.mask = bike_mask();
   sd.group = -1 - 2 * B.idx;
-  sd.density = 9.5f; /* about 1.2 kg */
+  sd.density = PENNY ? (radius > .5f ? 2.4f : 9.5f) : CARGO && B.rear_sh.id ? 19.0f : 9.5f; /* about 1.2 kg */
   sd.material.friction = 1.4f;
   sd.material.restitution = 0.05f;
   sd.material.rolling_resistance = 0.004f;
   sd.hit_events = true;
-  cw_shape2d sh = cw_shape2d_circle(w, &sd, (cw_vec2){ 0, 0 }, WHEEL_R);
+  cw_shape2d sh = cw_shape2d_circle(w, &sd, (cw_vec2){ 0, 0 }, radius);
   if (B.rear_sh.id) B.front_sh = sh;
   else B.rear_sh = sh;
   return w;
@@ -492,12 +503,12 @@ static cw_joint2d axle(cw_body2d w, cw_vec2 local) {
   /* travel along the frame's y (frame a's x is rotated a quarter turn) */
   jd.frame_a = (cw_xform2){ local, cw_rot2_from_angle(1.5707963f) };
   jd.frame_b = cw_xform2_identity();
-  jd.spring = true;
+  jd.spring = !DIRECT;
   jd.hertz = 4.5f;
   jd.damping_ratio = 0.8f;
   jd.limit = true;
-  jd.lower = -0.06f;
-  jd.upper = 0.12f;
+  jd.lower = DIRECT ? 0 : -0.06f;
+  jd.upper = DIRECT ? 0 : 0.12f;
   jd.motor = true;
   jd.motor_speed = 0;
   jd.max_motor = 0.2f;
@@ -531,15 +542,34 @@ void bike_spawn(float x, float y, float v0) {
   sd.density = 6;
   sd.material.friction = 0.5f;
   const cw_vec2 hull[] = { { -0.42f, 0.02f }, { 0.0f, -0.02f }, { 0.52f, 0.02f }, { 0.46f, 0.62f }, { -0.2f, 0.58f } };
-  B.frame_sh = cw_shape2d_polygon(B.frame, &sd, hull, 5, 0.02f);
+  if (BIGWHEEL) {
+    B.frame_sh=cw_shape2d_polygon(B.frame,&sd,BIG_HULL,6,.015f);
+  } else if (PENNY) {
+    /* Narrow spine/fork envelope, not a phantom diamond frame. */
+    const cw_vec2 spine[]={{-1.12f,-.55f},{-.04f,-.03f},{.035f,.73f},{-.20f,.76f},{-.74f,.20f}};
+    B.frame_sh = cw_shape2d_polygon(B.frame,&sd,spine,5,.015f);
+  } else B.frame_sh = cw_shape2d_polygon(B.frame, &sd, hull, 5, 0.02f);
+  if (CARGO) {
+    /* Loaded platform: its high mass and centre of gravity affect acceleration,
+     * braking and pitch, including contact with obstacles. */
+    /* Gameplay ballast, not literal equipment kilograms: enough to load the
+     * front axle without making ordinary course hills impassable. */
+    sd.density = 18;
+    const cw_vec2 cargo[] = {{.56f,.04f},{1.55f,.04f},{1.55f,.80f},{.56f,.80f}};
+    B.cargo_sh = cw_shape2d_polygon(B.frame, &sd, cargo, 4, .025f);
+  }
+  if(B.model==BIKE_BMX) {
+    sd.density=9;
+    B.cargo_sh=cw_shape2d_box(B.frame,&sd,(cw_vec2){.1651f,.1397f},cw_xform2_at(.76f,.6097f));
+  }
   sd.density = 30;
   B.torso = cw_shape2d_capsule(B.frame, &sd, HIP, SHOULDER, TORSO_R);
   sd.density = 30;
   B.head = cw_shape2d_circle(B.frame, &sd, HEAD, HEAD_R);
   /* v0: a rolling start (respawns), wheels turning to match */
   cw_body2d_set_velocity(B.frame, (cw_vec2){ v0, 0 });
-  B.rear = wheel((cw_vec2){ x + REAR_AXLE.x, base + REAR_AXLE.y }, -v0 / WHEEL_R);
-  B.front = wheel((cw_vec2){ x + FRONT_AXLE.x, base + FRONT_AXLE.y }, -v0 / WHEEL_R);
+  B.rear = wheel((cw_vec2){ x + REAR_AXLE.x, base + REAR_AXLE.y }, -v0 / WHEEL_R, WHEEL_R);
+  B.front = wheel((cw_vec2){ x + FRONT_AXLE.x, base + FRONT_AXLE.y }, -v0 / FRONT_R, FRONT_R);
   cw_body2d_set_velocity(B.rear, (cw_vec2){ v0, 0 });
   cw_body2d_set_velocity(B.front, (cw_vec2){ v0, 0 });
   B.j_rear = axle(B.rear, REAR_AXLE);
@@ -753,6 +783,36 @@ static void mirror_sync(float dt) {
   }
 }
 
+/* The passenger is independent of checkpoint respawns; the level owns him. */
+static void alien_eject(void) {
+  if(B.model!=BIKE_BMX || B.alien_gone || !cw_world3d_valid(crash_world()) || !cw_body2d_valid(B.frame))return;
+  mirror_make();
+  cw_xform2 f=cw_body2d_transform(B.frame);
+  cw_xform3 base=ride_lift3(f,B.draw_z,f.p.x);
+  cw_vec2 velocity=cw_body2d_velocity(B.frame);
+  cw_shape3d_def sd=cw_shape3d_default_def();
+  sd.group=-70-B.idx;sd.layer=L3_TOY;sd.mask=(1u<<L3_SCENE)|(1u<<L3_TOY)|(1u<<L3_BIKE);
+  sd.hit_events=true;sd.material.user_material=201;
+  sd.density=220;sd.material.friction=.65f;sd.material.restitution=.48f;
+  sd.contact_events=false;
+  for(int i=0;i<ALIEN_PARTS;i++) {
+    cw_xform3 x={xf3(base,ALIEN_HOME[i]),base.q};
+    t3_vec3 v={velocity.x*.65f, fmaxf(velocity.y,0)+3.6f, .8f};
+    t3_vec3 w={i%2?3.0f:-3.0f,1.4f,i<2?-2.0f:5.0f};
+    B.alien[i]=body3(x,v,w,"BMX alien",.12f);
+    if(i==0)cw_shape3d_capsule(B.alien[i],&sd,(t3_vec3){0,-.063f,0},(t3_vec3){0,.063f,0},.091f);
+    else if(i==1)cw_shape3d_sphere(B.alien[i],&sd,(t3_vec3){0,0,0},.112f);
+    else cw_shape3d_capsule(B.alien[i],&sd,(t3_vec3){0,-.0525f,0},(t3_vec3){0,.0525f,0},i>=6?.0315f:.0245f);
+  }
+  const int parent[ALIEN_PARTS]={0,0,0,2,0,4,0,0};
+  const t3_vec3 anchor[ALIEN_PARTS]={
+    {0,0,0},{.78f,1.10f,0}, {.75f,1.11f,.16f},{.78f,.94f,.21f},
+    {.75f,1.11f,-.16f},{.78f,.94f,-.21f},{.78f,.76f,.10f},{.78f,.76f,-.10f}};
+  for(int i=1;i<ALIEN_PARTS;i++)ball(B.alien[parent[i]],B.alien[i],xf3(base,(t3_vec3){.76f+(anchor[i].x-.76f)*.7f,.47f+(anchor[i].y-.47f)*.7f,anchor[i].z*.7f}),
+    (t3_vec3){0,i==1?1:-1,0},(t3_vec3){0,i==1?1:-1,0},i==1?.65f:2.3f,1.7f,.015f);
+  B.alien_gone=true;
+}
+
 static void crash_destroy(void) {
   if (cw_joint3d_valid(B.grip)) cw_joint3d_destroy(B.grip);
   B.grip = (cw_joint3d){ 0 };
@@ -774,6 +834,7 @@ static uint32_t crash_seed(cw_vec2 at) {
 }
 
 static void make_ragdoll(void) {
+  alien_eject();
   if (!cw_world3d_valid(crash_world())) return;
   mirror_make();
   bike_pose p;
@@ -842,13 +903,13 @@ static void make_ragdoll(void) {
       sd.density = RAG_MASS[i] / capsule_vol(c - a, 0.15f);
       cw_shape3d_capsule(B.rag[i], &sd, (t3_vec3){ a, 0, 0 }, (t3_vec3){ c, 0, 0 }, 0.15f);
     } else if (i == RAG_SHIN_L || i == RAG_SHIN_R) { /* the shin and the foot */
-      vol = capsule_vol(0.38f, 0.055f) + capsule_vol(0.16f, 0.045f);
+      vol = capsule_vol(bike_leg_length(B.model)-.06f, 0.055f) + capsule_vol(0.16f, 0.045f);
       sd.density = RAG_MASS[i] / vol;
-      cw_shape3d_capsule(B.rag[i], &sd, (t3_vec3){ 0.05f, 0, zs }, (t3_vec3){ 0.43f, 0, zs }, 0.055f);
-      cw_shape3d_capsule(B.rag[i], &sd, (t3_vec3){ 0.48f, -0.05f, zs }, (t3_vec3){ 0.48f, 0.11f, zs }, 0.045f);
+      cw_shape3d_capsule(B.rag[i], &sd, (t3_vec3){ 0.05f, 0, zs }, (t3_vec3){ bike_leg_length(B.model)-.01f, 0, zs }, 0.055f);
+      cw_shape3d_capsule(B.rag[i], &sd, (t3_vec3){ bike_leg_length(B.model)+.04f, -0.05f, zs }, (t3_vec3){ bike_leg_length(B.model)+.04f, 0.11f, zs }, 0.045f);
     } else {
       bool thigh = i == RAG_THIGH_L || i == RAG_THIGH_R, upper = i == RAG_UARM_L || i == RAG_UARM_R;
-      float len = thigh ? 0.36f : upper ? 0.24f : 0.27f, r = thigh ? 0.075f : upper ? 0.05f : 0.045f, a = thigh ? 0.04f : 0.03f;
+      float len = thigh ? bike_leg_length(B.model)-.08f : upper ? 0.24f : 0.27f, r = thigh ? 0.075f : upper ? 0.05f : 0.045f, a = thigh ? 0.04f : 0.03f;
       sd.density = RAG_MASS[i] / capsule_vol(len, r);
       cw_shape3d_capsule(B.rag[i], &sd, (t3_vec3){ a, 0, zs }, (t3_vec3){ a + len, 0, zs }, r);
     }
@@ -890,11 +951,41 @@ static void make_ragdoll(void) {
   static const cw_vec2 HULL[] = { { -0.42f, 0.02f }, { 0.0f, -0.02f }, { 0.52f, 0.02f }, { 0.46f, 0.62f }, { -0.2f, 0.58f } };
   t3_vec3 hp[10];
   for (int k = 0; k < 5; k++) hp[k * 2] = (t3_vec3){ HULL[k].x, HULL[k].y, -0.025f }, hp[k * 2 + 1] = (t3_vec3){ HULL[k].x, HULL[k].y, 0.025f };
-  cw_shape3d_hull(B.frame3, &bs, hp, 10);
+  if (PENNY) {
+    for (int k=0;k<5;k++) {
+      static const cw_vec2 spine[]={{-1.12f,-.55f},{-.04f,-.03f},{.035f,.73f},{-.20f,.76f},{-.74f,.20f}};
+      hp[k*2]=(t3_vec3){spine[k].x,spine[k].y,-.025f};
+      hp[k*2+1]=(t3_vec3){spine[k].x,spine[k].y,.025f};
+    }
+  }
+  if(BIGWHEEL) {
+    t3_vec3 low[12];
+    for(int k=0;k<6;k++)for(int side=0;side<2;side++)low[k*2+side]=(t3_vec3){BIG_HULL[k].x,BIG_HULL[k].y,side?.04f:-.04f};
+    cw_shape3d_hull(B.frame3,&bs,low,12);
+    cw_shape3d_capsule(B.frame3,&bs,(t3_vec3){-.94f,-.1778f,-.36f},(t3_vec3){-.94f,-.1778f,.36f},.024f);
+  } else cw_shape3d_hull(B.frame3, &bs, hp, 10);
   bs.density = 1500;
+  if(BIGWHEEL) {
+    cw_shape3d_capsule(B.frame3,&bs,(t3_vec3){0,0,0},(t3_vec3){-.20f,.65f,0},.024f);
+    cw_shape3d_capsule(B.frame3,&bs,(t3_vec3){-.20f,.65f,-.28f},(t3_vec3){-.20f,.65f,.28f},.02f);
+  } else if (!PENNY) {
   cw_shape3d_capsule(B.frame3, &bs, (t3_vec3){ 0.47f, 0.3f, 0 }, (t3_vec3){ 0.42f, 0.98f, 0 }, 0.025f);  /* head tube and stem */
   cw_shape3d_capsule(B.frame3, &bs, (t3_vec3){ 0.42f, 1.0f, -0.28f }, (t3_vec3){ 0.42f, 1.0f, 0.28f }, 0.022f); /* the bars */
   cw_shape3d_capsule(B.frame3, &bs, (t3_vec3){ -0.1f, 0.4f, 0 }, (t3_vec3){ -0.2f, 0.74f, 0 }, 0.02f);     /* the seat post */
+  } else {
+    cw_shape3d_capsule(B.frame3,&bs,(t3_vec3){0,0,0},(t3_vec3){0,.84f,0},.023f);
+    cw_shape3d_capsule(B.frame3,&bs,(t3_vec3){.18f,.98f,-.28f},(t3_vec3){.18f,.98f,.28f},.018f);
+  }
+  if(CARGO) {
+    t3_vec3 cargo[8];
+    for(int k=0;k<8;k++)cargo[k]=(t3_vec3){(k&1)?1.65f:.59f,(k&2)?.99f:.0f,(k&4)?.43f:-.43f};
+    bs.density=19;
+    cw_shape3d_hull(B.frame3,&bs,cargo,8);
+  }
+  if(B.model==BIKE_BMX) {
+    bs.density=38;
+    cw_shape3d_box(B.frame3,&bs,(t3_vec3){.1651f,.1397f,.1651f},cw_xform3_at(.76f,.6097f,0));
+  }
   cw_body2d wb[2] = { B.rear, B.front };
   cw_body3d *w3[2] = { &B.rear3, &B.front3 };
   t3_vec3 rim[32];
@@ -913,7 +1004,25 @@ static void make_ragdoll(void) {
                    "wheel", 0.05f);
     bs.density = 650;
     bs.material.friction = 0.9f;
-    cw_shape3d_hull(*w3[k], &bs, rim, 32);
+    if(BIGWHEEL&&k==0) {
+      t3_vec3 pair[32];
+      for(int side=-1;side<=1;side+=2) {
+        for(int j=0;j<32;j++)pair[j]=(t3_vec3){rim[j].x,rim[j].y,(j%2?.08f:-.08f)+side*.36f};
+        cw_shape3d_hull(*w3[k],&bs,pair,32);
+      }
+    } else if(CARGO && k==1) {
+      /* Two actual contact hulls across the axle in the 3D crash world. */
+      t3_vec3 small[32];
+      for(int side=-1;side<=1;side+=2) {
+        for(int j=0;j<32;j++)small[j]=(t3_vec3){rim[j].x*FRONT_R/WHEEL_R,rim[j].y*FRONT_R/WHEEL_R,rim[j].z+side*.49f};
+        cw_shape3d_hull(*w3[k],&bs,small,32);
+      }
+    } else if (DIRECT && k==1) {
+      t3_vec3 large[32];
+      for(int j=0;j<32;j++)large[j]=(t3_vec3){rim[j].x*FRONT_R/WHEEL_R,rim[j].y*FRONT_R/WHEEL_R,rim[j].z};
+      bs.density=BIGWHEEL?650:80;
+      cw_shape3d_hull(*w3[k],&bs,large,32);
+    } else cw_shape3d_hull(*w3[k], &bs, rim, 32);
     cw_joint3d_def jd = cw_joint3d_default_def(CW_JOINT_REVOLUTE);
     jd.a = B.frame3;
     jd.b = *w3[k];
@@ -976,7 +1085,7 @@ static void make_ragdoll(void) {
   if (cw_body2d_valid(B.front)) cw_body2d_destroy(B.front);
   B.frame = B.rear = B.front = (cw_body2d){ 0 };
   B.torso = B.head = (cw_shape2d){ 0 };
-  B.frame_sh = B.rear_sh = B.front_sh = (cw_shape2d){ 0 };
+  B.frame_sh = B.rear_sh = B.front_sh = B.cargo_sh = (cw_shape2d){ 0 };
   B.down3 = true;
 }
 
@@ -1026,7 +1135,8 @@ bool bike_crash_focus(t3_vec3 *at, t3_vec3 *vel) {
 static bool grounded(cw_body2d w) {
   cw_xform2 f = cw_body2d_transform(B.frame);
   /* down along the frame (so a wheelie's rear and a nose-dive's front still count) and straight down */
-  cw_vec2 d1 = { f.q.s * (WHEEL_R + 0.08f), -f.q.c * (WHEEL_R + 0.08f) }, d2 = { 0, -(WHEEL_R + 0.08f) };
+  float radius = w.id == B.front.id ? FRONT_R : WHEEL_R;
+  cw_vec2 d1 = { f.q.s * (radius + 0.08f), -f.q.c * (radius + 0.08f) }, d2 = { 0, -(radius + 0.08f) };
   cw_phys_filter flt = { .layers = 1u << L_TRACK | 1u << B.loop_layer | 1u << (L_RAMP0 + B.lane) };
   cw_ray_hit2d hit;
   cw_pos2 origin = cw_body2d_position(w);
@@ -1178,29 +1288,37 @@ float chocolate_amount(const track_desc *t,float x) {
 static void controls(const bike_input *in, bool boosting, bool air) {
   bike_state *s = &B.st;
   if (s->alive) {
-    /* drive: the pedals spin the rear wheel toward a top speed */
+    /* The ordinary has direct drive at the front hub. */
+    cw_joint2d drive = DIRECT ? B.j_front : B.j_rear;
+    cw_joint2d free_axle = DIRECT ? B.j_rear : B.j_front;
+    cw_body2d drive_wheel = DIRECT ? B.front : B.rear;
     float pedal = cw_clampf(in->pedal, 0, 1), brake = cw_clampf(in->brake, 0, 1);
     if (in->hold) {
       cw_joint2d_set_motor(B.j_rear, true, 0, 40);
       cw_joint2d_set_motor(B.j_front, true, 0, 40);
     } else if (brake > 0.05f && s->speed < 0.6f && !air) {
       /* stopped and still holding brake: roll back slowly */
-      cw_joint2d_set_motor(B.j_rear, true, 10 * brake, 6);
-      cw_joint2d_set_motor(B.j_front, false, 0, 0);
+      cw_joint2d_set_motor(drive, true, (DIRECT ? 3 : 10) * brake, DIRECT ? 18 : 6);
+      cw_joint2d_set_motor(free_axle, false, 0, 0);
     } else if (brake > 0.05f) {
-      cw_joint2d_set_motor(B.j_rear, true, 0, 9.4f * brake);
-      cw_joint2d_set_motor(B.j_front, true, 0, 6.5f * brake);
+      cw_joint2d_set_motor(B.j_rear, true, 0, (CARGO ? 18.0f : 9.4f) * brake);
+      cw_joint2d_set_motor(B.j_front, true, 0, (CARGO ? 28.0f : DIRECT ? 30.0f : 6.5f) * brake);
     } else if (pedal > 0.05f) {
       /* a freewheel: the pedals only ever drive; a wheel already spinning
        * faster than the legs can turn it just rolls */
-      float spin = -(cw_body2d_angular_velocity(B.rear) - cw_body2d_angular_velocity(B.frame));
-      float target = TOP_SPIN * pedal * (boosting ? 1.25f : 1);
+      float spin = -(cw_body2d_angular_velocity(drive_wheel) - cw_body2d_angular_velocity(B.frame));
+      float target = (PENNY ? 18.5f : BIGWHEEL ? 42.0f : CARGO ? 42.0f : TOP_SPIN) * pedal * (boosting ? 1.25f : 1);
       /* the rider eases off as the front lifts (traction behind and below the
        * rider's weight pulls the nose up), unless leaning back for a wheelie */
       float ease = in->lean < -0.1f || air || B.loop_zone ? 1 : cw_clampf(1 - (pitch_err() - 0.1f) * 3, 0.15f, 1);
-      if (spin < target) cw_joint2d_set_motor(B.j_rear, true, -target, (boosting ? 23.5f : 16.5f) * ease);
-      else cw_joint2d_set_motor(B.j_rear, true, -spin, 0.05f);
-      cw_joint2d_set_motor(B.j_front, true, 0, 0.0f);
+      /* Lower cargo gearing: climb at the same capped cadence rather than
+       * compensating for the load with a higher cruising speed. */
+      /* Electric assist is strongest pulling away and fades by 22 km/h;
+       * cadence/top speed and the other frames keep their existing tuning. */
+      float launch = B.model == BIKE_EBIKE ? 1 + 1.8f * (1-cw_smoothstep(1.5f,6.0f,fabsf(s->speed))) : 1;
+      if (spin < target) cw_joint2d_set_motor(drive, true, -target, (boosting ? 23.5f : 16.5f) * (PENNY ? 3.0f : BIGWHEEL ? 2.2f : CARGO ? 2.5f : 1) * ease * launch);
+      else cw_joint2d_set_motor(drive, true, -spin, 0.05f);
+      cw_joint2d_set_motor(free_axle, false, 0, 0);
     } else {
       cw_joint2d_set_motor(B.j_rear, false, 0, 0); /* coasting: free wheels */
       cw_joint2d_set_motor(B.j_front, false, 0, 0);
@@ -1242,8 +1360,8 @@ static void controls(const bike_input *in, bool boosting, bool air) {
       float y1 = ground_at(fa.x, &f1), y0 = ground_at(ra.x, &f2);
       float err = f1 && f2 ? cw_wrap_angle(cw_rot2_angle(fx.q) - cw_atan2(y1 - y0, fa.x - ra.x)) : 0;
       /* the motor's torque falls off toward its top speed; so does its kick */
-      float spin = -(cw_body2d_angular_velocity(B.rear) - cw_body2d_angular_velocity(B.frame));
-      float load = cw_clampf(1 - spin / (TOP_SPIN * pedal), 0, 1);
+      float spin = -(cw_body2d_angular_velocity(drive_wheel) - cw_body2d_angular_velocity(B.frame));
+      float load = cw_clampf(1 - spin / ((PENNY ? 18.5f : BIGWHEEL ? 42.0f : TOP_SPIN) * pedal), 0, 1);
       if (err > -0.1f) cw_body2d_apply_torque(B.frame, -20 * pedal * load);
     }
     /* hands off in the air: the bike eases its nose along the flight path
@@ -1287,6 +1405,9 @@ static void controls(const bike_input *in, bool boosting, bool air) {
       cw_body2d parts[3] = { B.frame, B.rear, B.front };
       float total = 0;
       for (int i = 0; i < 3; i++) total += cw_body2d_mass(parts[i]);
+      /* Give the loaded trike enough boost acceleration for course gaps.
+       * Keep its cargo mass for pedalling, braking, suspension and impacts. */
+      float thrust = (CARGO || BIGWHEEL) ? total * 14.0f : 260.0f;
       float assist = 1;
       /* Large powered loops need sustained thrust, not unlimited entry speed:
        * excessive centrifugal load bottoms out the bike's suspension. */
@@ -1299,18 +1420,19 @@ static void controls(const bike_input *in, bool boosting, bool air) {
         }
       }
       for (int i = 0; i < 3; i++) {
-        float k = 260 * assist * cw_body2d_mass(parts[i]) / total;
+        float k = thrust * assist * cw_body2d_mass(parts[i]) / total;
         cw_body2d_apply_force(parts[i], (cw_vec2){ f.q.c * k, f.q.s * k }, NULL);
       }
     }
     /* the crank turns with the rear wheel while pedalling (coasting holds it) */
-    float wspin = cw_body2d_angular_velocity(B.rear) - cw_body2d_angular_velocity(B.frame);
+    float wspin = cw_body2d_angular_velocity(drive_wheel) - cw_body2d_angular_velocity(B.frame);
     /* pedalling turns them with the wheel, on the ground and in the air (the
      * motor spins the back wheel up there too); back-pedalling, stopped on the
      * ground, turns them backward; braking in the air turns them backward for
      * show (the wheel freewheels) */
     bool backpedal = brake > 0.05f && s->speed < 0.6f && !in->hold && !air;
-    if (pedal > 0.05f || backpedal) B.crank += wspin * GEAR / (SUBSTEPS * TICK_HZ); /* forward: clockwise, as the wheel */
+    if (DIRECT) B.crank = cw_wrap_angle(cw_rot2_angle(cw_body2d_transform(B.front).q) - cw_rot2_angle(cw_body2d_transform(B.frame).q));
+    else if (pedal > 0.05f || backpedal) B.crank += wspin * GEAR / (SUBSTEPS * TICK_HZ); /* forward: clockwise, as the wheel */
     else if (air && brake > 0.05f) B.crank += TOP_SPIN * 0.5f * brake * GEAR / (SUBSTEPS * TICK_HZ);
     s->lean_shown += (lean - s->lean_shown) * (0.2f / SUBSTEPS);
   }
@@ -1322,7 +1444,7 @@ static int rider_of(cw_shape2d sh) {
   if (!sh.id) return -1;
   for (int j = 0; j < NB; j++) {
     const bk *b = &BK[j];
-    if (sh.id == b->frame_sh.id || sh.id == b->rear_sh.id || sh.id == b->front_sh.id || sh.id == b->torso.id || sh.id == b->head.id) return j;
+    if (sh.id == b->cargo_sh.id || sh.id == b->frame_sh.id || sh.id == b->rear_sh.id || sh.id == b->front_sh.id || sh.id == b->torso.id || sh.id == b->head.id) return j;
   }
   return -1;
 }
@@ -1529,6 +1651,11 @@ static void bike_post(bool air) {
       break;
     }
   }
+  /* A normal bunny hop lands around 5.5 m/s. Keep the passenger seated
+   * through those; a hard drop or a substantially inverted bike spills him. */
+  if(B.model==BIKE_BMX && !B.alien_gone &&
+     ((B.landed_now && B.landed_air>36 && B.v_pre.y < -7.5f) ||
+      (air && s->air_ticks>24 && fabsf(ang)>2.2f)))alien_eject();
   if (B.crashed_now) make_ragdoll(); /* the rider comes off: the crash goes 3D (crash_post fills the state in) */
 }
 
@@ -1592,11 +1719,17 @@ void bike_step_all(const bike_input *in, const bool *boosting) {
   /* the crash world steps while anyone is down (a rider who came off this
    * tick too: its bodies start where the 2D ones ended) */
   bool step3 = crash_toys_count()>0;
+  for (int i = 0; i < NB; i++) step3 |= BK[i].down3 || BK[i].alien_gone;
   if(step3)for(int i=0;i<NB;i++) {
     bk *b=&BK[i];
-    if(cw_body2d_valid(b->rear))crash_toy_wheels(i,cw_body2d_transform(b->rear),cw_body2d_transform(b->front),b->draw_z,act[i]&&b->st.alive);
+    bool alive=act[i]&&b->st.alive&&cw_body2d_valid(b->rear);
+    cw_xform3 rear=cw_xform3_identity(),front=cw_xform3_identity();
+    if(alive) {
+      rear=ride_lift3(cw_body2d_transform(b->rear),b->draw_z,b->st.x);
+      front=ride_lift3(cw_body2d_transform(b->front),b->draw_z,b->st.x);
+    }
+    crash_riding_wheels(i,rear,front,b->model,alive);
   }
-  for (int i = 0; i < NB; i++) step3 |= BK[i].down3;
   if (step3) {
     float dt = 1.0f / TICK_HZ;
     mirror_sync(dt);
@@ -1618,6 +1751,11 @@ void bike_step_all(const bike_input *in, const bool *boosting) {
           view_chocolate_tick(i,p.x,p.y,p.z,false,true);
         }
       }
+  }
+  if(BK[0].alien_gone)for(int i=0;i<ALIEN_PARTS;i++) {
+    cw_xform3 a=cw_body3d_transform(BK[0].alien[i]);
+    float *d=alien_debug+i*7;d[0]=a.p.x;d[1]=a.p.y;d[2]=a.p.z;
+    d[3]=a.q.x;d[4]=a.q.y;d[5]=a.q.z;d[6]=a.q.w;
   }
   cur = keep;
 }
@@ -1667,6 +1805,16 @@ static cw_xform2 seg(cw_xform2 frame, cw_vec2 a, cw_vec2 b) {
 void bike_pose_get(float alpha, bike_pose *out) {
   memset(out, 0, sizeof *out);
   out->z = B.draw_z;
+  out->alien_gone=B.alien_gone;
+  if(B.model==BIKE_BMX) {
+    cw_xform3 base=cw_xform3_identity();
+    if(cw_body2d_valid(B.frame)) {
+      cw_xform2 f=cw_body2d_interpolated(B.frame,alpha);
+      base=ride_lift3(f,B.draw_z,f.p.x);
+    }
+    for(int i=0;i<ALIEN_PARTS;i++)out->alien[i]=B.alien_gone ?
+      cw_body3d_interpolated(B.alien[i],alpha) : (cw_xform3){xf3(base,ALIEN_HOME[i]),base.q};
+  }
   if (B.down3) { /* the crash, in 3D */
     out->ragdoll = true;
     out->frame = out->rear = out->front = out->cap = cw_xform2_identity();
@@ -1685,14 +1833,16 @@ void bike_pose_get(float alpha, bike_pose *out) {
   out->frame = cw_body2d_interpolated(B.frame, alpha);
   out->rear = cw_body2d_interpolated(B.rear, alpha);
   out->front = cw_body2d_interpolated(B.front, alpha);
-  out->crank = B.crank;
+  out->crank = DIRECT ? cw_wrap_angle(cw_rot2_angle(out->front.q)-cw_rot2_angle(out->frame.q)) : B.crank;
   out->lean = B.st.lean_shown;
+  out->hands_free = B.pose_amt > .01f && B.pose_kind == POSE_NO_HANDS;
+  out->feet_free = B.pose_amt > .01f && (B.pose_kind == POSE_NO_FEET || B.pose_kind == POSE_SUPERMAN);
   float L = out->lean;
   cw_vec2 hip = { HIP.x - 0.1f * L, HIP.y - 0.02f * cw_clampf(L, 0, 1) };
   cw_vec2 sh = { SHOULDER.x + 0.18f * L, SHOULDER.y - 0.12f * cw_clampf(L, 0, 1) + 0.04f * cw_clampf(-L, 0, 1) };
   cw_vec2 bars = B.fit.bars;
   float cs, cc;
-  cw_sincos(B.crank, &cs, &cc);
+  cw_sincos(out->crank, &cs, &cc);
   cw_vec2 pedal_l = { 0.17f * cc, 0.17f * cs }, pedal_r = { -0.17f * cc, -0.17f * cs };
   /* the poses: no-hands throws the arms up, no-feet kicks the legs off the
    * pedals fore and aft, superman flies the body out straight behind the bars */
@@ -1717,8 +1867,8 @@ void bike_pose_get(float alpha, bike_pose *out) {
   pedal_l.y += 0.105f;
   pedal_r.y += 0.105f;
   cw_vec2 knee_l, knee_r, elbow;
-  two_bone(hip, pedal_l, 0.44f, 0.44f, 1, &knee_l);
-  two_bone(hip, pedal_r, 0.44f, 0.44f, 1, &knee_r);
+  two_bone(hip, pedal_l, bike_leg_length(B.model), bike_leg_length(B.model), 1, &knee_l);
+  two_bone(hip, pedal_r, bike_leg_length(B.model), bike_leg_length(B.model), 1, &knee_r);
   two_bone(sh, hand, 0.3f, 0.3f, -1, &elbow);
   bars = hand;
   cw_xform2 F = out->frame;
@@ -1742,6 +1892,9 @@ uint32_t bike_hash(uint32_t h) {
   if (!cw_body2d_valid(BK[0].frame) && !BK[0].down3) return h;
   for (int j = 0; j < NB; j++) { /* every rider's bodies */
     const bk *b = &BK[j];
+    if(b->alien_gone)for(int k=0;k<ALIEN_PARTS;k++) {
+      cw_xform3 ax=cw_body3d_transform(b->alien[k]);h=cw_hash32(&ax,sizeof ax,h);
+    }
     if (b->down3) { /* a crash: the rider, the bike and the cap in the crash world */
       cw_xform3 x[RAG_COUNT + 4];
       for (int i = 0; i < RAG_COUNT; i++) x[i] = cw_body3d_transform(b->rag[i]);

@@ -5,7 +5,7 @@
  * every piece takes its 3D pose from the crash world (crash.c).
  *
  *   bikes   16-inch folding frame, 26-inch ornamented cruiser and 27.5-inch
- *           mid-bar e-bike. Shared fit points keep wheels and rider contacts
+ *           mid-bar e-bike, plus the articulated DJ cargo tricycle. Shared fit points keep wheels and rider contacts
  *           aligned with bike.c's Box2D bodies.
  *   rider   tapered limbs (lathe profiles): a black cotton t-shirt, khaki
  *           cargo shorts with pockets, bare arms and shins, short white
@@ -17,6 +17,7 @@
 #include <string.h>
 
 #include "game.h"
+#include "cartwheel/platform.h"
 
 static t3_color lin(float r, float g, float b) {
   float c[3] = { r, g, b };
@@ -26,13 +27,14 @@ static t3_color lin(float r, float g, float b) {
 
 typedef struct model_t {
   t3_object *root;
+  t3_object *cargo, *fork, *alien[ALIEN_PARTS];
   t3_object *frame, *rear, *front, *rear_guard, *front_guard, *crank, *cap, *neck;
   t3_object *limb[RAG_COUNT];  /* each a group placed by its 2D xform; the mesh inside runs along +x */
   t3_object *limb_r[RAG_COUNT]; /* the right arm / leg copies while riding (same pose, other side) */
   t3_object *foot[2];         /* ankle hinges: shoes turn independently of the shins */
   /* what is drawn: skinned meshes over the parts above (their bones), one per
    * material, and the far look, one for it all */
-  t3_object *near_mesh[24], *far_mesh;
+  t3_object *near_mesh[48], *far_mesh;
   int near_n;
   cw_node node, decal_receiver;
   bool chocolate_pending, chocolate_stamped;
@@ -45,10 +47,9 @@ static const track_desc *model_track;
 void models_set_track(const track_desc *t) { model_track = t; }
 #define M (*Mc)
 /* each rider's paint and shirt, so split screen tells them apart */
-static const float PAINT[BIKE_COLOR_COUNT][3] = {
-  { .05f,.34f,.16f }, { .72f,.035f,.035f }, { .055f,.19f,.68f }, { .95f,.67f,.035f },
-  { .95f,.24f,.025f }, { .38f,.12f,.63f }, { .025f,.025f,.03f }, { .88f,.9f,.88f }
-};
+#define PAINT BIKE_PAINT
+static bool person_only[MAX_RIDERS];
+void models_person_only(int idx,bool person) {person_only[idx]=person;}
 static const float SHIRT[MAX_RIDERS][3] = { { 0.07f, 0.07f, 0.075f }, { 0.85f, 0.85f, 0.82f }, { 0.75f, 0.42f, 0.1f }, { 0.12f, 0.3f, 0.5f } };
 static int rider_ix;
 /* each rider's character, frame and paint */
@@ -162,6 +163,11 @@ static t3_geometry *geo_spokes(float hub_r, float rim_r, int count) {
   t3_geometry *g = t3_geometry_new();
   set_attr(g, T3_ATTR_POSITION, t3_attribute_new(T3_FLOAT32, pos, nv, 3));
   set_attr(g, T3_ATTR_NORMAL, t3_attribute_new(T3_FLOAT32, nor, nv, 3));
+  /* Alloy uses a normal/roughness map. WebGPU requires its UV input even on
+   * thin spokes; without it this entire skinned draw disappears. */
+  float *uv=malloc(sizeof(float)*(size_t)nv*2);
+  for(int i=0;i<nv;i++) {uv[i*2]=pos[i*3]/(2*rim_r)+.5f;uv[i*2+1]=pos[i*3+1]/(2*rim_r)+.5f;}
+  set_attr(g,T3_ATTR_UV,t3_attribute_new(T3_FLOAT32,uv,nv,2));free(uv);
   set_index(g, t3_attribute_new(T3_UINT32, idx, ni, 1));
   free(pos);
   free(nor);
@@ -175,9 +181,9 @@ typedef struct mats {
 
 static t3_object *build_wheel(const mats *m, t3_geometry *spokes, float radius, int model) {
   t3_object *w = t3_group_new();
-  float tyre_width = model == BIKE_EBIKE ? .023f : model == BIKE_CRUISER ? .029f : .025f;
-  t3_geometry *tyre = t3_torus_geometry_new(radius - tyre_width, tyre_width, 14, 48, 6.2831853f);
-  t3_geometry *rim = t3_torus_geometry_new(radius - tyre_width * 2.0f, 0.009f, 8, 48, 6.2831853f);
+  float tyre_width = model == BIKE_PENNY ? .017f : model == BIKE_EBIKE ? .023f : model == BIKE_CRUISER ? .029f : .025f;
+  t3_geometry *tyre = t3_torus_geometry_new(radius - tyre_width, tyre_width, 14, model == BIKE_PENNY ? 96 : 48, 6.2831853f);
+  t3_geometry *rim = t3_torus_geometry_new(radius - tyre_width * 2.0f, 0.009f, 8, model == BIKE_PENNY ? 96 : 48, 6.2831853f);
   t3_geometry *hub = t3_cylinder_geometry_new(0.022f, 0.022f, 0.08f, 16, 1, false);
   mesh(w, tyre, m->rubber);
   mesh(w, rim, model == BIKE_EBIKE ? m->black : m->alloy);
@@ -338,15 +344,45 @@ static t3_mesh *limb_part(t3_object *grp, float len, float r0, float r1, float f
   t3_release(g);
   return me;
 }
-static void shirt_torso(t3_object *grp, t3_material *m) {
+static void shirt_torso(t3_object *grp, t3_material *m, bool slim) {
   /* The shirt narrows into an ordinary neck opening, with no raised collar. */
   const t3_vec2 prof[] = { { 0.16f, 0.05f }, { 0.16f, 0.07f }, { 0.155f, 0.12f },
-                           { 0.14f, 0.22f }, { 0.14f, 0.42f }, { 0.135f, 0.53f },
-                           { 0.105f, 0.565f }, { 0.062f, 0.595f }, { 0.052f, 0.605f } };
+                           { 0.14f, 0.22f }, { 0.14f, 0.42f }, { 0.16f, 0.50f },
+                           { 0.13f, 0.54f }, { 0.062f, 0.565f }, { 0.052f, 0.575f } };
   t3_geometry *g = t3_lathe_geometry_new(prof, 9, 14, 0, 6.2831853f);
   t3_mesh *me = mesh(grp, g, m);
   t3_object_set_rotation(&me->base, 0, 0, -1.5707963f);
+  me->base.scale=(t3_vec3){slim?1:1.04f,1,slim?1:1.23f};
   t3_release(g);
+}
+/* A thin, closed visor with a rounded outline, pointing behind the head (-X). */
+static t3_geometry *cap_bill(void) {
+  enum { ROWS=7,COLS=17,N=ROWS*COLS,MAX_I=2*(ROWS-1)*(COLS-1)*6+2*(ROWS+COLS-2)*6 };
+  float pos[N*2*3],uv[N*2*2];uint32_t idx[MAX_I];int ni=0;
+  for(int side=0;side<2;side++)for(int r=0;r<ROWS;r++)for(int c=0;c<COLS;c++) {
+    float t=(float)r/(ROWS-1),u=2.f*c/(COLS-1)-1;
+    int v=side*N+r*COLS+c;
+    float root=-.10f+.025f*u*u,tip=-.21f+.045f*u*u;
+    pos[v*3]=root+(tip-root)*t;
+    pos[v*3+1]=-.027f-.013f*t-.013f*u*u-side*.005f;
+    pos[v*3+2]=u*(.075f+.018f*sinf(t*3.1415927f));
+    uv[v*2]=t;uv[v*2+1]=(u+1)*.5f;
+  }
+  for(int side=0;side<2;side++)for(int r=0;r<ROWS-1;r++)for(int c=0;c<COLS-1;c++) {
+    uint32_t a=side*N+r*COLS+c,b=a+COLS,d=a+1,e=b+1;
+    uint32_t tri[]={a,b,d,d,b,e};
+    for(int j=0;j<6;j+=3){idx[ni++]=tri[j];idx[ni++]=tri[j+(side?2:1)];idx[ni++]=tri[j+(side?1:2)];}
+  }
+  uint32_t edge[2*(ROWS+COLS-2)];int ne=0;
+  for(int r=0;r<ROWS;r++)edge[ne++]=r*COLS;
+  for(int c=1;c<COLS;c++)edge[ne++]=(ROWS-1)*COLS+c;
+  for(int r=ROWS-2;r>=0;r--)edge[ne++]=r*COLS+COLS-1;
+  for(int c=COLS-2;c>0;c--)edge[ne++]=c;
+  for(int j=0;j<ne;j++){uint32_t a=edge[j],b=edge[(j+1)%ne];uint32_t tri[]={a,a+N,b,b,a+N,b+N};for(int k=0;k<6;k++)idx[ni++]=tri[k];}
+  t3_geometry *g=t3_geometry_new();
+  set_attr(g,T3_ATTR_POSITION,t3_attribute_new(T3_FLOAT32,pos,N*2,3));
+  set_attr(g,T3_ATTR_UV,t3_attribute_new(T3_FLOAT32,uv,N*2,2));
+  set_index(g,t3_attribute_new(T3_UINT32,idx,ni,1));t3_geometry_compute_vertex_normals(g);return g;
 }
 static t3_object *limb_group(t3_object *root) {
   t3_object *grp = t3_group_new();
@@ -714,7 +750,8 @@ static t3_object *build_crank(const mats *m) {
  * bone: the same picture in a fifth of the draws. The far look (split
  * screen's other riders) is one, each part in its material's colour. Every view of every rider costs draws, so this is
  * what keeps split screen cheap. */
-#define MAX_BONES 32
+#define MAX_BONES 48
+#define MAX_PARTS 1024
 typedef struct part { t3_mesh *m; int bone; } part;
 /* geometries placed by their matrices, as one indexed geometry: the
  * attributes in mask (bits of MERGE_SLOTS, float32 in every one) */
@@ -795,9 +832,9 @@ t3_geometry *geo_merge(const t3_geometry *const *gs, const t3_mat4 *const *mats,
  * each vertex on its part's bone); far: position and normal, and each
  * part's material colour */
 static t3_geometry *skin_geometry(const part *ps, int n, bool far) {
-  const t3_geometry *gs[256];
-  const t3_mat4 *ms[256];
-  n = CW_MIN(n, 256);
+  const t3_geometry *gs[MAX_PARTS];
+  const t3_mat4 *ms[MAX_PARTS];
+  n = CW_MIN(n, MAX_PARTS);
   for (int i = 0; i < n; i++) gs[i] = ps[i].m->geometry, ms[i] = &ps[i].m->base.matrix_world;
   t3_geometry *g = geo_merge(gs, ms, n, far ? 3u : geo_merge_mask(gs[0]));
   int nv = g->attributes[T3_ATTR_POSITION]->count, v0 = 0;
@@ -837,24 +874,33 @@ static void skin_build(void) {
   t3_object *bones[MAX_BONES];
   int nb = 0;
   bones[nb++] = M.root; /* for the pieces no part moves */
-  t3_object *moving[] = { M.frame, M.rear, M.front, M.rear_guard, M.front_guard, M.crank, M.cap, M.neck, M.foot[0], M.foot[1] };
+  t3_object *moving[] = { M.frame, M.rear, M.front, M.rear_guard, M.front_guard, M.crank, M.cap, M.neck, M.foot[0], M.foot[1], M.cargo, M.fork };
   for (int i = 0; i < (int)CW_ARRAY_LEN(moving); i++)
     if (moving[i]) bones[nb++] = moving[i];
   for (int i = 0; i < RAG_COUNT; i++) {
     if (M.limb[i]) bones[nb++] = M.limb[i];
     if (M.limb_r[i]) bones[nb++] = M.limb_r[i];
   }
+  for(int i=0;i<ALIEN_PARTS;i++)if(M.alien[i])bones[nb++]=M.alien[i];
   t3_object_update_world_matrix(M.root, false, true);
   /* every mesh, on the bone of the nearest part that holds it */
-  part *ps = malloc(sizeof *ps * 256);
+  part *ps = malloc(sizeof *ps * MAX_PARTS);
   int np = 0;
-  t3_object *st[256];
+  t3_object *st[MAX_PARTS];
   int sp = 0;
   for (int c = M.root->child_count - 1; c >= 0; c--) st[sp++] = M.root->children[c];
   while (sp) {
     t3_object *o = st[--sp];
-    for (int c = o->child_count - 1; c >= 0 && sp < 256; c--) st[sp++] = o->children[c];
-    if (o->type != T3_MESH || !o->visible || np == 256 || !geo_mergeable(((t3_mesh *)o)->geometry) || ((t3_mesh *)o)->material_count != 1) continue;
+    for (int c = o->child_count - 1; c >= 0 && sp < MAX_PARTS; c--) st[sp++] = o->children[c];
+    if(person_only[rider_ix] && o->type==T3_MESH) {
+      bool bicycle=false;
+      for(t3_object *a=o;a&&a!=M.root;a=a->parent) {
+        bicycle |= a==M.frame||a==M.rear||a==M.front||a==M.rear_guard||a==M.front_guard||a==M.cargo||a==M.fork;
+        for(int j=0;j<ALIEN_PARTS;j++)bicycle |= M.alien[j]&&a==M.alien[j];
+      }
+      if(bicycle){o->visible=false;continue;}
+    }
+    if (o->type != T3_MESH || !o->visible || np == MAX_PARTS || !geo_mergeable(((t3_mesh *)o)->geometry) || ((t3_mesh *)o)->material_count != 1) continue;
     int bone = 0;
     for (const t3_object *a = o; a && a != M.root && !bone; a = a->parent)
       for (int k = 1; k < nb; k++)
@@ -900,6 +946,11 @@ void models_far(int idx, bool far) {
   if (mm->far_mesh) mm->far_mesh->visible = far;
 }
 
+#include "djbike.inc"
+#include "penny.inc"
+#include "bigwheel.inc"
+#include "bmx.inc"
+
 void models_build(cw_node parent) { models_build_rider(parent, 0); }
 
 void models_build_rider(cw_node parent, int idx) {
@@ -910,20 +961,46 @@ void models_build_rider(cw_node parent, int idx) {
   memset(&M, 0, sizeof M);
   mats m;
   make_mats(&m);
+  if(selected_bike[rider_ix]==BIKE_PENNY) {
+    m.saddle->color=lin(.24f,.105f,.045f);
+    m.saddle->roughness=.65f;
+    m.saddle->clearcoat=.15f;
+  }
   M.root = t3_group_new();
   t3_geometry *cyl = t3_cylinder_geometry_new(1, 1, 1, 14, 1, false);
   int model = selected_bike[rider_ix];
   bike_fit fit = bike_fit_for(model);
   t3_geometry *spokes = geo_spokes(0.024f, model == BIKE_FOLDING ? .152f : fit.wheel_r - .045f,
                                     model == BIKE_FOLDING ? 16 : 32);
-  M.frame = model == BIKE_FOLDING ? build_frame(&m, cyl) : build_full_frame(&m, cyl, model, fit);
+  M.frame = model == BIKE_BIGWHEEL ? build_bigwheel_frame(&m,cyl,fit) : model == BIKE_BMX ? build_bmx_frame(&m,cyl,fit) : model == BIKE_PENNY ? build_penny_frame(&m,cyl,fit) : model == BIKE_DJ ? build_dj_frame(&m,cyl,fit) : model == BIKE_FOLDING ? build_frame(&m, cyl) : build_full_frame(&m, cyl, model, fit);
   t3_object_add(M.root, M.frame);
   t3_release(M.frame);
+  if(model==BIKE_PENNY||model==BIKE_BIGWHEEL) {
+    M.fork=model==BIKE_BIGWHEEL?build_bigwheel_fork(&m,cyl):build_penny_fork(&m,cyl);
+    t3_object_add(M.root,M.fork);t3_release(M.fork);
+  }
+  if(model==BIKE_BMX)build_bmx_alien(cyl);
   M.crank = build_crank(&m);
-  t3_object_add(M.frame, M.crank);
+  t3_object_add(M.fork ? M.fork : M.frame, M.crank);
   t3_release(M.crank);
-  M.rear = build_wheel(&m, spokes, fit.wheel_r, model);
-  M.front = build_wheel(&m, spokes, fit.wheel_r, model);
+  M.rear = model==BIKE_BIGWHEEL?build_bigwheel_rear(&m,cyl):build_wheel(&m, spokes, fit.wheel_r, model);
+  if (model == BIKE_DJ) {
+    M.front=t3_group_new();
+    t3_geometry *small=geo_spokes(.024f,fit.front_r-.045f,32);
+    for(int side=-1;side<=1;side+=2) {
+      t3_object *wheel=build_wheel(&m,small,fit.front_r,model);
+      wheel->position.z=side*.49f;t3_object_add(M.front,wheel);t3_release(wheel);
+    }
+    t3_release(small);
+    M.cargo=build_dj_cargo(&m,cyl);t3_object_add(M.root,M.cargo);t3_release(M.cargo);
+  } else if (model == BIKE_BIGWHEEL) {
+    t3_geometry *front_spokes=geo_spokes(.024f,fit.front_r-.05f,36);
+    M.front=build_wheel(&m,front_spokes,fit.front_r,model);t3_release(front_spokes);
+  } else if (model == BIKE_PENNY) {
+    t3_geometry *large=geo_spokes(.024f,fit.front_r-.034f,56);
+    M.front=build_wheel(&m,large,fit.front_r,model);
+    t3_release(large);
+  } else M.front = build_wheel(&m, spokes, fit.wheel_r, model);
   if (model == BIKE_CRUISER) {
     /* The reference cruiser has a large red and cream concentric front hub. */
     t3_geometry *disc=t3_cylinder_geometry_new(.105f,.105f,.008f,40,1,false);
@@ -949,9 +1026,9 @@ void models_build_rider(cw_node parent, int idx) {
   t3_release(M.front);
   M.rear_guard = t3_group_new();
   M.front_guard = t3_group_new();
-  if (model != BIKE_EBIKE) {
+  if (model != BIKE_EBIKE && model != BIKE_PENNY && model != BIKE_BMX && model != BIKE_BIGWHEEL) {
     mudguard(M.rear_guard, &m, (t3_vec2){ 0, 0 }, 0.35f, 2.3f);
-    mudguard(M.front_guard, &m, (t3_vec2){ 0, 0 }, 0.5f, 2.0f);
+    if(model != BIKE_DJ) mudguard(M.front_guard, &m, (t3_vec2){ 0, 0 }, 0.5f, 2.0f);
   }
   t3_object_add(M.root, M.rear_guard);
   t3_object_add(M.root, M.front_guard);
@@ -962,8 +1039,7 @@ void models_build_rider(cw_node parent, int idx) {
    * full denim legs on the regular rider's proportions. */
   for (int i = 0; i < RAG_COUNT; i++)
     if (i != RAG_HEAD) M.limb[i] = limb_group(M.root);
-  if (slim) shirt_torso(M.limb[RAG_TORSO], m.shirt);
-  else limb_part(M.limb[RAG_TORSO], 0.6f, 0.15f, 0.17f, 0, 1, 1, m.shirt, 0);
+  shirt_torso(M.limb[RAG_TORSO], m.shirt, slim);
   t3_geometry *seat = t3_sphere_geometry_new(0.115f, 16, 12);
   t3_mesh *hips = mesh(M.limb[RAG_TORSO], seat, m.shorts);
   hips->base.position = (t3_vec3){ -0.005f, 0.015f, 0 };
@@ -978,11 +1054,11 @@ void models_build_rider(cw_node parent, int idx) {
     limb_part(M.limb[ua], 0.3f, 0.05f, 0.044f, 0, jeans ? 1.0f : 0.5f, 1.25f * width, m.shirt, 0.2f * z);
     limb_part(M.limb[fa], 0.3f, 0.043f, 0.036f, 0, 1, width, m.skin, 0.22f * z);
     if (jeans) limb_part(M.limb[fa], 0.3f, 0.047f, 0.039f, 0, .90f, width, m.shirt, 0.22f * z);
-    limb_part(M.limb[th], 0.44f, 0.09f, 0.065f, 0, 1, slim ? 0.92f : 1.2f, m.shorts, 0.1f * z);
-    if (jeans) limb_part(M.limb[sn], 0.44f, 0.075f, 0.062f, 0, 1, width, m.shorts, 0.12f * z);
+    limb_part(M.limb[th], bike_leg_length(model), 0.09f, 0.065f, 0, 1, slim ? 0.92f : 1.2f, m.shorts, 0.1f * z);
+    if (jeans) limb_part(M.limb[sn], bike_leg_length(model), 0.075f, 0.062f, 0, 1, width, m.shorts, 0.12f * z);
     else {
-      limb_part(M.limb[sn], 0.44f, 0.056f, 0.032f, 0, 1, width, m.skin, 0.12f * z);
-      limb_part(M.limb[sn], 0.44f, 0.056f, 0.032f, 0.70f, 0.97f, 1.03f * width, m.sock, 0.12f * z);
+      limb_part(M.limb[sn], bike_leg_length(model), 0.056f, 0.032f, 0, 1, width, m.skin, 0.12f * z);
+      limb_part(M.limb[sn], bike_leg_length(model), 0.056f, 0.032f, 0.70f, 0.97f, 1.03f * width, m.sock, 0.12f * z);
     }
     if (jeans) {
       tube(M.limb[th], cyl, m.lace, (t3_vec2){.04f,-.065f}, (t3_vec2){.40f,-.042f}, .002f, .195f*z);
@@ -1088,14 +1164,8 @@ void models_build_rider(cw_node parent, int idx) {
     sm->base.scale = (t3_vec3){ 1.04f, 0.9f, 1 };
     t3_object_set_rotation(&sm->base, 0, k * 1.0471976f, 0);
   }
-  /* the brim: a patch of a bigger sphere, curving down over the nape */
-  t3_geometry *brim = t3_sphere_geometry_new_ex(0.34f, 18, 6, -0.42f, 0.84f, 0.33f, 0.24f);
-  t3_mesh *br = mesh(M.cap, brim, m.cap);
-  br->base.position = (t3_vec3){ 0.0f, -0.36f, 0 };
-  br->base.scale = (t3_vec3){ 1, 1, 0.8f };
-  t3_mesh *bu = mesh(M.cap, brim, under);
-  bu->base.position = (t3_vec3){ 0.0f, -0.364f, 0 };
-  bu->base.scale = (t3_vec3){ 1, 1, 0.8f };
+  t3_geometry *brim=cap_bill();
+  mesh(M.cap,brim,m.cap);
   /* the snapback band and its opening, over the forehead */
   t3_geometry *band = t3_torus_geometry_new(0.045f, 0.006f, 4, 16, 3.1415927f);
   t3_mesh *bn = mesh(M.cap, band, under);
@@ -1180,6 +1250,14 @@ static void models_sync_rider_(const bike_pose *p, float z);
 void models_sync_rider(int idx, const bike_pose *p, float z) {
   Mc = &MS[CW_CLAMP(idx, 0, MAX_RIDERS - 1)];
   if (M.root) models_sync_rider_(p, z);
+  if(M.root && M.alien[0]) {
+    t3_quat q=M.root->quaternion, inv={-q.x,-q.y,-q.z,q.w};
+    for(int i=0;i<ALIEN_PARTS;i++) {
+      t3_vec3 a=p->alien[i].p, b=M.root->position;
+      M.alien[i]->position=neck_rot(inv,(t3_vec3){a.x-b.x,a.y-b.y,a.z-b.z});
+      t3_object_set_quaternion(M.alien[i],t3_quat_multiply(inv,p->alien[i].q));
+    }
+  }
   if(M.root&&M.chocolate_hit_count) {
     t3_object_update_world_matrix(M.root,true,true);
     for(int i=0;i<M.chocolate_hit_count;i++) {
@@ -1232,7 +1310,91 @@ void models_refresh(int idx) {
   model_t *mm = &MS[CW_CLAMP(idx, 0, MAX_RIDERS - 1)];
   if (mm->root) t3_object_update_world_matrix(mm->root, true, true);
 }
+/* Place an arm segment by its visible centre line (its construction mesh
+ * carries a lateral offset). This keeps the hands on the articulated bar. */
+static void dj_arm_segment(t3_object *o,t3_vec3 a,t3_vec3 b,float depth) {
+  t3_vec3 d={b.x-a.x,b.y-a.y,b.z-a.z};
+  float len=sqrtf(d.x*d.x+d.y*d.y+d.z*d.z);
+  if(len<.0001f)return;
+  d=(t3_vec3){d.x/len,d.y/len,d.z/len};
+  t3_quat q={0,-d.z,d.y,1+d.x};
+  float n=sqrtf(q.y*q.y+q.z*q.z+q.w*q.w);
+  if(n<.0001f)q=(t3_quat){0,1,0,0};
+  else q=(t3_quat){0,q.y/n,q.z/n,q.w/n};
+  t3_vec3 offset=neck_rot(q,(t3_vec3){0,0,depth});
+  o->position=(t3_vec3){a.x-offset.x,a.y-offset.y,a.z-offset.z};
+  t3_object_set_quaternion(o,q);
+}
+static void dj_hands(const bike_pose *p) {
+  if(!M.cargo || p->ragdoll || p->hands_free)return;
+  for(int side=0;side<2;side++) {
+    float sign=side?-1:1;
+    int ua=side?RAG_UARM_R:RAG_UARM_L,fa=side?RAG_FARM_R:RAG_FARM_L;
+    t3_vec3 shoulder={p->limb[ua].p.x,p->limb[ua].p.y,sign*.20f};
+    t3_vec3 local=neck_rot(M.cargo->quaternion,(t3_vec3){-.56f,1.18f,sign*.25f});
+    t3_vec3 hand={M.cargo->position.x+local.x,M.cargo->position.y+local.y,local.z};
+    t3_vec3 d={hand.x-shoulder.x,hand.y-shoulder.y,hand.z-shoulder.z};
+    float len=sqrtf(d.x*d.x+d.y*d.y+d.z*d.z);
+    if(len<.001f)continue;
+    t3_vec3 axis={d.x/len,d.y/len,d.z/len};
+    t3_vec3 bend={axis.x*axis.y,-1+axis.y*axis.y,axis.z*axis.y};
+    float bn=sqrtf(bend.x*bend.x+bend.y*bend.y+bend.z*bend.z);
+    float h=sqrtf(fmaxf(0,.3f*.3f-len*len*.25f))/fmaxf(bn,.001f);
+    t3_vec3 elbow={shoulder.x+d.x*.5f+bend.x*h,shoulder.y+d.y*.5f+bend.y*h,shoulder.z+d.z*.5f+bend.z*h};
+    dj_arm_segment(M.limb[ua],shoulder,elbow,sign*.20f);
+    dj_arm_segment(M.limb[fa],elbow,hand,sign*.22f);
+  }
+}
+/* Equal-length two-bone IK in 3D. The old elbow/knee picks the bend side;
+ * hands and shoes stay attached while the large wheel yaws between the legs. */
+static t3_vec3 penny_joint(t3_vec3 a,t3_vec3 b,t3_vec3 hint,float bone) {
+  t3_vec3 d={b.x-a.x,b.y-a.y,b.z-a.z};
+  float len=sqrtf(d.x*d.x+d.y*d.y+d.z*d.z);
+  t3_vec3 axis={d.x/fmaxf(len,.001f),d.y/fmaxf(len,.001f),d.z/fmaxf(len,.001f)};
+  t3_vec3 mid={(a.x+b.x)*.5f,(a.y+b.y)*.5f,(a.z+b.z)*.5f};
+  t3_vec3 v={hint.x-mid.x,hint.y-mid.y,hint.z-mid.z};
+  float along=v.x*axis.x+v.y*axis.y+v.z*axis.z;
+  v=(t3_vec3){v.x-axis.x*along,v.y-axis.y*along,v.z-axis.z*along};
+  float n=sqrtf(v.x*v.x+v.y*v.y+v.z*v.z);
+  float h=sqrtf(fmaxf(0,bone*bone-len*len*.25f))/fmaxf(n,.001f);
+  return (t3_vec3){mid.x+v.x*h,mid.y+v.y*h,mid.z+v.z*h};
+}
+static void penny_steer(const bike_pose *p) {
+  if(!M.fork || p->ragdoll)return;
+  int model=selected_bike[(int)(Mc-MS)];
+  bike_fit fit=bike_fit_for(model);
+  t3_quat pitch=t3_quat_from_axis_angle((t3_vec3){0,0,1},cw_atan2(p->frame.q.s,p->frame.q.c));
+  t3_quat turn=t3_quat_from_axis_angle((t3_vec3){0,1,0},p->steering);
+  t3_quat q=t3_quat_multiply(pitch,turn);
+  M.fork->position=(t3_vec3){p->front.p.x,p->front.p.y,0};
+  t3_object_set_quaternion(M.fork,q);
+  t3_object_set_quaternion(M.front,t3_quat_multiply(q,t3_quat_from_axis_angle((t3_vec3){0,0,1},p->crank)));
+  for(int side=0;side<2;side++) {
+    float sign=side?-1:1;
+    int ua=side?RAG_UARM_R:RAG_UARM_L,fa=side?RAG_FARM_R:RAG_FARM_L;
+    int th=side?RAG_THIGH_R:RAG_THIGH_L,sn=side?RAG_SHIN_R:RAG_SHIN_L;
+    if(!p->hands_free) {
+      t3_vec3 a={p->limb[ua].p.x,p->limb[ua].p.y,sign*.20f};
+      t3_vec3 v=neck_rot(q,(t3_vec3){fit.bars.x,fit.bars.y,sign*.245f});
+      t3_vec3 b={p->front.p.x+v.x,p->front.p.y+v.y,v.z};
+      t3_vec3 hint={p->limb[fa].p.x,p->limb[fa].p.y,sign*.22f};
+      t3_vec3 joint=penny_joint(a,b,hint,.3f);
+      dj_arm_segment(M.limb[ua],a,joint,sign*.20f);dj_arm_segment(M.limb[fa],joint,b,sign*.22f);
+    }
+    if(!p->feet_free) {
+      t3_vec3 hip={p->limb[th].p.x,p->limb[th].p.y,sign*.10f};
+      float sa,ca;cw_sincos(p->crank,&sa,&ca);
+      t3_vec3 v=neck_rot(q,(t3_vec3){sign*.17f*ca,sign*.17f*sa+.105f,sign*.12f});
+      t3_vec3 foot={p->front.p.x+v.x,p->front.p.y+v.y,v.z};
+      t3_vec3 hint={p->limb[sn].p.x,p->limb[sn].p.y,sign*.12f};
+      t3_vec3 knee=penny_joint(hip,foot,hint,bike_leg_length(model));
+      dj_arm_segment(M.limb[th],hip,knee,sign*.10f);dj_arm_segment(M.limb[sn],knee,foot,sign*.12f);
+      M.foot[side]->position=foot;t3_object_set_quaternion(M.foot[side],q);
+    }
+  }
+}
 static void models_sync_rider_(const bike_pose *p, float z) {
+  float leg_length=bike_leg_length(selected_bike[(int)(Mc-MS)]);
   if (p->ragdoll) { /* a crash: every piece where the crash world has it (world space) */
     if (cw_node_valid(M.node)) cw_node3d_set_position(M.node, (t3_vec3){ 0, 0, 0 });
     if (cw_node_valid(M.node)) cw_node3d_set_rotation(M.node, (t3_vec3){ 0, 0, 0 });
@@ -1241,6 +1403,8 @@ static void models_sync_rider_(const bike_pose *p, float z) {
     put3(M.frame, p->frame3);
     put3(M.rear, p->rear3);
     put3(M.front, p->front3);
+    if(M.fork) put3(M.fork,p->frame3);
+    if(M.cargo) put3(M.cargo,(cw_xform3){p->front3.p,p->frame3.q});
     put3(M.rear_guard, (cw_xform3){ p->rear3.p, p->frame3.q });
     put3(M.front_guard, (cw_xform3){ p->front3.p, p->frame3.q });
     t3_object_set_rotation(M.crank, 0, 0, p->crank);
@@ -1250,7 +1414,7 @@ static void models_sync_rider_(const bike_pose *p, float z) {
       int sn = side ? RAG_SHIN_R : RAG_SHIN_L;
       cw_xform3 leg = p->limb3[sn];
       float depth = side ? -0.12f : 0.12f;
-      t3_vec3 tip = neck_rot(leg.q, (t3_vec3){ 0.44f, 0, depth });
+      t3_vec3 tip = neck_rot(leg.q, (t3_vec3){ leg_length, 0, depth });
       M.foot[side]->position = (t3_vec3){ leg.p.x + tip.x, leg.p.y + tip.y, leg.p.z + tip.z };
       t3_object_set_quaternion(M.foot[side], t3_quat_multiply(leg.q,
         t3_quat_from_axis_angle((t3_vec3){ 0, 0, 1 }, 1.5707963f)));
@@ -1280,6 +1444,16 @@ static void models_sync_rider_(const bike_pose *p, float z) {
   put(M.frame, p->frame);
   put(M.rear, p->rear);
   put(M.front, p->front);
+  if(M.cargo) {
+    put(M.cargo,(cw_xform2){p->front.p,p->frame.q});
+    t3_quat pitch=t3_quat_from_axis_angle((t3_vec3){0,0,1},cw_atan2(p->frame.q.s,p->frame.q.c));
+    t3_quat turn=t3_quat_from_axis_angle((t3_vec3){0,1,0},p->steering);
+    t3_quat assembly=t3_quat_multiply(pitch,turn);
+    t3_object_set_quaternion(M.cargo,assembly);
+    float spin=cw_atan2(p->front.q.s,p->front.q.c)-cw_atan2(p->frame.q.s,p->frame.q.c);
+    t3_object_set_quaternion(M.front,t3_quat_multiply(assembly,
+      t3_quat_from_axis_angle((t3_vec3){0,0,1},spin)));
+  }
   put(M.rear_guard, (cw_xform2){ p->rear.p, p->frame.q });
   put(M.front_guard, (cw_xform2){ p->front.p, p->frame.q });
   t3_object_set_rotation(M.crank, 0, 0, p->crank);
@@ -1289,8 +1463,8 @@ static void models_sync_rider_(const bike_pose *p, float z) {
   for (int side = 0; side < 2; side++) {
     int sn = side ? RAG_SHIN_R : RAG_SHIN_L;
     cw_xform2 leg = p->limb[sn];
-    put(M.foot[side], (cw_xform2){ { leg.p.x + 0.44f * leg.q.c,
-                                    leg.p.y + 0.44f * leg.q.s }, p->frame.q });
+    put(M.foot[side], (cw_xform2){ { leg.p.x + leg_length * leg.q.c,
+                                    leg.p.y + leg_length * leg.q.s }, p->frame.q });
     M.foot[side]->position.z = side ? -0.12f : 0.12f;
   }
   cw_xform2 torso = p->limb[RAG_TORSO], head = p->limb[RAG_HEAD];
@@ -1298,6 +1472,7 @@ static void models_sync_rider_(const bike_pose *p, float z) {
                (t3_vec3){ head.p.x - 0.01f * head.q.c + 0.06f * head.q.s,
                            head.p.y - 0.01f * head.q.s - 0.06f * head.q.c, 0 });
   if (M.cap) put(M.cap, p->cap);
+  if(!person_only[(int)(Mc-MS)]) {dj_hands(p);penny_steer(p);}
 }
 
 void models_forget(void) {

@@ -2333,3 +2333,272 @@ Candy performance before latest bear correction: `out/candy-depth-perf/results.j
 - Save version 10 migrates the previous 17-track save without losing scores
   or graphics settings. The new Liberty Leap gate finishes with zero crashes
   and one hoop hit on native GL, native WebGPU and romdev WebGPU.
+
+
+### 2026-10-22 — DJ cargo course playability (djbike branch)
+
+- User confirmed the real DJ trike is very heavy, but requested game weight that
+  allows completing courses. Original cargo ballast could not climb Downtown's
+  hill near Chupacabra and fell short of Powder Line's final gap.
+- Riding cargo density 42 -> 18; crash cargo density 45 -> 19. Cargo pedal torque
+  multiplier 1.25 -> 2.5; existing 42 rad/s cadence cap, braking and 48-tick
+  articulated steering remain. Boost uses 14 m/s² for cargo instead of the fixed
+  260 N that underpowered the heavier bike. Other bikes retain their tuning.
+- Added debug bike.velocity and optional `track <n> <checkpoint>` for repeatable
+  checkpoint run-ups. Extended tests/bikemesa-djbike.mjs with Downtown checkpoint
+  2 -> checkpoint 3 climb and Powder Line checkpoint 3 -> finish, pedal only.
+- A lighter trial with stronger boost crossed the gap but flipped on landing;
+  final tuning keeps more ballast and uses less boost. Do not restore that trial.
+- Final GL and WebGPU romdev regression runs passed all eight checks, including
+  both new checkpoint cases with zero crashes. Screenshots inspected for flight
+  and finish; reports and cart hashes: out/djbike/course-verification.json.
+  Full courses/all eighteen tracks have not been certified by this focused test.
+
+### 2026-10-22 — Liberty Leap arena rebuild (djbike branch)
+
+- Replaced the original stuntshow block in view.c with liberty.inc: terraced
+  grandstands, individual seats and rounded spectators, roof trusses, floodlight
+  towers, safety barriers, finish gantry/scoreboard and layered textured desert
+  ridges. Rebuilt buses with bonnets, window frames, wheels/hubs, lamps and
+  bumpers; bus decks now have structural undercarriages and piers.
+- Ring is now in YZ (torus rotated 90 degrees around Y), matching travel along X.
+  The old cone flames are gone. Three GPU systems emit fire, sparks and smoke in
+  the same YZ plane, with a warm point light and steel supports. Scenery does not
+  change course collision or hoop scoring; the ring center matches main.c.
+- American flags have correct 1:1.9 proportions, 13 stripes, 50 five-point stars,
+  and a seven-stripe-high union. Shared runtime texture on individually waving
+  cloth meshes. Raised flag capacity; excluded animated flag meshes from static
+  merging. Regenerated both packaged shader tables for the new cloth state.
+- Retuned only track18 lighting/fog/grade via make-tracks.mjs and regenerated its
+  scene. Removed the floating ambient dust from the arena. White Lato signage on
+  navy panels replaces generic cream signs; existing Downtown labels unchanged.
+- Music is now the Second Marine Aircraft Wing Band performance of America the
+  Beautiful from Library of Congress item ihas.100010409 (catalog: no known
+  restrictions on use/reproduction). CREDITS has attribution. Reproducible
+  make-stunt-music.py checks the original MP3 SHA, normalizes loudness and removes
+  the source's silent tail. Keeps the full performance, stereo Vorbis.
+- Added `inspect eyeX eyeY eyeZ targetX targetY targetZ` / `inspect off` debug
+  camera; maintains shadow focus even with debugger pause. Useful for visual
+  reviews without moving the rider.
+- tests/bikemesa-liberty.mjs captures start/flags/bus jump/fire ring/finish and
+  actual riding, checks live particle plane, missing geometry/GPU errors, normal
+  riding audio underrun delta, and scene reload. Debugger pause can starve audio
+  streaming, so the test samples its baseline after resuming and settling.
+- Visual test reports/screenshots: out/liberty/{gl,webgpu}/. DJ control regression
+  also passed on WebGPU after shader regeneration, including Downtown and Powder.
+  No engine patch, release, push or cabinet deployment made in this pass.
+- Final carts passed GL and WebGPU visual regressions with zero skipped draws
+  and zero GPU errors. Final hashes: out/liberty/verification.json.
+
+### 2026-10-22 — penny-farthing and per-frame default paint (djbike branch)
+
+- Added selectable BIKE_PENNY (index 4), 60-inch front (.762 m radius),
+  16-inch rear (.2032 m), curved black backbone, narrow polished rims/56 front
+  spokes, fork, moustache bars, brown leather saddle and rear mounting step.
+  Geometry follows the user's penny_farthing.jpg and penny_farthing_rider.webp.
+- Front-hub direct drive: pedals track the actual front wheel, including
+  coasting; rear wheel rolls freely. Rigid axles, tall rider position, distinct
+  mass distribution, matching crash wheels/frame and longer leg collision fit.
+- Raised/rearward saddle (.825 high, -.20 x relative to front hub), hips at
+  (-.18,.90), .50 m thigh/shin sections. Inspected side close-up to verify the
+  rider sits on the leather saddle with clearance above the tire, feet on hubs.
+- Fork, front wheel, cranks and handlebars yaw together during lane changes.
+  3D arm/leg IK keeps hands on grips and feet on pedals; no-hands/no-feet poses
+  remain free. Frame and saddle stay fixed. Default lane timing stays 18 ticks.
+- Frame paint defaults now apply to every player when selecting a frame:
+  folding/Brompton green (0), cruiser red (1), e-bike white (7), DJ red (1),
+  penny black (6). Manual paint selection remains available. bike_pick uses the
+  default unless its optional paint argument overrides it.
+- tests/bikemesa-penny.mjs passed GL and WebGPU: actual controller carousel,
+  defaults/custom paint, coasting crank animation, lane steering/countersteer,
+  braking, hop/crash/checkpoint recovery, Downtown cp2 climb and Powder cp3 gap.
+  Reports and screenshots: out/penny/{gl,webgpu}/; no missing shaders/skipped
+  geometry/GPU errors. Updated DJ carousel scripts for five bikes; DJ regression
+  also passed WebGPU (including both course obstacles and all five models).
+- User explicitly likes the unusual physics and accepts the tight-loop
+  limitation. User reports successfully clearing the biggest circus loop.
+  Pedal-only probes from Red Rock cp1 and Scary Town cp3 crashed on the loop
+  climb. Experimental loop torque assistance did not solve Red Rock and was
+  REMOVED; no loop-specific physics alteration remains. Do not claim all loops
+  or all courses automatically pass, or flatten the bike's handling to do so.
+- Current carts: build/djbike-cart/carts/bikemesa.wasc (WebGPU) and
+  build/djbike-gl/carts/bikemesa.wasc (GL). GL compiler/linker succeeds; the
+  pre-existing missing engine/deps/wasmcart/bin/wasmcart-pack.js packaging path
+  still requires romdev's pack tool. No engine patch, commit, push or deployment.
+
+### 2026-10-22 — Leaf Fall woodland pass; BMX queued next
+
+- Leaf Fall now has mossy green banks, low wooded hills, 460 layered autumn
+  trees with individual folded leaves, split-rail fences, leaf-covered verges,
+  a red cider barn and pumpkin harvest patch. Removed scattered canyon-like
+  boulders; cooler skylight replaces the orange color grade. Course physics
+  and checkpoints unchanged. Source: autumn.inc, view.c, track06 scene and
+  its make-tracks.mjs lighting definition. WebGPU checkpoint captures checked
+  at out/leaffall/after; errors/missing/skipped all 0.
+- Next user-authorized task: selectable blue 20-inch BMX, references
+  /Users/monteslu/Downloads/bikestuff/bmx_bike_with_alien_and_crate.jpeg and
+  bmx_bike.jpeg (inspected). Front milk crate with brown blanket-wrapped alien.
+  Alien must sometimes bounce out into an actual Box3D flailing ragdoll, remain
+  behind through checkpoint respawns, and return for next level. Do not forget
+  this task across compaction. No BMX code yet at this note.
+
+### 2026-10-22 — E-bike launch verified; BMX implementation started
+
+- E-bike motor torque now has 2.8x low-speed assist, smoothly tapering to normal
+  between 1.5 and 6 m/s. Existing cadence/top-speed limit unchanged. Same-start
+  input measurement at ~0.96 s: 2.05 m/s before, 4.61 m/s after; maximum launch
+  pitch ~0.103 rad, no crashes. Launch/stability/brake override/render checks
+  PASS WebGPU and WebGL (tests/bikemesa-ebike.mjs, out/ebike/).
+- BMX is now model 5 with blue default, 20-inch wheels, compact diamond frame,
+  raised chrome bars, lower saddle and front open white lattice crate.
+  New bmx.inc; enum, fit, name and model dispatch integrated. Initial build
+  succeeds. NOT COMPLETE: alien model/Box3D ejection/lifecycle, visual inspection,
+  controller/physics checks and sixth-model test updates still pending.
+- Current WebGPU cart contains the incomplete BMX frame/crate. GL cart contains
+  verified e-bike and Leaf Fall changes but predates BMX. Do not call BMX done
+  or deploy this partial implementation. Continue with the alien next.
+
+### 2026-10-22 — BMX passenger implemented and exercised
+
+- BMX model 5 is selectable with blue default paint, 20-inch wheels, compact
+  frame, raised chrome bars and a front milk crate. Corrected crate to standard
+  13 x 13 x 11 inch external dimensions (.3302 x .3302 x .2794 m), sourced from
+  https://www.milkcrates1.com/pages/milk-crate-size-guide . Earlier crate was too big.
+- Brown alien with white blanket/hood, eyes, fingers and articulated limbs is
+  skinned into the normal bike model. Eight actual Box3D bodies/spherical joints
+  spawn on hard landings, steep airborne rotations or rider crashes. The world
+  keeps stepping while he is out; checkpoint respawn retains him in the world,
+  a new level restores him. Alien transforms are included in replay and hashes.
+  Crate has riding and crash collision shapes. Debug alien.gone / alien.parts.
+- tests/bikemesa-bmx.mjs exercises real controller selection, stable riding,
+  hop/landing ejection without rider crash, body motion/arm rotation, leaving
+  him behind, checkpoint persistence and next-level restoration, plus a full
+  bike/crate crash and recovery. WebGPU full test PASS. GL original lifecycle
+  test PASS; expanded crash test and DJ regression in progress at this note.
+- Existing user romdev :7331 stopped responding including basic HTTP requests,
+  process 63787 stuck at ~100% CPU. Did NOT stop/restart it. Captured sample at
+  /tmp/bmx-romdev-sample.txt. Started isolated romdev v0.150.2 on :7341 (7332 was
+  already occupied). Livestream http://localhost:7341/livestream. Our test files
+  support ROMDEV_URL override. No engine diagnosis established from this stall.
+- Builds use existing WASI config; GL compile/link passes but same old missing
+  wasmcart-pack.js requires romdev pack fallback. Final current carts contain
+  BMX, e-bike acceleration and Leaf Fall woodland changes. No deployment.
+
+- Final BMX full test PASS on BOTH WebGPU and GL, five checks each and zero
+  GPU/missing/skipped errors. Reports: out/bmx/{webgpu,webgl}/report.json;
+  cart hashes recorded in out/bmx/verification.json. DJ regression also PASS:
+  controller selection, steering, brakes, respawn, 3D crash, Downtown climb,
+  Powder gap, all SIX models render. Adjusted its left-wrap selection for six
+  models and moved brake check onto flat start (old downhill-distance check
+  was timing-sensitive). No DJ physics change for that test correction.
+
+- Leaf Fall GL checkpoint captures also checked: out/leaffall/after-gl, all
+  render errors/missing/skipped 0. Final BMX close-up preview loaded into
+  bikemesa-bmx-preview on :7341. Work complete for BMX/e-bike/Leaf Fall requests.
+
+### 2026-10-22 — BMX passenger less eager to fall out
+
+- User found ejection too easy. Raised landing cutoff from 3.8 to 7.5 m/s
+  downward with >36 air ticks (was >24); airborne spill now requires >2.2 rad
+  tilt after >24 air ticks (was >1.25 rad after >12). Crashes still eject.
+- Regression now explicitly repeats the formerly ejecting ordinary bunny hop
+  and verifies he stays seated through landing. Steep inversion still ejects,
+  limbs move independently, checkpoint persistence and next-level restoration
+  still pass. Both WebGPU and GL six-check suites PASS. Rebuilt both carts and
+  updated out/bmx/verification.json hashes. GL used existing pack fallback.
+
+### 2026-10-22 — Riding bikes collide with fallen alien after respawn
+
+- Root cause: riding wheel proxies were only built/updated on Toybox, and
+  alien shapes explicitly excluded L3_BIKE. Expanded riding proxies to all
+  courses whenever the 3D world is active, lazy-created for each rider; alien
+  mask now includes bikes. Proxies follow actual model wheel radius, narrow
+  tire width, dual DJ front wheels, lane position and corkscrew rotation.
+  Disabled/teleported safely during crashes and checkpoint respawns.
+- Generalized crash_toy_wheels -> crash_riding_wheels. Added alien.bike_hits
+  telemetry using real Box3D hit events. Return-trip test brakes after a
+  checkpoint, lets alien settle, rides back and asserts a new wheel/alien
+  hit plus physical displacement. No teleported alien or fake collision.
+- Full seven-check BMX suite PASS on WebGPU and GL. Existing retention,
+  ejection, ragdoll, respawn and next-level behavior still passes. Toybox
+  riding smoke check also passes with toy hit events and zero render errors.
+  Rebuilt both carts; hashes refreshed in out/bmx/verification.json. No deploy.
+
+### 2026-10-22 — Clear rider / bike / paint selection steps
+
+- Rider selection now builds only the person's visible skinned geometry and
+  uses a standing pose with a closer, ground-centered camera. Bike, cargo and
+  alien geometry are excluded from the person preview. Bike selection restores
+  the complete seated rider and bicycle. Back navigation rebuilds the proper
+  preview; title/racing loads explicitly do not inherit person-only rendering.
+- PICK COLOR now displays all eight paint swatches beneath the heading, with
+  a gold focus border and marker. Palette comes from the same BIKE_PAINT colors
+  as model paint. Controller cycling updates focus; single-player mouse and
+  touch can choose a swatch directly. Swatches also render per split-screen
+  player's current step.
+- Inspected all three standing characters, bike reveal, color changes, return
+  from BMX to person (alien/crate hidden), title return and mixed split-screen
+  steps. Mouse chose purple and touch chose red with asserted bike.color values.
+  Captures out/selection and out/selection-gl. Build both current carts, GL
+  packaged via existing romdev fallback. No deployment.
+
+### 2026-10-22 — Adult Big Wheel, BMX rack/grips, rider proportions
+
+- Added seventh selectable frame BIKE_BIGWHEEL (6), red by default: 26-inch
+  spoked front wheel, paired 12-inch rear drums, low bucket seat/backrest,
+  tubular chassis and rear safety pennant. Front hub direct drive continues
+  pedaling while coasting; steering articulates fork, wheel, pedals, hands
+  and feet. Low rider fit and low collision hull; paired rear crash/riding
+  colliders. Boost acceleration tuned to clear Powder Line's gap. Selection
+  camera and rotation pivot center the low trike.
+- BMX grips sweep back toward the rider, with matching hand targets. Crate
+  stays now triangulate from two head-tube clamps instead of the front axle.
+- LM/JP torso used an oversized limb tube that swallowed the neck in the
+  standing preview. All riders now use a shaped shirt with sloping shoulders
+  and neck opening; standing head/cap placement exposes a short neck (reduced
+  2 cm after user's feedback). Preserved seated animation and ragdoll bones.
+- tests/bikemesa-bigwheel.mjs passed seven checks on WebGPU and GL: carousel,
+  drive/coasting, articulated steering, brake/reset, hop/crash/recovery,
+  Downtown climb and Powder gap. BMX seven-check physics suite and DJ suite
+  (including all seven model renders) passed WebGPU. Updated carousel tests
+  for seven bikes. Screenshots out/bikes-final and out/bikes-final-gl.
+- Rebuilt both carts; existing GL packaging path still missing wasmcart-pack.js,
+  so packaged linked GL wasm/assets with romdev pack. Active preview server
+  remains localhost:7341; original localhost:7331 was hung and left untouched.
+  No deployment, commit or push.
+- Follow-up: replaced LM's spherical cap-bill patch (which projected oddly)
+  with a thin closed visor mesh, rounded outline and shallow transverse curve,
+  explicitly pointing backward along head-local -X. Checked side preview and
+  rebuilt both carts; selection/render smoke checks cover the final assets.
+
+### 2026-10-22 — Night Burbs (track 19)
+
+- New 342 m finish / 402 m total suburban course, three boosted jumps and three
+  checkpoints. BMX completes pedal-only without wipeouts; first jump crosses
+  the Moon with the alien retained, later hard landings may eject him normally.
+- Dedicated nightburbs theme/scenery: houses with pitched roofs and gables,
+  clapboards, warm divided windows, porches/garages, mailboxes, sidewalk/curb,
+  grass verges, broad oaks and taller arching elms with shared leafy crowns.
+  Layered houses/trees, blue gradient sky, stars, cool directional moonlight,
+  warm lamp pools and atmospheric fog. Uses the existing slow, drum-free
+  music_moon ambient score. Street camera lowers smoothly during big air.
+- User rejected the initial procedural moon and its rapid scenery parallax.
+  Replaced it with NASA SVS CGI Moon Kit 2k LROC albedo (source/credit in CREDITS),
+  rendered on a detailed sphere with vertex rim shading, soft additive halo,
+  and deliberately oversized 800-unit radius at (500,440,-5000). Sky/stars and
+  camera far plane expanded accordingly. Moon stays in frame over the route;
+  its small remaining drift comes from real world parallax at that distance.
+- Save version 11 adds track slot 19. Migrations from v8/v9 clear all new slots,
+  v10 preserves the first 18 records and moves quality from offset 228 to 240.
+  Executed actual CartHost save tests for v8/v9/v10 (progress/checksum/quality).
+  Deterministic mode intentionally clears save data in engine cart.c; migration
+  tests therefore use normal load plus fixed-step frames. No engine defect.
+- Tests: tests/bikemesa-nightburbs.mjs runs the entire course, checks zero
+  rendering errors/missing shaders/skipped draws, normal-play alien/moon
+  overlap, long airtime, moon remaining in frame and checkpoint reload.
+  tests/bikemesa-save-cart.mjs covers real cart migration (WASMCART_MODULE).
+- Added basic+vcol, basic+instbig, basic+map+vcol states to project shader table
+  using engine programs.mjs (90 states). Final cart builds in djbike-cart and
+  djbike-gl; GL packaging still uses romdev pack fallback as previously noted.
+  Preview server localhost:7341; screenshots/reports out/nightburbs/{webgpu,webgl}.
+  No deployment, commit, push or release.

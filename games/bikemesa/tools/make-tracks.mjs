@@ -58,8 +58,8 @@ export const THEMES = {
     amb: [0.85, 1, 0.75], hemi: 0.35, tonemap: 'AGX', exposure: 0.95, grade: 'jungle' },
   desert: { tod: 13.2, lat: 26, north: 90, sun: 7.0, sky: 1.0, mie: 1.0, fog: 0.0025, fogh: 0.06, ground: [0.62, 0.45, 0.25],
     amb: [1, 0.9, 0.75], hemi: 0.3, tonemap: 'AGX', exposure: 0.9, grade: 'desert' },
-  autumn: { tod: 15.8, lat: 48, north: 70, sun: 5.6, sky: 0.9, mie: 1.2, fog: 0.005, fogh: 0.08, ground: [0.35, 0.2, 0.08],
-    amb: [1, 0.82, 0.6], hemi: 0.32, tonemap: 'AGX', exposure: 1.0, grade: 'autumn' },
+  autumn: { tod: 14.6, lat: 48, north: 70, sun: 5.0, sky: 1.1, mie: 0.45, fog: 0.008, fogh: 0.08, ground: [0.19, 0.25, 0.14],
+    amb: [0.78, 0.85, 1], hemi: 0.75, tonemap: 'AGX', exposure: 1.15, grade: null },
   coast: { tod: 12.0, lat: 52, north: 80, sun: 2.4, sky: 0.7, mie: 2.6, fog: 0.009, fogh: 0.04, ground: [0.2, 0.24, 0.26],
     amb: [0.72, 0.8, 0.9], hemi: 0.45, tonemap: 'AGX', exposure: 1.1, grade: 'coast' },
   cosmic: { tod: 19.2, lat: 20, north: 30, sun: 2.6, sky: 0.9, mie: 0.5, fog: 0.002, fogh: 0.02, ground: [0.1, 0.06, 0.16],
@@ -76,8 +76,10 @@ export const THEMES = {
     amb: [1, 0.75, 0.55], hemi: 0.4, tonemap: 'AGX', exposure: 1.0, grade: 'mars' },
   circus: { tod: 16.2, lat: 30, north: 75, sun: 5.0, sky: 1.0, mie: 0.8, fog: 0.0025, fogh: 0.06, ground: [0.35, 0.16, 0.25],
     amb: [1, 0.85, 0.75], hemi: 0.45, tonemap: 'AGX', exposure: 1.05, grade: 'beach' },
-  stuntshow: { tod: 14.5, lat: 35, north: 70, sun: 6.4, sky: 1.0, mie: 0.65, fog: 0.002, fogh: 0.04, ground: [0.3, 0.32, 0.38],
-    amb: [1, 0.92, 0.82], hemi: 0.38, tonemap: 'AGX', exposure: 1.0, grade: 'beach' },
+  nightburbs: { tod: 23.5, lat: 35, north: 70, sun: 0, sky: 0.12, mie: 0.1, fog: 0.002, fogh: 0.035, ground: [0.025,0.045,0.085],
+    amb: [0.38,0.53,0.85], hemi: 0.8, tonemap: 'AGX', exposure: 1.25, grade: null },
+  stuntshow: { tod: 15.3, lat: 35, north: 70, sun: 5.5, sky: 1.0, mie: 0.25, fog: 0.003, fogh: 0.04, ground: [0.12, 0.16, 0.24],
+    amb: [0.72, 0.82, 1], hemi: 0.65, tonemap: 'AGX', exposure: 1.1, grade: 'beach' },
   candy: { tod: 10.8, lat: 25, north: 85, sun: 5.2, sky: 1.0, mie: 0.7, fog: 0.003, fogh: 0.05, ground: [0.6, 0.35, 0.5],
     amb: [1, 0.85, 0.95], hemi: 0.5, tonemap: 'AGX', exposure: 1.0, grade: 'beach' },
   toybox: { tod: 15.5, lat: 35, north: 70, sun: 5.4, sky: 0.95, mie: 0.8, fog: 0.003, fogh: 0.06, ground: [0.3, 0.35, 0.5],
@@ -259,6 +261,15 @@ export const TRACKS = [
     ['flat', 14], ['finish'], ['flat', 60],
   ] },
 
+  { name: 'Night Burbs', theme: 'nightburbs', par: 52, ready: true, music: 'music_moon', pieces: [
+    ['flat', 22], ['slope', 22, -4], ['check'], ['boost', 16], ['flat', 6],
+    ['kicker', 12, 3.6], ['pit', 18, -3], ['landing', 24, 4], ['flat', 16], ['check'],
+    ['slope', 20, -3], ['boost', 22], ['flat', 8], ['kicker', 14, 5],
+    ['pit', 26, -4], ['landing', 30, 5], ['flat', 18], ['check'],
+    ['rollers', 2, .65, 10], ['boost', 20], ['flat', 6], ['kicker', 12, 4],
+    ['pit', 22, -3], ['landing', 26, 4], ['flat', 20], ['finish'], ['flat', 60],
+  ] },
+
 ];
 
 // ── sampling ────────────────────────────────────────────────────────────
@@ -360,7 +371,7 @@ function writeScene(n, t, b) {
 [node name="Track" type="Node3D"]
 
 [node name="Sky" parent="." type="ProceduralSky"]
-${t.theme === 'neon' ? 'sun = ""' : 'sun = "../Sun"'}
+${['neon','nightburbs'].includes(t.theme) ? 'sun = ""' : 'sun = "../Sun"'}
 time_of_day = ${th.tod}
 latitude = ${th.lat}
 declination = 12
@@ -374,7 +385,7 @@ env_update_angle = 2
 
 [node name="Sun" parent="." type="DirectionalLight3D"]
 position = vec3(0, 0, 0)
-${t.theme === 'neon' ? 'rotation = vec3(-0.65, -0.4, 0)\ncolor = color(0.55, 0.7, 1, 1)\nenergy = 0.7\n' : ''}shadow = true
+${t.theme === 'nightburbs' ? 'rotation = vec3(-0.65, -0.4, 0)\ncolor = color(0.48, 0.65, 1, 1)\nenergy = 1.4\n' : t.theme === 'neon' ? 'rotation = vec3(-0.65, -0.4, 0)\ncolor = color(0.55, 0.7, 1, 1)\nenergy = 0.7\n' : ''}shadow = true
 shadow_size = 2048
 shadow_extent = 16
 shadow_far = 120
@@ -390,7 +401,7 @@ hemi_energy = ${th.hemi}
 density = ${th.fog}
 height_falloff = ${th.fogh}
 base_height = ${(b.minY - 10).toFixed(1)}
-use_sky_color = true
+use_sky_color = ${t.theme === 'nightburbs' ? 'false\ncolor = color(0.04, 0.07, 0.12, 1)' : t.theme === 'stuntshow' ? 'false\ncolor = color(0.36, 0.5, 0.68, 1)' : 'true'}
 ${t.theme === 'scary' ? 'volumetric = true\nvolumetric_distance = 48\nvolumetric_ambient = 1.3\nvolumetric_albedo = color(0.8, 0.85, 1, 1)\n' : ''}sun_scatter = 0.35
 sun_g = 0.8
 max_opacity = 0.7
@@ -401,7 +412,7 @@ sky_distance = 500
 ${t.theme === 'neon' ? 'depth_prepass = true\n' : ''}tonemap = ${th.tonemap}
 exposure = ${th.exposure}
 bloom = true
-bloom_intensity = 0.06
+bloom_intensity = ${t.theme === 'nightburbs' ? .12 : .06}
 bloom_threshold = 1
 bloom_knee = 0.6
 ssao = true
@@ -411,15 +422,15 @@ aa = SMAA
 vignette = true
 vignette_intensity = 0.25
 vignette_smoothness = 0.6
-grade = true
-lut = "grades/${th.grade}.cube"
-grade_intensity = ${t.theme === 'neon' ? 0.3 : 0.75}
+grade = ${!th.grade || t.theme === 'stuntshow' ? 'false' : 'true'}
+lut = "grades/${th.grade || 'neon'}.cube"
+grade_intensity = ${t.theme === 'stuntshow' ? 0.12 : t.theme === 'neon' ? 0.3 : 0.75}
 
 [node name="Camera" parent="." type="Camera3D"]
 position = vec3(0, 3, 14)
 fov = 46
 near = 0.3
-far = 900
+far = ${t.theme === 'nightburbs' ? 20000 : 900}
 `;
   mkdirSync(join(GAME, 'assets', 'scenes'), { recursive: true });
   writeFileSync(join(GAME, 'assets', 'scenes', `track${String(n).padStart(2, '0')}.cwscene`), s);

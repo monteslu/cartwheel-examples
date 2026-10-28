@@ -86,7 +86,8 @@ static void mesa_name(t3_object *root,const char *label,float x,float y,float z,
   bool coffee=!strcmp(label,"Lost Dutchman Coffee");
   bool grain=!strcmp(label,"AGAINST")||!strcmp(label,"THE GRAIN")||!strcmp(label,"BAKERY & CAFE");
   bool haunted=!strcmp(label,"EAST VALLEY")||!strcmp(label,"PARANORMAL")||!strcmp(label,"MESA'S HAUNTED MUSEUM");
-  bool architectural=coffee||copal||hopes||grain||haunted||!strncmp(label,"DIAMOND",7)||!strncmp(label,"LEGENDARY",9)||!strcmp(label,"NCT")||!strcmp(label,"THE")||!strcmp(label,"NILE")||!strcmp(label,"EST. 1924")||!strcmp(label,"Concert");
+  bool patriotic=!strcmp(label,"LIBERTY LEAP")||!strcmp(label,"BIKEMESA STUNT SHOW")||!strcmp(label,"HOME OF THE BRAVE");
+  bool architectural=patriotic||coffee||copal||hopes||grain||haunted||!strncmp(label,"DIAMOND",7)||!strncmp(label,"LEGENDARY",9)||!strcmp(label,"NCT")||!strcmp(label,"THE")||!strcmp(label,"NILE")||!strcmp(label,"EST. 1924")||!strcmp(label,"Concert");
   void *bytes=cw_asset_load(architectural?"fonts/Lato-Bold.ttf":"fonts/Fredoka-SemiBold.ttf",&size);
   if(!bytes) return;
   stbtt_fontinfo font;
@@ -106,10 +107,11 @@ static void mesa_name(t3_object *root,const char *label,float x,float y,float z,
   bool chiwas=!strcmp(label,"Tacos Chiwas");
   bool burrito=!strcmp(label,"BURRITOHOLICS");
   bool diamond=!strncmp(label,"DIAMOND",7)||!strncmp(label,"LEGENDARY",9);
-  bool letters=chupa||coffee||copal||hopes||grain||haunted||diamond||!strcmp(label,"NCT")||burrito||chiwas||neon||nile||!strncmp(label,"MAIN",4)||!strcmp(label,"BURGERS")||!strncmp(label,"B.R.I.",6)||!strcmp(label,"OBC");
+  bool letters=patriotic||chupa||coffee||copal||hopes||grain||haunted||diamond||!strcmp(label,"NCT")||burrito||chiwas||neon||nile||!strncmp(label,"MAIN",4)||!strcmp(label,"BURGERS")||!strncmp(label,"B.R.I.",6)||!strcmp(label,"OBC");
   bool distill=!strncmp(label,"ARIZONA",7);
   unsigned char ink[3]={20,20,20},paper[3]={245,235,213};
   if(letters) {ink[0]=!strncmp(label,"B.R.I.",6)?55:230;ink[1]=175;ink[2]=!strcmp(label,"OBC")?230:65;}
+  if(patriotic){ink[0]=245;ink[1]=244;ink[2]=233;}
   if(coffee){ink[0]=74;ink[1]=45;ink[2]=34;}
   if(chupa){ink[0]=188;ink[1]=151;ink[2]=108;}
   if(copal){ink[0]=235;ink[1]=224;ink[2]=166;}

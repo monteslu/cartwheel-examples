@@ -4,15 +4,15 @@
 
 [node name="Sky" parent="." type="ProceduralSky"]
 sun = "../Sun"
-time_of_day = 15.8
+time_of_day = 14.6
 latitude = 48
 declination = 12
 north = 70
-sun_energy = 5.6
-sky_energy = 0.9
-mie = 1.2
+sun_energy = 5.0
+sky_energy = 1.1
+mie = 0.45
 sun_disk_intensity = 1.2
-ground_color = color(0.35, 0.2, 0.08, 1)
+ground_color = color(0.19, 0.25, 0.14, 1)
 env_update_angle = 2
 
 [node name="Sun" parent="." type="DirectionalLight3D"]
@@ -25,12 +25,12 @@ shadow_bias = -0.0002
 shadow_normal_bias = 0.02
 
 [node name="Env" parent="." type="WorldEnvironment"]
-ambient_color = color(1, 0.82, 0.6, 1)
+ambient_color = color(0.78, 0.85, 1, 1)
 ambient_energy = 0.05
-hemi_energy = 0.32
+hemi_energy = 0.75
 
 [node name="Fog" parent="." type="HeightFog"]
-density = 0.005
+density = 0.008
 height_falloff = 0.08
 base_height = -51.3
 use_sky_color = true
@@ -42,7 +42,7 @@ sky_distance = 500
 
 [node name="Post" parent="." type="PostProcess"]
 tonemap = AGX
-exposure = 1
+exposure = 1.15
 bloom = true
 bloom_intensity = 0.06
 bloom_threshold = 1
@@ -54,7 +54,7 @@ aa = SMAA
 vignette = true
 vignette_intensity = 0.25
 vignette_smoothness = 0.6
-grade = true
+grade = false
 lut = "grades/autumn.cube"
 grade_intensity = 0.75
 

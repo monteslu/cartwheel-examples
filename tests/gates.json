@@ -5650,5 +5650,19 @@
     "name": "racer-save-migration",
     "script": "tests/racer-save-migration.mjs",
     "note": "racer's save data: a version 1 save (76 bytes) loads under version 2 with its settings, best laps and counters kept and the new fields (trial times, ghosts, cup trophies, assists) empty; a damaged one and an empty one start fresh. Runs the game's own save loader."
+  },
+  {
+    "name": "bikemesa-djbike",
+    "app": "bikemesa",
+    "frames": 600,
+    "input": "bikemesa-djbike-input.json",
+    "expect": {
+      "game.state": 3,
+      "bike.model": 3,
+      "crashes": 0,
+      "race.lane_changes": 1,
+      "render.skipped": 0
+    },
+    "controlInput": "bikemesa-ride.json"
   }
 ]
