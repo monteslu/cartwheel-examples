@@ -1235,6 +1235,9 @@ static float slope_at(float x, float z) {
   return sqrtf(dx * dx + dz * dz) / (2 * e);
 }
 static float ground_cb(float x, float z, void *ud) { return terrain(x, z, ud); }
+/* the ground for a rock: lower on a slope by *ud metres per unit of slope, so its downhill side stays in the snow (a
+ * rock set level on a steep face shows its rounded underside there and looks stuck on, however deep its middle is) */
+static float rock_ground_cb(float x, float z, void *ud) { return terrain(x, z, NULL) - *(const float *)ud * fminf(slope_at(x, z), 1.3f); }
 
 /* where forest may stand: below the tree line, off the lake and the gorge, thinned into clearings */
 static float tree_mask(float x, float z, void *ud) {
@@ -1257,6 +1260,55 @@ static float shore_mask(float x, float z, void *ud) {
   (void)ud;
   float lx = (x - F.lake_cx) / F.lake_rx, lz = (z - F.lake_cz) / F.lake_rz, d = sqrtf(lx * lx + lz * lz);
   return d > 0.92f && d < 1.25f ? 1.0f : 0.0f;
+}
+
+/* Rocks in snow. A rock on a steep face was set level, so its rounded underside stood out of the slope downhill and it
+ * read as stuck on (rock_ground_cb now sinks it by the slope). What shows should look like rock that came up through
+ * snow: dark cold slate with the snow lying on its upward faces. Done to the built sets' models in place (each model
+ * is shared by every copy of it), so it costs no draws; the rock's own facet shading is kept as a brightness. */
+typedef struct { t3_geometry *g[64]; int n; t3_material *m; } snowdress;
+static void snow_rock_geometry(t3_geometry *g) {
+  t3_attribute *na = g->attributes[T3_ATTR_NORMAL], *ca = g->attributes[T3_ATTR_COLOR];
+  if (!na || !ca || ca->type != T3_FLOAT32) return;
+  const float *N = t3_attribute_f32(na);
+  float *C = t3_attribute_f32(ca);
+  int n = ca->count, cs = ca->item_size;
+  float lsum = 0;
+  for (int i = 0; i < n; i++) lsum += 0.3f * C[i * cs] + 0.6f * C[i * cs + 1] + 0.1f * C[i * cs + 2];
+  float lavg = lsum / (float)(n > 0 ? n : 1);
+  if (lavg < 1e-4f) lavg = 1;
+  for (int i = 0; i < n; i++) {
+    float *c = &C[i * cs];
+    float k = cw_clampf((0.3f * c[0] + 0.6f * c[1] + 0.1f * c[2]) / lavg, 0.7f, 1.25f);
+    float s = cw_smoothstep(0.7f, 0.88f, N[i * 3 + 1]); /* snow on the faces that look up */
+    c[0] = k * (0.042f + (0.56f - 0.042f) * s), c[1] = k * (0.048f + (0.66f - 0.048f) * s), c[2] = k * (0.07f + (0.9f - 0.07f) * s);
+  }
+  ca->version++;
+}
+static void snow_walk(t3_object *o, snowdress *sd) {
+  if (!o) return;
+  if (o->type == T3_INSTANCED_MESH || o->type == T3_MESH) {
+    t3_mesh *me = (t3_mesh *)o;
+    bool seen = false;
+    for (int i = 0; i < sd->n; i++) seen |= sd->g[i] == me->geometry;
+    if (!seen && sd->n < 64) sd->g[sd->n++] = me->geometry, snow_rock_geometry(me->geometry);
+    for (int i = 0; i < me->material_count; i++)
+      if (me->materials[i] != sd->m) {
+        t3_retain(sd->m);
+        t3_release(me->materials[i]);
+        me->materials[i] = sd->m;
+      }
+  }
+  for (int i = 0; i < o->child_count; i++) snow_walk(o->children[i], sd);
+}
+/* every model under a finished prop set's group (by name, under root) */
+static void snow_dress_set(cw_node root, const char *name) {
+  cw_node grp = cw_node_get(root, name);
+  if (!cw_node_valid(grp)) return;
+  snowdress sd = { 0 };
+  /* untextured: the vertex colours carry the snow and the rock (a rock texture would grey the snow) */
+  sd.m = prop_material(PL_MAIN, -1, (pcol){ 1, 1, 1 }, 1.0f);
+  for (int i = 0; i < cw_node_child_count(grp); i++) snow_walk(cw_node3d_object(cw_node_child(grp, i)), &sd);
 }
 
 static void build_forest(cw_node root, const track *t) {
@@ -1302,9 +1354,15 @@ static void build_forest(cw_node root, const track *t) {
   o.lod_dist = 80.0f, o.far_thin = 0.4f;
   o.seed = 13;
   n += scatter_area(ps, t, &o);
-  /* rocks half drowned in snow */
+  ps_finish(ps);
+  /* rocks half drowned in snow (their own set: snow_dress_set restyles every model in it) */
+  ps = ps_new(root, "Rocks");
+  ps_style(ps, PK_ROCK, TEX_GROUND_ROCK, rgb(0.5f, 0.6f, 0.9f), 1.0f);
+  ps_style(ps, PK_BOULDERS, TEX_GROUND_ROCK, rgb(0.5f, 0.6f, 0.9f), 1.0f);
   o = scatter_defaults();
-  o.ground = ground_cb;
+  o.align_slope = true;
+  static const float ROCK_SLOPE_SINK = 2.0f;
+  o.ground = rock_ground_cb, o.ground_ud = (void *)&ROCK_SLOPE_SINK;
   o.mask = rock_mask;
   o.kinds[0] = PK_ROCK, o.weight[0] = 4;
   o.kinds[1] = PK_BOULDERS, o.weight[1] = 1.2f;
@@ -1318,6 +1376,7 @@ static void build_forest(cw_node root, const track *t) {
   n += scatter_along(ps, t, &o);
   cw_info("frost: %d trees and rocks", n);
   ps_finish(ps);
+  snow_dress_set(root, "Rocks");
 
   /* ice: spikes, boulders and glowing crystals along the glassy stretch, round the lake and about the crevasse */
   prop_set *pi = ps_new(root, "Ice");
@@ -1377,7 +1436,8 @@ static void build_outcrops(cw_node root, const track *t) {
   ps_style(ps, PK_SPIRE, -1, rgb(0.55f, 0.75f, 1.6f), 1.0f);
   ps_style(ps, PK_CANYON_WALL, TEX_GROUND_ROCK, rgb(0.85f, 1.0f, 1.5f), 1.0f);
   scatter_opts o = scatter_defaults();
-  o.ground = ground_cb;
+  static const float CRAG_SLOPE_SINK = 4.5f;
+  o.ground = rock_ground_cb, o.ground_ud = (void *)&CRAG_SLOPE_SINK;
   o.mask = crag_mask;
   o.kinds[0] = PK_BOULDERS, o.weight[0] = 3;
   o.kinds[1] = PK_ROCK, o.weight[1] = 3;
@@ -1389,7 +1449,13 @@ static void build_outcrops(cw_node root, const track *t) {
   o.sink = 1.1f;
   o.lod_dist = 90.0f, o.far_thin = 0.45f;
   o.seed = 51;
-  int n = scatter_area(ps, t, &o);
+  o.align_slope = true;
+  prop_set *pr = ps_new(root, "CragRocks");
+  ps_style(pr, PK_BOULDERS, TEX_GROUND_ROCK, rgb(0.85f, 1.0f, 1.5f), 1.0f);
+  ps_style(pr, PK_ROCK, TEX_GROUND_ROCK, rgb(0.85f, 1.0f, 1.5f), 1.0f);
+  int n = scatter_area(pr, t, &o);
+  ps_finish(pr);
+  snow_dress_set(root, "CragRocks");
   /* needles and cliff faces on the ridges, in the cool variant of their palettes: placed by hand so every one is that variant */
   {
     uint32_t hr = 91;
