@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "../game.h"
+#include "../textures.h" /* the map_def names its road and wall textures, also in the host-side track tools */
 
 static const piece SPEC[] = {
   WALLS(2, 2),
@@ -261,7 +262,19 @@ static float temple_ground(float x, float z, void *ud) {
     float dx = x - FALL.c.x, dz = z - FALL.c.z;
     float lat = dx * FALL.r.x + dz * FALL.r.z, al = dx * FALL.f.x + dz * FALL.f.z;
     float pl = sstep(FALL.cliff_lat - 18.0f, FALL.cliff_lat, -lat) * (1.0f - sstep(70.0f, 130.0f, fabsf(al)));
+    /* and it ends behind the falls: it ran on without end and stood 34 m high over the start straight, the S-bend and
+     * the first tunnel, a dark bank cut at 45 degrees beside the road and an earth slab through the tunnel */
+    pl *= 1.0f - sstep(FALL.cliff_lat + 25.0f, FALL.cliff_lat + 60.0f, -lat);
     h = lerpf(h, FALL.h + ground_noise(x, z, 30.0f, 3.0f, 2, 8), pl);
+  }
+  /* a temple tunnel stands in a clearing: the land stays under its road out past its masonry, and rises beyond. The
+   * ground mesh's 8 m triangles otherwise ran from the high land down to the road graded at the mouth, straight through
+   * the tube: a dark slab of earth standing in the lane a few metres before the way out */
+  {
+    float ry;
+    int idx;
+    float gap = road_gap_idx(T, x, z, &ry, &idx);
+    if (T->s[idx].flags & TF_TUNNEL) h = fminf(h, ry - 0.6f + fmaxf(gap - 12.0f, 0.0f) * 1.2f);
   }
   return h;
 }
@@ -1151,6 +1164,38 @@ static void tunnel_mass(pmc *c, const track *t, float s0, float s1, bool to_grou
   }
 }
 
+/* The track's tunnel tubes are drawn with the shared lining (ribbed concrete and a strip of lamps along the crown: a road
+ * tunnel). Inside a temple they are carved stone instead, lit by the torches on their walls: the tube meshes (the world's
+ * T4_ chunks, built before the scenery) get a mossy stone material of their own here. */
+static void line_tunnels(cw_node scene) {
+  cw_node w = cw_node_get(scene, "World");
+  int n = cw_node_child_count(w);
+  t3_material *m = NULL;
+  for (int i = 0; i < n; i++) {
+    cw_node c = cw_node_child(w, i);
+    const char *nm = cw_node_name(c);
+    if (!nm || strncmp(nm, "T4_", 3) != 0) continue;
+    t3_object *wrap = cw_node3d_object(c);
+    if (!wrap || wrap->child_count < 1) continue;
+    t3_mesh *me = (t3_mesh *)wrap->children[0];
+    if (me->material_count < 1) continue;
+    if (!m) {
+      m = t3_mesh_physical_material_new(0xffffff);
+      m->color = (t3_color){ 0.3f, 0.32f, 0.23f };
+      m->roughness = 1.0f;
+      tex_apply(m, TEX_WALL_STONE, 2.0f, 2.0f, 1.0f, 1.0f);
+      /* a warm torchlit fill: the sun does not reach in here */
+      m->emissive = (t3_color){ 0.42f, 0.27f, 0.12f };
+      m->emissive_intensity = 0.12f;
+      m->side = T3_DOUBLE_SIDE;
+    }
+    t3_retain(m);
+    t3_release(me->materials[0]);
+    me->materials[0] = m;
+  }
+  if (m) t3_release(m);
+}
+
 static void build_tunnels(cw_node parent, const track *t) {
   pmc *c = pmc_new(60, 61);
   pmc_texture_metres(c, 4.0f);
@@ -1458,6 +1503,7 @@ static struct {
   t3_material *beam;
   t3_object *shafts[16];
   t3_vec3 shaft_at[16];
+  float shaft_s[16], shaft_lat[16]; /* where along the road each beam stands, and how far out (either side) */
   int nshaft;
   cw_node scene;
   bool sun_known;
@@ -1706,10 +1752,12 @@ static void build_shafts(cw_node scene, const track *t) {
   rng r = { 909 };
   struct { float s, lat; } where[] = { { 40, 12 }, { 105, -14 }, { 200, 10 }, { 300, -11 }, { 520, 9 }, { 640, -9 }, { 800, 14 }, { 1100, -15 }, { 1700, 12 }, { 2330, -14 }, { 2560, 11 }, { 2760, -10 } };
   for (int i = 0; i < (int)(sizeof where / sizeof where[0]) && FX.nshaft < 16; i++) {
-    t3_vec3 p = tp(t, where[i].s, where[i].lat * (0.8f + 0.4f * rnd(&r)), 0);
-    float g = gy(p.x, p.z);
-    if (p.y - g > 4.0f) p.y = g; /* the beam stands on the ground */
+    float jit = 0.8f + 0.4f * rnd(&r);
     float rad = 2.2f + 2.2f * rnd(&r);
+    /* its sheets are rad * 3.4 wide: their edge stays well clear of the wall (frame turns it to the sun's side) */
+    float lat = fabsf(where[i].lat) * jit + 9.0f + rad * 1.7f;
+    t3_vec3 p = tp(t, where[i].s, where[i].lat < 0 ? -lat : lat, 0);
+    p.y = gy(p.x, p.z); /* the beam stands on the ground */
     t3_object *g2 = t3_group_new();
     for (int k = 0; k < 3; k++) { /* three crossed sheets read as a beam from every side */
       t3_mesh *me = t3_mesh_new(t3_plane_geometry_new(rad * 3.4f, 70.0f, 1, 1), m);
@@ -1719,6 +1767,7 @@ static void build_shafts(cw_node scene, const track *t) {
       t3_release(me);
     }
     t3_object_set_position(g2, p.x, p.y + 28.0f, p.z);
+    FX.shaft_s[FX.nshaft] = where[i].s, FX.shaft_lat[FX.nshaft] = lat;
     FX.shafts[FX.nshaft] = g2;
     FX.shaft_at[FX.nshaft++] = V(p.x, p.y, p.z);
     char n[24];
@@ -2108,6 +2157,7 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
   if (!off("jungle")) build_jungle(scene, t);
   if (!off("viaduct")) build_viaduct(scene, t);
   if (!off("tunnels")) build_tunnels(scene, t);
+  if (!off("lining")) line_tunnels(scene);
   if (!off("bridge")) build_bridge(scene, t);
   if (!off("ring")) build_ring(scene, t);
   if (!off("fall")) build_waterfall(scene, t);
@@ -2165,7 +2215,13 @@ static void scenery_frame(float alpha, double time) {
         if (al > 1e-4f) {
           t3_quat q = t3_quat_from_axis_angle(vmul(ax, 1.0f / al), acosf(clampf(w.y, -1, 1)));
           for (int i = 0; i < FX.nshaft; i++) {
-            t3_vec3 base = FX.shaft_at[i];
+            /* a beam leans toward the sun from its foot: stand it on the side of the road the sun is on, clear of the
+             * walls, so it leans away over the jungle. On the other side it leaned across the road and the karts drove
+             * through a flat tan sheet where it cut into the hillside */
+            tsample a = track_at(T, FX.shaft_s[i]);
+            float side = (w.x * a.r.x + w.z * a.r.z) >= 0 ? 1.0f : -1.0f;
+            t3_vec3 base = vadd(a.p, vmul(a.r, side * FX.shaft_lat[i]));
+            base.y = gy(base.x, base.z);
             t3_object_set_quaternion(FX.shafts[i], q);
             t3_object_set_position(FX.shafts[i], base.x + w.x * 35.0f, base.y + w.y * 35.0f, base.z + w.z * 35.0f);
           }
