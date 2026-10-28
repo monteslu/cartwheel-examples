@@ -15,9 +15,9 @@
 #                                           carts, in seconds, with the same simulation
 #   scripts/build.sh bikemesa derby_auto    only these apps (ninja targets)
 #
-# Trees: build/native (this machine's compiler; the gates run it), build/cart,
-# build/cart-wgpu, build/<target> (the target's toolchain: what the release
-# packages ship). The cart trees and cross builds pack assets with the host's
+# Trees: build/native (this machine's compiler; the gates run it),
+# build/cart-wgpu (the dual GL + WebGPU cart), build/<target> (the target's toolchain: what the release
+# packages ship). The cart tree and cross builds pack assets with the host's
 # cwpack. CW_CART_LINK_JOBS (default 4) caps the threads one cart link
 # (ThinLTO and wasm-opt) uses; at most two carts link at once.
 set -euo pipefail
@@ -52,12 +52,11 @@ if [ -z "${CARTWHEEL_ENGINE_SOURCE:-}" ] && [ ! -L "$ENGINE" ] && [ -d "$SDKS" ]
   DEV=ON
   [ -n "${RELEASE:-}" ] && DEV=OFF
   DEFAULT="native"
-  [ -d "$SDKS/cart" ] && DEFAULT="$DEFAULT cart"
   [ -d "$SDKS/cart-wgpu" ] && DEFAULT="$DEFAULT cart-wgpu"
   for t in ${TARGETS:-$DEFAULT}; do
     case "$t" in
       native) sdk=$HOST; args=() ;;
-      cart|cart-wgpu) sdk=$t; args=(-DCMAKE_TOOLCHAIN_FILE="$SDKS/$t/cmake/cart.cmake" ${JOBS[@]+"${JOBS[@]}"} -DCW_CART_DEV="$DEV") ;;
+      cart-wgpu) sdk=$t; args=(-DCMAKE_TOOLCHAIN_FILE="$SDKS/$t/cmake/cart.cmake" ${JOBS[@]+"${JOBS[@]}"} -DCW_CART_DEV="$DEV") ;;
       linux-x64|linux-arm64|windows-x64|android-arm64|macos-arm64)
         sdk=$t; args=(-DCMAKE_TOOLCHAIN_FILE="$SDKS/$t/cmake/export/$t.cmake" -DCW_EXPORT_DEPS="$HSDK/deps/export") ;;
       *) echo "unknown target tree: $t (native, cart, cart-wgpu, linux-x64, linux-arm64, windows-x64, android-arm64, macos-arm64)" >&2; exit 2 ;;
@@ -77,18 +76,16 @@ COMMON=(-G Ninja -DCMAKE_BUILD_TYPE="$BT" -DCW_ENGINE_ONLY=ON -DCW_PROJECT_DIR="
 DEV=ON
 [ -n "${RELEASE:-}" ] && DEV=OFF
 CWPACK="$ROOT/build/native/tools/cwpack/cwpack"
-for t in ${TARGETS:-native cart cart-wgpu}; do
+for t in ${TARGETS:-native cart-wgpu}; do
   if [ "$t" != native ] && [ ! -x "$CWPACK" ]; then
     echo "build/native has no cwpack yet: build native first (TARGETS=\"native $t\")" >&2; exit 1
   fi
   fresh "$ROOT/build/$t" "$ENGINE" "$(cd "$ENGINE" && pwd -P)"
   case "$t" in
     native) cmake -S "$ENGINE" -B "$ROOT/build/native" "${COMMON[@]}" >/dev/null ;;
-    cart) cmake -S "$ENGINE" -B "$ROOT/build/cart" "${COMMON[@]}" ${JOBS[@]+"${JOBS[@]}"} -DCW_CART_DEV="$DEV" \
-            -DCMAKE_TOOLCHAIN_FILE="$ENGINE/cmake/cart.cmake" -DCW_CWPACK="$CWPACK" >/dev/null ;;
     cart-wgpu) cmake -S "$ENGINE" -B "$ROOT/build/cart-wgpu" "${COMMON[@]}" ${JOBS[@]+"${JOBS[@]}"} -DCW_CART_DEV="$DEV" \
                  -DCMAKE_TOOLCHAIN_FILE="$ENGINE/cmake/cart.cmake" -DCW_WGPU=ON -DCW_CWPACK="$CWPACK" >/dev/null ;;
-    *) echo "unknown target tree: $t (native, cart, cart-wgpu; export targets build against the SDKs)" >&2; exit 2 ;;
+    *) echo "unknown target tree: $t (native, cart-wgpu; export targets build against the SDKs)" >&2; exit 2 ;;
   esac
   ninja -C "$ROOT/build/$t" "$@"
 done

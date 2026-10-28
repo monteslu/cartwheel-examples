@@ -59,7 +59,7 @@ case "$(uname -s)-$(uname -m)" in
 esac
 TARGETS="$HOST"
 # the cart SDKs need wasi-sdk, whose pinned build runs on Linux x64
-[ "$HOST" = linux-x64 ] && TARGETS="$TARGETS cart cart-wgpu"
+[ "$HOST" = linux-x64 ] && TARGETS="$TARGETS cart-wgpu"
 for t in ${CW_SDK_TARGETS:-}; do [[ " $TARGETS " == *" $t "* ]] || TARGETS="$TARGETS $t"; done
 
 sha_check() { if command -v sha256sum >/dev/null; then sha256sum -c --quiet -; else shasum -a 256 -c --quiet -; fi; }
@@ -78,7 +78,7 @@ fetch_sdk() { # target
   fi
   echo "$sha  $tgz" | sha_check || { echo "cartwheel-sdk $t: sha256 mismatch ($tgz)" >&2; rm -f "$tgz"; exit 1; }
   rm -rf "$dst" && mkdir -p "$dst"
-  tar -xzf "$tgz" -C "$dst" --strip-components=1
+  tar -xzf "$tgz" -C "$dst" --strip-components=1 -m
   echo "$ver $sha" > "$dst/.version"
   echo "cartwheel-sdk $t: $ver"
 }
