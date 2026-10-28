@@ -546,7 +546,8 @@ static void hud_ctf_score(const hv *g, const bhud *h) {
     cw_color sc = CREAM;
     if (f->state == FL_HOME) snprintf(st, sizeof st, "HOME");
     else if (f->state == FL_CARRIED) {
-      snprintf(st, sizeof st, "%s HAS IT", f->carrier == g->kart ? "YOU" : kart_name(S, f->carrier, nm, sizeof nm, false));
+      if (f->carrier == g->kart) snprintf(st, sizeof st, "YOU HAVE IT");
+      else snprintf(st, sizeof st, "%s HAS IT", kart_name(S, f->carrier, nm, sizeof nm, false));
       sc = (int)(S->tick / 12) & 1 ? MUSTARD : CREAM;
     } else snprintf(st, sizeof st, "DROPPED %ds", (f->timer + TICK_HZ - 1) / TICK_HZ), sc = RUST;
     tx_fit(U.f_small, st, bx + 40 * s, y + 66 * s, hpx(14, s, 10), 104 * s, sc, CW_ALIGN_CENTER);
