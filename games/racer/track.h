@@ -170,6 +170,7 @@ typedef struct track {
   int nchecks, check_at[32];  /* sample index of each checkpoint, the finish first (index 0 = the line) */
   int nitem_rows, item_row_at[48];
   int ngaps, gap_from[24], gap_to[24];  /* sample ranges of the jumps */
+  float gap_v[24];                      /* each jump's design speed (m/s): the slowest take-off its landing is built for */
   int nloops, loop_from[16], loop_to[16];
   /* branches: their samples follow the main road's in s[] (s[n .. nall)); a branch sample's .s is metres along the
    * branch from its mouth. The main road's own queries (track_at, the n samples) never see them. */

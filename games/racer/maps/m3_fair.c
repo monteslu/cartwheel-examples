@@ -33,13 +33,20 @@ static const piece SPEC[] = {
   SLOPE(40, 24),
   SLOPE(36, 0),
   STRAIGHT(20),
+  /* tall walls from the top of the drop round the whole helix: a kart comes off the drop at up to 74 m/s (boosted, fast
+   * class) and must bounce along them, never ride over onto the grass under the helix deck */
+  WALLS(3, 3),
   SLOPE(50, -28),
   SLOPE(50, -28),
   SLOPE(60, 0),
   ASTRAIGHT(30),
   ITEMS(),
+  /* the helix comes straight off the big drop at up to 74 m/s: banked into the turn so that speed holds the deck (flat,
+   * karts flew off its outside) */
+  MOVE(24, 0, KEEP, 24, KEEP),
   HILL(320, 360, 8),
-  STRAIGHT(20),
+  MOVE(20, 0, KEEP, 0, KEEP),
+  WALLS(2, 2),
   CHECK(),
   SLOPE(140, -4),
   SLOPE(80, 0),

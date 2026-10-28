@@ -251,6 +251,7 @@ static void do_jump(walker *w, const piece *pc) {
   w->ps.theta = cw_atan2(slope, 1.0f);
   if (w->t && w->t->ngaps < 24) {
     w->t->gap_from[w->t->ngaps] = start;
+    w->t->gap_v[w->t->ngaps] = v;
     w->t->gap_to[w->t->ngaps++] = w->n;
   }
   if (w->br && w->br->ngaps < 2) {

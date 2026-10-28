@@ -1076,6 +1076,20 @@ static void kart_control(sim *s, int i, kin in) {
   float h = k->loc.height;
   float lat_over = absf(k->loc.lat) - m.hw;
   bool gap = (ts->flags & TF_GAP) != 0 || (t->s[track_next(t, k->loc.i)].flags & TF_GAP) != 0;
+  /* the ramp carries you: on the last stretch before a jump's lip a kart heading over it slower than the jump was built
+   * for is brought up to that speed, so the landing is always reached (a short one met the far deck's underside) */
+  if (grounded && k->loc.br < 0 && (ts->flags & TF_RAMP) && !(ts->flags & TF_LOOP) && !s->battle && k->speed > 6.0f &&
+      v3dot(kart_fwd(k), ts->f) > 0.9f)
+    for (int g = 0; g < t->ngaps; g++) {
+      float ahead = t->s[t->gap_from[g]].s - ts->s;
+      if (t->circuit && ahead < 0) ahead += t->length;
+      if (ahead > 0 && ahead < 14.0f && k->speed < t->gap_v[g]) {
+        float need = fminf(t->gap_v[g] - k->speed, 1.5f); /* a firm push each tick, not a teleport of speed */
+        cw_body3d_set_velocity(b, v3add(k->v, v3mul(ts->f, need)));
+        k->v = v3add(k->v, v3mul(ts->f, need));
+        break;
+      }
+    }
   float attach = 0;
   if (!gap && lat_over < ((ts->flags & TF_LOOP) ? 6.0f : 2.5f) && h > -1.0f && !s->battle) {
     /* in a loop or corkscrew the road keeps its hold a long way out: a kart bounced off it upside down was dropped out

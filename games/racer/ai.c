@@ -166,15 +166,18 @@ kin ai_think(const sim *s, int me, ai_mem *m) {
   m->steer_smooth += (st - m->steer_smooth) * 0.35f;
   in.steer = (int8_t)(clampf(m->steer_smooth, -1, 1) * 127);
   /* corners: the speed the road ahead allows */
-  float curv = 0, vroute = 99;
+  float curv = 0, vroute = 99, vbrake = 99;
   bool routed = on_branch || mouth >= 0;
-  for (int c = 1; c <= 4; c++) {
+  for (int c = 1; c <= (routed ? 4 : 9); c++) {
     /* loops, corkscrews and jumps have no plan-view bend worth braking for */
     if (!routed) {
       const tsample *ahead = &t->s[(k->loc.i + c * 14) % t->n];
       if (ahead->flags & (TF_LOOP | TF_GAP)) continue;
       float cv = fabsf(track_curvature(t, k->loc.s + c * 14.0f, 14.0f));
-      if (cv > curv) curv = cv;
+      if (c <= 4 && cv > curv) curv = cv;
+      /* a bend further on: slow enough now to brake down to it in the metres left (a coaster drop built 60 m/s and
+       * the 56 m it used to look ahead was too short to lose it in) */
+      if (c > 4 && cv > 1e-4f) vbrake = fminf(vbrake, sqrtf(32.0f / cv + 2.0f * 12.0f * (float)c * 14.0f));
     } else {
       /* along its own way; on a branch (narrow, perhaps no walls to lean on) it trusts less grip */
       tsample a = route_at(s, k, rb, rbs, (float)c * 14.0f), b = route_at(s, k, rb, rbs, (float)c * 14.0f + 14.0f);
@@ -186,7 +189,7 @@ kin ai_think(const sim *s, int me, ai_mem *m) {
       if (cv > 1e-4f) vroute = fminf(vroute, sqrtf(g / cv));
     }
   }
-  float vmax = routed ? vroute : curv > 1e-4f ? sqrtf(32.0f / curv) : 99;
+  float vmax = routed ? vroute : fminf(curv > 1e-4f ? sqrtf(32.0f / curv) : 99, vbrake);
   float skill_k = m->skill == 0 ? 0.80f : m->skill == 1 ? 0.92f : 1.0f;
   vmax *= skill_k;
   in.thr = 127;
@@ -236,7 +239,18 @@ kin ai_think(const sim *s, int me, ai_mem *m) {
     bool use = false, back = false;
     switch (k->item) {
     case IT_TURBO:
-    case IT_TURBO3: use = k->boost_ticks == 0 && k->grounded; break;
+    case IT_TURBO3:
+      /* only with the road ahead open enough to carry the extra speed: a triple turbo fired into a bend threw karts off
+       * raised track (the fairground's coaster deck at 260 km/h) */
+      use = k->boost_ticks == 0 && k->grounded && vmax > 44.0f && !(here.flags & (TF_LOOP | TF_GAP));
+      /* and the whole run a boost covers (about 150 m at its pace) */
+      for (int c = 1; use && !on_branch && c <= 10; c++) {
+        const tsample *ahead = &t->s[(k->loc.i + c * 15) % t->n];
+        if (ahead->flags & (TF_LOOP | TF_GAP)) continue;
+        float cv = fabsf(track_curvature(t, k->loc.s + (float)c * 15.0f, 15.0f));
+        if (cv > 1e-4f && sqrtf(32.0f / cv) < 44.0f) use = false;
+      }
+      break;
     case IT_SHIELD: use = true; break;
     case IT_BOOMERANG:
       /* a kart ahead in its lane within the boomerang's reach (it turns back after 40 m) */
