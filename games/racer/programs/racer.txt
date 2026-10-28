@@ -143,3 +143,8 @@ basic+instbig
 physical+map+vcol+rep+nmap+ao+emap+rmap+shadow+senv+l1001+xcluster
 standard+shadow+ds+l1001+xwater
 standard+shadow+senv+ds+l1001+xwater
+depth+xcluster_rim
+physical+vcol+shadow+cc+l1001+xcluster_rim
+physical+vcol+shadow+l1001+xcluster_rim
+physical+vcol+shadow+senv+cc+l1001+xcluster_rim
+physical+vcol+shadow+senv+l1001+xcluster_rim

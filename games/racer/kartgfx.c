@@ -11,6 +11,7 @@
 #include <string.h>
 
 #include "cartwheel/math.h"
+#include "cartwheel/rim_light.h"
 #include "models.h"
 
 enum {
@@ -60,6 +61,15 @@ void kartgfx_build(cw_node parent, const sim *s) {
     const kart *k = &s->k[i];
     if (!k->on) continue;
     rig_build(&K.rig[i], k->veh, k->colour, i + 1);
+    if (s->battle && s->amode == AM_CTF) {
+      /* capture the flag: an outline in the team's colour, so a kart across the field reads as red or blue whatever its
+       * own paint (it fades in with distance: one alongside keeps its paint) */
+      cw_rim_light_desc d = cw_rim_light_default();
+      d.color = (k->team & 1) ? (t3_color){ 0.25f, 0.5f, 1.0f } : (t3_color){ 1.0f, 0.28f, 0.18f };
+      d.strength = 2.4f;
+      cw_rim_light_apply(K.rig[i].mat[S_PAINT], &d);
+      cw_rim_light_apply(K.rig[i].mat[S_PAINT2], &d);
+    }
     K.node[i] = hang(parent, "Kart", K.rig[i].root);
     /* drawn between the last two ticks, as the cameras are: a kart stepped at the tick rate under a smooth camera
      * twitched forward and back on a screen whose frames do not line up with the ticks */

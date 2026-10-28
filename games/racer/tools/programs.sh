@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # games/racer/tools/programs.sh [states-log...]: regenerate racer's three.c program tables (programs/racer_{gl,wgpu}.c)
-# from programs/racer.txt plus the states a run reported missing (lines like "physical+senv+l1001+xcluster" in a run's log).
+# from programs/racer.txt plus the states a run reported missing (lines like "physical+senv+l1001+xcluster_rim" in a
+# run's log). Goes through the engine's tools/programs.mjs, which composes the engine's shading parts (the rim light
+# on the clustered lights is one program, xcluster_rim: three.c's generator alone cannot build it).
 # Runs in the engine's GPU sandbox (the test GPU only, never the desktop).
 set -euo pipefail
-exec 8>"$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/out/racer-programs.lock"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+exec 8>"$ROOT/out/racer-programs.lock"
 flock 8
-D="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-E="$D/../../deps/cartwheel-engine"
-EXT=()
-for f in "$E"/src/*/extensions/[a-z0-9]*.mjs; do EXT+=(--extend "$f"); done
-MISS=()
+LOGS="$ROOT/out/racer-programs-logs"
+rm -rf "$LOGS" && mkdir -p "$LOGS"
 for l in "$@"; do
-  grep -E '^[a-z]+(\+[a-z0-9]+)+$' "$l" >> "$D/programs/racer.txt" || true
+  grep -E '^[a-z]+(\+[a-z0-9_]+)+$' "$l" >> "$LOGS/racer.log" || true
 done
-awk '!seen[$0]++' "$D/programs/racer.txt" > "$D/programs/racer.txt.new" && mv "$D/programs/racer.txt.new" "$D/programs/racer.txt"
-WASMCART="${WASMCART:-$D/../../../wasmcart}" node "$E/tools/with-gpu-suite.mjs" racer-programs \
-  node "${CW_THREE_DIR:-$D/../../../three.c}/tools/gen-project-table.mjs" --name racer --out "$D/programs" --states "$D/programs/racer.txt" \
-  --cache "${CW_PROGRAMS_CACHE:-$E/build/native/programs-cache/racer-3c}" --minimize "${EXT[@]}"
+touch "$LOGS/racer.log"
+cd "$ROOT"
+CW_PROJECT_ROOT="$ROOT" WASMCART="${WASMCART:-$ROOT/../wasmcart}" \
+  node deps/cartwheel-engine/tools/programs.mjs racer --logs "$LOGS" --no-run --build "$ROOT/build/native"

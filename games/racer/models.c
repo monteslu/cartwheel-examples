@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "cartwheel/math.h"
+#include "cartwheel/rim_light.h"
 #include "models.h"
 
 const float KART_RGB[8][3] = { { 0.95f, 0.25f, 0.2f }, { 0.2f, 0.55f, 0.95f }, { 0.95f, 0.8f, 0.15f }, { 0.3f, 0.8f, 0.35f },
@@ -771,7 +772,7 @@ void rig_build(kart_rig *r, int veh, int colour, int number) {
 
 void rig_free(kart_rig *r) {
   for (int i = 0; i < S_COUNT; i++)
-    if (r->mat[i]) t3_release(r->mat[i]);
+    if (r->mat[i]) cw_rim_light_remove(r->mat[i]), t3_release(r->mat[i]); /* a rim keeps its material alive */
   for (int i = 0; i < 2; i++)
     if (r->flame_mat[i]) t3_release(r->flame_mat[i]);
   if (r->shield_mat) t3_release(r->shield_mat);
