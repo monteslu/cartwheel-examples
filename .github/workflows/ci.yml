@@ -62,11 +62,18 @@ jobs:
 
   # The games' _auto gates in full, on GL and WebGPU: hours on Mesa's software
   # renderers, so nightly (and by hand); pushes run the short slices below.
+  # Split by renderer and by game, in parallel: run in one job they outran its 4-hour limit every night on the
+  # software renderers (cancelled partway through WebGPU).
   gates:
-    name: Gates (full, nightly)
+    name: Gates ${{ matrix.gpu }} (${{ matrix.gates }})
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        gpu: [gl, webgpu]
+        gates: [bikemesa-auto bomberdude-auto, chromite-auto derby-auto, pugball-auto spout-auto, racer-auto racer-reload]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -88,10 +95,8 @@ jobs:
         run: TARGETS=native scripts/build.sh
       # Each game's _auto gate: a scripted full session, checked on GL and on WebGPU.
       # The full gate set runs locally with tests/gate.mjs.
-      - name: Gates on GL (native, software rendering)
-        run: node tests/gate.mjs bikemesa-auto bomberdude-auto chromite-auto derby-auto pugball-auto racer-auto racer-reload spout-auto --hosts native
-      - name: Gates on WebGPU (native, software rendering)
-        run: node tests/gate.mjs bikemesa-auto bomberdude-auto chromite-auto derby-auto pugball-auto racer-auto racer-reload spout-auto --hosts native --gpu webgpu
+      - name: Gates on ${{ matrix.gpu }} (native, software rendering)
+        run: node tests/gate.mjs ${{ matrix.gates }} --hosts native ${{ matrix.gpu == 'webgpu' && '--gpu webgpu' || '' }}
 
   # The games as native programs for each platform: built with the target's
   # SDK and toolchain, packaged with cwexport, and (where the runner can) the

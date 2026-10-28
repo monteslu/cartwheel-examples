@@ -116,6 +116,8 @@ Box3D. `games/pugball/`
 ### racer
 
 
+![racer: the pack through the neon-lit tube of the wrecked orbital station, a gas giant behind](docs/screenshots/racer.jpg)
+
 A kart racer on rollercoaster tracks, in a post-apocalyptic racing league that
 runs through eight very different places: a salt flat at dawn, a flooded
 neon city in a storm, an abandoned amusement park whose coaster is the
@@ -123,9 +125,18 @@ course, a burning refinery, a spillway dam, a frozen mountain pass under an
 aurora, a jungle temple and a wrecked orbital station. The roads loop the
 loop, corkscrew, jump gaps, dive through tunnels and glass tubes and ford
 flooded streets. Six junkyard karts, drifts that charge a mini-turbo, tricks
-in the air, item boxes with missiles, mines, oil, shields and a shockwave.
-One player against seven CPU drivers, or two to four on a split screen, one
-pad each. `games/racer/`
+in the air, slipstreams, and item boxes with single, triple and homing
+missiles, a boomerang, bombs, mines, oil, shields, turbos and a shockwave
+you hop over. Catch-up keeps the pack close, and the CPU drivers race fair:
+they give way to a player closing from behind and hold fire at the start.
+A wacky radio announcer calls the race, and pads rumble on hits and bumps.
+
+Modes: single races and cups over three speed classes, a time trial against
+your own ghost for medals, balloon battles in four arenas, capture the flag
+on two long maps (one a tower-to-tower asteroid in space, with teleports up
+the towers and a drive off the roof) with team-colour outlines, and king of
+the mountain. One player against seven CPU drivers, or two to four on a
+split screen, one pad each. `games/racer/`
 
 ### spout
 
