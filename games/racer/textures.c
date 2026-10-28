@@ -822,6 +822,21 @@ static void g_ground_ash(float u, float v, texel *t) {
   t->ao = 0.8f + 0.2f * n;
 }
 
+/* weathered rock in long streaks: grey-olive and brown bands drawn out along v, dark seams between them, pale grit */
+static void g_ground_streak(float u, float v, texel *t) {
+  float band = fbm2(u, v, 2, 8, 5, 391), fine = fbm2(u, v, 6, 20, 4, 392), n = fbm(u, v, 4, 4, 393);
+  float grit = h01((int)(u * 256), (int)(v * 256), 394);
+  float k = 0.3f + 0.16f * band + 0.06f * fine + 0.05f * (grit - 0.5f);
+  rgb(t, k * 1.0f, k * 0.97f, k * 0.8f);
+  mixc(t, 0.36f, 0.27f, 0.17f, sstep(0.5f, 0.75f, n) * 0.55f);
+  float seam = 1 - sstep(0.0f, 0.03f, fabsf(fine - 0.5f));
+  mixc(t, 0.12f, 0.1f, 0.08f, seam * 0.4f);
+  if (grit > 0.988f) mixc(t, 0.72f, 0.7f, 0.62f, 0.7f);
+  t->h = 0.5f + 0.25f * band + 0.15f * fine - 0.3f * seam;
+  t->rough = 0.9f;
+  t->ao = 0.75f + 0.25f * (1 - seam);
+}
+
 /* worn steel plate: 1 m panels, rivets, brushed scratches, grime in the seams, orange rust blooms */
 static void g_metal(float u, float v, texel *t) {
   float pu = fractf(u * 2), pv = fractf(v * 2);
@@ -973,6 +988,7 @@ static const kind_info INFO[TEX_KINDS] = {
   [TEX_NOISE] = { g_noise, GR, 2.0f, "noise" },
   [TEX_TUNNEL] = { g_tunnel, RD, 2.5f, "tunnel" },
   [TEX_GROUND_SALT] = { g_ground_salt, WL, 3.0f, "salt ground" },
+  [TEX_GROUND_STREAK] = { g_ground_streak, GR, 3.0f, "streaked rock" },
 };
 
 /* ── building: a band of rows per call, finished by one call ────────── */

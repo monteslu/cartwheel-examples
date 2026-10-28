@@ -126,7 +126,7 @@ static float spires_at(float x, float z, float *top) { return z >= 0 ? half_at(x
 static const arena_terrain ROCK = {
   .x0 = -160, .z0 = -362, .x1 = 160, .z1 = 362, .cell = 2.5f, .at = spires_at,
   .lip = 1.1f, .depth = 11.0f, .belly = 0.5f,
-  .top_col = 0x9a9068, .side_col = 0x5f5a44, .tex = TEX_GROUND_ASH, .tex_m = 7.0f, .side_tex = TEX_GROUND_ROCK,
+  .top_col = 0xd8ccb0, .side_col = 0x5f5a44, .tex = TEX_GROUND_STREAK, .tex_m = 14.0f, .side_tex = TEX_GROUND_STREAK,
 };
 
 /* ── the towers ───────────────────────────────────────────────────────────────────────────────────────
