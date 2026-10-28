@@ -319,6 +319,7 @@ void kartgfx_frame(const sim *s, float alpha) {
     }
 
     pose_driver(r, P, tsec, st->trick_kind == 0 || k->finished);
+    rig_sync_parts(r);
     /* the shield bubble: pulses, flickers out in its last seconds */
     int sht = (int)P[KP_SHIELD];
     bool shield_on = sht > 0 && (sht > 90 || ((sht / 6) & 1));
@@ -618,5 +619,6 @@ void showroom_frame(cw_node cam, float fov_deg, float aspect) {
     float P[KP_COUNT] = { 0 };
     P[KP_CHEER] = w->cheer, P[KP_BOOST] = w->boost, P[KP_HEADYAW] = w->look;
     pose_driver(r, P, w->t, true);
+    rig_sync_parts(r);
   }
 }

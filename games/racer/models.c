@@ -674,6 +674,8 @@ static void far_visit(t3_object *o, void *ud) {
   }
 }
 
+static void rig_build_sets(kart_rig *r);
+
 static void rig_build_far(kart_rig *r) {
   /* everything built so far moves under near; the far version is merged from it at rest */
   r->near = t3_group_new();
@@ -701,6 +703,59 @@ static void rig_build_far(kart_rig *r) {
   t3_release(r->near), t3_release(r->far);
   t3_object_add(r->root, r->lod);
   t3_release(r->lod);
+  rig_build_sets(r);
+}
+
+static t3_instanced_mesh *part_set(t3_object *parent, t3_geometry *g, t3_material *m, int n) {
+  t3_instanced_mesh *im = t3_instanced_mesh_new(g, m, n);
+  im->mesh.base.cast_shadow = true;
+  im->mesh.base.receive_shadow = true;
+  /* culled as the kart: a fixed sphere round it (its copies move every frame, but never out of it) */
+  t3_instanced_mesh_set_bounding_sphere(im, &(t3_sphere){ { 0, 0, 0 }, 2.6f });
+  t3_object_add(parent, im);
+  t3_release(im);
+  return im;
+}
+
+/* the repeated parts as instanced sets (after the far version is merged: it reads the parts themselves) */
+static void rig_build_sets(kart_rig *r) {
+  const veh_geo *vg = r->vg;
+  r->im_tyre = part_set(r->near, vg->tyre, r->mat[S_DARK], 4);
+  for (int sd = 0; sd < 2; sd++) r->im_rim[sd] = part_set(r->near, vg->rim[sd], r->mat[S_METAL], 2);
+  if (r->arm_up[0]) {
+    t3_object *body = r->arm_up[0]->parent;
+    r->im_arm_up = part_set(body, ((t3_mesh *)r->arm_up[0])->geometry, r->mat[S_DARK], 2);
+    r->im_arm_lo = part_set(body, ((t3_mesh *)r->arm_lo[0])->geometry, r->mat[S_DARK], 2);
+    r->im_hand = part_set(body, ((t3_mesh *)r->hand[0])->geometry, r->mat[S_DARK], 2);
+    /* the part objects keep their place and their visible flag, but no camera draws them (no layer) */
+    for (int s = 0; s < 2; s++) r->arm_up[s]->layers = r->arm_lo[s]->layers = r->hand[s]->layers = 0;
+  }
+  for (int w = 0; w < 4; w++)
+    for (int p = 0; p < 2; p++) r->wheel_hi[w][p]->base.layers = r->wheel_lo[w][p]->base.layers = 0;
+  rig_sync_parts(r);
+}
+
+static void set_from(t3_instanced_mesh *im, int i, const t3_object *o) {
+  t3_mat4 m;
+  t3_mat4_compose(&m, o->position, o->quaternion, o->scale);
+  t3_instanced_mesh_set_matrix_at(im, i, &m);
+}
+
+void rig_sync_parts(kart_rig *r) {
+  if (!r->im_tyre) return;
+  for (int w = 0; w < 4; w++) {
+    set_from(r->im_tyre, w, r->wheel[w]);
+    set_from(r->im_rim[w & 1], w >> 1, r->wheel[w]);
+  }
+  r->im_tyre->instance_matrix->version++, r->im_rim[0]->instance_matrix->version++, r->im_rim[1]->instance_matrix->version++;
+  if (r->im_arm_up) {
+    for (int s = 0; s < 2; s++) set_from(r->im_arm_up, s, r->arm_up[s]), set_from(r->im_arm_lo, s, r->arm_lo[s]), set_from(r->im_hand, s, r->hand[s]);
+    r->im_arm_up->instance_matrix->version++, r->im_arm_lo->instance_matrix->version++, r->im_hand->instance_matrix->version++;
+    /* the parts say whether their set shows (kartgfx hides the arms of a kart far from every view) */
+    r->im_arm_up->mesh.base.visible = r->arm_up[0]->visible;
+    r->im_arm_lo->mesh.base.visible = r->arm_lo[0]->visible;
+    r->im_hand->mesh.base.visible = r->hand[0]->visible;
+  }
 }
 
 void rig_far_distance(kart_rig *r, float metres) {

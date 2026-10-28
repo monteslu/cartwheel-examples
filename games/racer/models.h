@@ -142,11 +142,15 @@ typedef struct kart_rig {
    * at rest, merged into one mesh per material: a few draws instead of thirty) past rig_far_distance; each view picks */
   t3_lod *lod;
   t3_object *near, *far;
+  /* the four tyres, the rims of each side, the arms, forearms and gloves: one instanced draw a set, its copies placed
+   * from the (hidden) part objects each frame by rig_sync_parts */
+  t3_instanced_mesh *im_tyre, *im_rim[2], *im_arm_up, *im_arm_lo, *im_hand;
 } kart_rig;
 
 void rig_build(kart_rig *r, int veh, int colour, int number);
 void rig_free(kart_rig *r);
-void rig_far_distance(kart_rig *r, float metres); /* where a view switches this kart to its merged far version */
+void rig_far_distance(kart_rig *r, float metres);
+void rig_sync_parts(kart_rig *r); /* after posing: the instanced parts follow their part objects (and their visibility) */ /* where a view switches this kart to its merged far version */
 void place_tube(t3_object *o, t3_vec3 a, t3_vec3 b); /* a unit y cylinder object stretched from a to b */
 
 #endif
