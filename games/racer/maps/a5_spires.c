@@ -598,6 +598,19 @@ static void merlons(pmc *c, float x0, float z0, float x1, float z1, float y, flo
   }
 }
 
+/* a buttress up a tower's corner: a stepped plinth, the shaft, a sloped cap */
+static void buttress(pmc *c, float x, float z, float y, float h, float w) {
+  pm *b = pmc_at(c, V3(x, y + h * 0.5f, z));
+  pm_push(b);
+  pm_move(b, x, y, z);
+  pm_box(b, w + 1.6f, 3.0f, w + 1.6f, hex(0x3e3934), hex(0x5a534b));
+  pm_box(b, w, h - 2.0f, w, hex(0x403a35), hex(0x655d55));
+  pm_move(b, 0, h - 2.0f, 0);
+  pm_roty(b, CW_PI * 0.25f);
+  pm_cyl(b, w * 0.72f, 0, 3.0f, 4, hex(0x3e3833), hex(0x5c544c));
+  pm_pop(b);
+}
+
 /* a lit window let into a tower's face: a dark stone frame, the warm glass in it (or dark: nobody home) */
 static void window(pmc *c, float x, float y, float z, float nx, float nz, float w, float h, bool lit, pcol warm) {
   pm *b = pmc_at(c, V3(x, y, z));
@@ -674,6 +687,21 @@ static void spires_scenery(cw_node scene, const track *t, uint32_t seed) {
     merlons(st, -33, cz + S * 224.6f, 33, cz + S * 224.6f, 28.2f, 5.5f, 2.4f, 2.6f);
     merlons(st, -33, cz + S * 226.0f, -33, cz + S * 266.0f, 28.2f, 5.5f, 2.4f, 2.6f);
     merlons(st, 33, cz + S * 226.0f, 33, cz + S * 266.0f, 28.2f, 5.5f, 2.4f, 2.6f);
+    /* the stages' corner buttresses, and string courses round every stage (out of a kart's reach) */
+    for (int k = 0; k < 4; k++) {
+      float sx = k & 1 ? 1.0f : -1.0f, sz = k & 2 ? 1.0f : -1.0f;
+      buttress(st, sx * 32, zc + sz * 32, 34, 58, 7.0f); /* the foot's from the first string course up, over the karts */
+      buttress(st, sx * 28, zc + sz * 28, 96, 60, 6.5f);
+      buttress(st, sx * 24, zc + sz * 24, 156, 28, 5.5f);
+    }
+    for (int q = 0; q < 4; q++) {
+      static const float CY[4] = { 34, 64, 126, 170 }, CW[4] = { 66, 66, 58, 50 };
+      pm *b = pmc_at(st, V3(0, CY[q], zc));
+      pm_push(b);
+      pm_move(b, 0, CY[q], zc);
+      pm_box(b, CW[q], 1.4f, CW[q], hex(0x45403a), hex(0x6a6258));
+      pm_pop(b);
+    }
     /* the ledges round the tower at 96 m and 156 m */
     for (int q = 0; q < 2; q++)
       for (int k = 0; k < 4; k++) {
