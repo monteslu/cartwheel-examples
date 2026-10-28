@@ -168,7 +168,7 @@ Then:
 
 ```sh
 scripts/fetch-deps.sh   # the SDKs for this machine and for carts, pinned with sha256 in scripts/deps.lock
-scripts/build.sh        # build/native, build/cart and build/cart-wgpu
+scripts/build.sh        # build/native and build/cart-wgpu
 ```
 
 `scripts/build.sh` builds these trees:
@@ -176,8 +176,7 @@ scripts/build.sh        # build/native, build/cart and build/cart-wgpu
 | Tree | What | Where |
 |---|---|---|
 | `build/native` | native executables, this machine's compiler | `build/native/games/<game>/<app>` |
-| `build/cart` | GL carts | `build/cart/carts/<app>.wasc` |
-| `build/cart-wgpu` | dual GL + WebGPU carts | `build/cart-wgpu/carts/<app>.wasc` |
+| `build/cart-wgpu` | dual GL + WebGPU carts (the only cart: GL is tested by running it on a GL host) | `build/cart-wgpu/carts/<app>.wasc` |
 | `build/<target>` | a platform's release build, with the target's SDK and toolchain: `linux-x64`, `linux-arm64`, `windows-x64` (cross-compiled), `android-arm64`, `macos-arm64` (on a Mac) | `build/<target>/games/<game>/<app>` |
 
 `TARGETS="native"` (or any of the trees) builds some trees,

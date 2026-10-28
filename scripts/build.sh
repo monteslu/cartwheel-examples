@@ -5,8 +5,8 @@
 # engine's CMakeLists.txt is the top of the build and this repository its
 # project (CW_PROJECT_DIR).
 #
-#   scripts/build.sh                        native (this machine), cart and cart-wgpu trees
-#   TARGETS="native" scripts/build.sh       some trees: native, cart, cart-wgpu, or (SDK
+#   scripts/build.sh                        native (this machine) and cart-wgpu (the dual GL + WebGPU cart) trees
+#   TARGETS="native" scripts/build.sh       some trees: native, cart-wgpu, or (SDK
 #                                           builds) an export target: linux-x64, linux-arm64,
 #                                           windows-x64, android-arm64, macos-arm64
 #   BUILD_TYPE=Debug scripts/build.sh
@@ -55,6 +55,7 @@ if [ -z "${CARTWHEEL_ENGINE_SOURCE:-}" ] && [ ! -L "$ENGINE" ] && [ -d "$SDKS" ]
   [ -d "$SDKS/cart-wgpu" ] && DEFAULT="$DEFAULT cart-wgpu"
   for t in ${TARGETS:-$DEFAULT}; do
     case "$t" in
+      cart) echo "scripts/build.sh: there is no GL-only cart tree (build/cart): build cart-wgpu, the dual cart, and run it on a GL host for GL" >&2; exit 2 ;;
       native) sdk=$HOST; args=() ;;
       cart-wgpu) sdk=$t; args=(-DCMAKE_TOOLCHAIN_FILE="$SDKS/$t/cmake/cart.cmake" ${JOBS[@]+"${JOBS[@]}"} -DCW_CART_DEV="$DEV") ;;
       linux-x64|linux-arm64|windows-x64|android-arm64|macos-arm64)
@@ -82,6 +83,7 @@ for t in ${TARGETS:-native cart-wgpu}; do
   fi
   fresh "$ROOT/build/$t" "$ENGINE" "$(cd "$ENGINE" && pwd -P)"
   case "$t" in
+    cart) echo "scripts/build.sh: there is no GL-only cart tree (build/cart): build cart-wgpu, the dual cart, and run it on a GL host for GL" >&2; exit 2 ;;
     native) cmake -S "$ENGINE" -B "$ROOT/build/native" "${COMMON[@]}" >/dev/null ;;
     cart-wgpu) cmake -S "$ENGINE" -B "$ROOT/build/cart-wgpu" "${COMMON[@]}" ${JOBS[@]+"${JOBS[@]}"} -DCW_CART_DEV="$DEV" \
                  -DCMAKE_TOOLCHAIN_FILE="$ENGINE/cmake/cart.cmake" -DCW_WGPU=ON -DCW_CWPACK="$CWPACK" >/dev/null ;;
