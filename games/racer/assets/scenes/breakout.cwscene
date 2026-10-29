@@ -4,11 +4,11 @@
 
 [node name="Sky" parent="." type="ProceduralSky"]
 sun = "../Sun"
-time_of_day = 18.4
+time_of_day = 18.15
 latitude = 36
 declination = 18
 north = 200
-sun_energy = 2.2
+sun_energy = 2.9
 sky_energy = 1.0
 rayleigh = 1.6
 mie = 0.9
@@ -44,7 +44,7 @@ use_sky_color = false
 color = color(0.92, 0.6, 0.42, 1)
 sun_scatter = 0.5
 sun_g = 0.8
-max_opacity = 0.3
+max_opacity = 0.22
 start_distance = 90
 sky_distance = 1800
 volumetric_distance = 1

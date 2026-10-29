@@ -48,7 +48,20 @@ enum { O_DOOR_W, O_DOOR_E, O_SWITCH, O_TOWER_W, O_TOWER_E, O_WINCH_W, O_WINCH_E,
   GPOST(AL_FEATURE, x, 72, 0, 4.4f, 3.2f, RUST, GATE_OBJ(o)), GBOX(AL_COVER, x, 72, 0, 6, 1.0f, 3, STEEL, GATE_OBJ(o)),   \
   GDECO(AL_FEATURE, x, 76, 3.0f, 0.7f, 7, 0.7f, STEEL, GATE_OBJ(o)), GGLOWPOST(x, 72, 3.2f, 4.6f, 0.2f, RED, GATE_OBJ(o))
 
+/* a guard tower (drawn only): four legs, a cabin with lit windows, a roof */
+#define TOWER(x, z)                                                                                                    \
+  DECO(AL_FEATURE, x - 2, z - 2, 0, 0.6f, 12, 0.6f, 0, STEEL), DECO(AL_FEATURE, x + 2, z - 2, 0, 0.6f, 12, 0.6f, 0, STEEL),   \
+  DECO(AL_FEATURE, x - 2, z + 2, 0, 0.6f, 12, 0.6f, 0, STEEL), DECO(AL_FEATURE, x + 2, z + 2, 0, 0.6f, 12, 0.6f, 0, STEEL),   \
+  DECO(AL_FEATURE, x, z, 12, 6, 3.2f, 6, 0, 0x6a625a), DECO(AL_GLOW, x, z, 13.2f, 6.2f, 0.9f, 6.2f, 0, LAMP),            \
+  DECO(AL_FEATURE, x, z, 15.2f, 7.4f, 0.5f, 7.4f, 0, 0x3a3a3c)
+/* razor wire along the top of a wall run (drawn only): a coil of thin bars */
+#define WIRE(x, z, y, w, d) DECO(AL_FEATURE, x, z, y, w, 0.25f, d, 0, 0x9aa0a8), DECO(AL_FEATURE, x, z, y + 0.5f, w, 0.25f, d, 0, 0x8a9098)
+
 static const arena_prim PRIMS[] = {
+  /* the prison's dressing: guard towers at the corners of each stretch, razor wire along the walls' tops */
+  TOWER(-84, -84), TOWER(84, -84), TOWER(-84, 80), TOWER(84, 80), TOWER(-84, 148), TOWER(84, 148), TOWER(-84, -325), TOWER(84, -325),
+  WIRE(-51, -80, 8, 78, 0.6f), WIRE(51, -80, 8, 78, 0.6f), WIRE(-52, 85, 10, 76, 0.6f), WIRE(52, 85, 10, 76, 0.6f),
+  WIRE(-52, 153, 9, 76, 0.6f), WIRE(52, 153, 9, 76, 0.6f),
   /* the pens: low walls round two yards at the south end, open to the north, the guard block between them */
   BOX(AL_WALL, -75, -299, 0, 2, 4, 62, 0, 0), BOX(AL_WALL, -35, -299, 0, 2, 4, 62, 0, 0),
   BOX(AL_WALL, -68, -268, 0, 14, 4, 2, 0, 0), BOX(AL_WALL, -42, -268, 0, 14, 4, 2, 0, 0),

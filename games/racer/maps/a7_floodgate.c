@@ -49,20 +49,32 @@
   RAMP(AL_RAMP, 86, S * 285, ROOF_Y, 46, DAM_H - ROOF_Y, 30, Y), RAMP(AL_RAMP, -86, S * 285, ROOF_Y, 46, DAM_H - ROOF_Y, 30, Y), \
   DECO(AL_GLOW, -86, S * 299.9f, 3, 30, 0.4f, 0.1f, 0, 0x9ad8ff), DECO(AL_GLOW, 86, S * 299.9f, 3, 30, 0.4f, 0.1f, 0, 0x9ad8ff)
 
+/* the dam's face to the reservoir, S its side: buttress ribs up it, white water spilling down two chutes into foam at its
+ * foot, lamps along the crest, and the bridge's girder under its deck (drawn only) */
+#define RIB(S, x) DECO(AL_FEATURE, x, S * (300 - 0.8f), 0, 2.4f, DAM_H, 1.6f, 0, 0xa8a49a)
+#define LAMP(S, x) GLOWPOST(x, S * 301, DAM_H + 0.2f, 0.5f, 1.4f, 0xffe2a8)
+#define DAMFACE(S)                                                                                                     \
+  RIB(S, -96), RIB(S, -74), RIB(S, -52), RIB(S, -30), RIB(S, 30), RIB(S, 52), RIB(S, 74), RIB(S, 96),                  \
+  DECO(AL_GLOW, -41, S * (300 - 0.25f), 0.2f, 12, DAM_H - 1.5f, 0.15f, 0, 0xc8ecff),                                   \
+  DECO(AL_GLOW, 41, S * (300 - 0.25f), 0.2f, 12, DAM_H - 1.5f, 0.15f, 0, 0xc8ecff),                                    \
+  DECO(AL_PAINT, -41, S * 293, 0.35f, 22, 0.02f, 12, 0, 0xf2f6f8), DECO(AL_PAINT, 41, S * 293, 0.35f, 22, 0.02f, 12, 0, 0xf2f6f8), \
+  LAMP(S, -100), LAMP(S, -75), LAMP(S, -50), LAMP(S, -25), LAMP(S, 25), LAMP(S, 50), LAMP(S, 75), LAMP(S, 100),        \
+  DECO(AL_FEATURE, 0, S * 159, DAM_H - 3.4f, 8, 1.4f, 282, 0, 0x5a5e64)
+
 /* a spillway along one side, SX = 1 east, -1 west: its roof (the middle road), the inner wall with doorways, the ramp down
  * to the reservoir from the roof's middle */
 #define SPILLWAY(SX)                                                                                                   \
   DECK(SX * 86, 0, ROOF_Y - 2, 48, 2, 540),                                                                            \
-  BOX(AL_WALL, SX * 63, 180, 0, 2, ROOF_Y - 2, 60, 0, 0), BOX(AL_WALL, SX * 63, -180, 0, 2, ROOF_Y - 2, 60, 0, 0),      \
-  BOX(AL_WALL, SX * 63, 70, 0, 2, ROOF_Y - 2, 40, 0, 0), BOX(AL_WALL, SX * 63, -70, 0, 2, ROOF_Y - 2, 40, 0, 0),        \
+  BOX(AL_FEATURE, SX * 63, 180, 0, 2, ROOF_Y - 2, 60, 0, 0), BOX(AL_FEATURE, SX * 63, -180, 0, 2, ROOF_Y - 2, 60, 0, 0),      \
+  BOX(AL_FEATURE, SX * 63, 70, 0, 2, ROOF_Y - 2, 40, 0, 0), BOX(AL_FEATURE, SX * 63, -70, 0, 2, ROOF_Y - 2, 40, 0, 0),        \
   POST(AL_FEATURE, SX * 75, 120, 0, 2.5f, ROOF_Y - 2, CONC), POST(AL_FEATURE, SX * 75, -120, 0, 2.5f, ROOF_Y - 2, CONC),   \
   POST(AL_FEATURE, SX * 98, 120, 0, 2.5f, ROOF_Y - 2, CONC), POST(AL_FEATURE, SX * 98, -120, 0, 2.5f, ROOF_Y - 2, CONC),   \
   RAMP(AL_RAMP, SX * 42, 0, 0, 12, ROOF_Y, 40, SX * 90),                                                               \
   DECO(AL_GLOW, SX * 64.1f, 0, 4, 0.1f, 0.4f, 500, 0, 0x9ad8ff)
 
 static const arena_prim PRIMS[] = {
-  DAM(1.0f, RED, 0),
-  DAM(-1.0f, BLUE, 180),
+  DAM(1.0f, RED, 0), DAMFACE(1.0f),
+  DAM(-1.0f, BLUE, 180), DAMFACE(-1.0f),
   SPILLWAY(1.0f),
   SPILLWAY(-1.0f),
   /* the island in the middle of the reservoir */
@@ -120,7 +132,7 @@ static const arena_def ARENA = {
   .modes = 1 << AM_CTF,
   .look = {
     [AL_FLOOR] = { TEX_GROUND_MUD, { 0.5f, 0.52f, 0.44f }, 1.2f, 9.0f, 0.9f, 0 },
-    [AL_WALL] = { TEX_WALL_CONCRETE, { 0.74f, 0.72f, 0.68f }, 1.3f, 8.0f, 0.9f, 0 },
+    [AL_WALL] = { TEX_GROUND_ROCK, { 0.6f, 0.56f, 0.5f }, 1.4f, 12.0f, 0.95f, 0 }, /* (the canyon's sides) */
     [AL_COVER] = { TEX_WALL_CONCRETE, { 0.76f, 0.74f, 0.7f }, 1.3f, 4.0f, 0.9f, 0 },
     [AL_DECK] = { TEX_ROAD_CONCRETE, { 0.8f, 0.78f, 0.74f }, 1.3f, 8.0f, 0.9f, 0 },
     [AL_RAMP] = { TEX_ROAD_ASPHALT, { 0.72f, 0.72f, 0.72f }, 1.3f, 6.0f, 0.85f, 0 },
