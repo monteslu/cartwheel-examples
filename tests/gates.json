@@ -5710,5 +5710,187 @@
       "render.skipped": 0
     },
     "controlInput": "bikemesa-ride.json"
+  },
+  {
+    "name": "otium-title",
+    "app": "otium",
+    "frames": 120,
+    "maxGt16": 0.05,
+    "fields": [
+      "game.state",
+      "game.mode",
+      "ticks",
+      "sim.tick",
+      "sim.season",
+      "human.idle",
+      "cursor",
+      "wheel",
+      "winner",
+      "players.coins",
+      "players.houses",
+      "players.units",
+      "players.total",
+      "players.orders",
+      "players.free_at",
+      "you.goods",
+      "you.favor",
+      "you.spent",
+      "state.hash",
+      "tex.hash",
+      "world.hash",
+      "input.mode",
+      "save.games"
+    ],
+    "expect": {
+      "game.state": 0,
+      "sim.tick": 0,
+      "players.total": [
+        17,
+        17,
+        18
+      ],
+      "players.coins": [
+        5,
+        6,
+        7
+      ]
+    },
+    "controlInput": "otium-start.json",
+    "webgpu": {
+      "vsGl": 0.25,
+      "maxGt16": 0.05,
+      "hosts": [
+        "native",
+        "romdev",
+        "chromium"
+      ],
+      "note": "WebGPU on every host: the same dual cart on romdev and Chromium against native WebGPU."
+    },
+    "note": "Otium (games/otium): the rules are integers (sim.c) and the rivals (ai.c) score on them, so the named state must match exactly on every host; pixels within the usual tolerance (sub-pixel olive groves and ink dashes). The title over the map; the control presses A and is in a game."
+  },
+  {
+    "name": "otium-orders",
+    "app": "otium",
+    "frames": 520,
+    "input": "otium-orders.json",
+    "maxGt16": 0.05,
+    "fields": [
+      "game.state",
+      "game.mode",
+      "ticks",
+      "sim.tick",
+      "sim.season",
+      "human.idle",
+      "cursor",
+      "wheel",
+      "winner",
+      "players.coins",
+      "players.houses",
+      "players.units",
+      "players.total",
+      "players.orders",
+      "players.free_at",
+      "you.goods",
+      "you.favor",
+      "you.spent",
+      "state.hash",
+      "tex.hash",
+      "world.hash",
+      "input.mode",
+      "save.games"
+    ],
+    "expect": {
+      "game.state": 1,
+      "sim.tick": 210,
+      "you.spent": 0,
+      "you.goods": [
+        0,
+        2,
+        1,
+        2,
+        1
+      ],
+      "players.coins": [
+        14,
+        3,
+        5
+      ],
+      "players.orders": [
+        4,
+        6,
+        5
+      ],
+      "state.hash": 3064396034
+    },
+    "controlInput": "otium-orders-control.json",
+    "webgpu": {
+      "vsGl": 0.25,
+      "maxGt16": 0.05,
+      "hosts": [
+        "native",
+        "romdev",
+        "chromium"
+      ],
+      "note": "WebGPU on every host: the same dual cart on romdev and Chromium against native WebGPU."
+    },
+    "note": "Otium (games/otium): the rules are integers (sim.c) and the rivals (ai.c) score on them, so the named state must match exactly on every host; pixels within the usual tolerance (sub-pixel olive groves and ink dashes). A game by pad: hop to Neapolis and send a cart (time runs only while it travels), harvest Campania, sell a brick at the market (the wheel's diagonal slots), rest (every order back and a coin each), then hold RT to let a day pass; the control skips the rest."
+  },
+  {
+    "name": "otium-auto",
+    "app": "otium_auto",
+    "frames": 2400,
+    "maxGt16": 0.05,
+    "fields": [
+      "game.state",
+      "game.mode",
+      "ticks",
+      "sim.tick",
+      "sim.season",
+      "human.idle",
+      "cursor",
+      "wheel",
+      "winner",
+      "players.coins",
+      "players.houses",
+      "players.units",
+      "players.total",
+      "players.orders",
+      "players.free_at",
+      "you.goods",
+      "you.favor",
+      "you.spent",
+      "state.hash",
+      "tex.hash",
+      "world.hash",
+      "input.mode",
+      "save.games"
+    ],
+    "expect": {
+      "game.state": 1,
+      "sim.tick": 1441,
+      "players.houses": [
+        7,
+        7,
+        8
+      ],
+      "players.total": [
+        97,
+        84,
+        101
+      ],
+      "state.hash": 3174956309
+    },
+    "controlFrames": 2000,
+    "webgpu": {
+      "vsGl": 0.25,
+      "maxGt16": 0.05,
+      "hosts": [
+        "native",
+        "romdev",
+        "chromium"
+      ],
+      "note": "WebGPU on every host: the same dual cart on romdev and Chromium against native WebGPU."
+    },
+    "note": "Otium (games/otium): the rules are integers (sim.c) and the rivals (ai.c) score on them, so the named state must match exactly on every host; pixels within the usual tolerance (sub-pixel olive groves and ink dashes). otium_auto plays every house itself (input-free hosts too) through the first seasons; the control is 400 frames earlier."
   }
 ]

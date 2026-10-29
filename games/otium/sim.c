@@ -10,18 +10,22 @@
 #include "game.h"
 
 const int ORDER_DAYS[ORDERS] = { 0, 3, 4, 2, 3, 3, 3 };
-const int BASE_PRICE[GOODS] = { 2, 3, 4, 5, 6 };
-/* the goods a house needs, by the good its city makes */
+/* the goods and their fixed market values (sestertii) */
+const int BASE_PRICE[GOODS] = { 3, 4, 5, 6, 7 };
+/* the goods a house needs, by the good its city makes: food in a brick
+ * city, else a brick and the city's own good */
 static const int HOUSE_GOODS[GOODS][GOODS] = {
   /* brick city */ { 0, 1, 0, 0, 0 },
-  /* food  */ { 1, 0, 0, 0, 0 },
-  /* tools */ { 1, 1, 0, 0, 0 },
-  /* wine  */ { 1, 0, 1, 0, 0 },
-  /* cloth */ { 1, 0, 0, 1, 0 },
+  /* food  */ { 1, 1, 0, 0, 0 },
+  /* tools */ { 1, 0, 1, 0, 0 },
+  /* wine  */ { 1, 0, 0, 1, 0 },
+  /* cloth */ { 1, 0, 0, 0, 1 },
 };
 static const int HOUSE_COINS[GOODS] = { 1, 2, 3, 4, 5 };
 static const int RECRUIT_GOODS[GOODS] = { 0, 1, 1, 0, 0 };
-#define RECRUIT_COINS 3
+#define RECRUIT_COINS 0 /* a colonist costs a food and a tool */
+#define STORE 12          /* the storehouse holds this many goods */
+#define MARKET_PAY 3      /* a market visit pays 3 sestertii, whatever is traded */
 
 static uint32_t rnd(sim *S) {
   uint32_t x = S->rng;
@@ -46,8 +50,8 @@ void sim_start(sim *S, uint32_t seed) {
   for (int g = 0; g < GOODS; g++) S->price[g] = BASE_PRICE[g];
   for (int i = 0; i < NP; i++) {
     player *p = &S->p[i];
-    p->coins = 8 + i; /* the later houses a little richer, as in a turn order */
-    p->goods[GD_BRICK] = 2, p->goods[GD_FOOD] = 2, p->goods[GD_TOOLS] = 1, p->goods[GD_WINE] = 1;
+    p->coins = 5 + i; /* the later houses a little richer, as in a turn order */
+    p->goods[GD_BRICK] = 1, p->goods[GD_FOOD] = 2, p->goods[GD_TOOLS] = 1, p->goods[GD_WINE] = 1, p->goods[GD_CLOTH] = 1;
     for (int g = 0; g < GODS; g++) p->favor[g] = 1;
     p->n_units = 2;
     for (int u = 0; u < p->n_units; u++) p->units[u].city = CAPITAL;
@@ -151,6 +155,12 @@ static bool can_pay(const player *pl, const int goods[GOODS], int coins) {
     if (pl->goods[g] < goods[g]) return false;
   return true;
 }
+/* one good into the storehouse, if there is room */
+static void gain(player *pl, int g) {
+  int held = 0;
+  for (int k = 0; k < GOODS; k++) held += pl->goods[k];
+  if (held < STORE) pl->goods[g]++;
+}
 static void pay(player *pl, const int goods[GOODS], int coins) {
   pl->coins -= coins;
   for (int g = 0; g < GOODS; g++) pl->goods[g] -= goods[g];
@@ -186,21 +196,22 @@ int sim_buildable(const sim *S, int p, int list[MAX_UNITS]) { return build_list(
 
 /* a market visit: lots bought (+) or sold (-), one at a time, the price moving after each */
 static bool trade_run(const int price_in[GOODS], const int trade[GOODS], const player *pl, int *coins_delta) {
-  int price[GOODS], coins = pl->coins, lots = 0;
+  int price[GOODS], coins = pl->coins + MARKET_PAY, lots = 0;
   memcpy(price, price_in, sizeof price);
   for (int g = 0; g < GOODS; g++) {
     int q = trade[g];
     lots += q < 0 ? -q : q;
     if (q < 0 && pl->goods[g] < -q) return false;
-    for (; q < 0; q++) coins += price[g], price[g] = price[g] > 1 ? price[g] - 1 : 1;
-    for (; q > 0; q--) coins -= price[g] + 1, price[g]++;
+    coins -= q * price[g]; /* fixed prices: buying and selling alike */
   }
+  int held = 0;
+  for (int g = 0; g < GOODS; g++) held += pl->goods[g] + trade[g];
   if (coins_delta) *coins_delta = coins - pl->coins;
-  return lots > 0 && lots <= TRADE_LOTS && coins >= 0;
+  return lots <= TRADE_LOTS && coins >= 0 && held <= STORE;
 }
 void sim_trade_cost(const sim *S, const int trade[GOODS], int *coins_delta) {
   player rich = { 0 };
-  rich.coins = 1 << 20;
+  rich.coins = 1 << 20; /* the delta includes the visit's pay */
   for (int g = 0; g < GOODS; g++) rich.goods[g] = 99;
   *coins_delta = 0;
   trade_run(S->price, trade, &rich, coins_delta);
@@ -289,8 +300,8 @@ bool sim_order(sim *S, int p, const order_req *r) {
     for (int c = 0; c < N_CITIES; c++)
       if (CITIES[c].region == reg)
         for (int i = 0; i < NP; i++)
-          if (S->house[c] >> i & 1) S->p[i].goods[CITIES[c].good]++;
-    pl->goods[REGIONS[reg].bonus]++;
+          if (S->house[c] >> i & 1) gain(&S->p[i], CITIES[c].good);
+    gain(pl, REGIONS[reg].bonus);
     S->fallow[reg] = 1;
     S->ev_harvest[p] = 1;
     S->ev_harvest_region[p] = reg;
@@ -302,9 +313,7 @@ bool sim_order(sim *S, int p, const order_req *r) {
     for (int g = 0; g < GOODS; g++) {
       int q = r->trade[g];
       pl->goods[g] += q;
-      for (; q < 0; q++) S->price[g] = S->price[g] > 1 ? S->price[g] - 1 : 1;
-      for (; q > 0; q--) S->price[g]++;
-      pl->last_trade[g] = r->trade[g];
+      pl->last_trade[g] = q;
     }
     pl->coins += delta;
     S->ev_trade[p] = 1;
@@ -347,7 +356,6 @@ bool sim_order(sim *S, int p, const order_req *r) {
 
 static void season_turn(sim *S) {
   memset(S->fallow, 0, sizeof S->fallow);
-  for (int g = 0; g < GOODS; g++) S->price[g] += S->price[g] < BASE_PRICE[g] ? 1 : S->price[g] > BASE_PRICE[g] ? -1 : 0;
   /* the oldest offer leaves the temple */
   S->offers[0] = S->offers[1];
   S->offers[1] = S->offers[2];

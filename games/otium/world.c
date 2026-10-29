@@ -7,7 +7,7 @@
  *   cities      travertine plinths, a town on each and a crate of the good
  *               it makes; Roma with its arena and temple. Each house's
  *               cottage stands on a plinth in its colour, popping up when built
- *   roads       dashed ink tracks; sea lanes dotted across the water
+ *   routes      inked on the map (textures.c): roads dashed, sea lanes dotted
  *   units       a covered cart on the roads, a galley at sea, in the house
  *               colour, rolling and sailing along their path
  *   the cursor  a gold ring round the city it rests on, and a trail of
@@ -20,7 +20,8 @@
 uint32_t world_hash = 2166136261u;
 
 const float PLAYER_COLOR[NP][3] = { { 0.72f, 0.12f, 0.10f }, { 0.16f, 0.30f, 0.62f }, { 0.20f, 0.50f, 0.26f } };
-const float GOOD_COLOR[GOODS][3] = { { 0.72f, 0.33f, 0.20f }, { 0.90f, 0.75f, 0.30f }, { 0.55f, 0.58f, 0.62f }, { 0.50f, 0.18f, 0.40f }, { 0.30f, 0.50f, 0.78f } };
+/* the goods: red brick, yellow food, grey tools (anvils), burgundy wine (pitchers), blue cloth */
+const float GOOD_COLOR[GOODS][3] = { { 0.78f, 0.24f, 0.16f }, { 0.96f, 0.80f, 0.22f }, { 0.58f, 0.60f, 0.63f }, { 0.48f, 0.08f, 0.17f }, { 0.20f, 0.42f, 0.80f } };
 const float GOD_COLOR[GODS][3] = { { 0.95f, 0.80f, 0.25f }, { 0.55f, 0.70f, 0.35f }, { 0.35f, 0.75f, 0.80f }, { 0.85f, 0.25f, 0.20f }, { 0.95f, 0.55f, 0.20f } };
 
 #define PATH_BEADS 96
@@ -108,11 +109,6 @@ static t3_geometry *mb_finish(mb *b) {
   free(b->p), free(b->n), free(b->uv);
   memset(b, 0, sizeof *b);
   return g;
-}
-static void mb_flat_quad(mb *b, t3_vec3 a, t3_vec3 c, t3_vec3 d, t3_vec3 e) {
-  t3_vec3 up = { 0, 1, 0 };
-  mb_vert(b, a, up, 0, 0), mb_vert(b, c, up, 1, 0), mb_vert(b, d, up, 1, 1);
-  mb_vert(b, a, up, 0, 0), mb_vert(b, d, up, 1, 1), mb_vert(b, e, up, 0, 1);
 }
 
 static uint32_t rs = 0x5eedu;
@@ -258,49 +254,6 @@ static void build_scenery(t3_object *root) {
   t3_release(tr), t3_release(crown), t3_release(leaf);
 }
 
-/* ── roads and sea lanes ─────────────────────────────────────────────── */
-
-static void build_routes(t3_object *root) {
-  mb road = { 0 }, lane = { 0 };
-  for (int e = 0; e < N_EDGES; e++) {
-    t3_vec3 a = world_city_pos(EDGES[e].a), b = world_city_pos(EDGES[e].b);
-    float dx = b.x - a.x, dz = b.z - a.z, len = sqrtf(dx * dx + dz * dz);
-    float ux = dx / len, uz = dz / len, nx = -uz, nz = ux;
-    float start = 0.17f, stop = len - 0.17f;
-    if (!EDGES[e].sea) { /* dashes, draped on the relief */
-      float w = 0.026f;
-      for (float t = start; t < stop; t += 0.09f) {
-        float t1 = fminf(t + 0.055f, stop);
-        float xa = a.x + ux * t, za = a.z + uz * t, xb = a.x + ux * t1, zb = a.z + uz * t1;
-        float ha = fmaxf(world_height(xa, za), 0.03f) + 0.004f, hb = fmaxf(world_height(xb, zb), 0.03f) + 0.004f;
-        mb_flat_quad(&road, (t3_vec3){ xa - nx * w, ha, za - nz * w }, (t3_vec3){ xb - nx * w, hb, zb - nz * w }, (t3_vec3){ xb + nx * w, hb, zb + nz * w },
-                     (t3_vec3){ xa + nx * w, ha, za + nz * w });
-      }
-    } else { /* dots across the water */
-      for (float t = start; t < stop; t += 0.11f) {
-        float x = a.x + ux * t, z = a.z + uz * t, r = 0.014f;
-        float y = fmaxf(world_height(x, z), 0.0f) + 0.016f;
-        t3_vec3 c = { x, y, z };
-        for (int s = 0; s < 6; s++) {
-          float a0 = s * 1.0471976f, a1 = (s + 1) * 1.0471976f;
-          t3_vec3 up = { 0, 1, 0 };
-          mb_vert(&lane, c, up, 0.5f, 0.5f);
-          mb_vert(&lane, (t3_vec3){ x + r * cw_cos(a1), y, z + r * cw_sin(a1) }, up, 0, 0);
-          mb_vert(&lane, (t3_vec3){ x + r * cw_cos(a0), y, z + r * cw_sin(a0) }, up, 0, 0);
-        }
-      }
-    }
-  }
-  t3_material *ink = std_mat(lin(0.22f, 0.13f, 0.07f), 0.85f, 0);
-  t3_geometry *g = mb_finish(&road);
-  add(root, g, ink, 0, 0, 0, false);
-  t3_release(g), t3_release(ink);
-  t3_material *foam = std_mat(lin(0.92f, 0.90f, 0.82f), 0.6f, 0);
-  g = mb_finish(&lane);
-  add(root, g, foam, 0, 0, 0, false);
-  t3_release(g), t3_release(foam);
-}
-
 /* ── cities ──────────────────────────────────────────────────────────── */
 
 static t3_geometry *roof_geo(float w, float d, float h) { /* a gable: a triangular prism along x */
@@ -358,21 +311,65 @@ static void build_city(t3_object *root, int c) {
       t3_mesh *r = add(g, M.roof, M.tile, ox, 0.025f + 0.05f * s, oz, true);
       r->base.scale = (t3_vec3){ s * 0.55f, s * 0.6f, s * 0.6f };
     }
-    /* the good it makes: a crate, sheaf, barrel... in its colour */
-    t3_geometry *cg = t3_box_geometry_new(0.035f, 0.03f, 0.035f, 1, 1, 1);
-    add(g, cg, M.crate[cd->good], 0.07f, 0.04f, 0.06f, true);
-    t3_release(cg);
+    /* the good it makes, as a little wooden piece in its colour */
+    t3_object *gp = group(g, 0.075f, 0.025f, 0.06f);
+    t3_material *gm = M.crate[cd->good];
+    switch (cd->good) {
+    case GD_BRICK: { /* a brick */
+      t3_geometry *b = t3_box_geometry_new(0.045f, 0.022f, 0.026f, 1, 1, 1);
+      add(gp, b, gm, 0, 0.011f, 0, true);
+      t3_release(b);
+      break;
+    }
+    case GD_FOOD: { /* a sheaf: a bound bundle flaring at the top */
+      t3_geometry *b = t3_cylinder_geometry_new(0.02f, 0.013f, 0.04f, 10, 1, false);
+      add(gp, b, gm, 0, 0.02f, 0, true);
+      t3_release(b);
+      t3_geometry *band = t3_cylinder_geometry_new(0.0145f, 0.0145f, 0.006f, 10, 1, false);
+      add(gp, band, M.wood, 0, 0.016f, 0, false);
+      t3_release(band);
+      break;
+    }
+    case GD_TOOLS: { /* an anvil: a foot, a waist, a face with a horn */
+      t3_geometry *foot = t3_box_geometry_new(0.03f, 0.01f, 0.022f, 1, 1, 1), *waist = t3_box_geometry_new(0.016f, 0.014f, 0.014f, 1, 1, 1);
+      t3_geometry *face = t3_box_geometry_new(0.04f, 0.012f, 0.02f, 1, 1, 1), *horn = t3_cone_geometry_new(0.007f, 0.02f, 8, 1, false);
+      add(gp, foot, gm, 0, 0.005f, 0, true);
+      add(gp, waist, gm, 0, 0.017f, 0, true);
+      add(gp, face, gm, 0, 0.03f, 0, true);
+      t3_mesh *h = add(gp, horn, gm, 0.029f, 0.03f, 0, true);
+      t3_object_set_rotation(h, 0, 0, -1.5707963f);
+      t3_release(foot), t3_release(waist), t3_release(face), t3_release(horn);
+      break;
+    }
+    case GD_WINE: { /* a pitcher: a round body, a neck, a lip */
+      const t3_vec2 prof[] = { { 0.0f, 0 }, { 0.014f, 0 }, { 0.019f, 0.012f }, { 0.017f, 0.026f }, { 0.009f, 0.036f }, { 0.008f, 0.044f }, { 0.012f, 0.05f }, { 0.0f, 0.05f } };
+      t3_geometry *b = t3_lathe_geometry_new(prof, 8, 14, 0, 6.2831853f);
+      add(gp, b, gm, 0, 0, 0, true);
+      t3_release(b);
+      break;
+    }
+    case GD_CLOTH: { /* a bolt of cloth lying on its side */
+      t3_geometry *b = t3_cylinder_geometry_new(0.014f, 0.014f, 0.045f, 12, 1, false);
+      t3_mesh *m = add(gp, b, gm, 0, 0.014f, 0, true);
+      t3_object_set_rotation(m, 0, 0, 1.5707963f);
+      t3_release(b);
+      break;
+    }
+    }
   }
   /* the houses' cottages, one slot per player round the rim */
   for (int i = 0; i < NP; i++) {
     float a = 2.4f + i * 2.0943951f;
-    float r = capital ? 0.25f : 0.17f;
+    float r = capital ? 0.25f : 0.165f;
     t3_object *hg = group(g, r * cw_cos(a), 0.0f, r * cw_sin(a));
-    t3_geometry *pad = t3_cylinder_geometry_new(0.045f, 0.05f, 0.03f, 12, 1, false);
+    t3_geometry *pad = t3_cylinder_geometry_new(0.05f, 0.056f, 0.035f, 14, 1, false);
     add(hg, pad, M.player[i], 0, 0.0f, 0, true);
     t3_release(pad);
-    add(hg, M.house_wall, M.plaster, 0, 0.04f, 0, true);
-    add(hg, M.house_roof, M.player_roof[i], 0, 0.065f, 0, true);
+    t3_mesh *wall = add(hg, M.house_wall, M.plaster, 0, 0.05f, 0, true);
+    wall->base.scale = (t3_vec3){ 1.3f, 1.4f, 1.3f };
+    t3_mesh *roof = add(hg, M.house_roof, M.player_roof[i], 0, 0.0745f, 0, true);
+    roof->base.scale = (t3_vec3){ 1.35f, 1.5f, 1.35f };
+    t3_object_set_rotation(hg, 0, -a, 0);
     hg->visible = false;
     hg->scale = (t3_vec3){ 0.001f, 0.001f, 0.001f };
     W.houses[c][i] = hg;
@@ -484,7 +481,6 @@ void world_build(cw_node scene) {
   build_table(W.root);
   build_board(W.root);
   build_scenery(W.root);
-  build_routes(W.root);
   for (int c = 0; c < N_CITIES; c++) build_city(W.root, c);
   for (int p = 0; p < NP; p++)
     for (int u = 0; u < MAX_UNITS; u++) build_unit(W.root, p, u);

@@ -2,7 +2,7 @@
 #include "game.h"
 int main(int argc,char**argv){
   int games = argc>1?atoi(argv[1]):20; int wins[NP]={0}; double tot[NP]={0};
-  int gs[GODS]={0};
+ 
   for(int s=1;s<=games;s++){
     sim S; sim_start(&S,(uint32_t)s*7919u);
     int pers[NP]={ (s)%3, (s+1)%3, (s+2)%3 };

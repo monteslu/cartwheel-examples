@@ -18,7 +18,7 @@ env:
   CW_TEST_GPU: software # Mesa llvmpipe (GL) and lavapipe (WebGPU)
   CW_RENDER_SCALE: 1 # the games' own 960x540 instead of 1080p: software rendering is slow
   CW_RUN_TIMEOUT_MS: 3600000 # one native run
-  GAMES: bikemesa bomberdude chromite derby pugball racer spout
+  GAMES: bikemesa bomberdude chromite derby otium pugball racer spout
   # pushes replay each game's first SLICE frames on every platform and API and
   # hold them to Linux x64 GL's state, bit for bit; the full replays run nightly
   SLICE: 200
@@ -73,7 +73,7 @@ jobs:
       fail-fast: false
       matrix:
         gpu: [gl, webgpu]
-        gates: [bikemesa-auto bomberdude-auto, chromite-auto derby-auto, pugball-auto spout-auto, racer-auto racer-reload]
+        gates: [bikemesa-auto bomberdude-auto, chromite-auto derby-auto, pugball-auto spout-auto otium-auto, racer-auto racer-reload]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

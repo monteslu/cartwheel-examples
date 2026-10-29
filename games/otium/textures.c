@@ -225,6 +225,31 @@ t3_texture *tex_board(uint32_t *hash) {
       uint8_t *o = &px[(y * BN + x) * 4];
       o[0] = b8(r), o[1] = b8(g), o[2] = b8(b), o[3] = 255;
     }
+  /* the routes, inked on: roads as red-brown dashes, sea lanes as dotted lines */
+  map_init();
+  for (int e = 0; e < N_EDGES; e++) {
+    const city_def *a = &CITIES[EDGES[e].a], *b = &CITIES[EDGES[e].b];
+    float ax = (a->lon - MAP_LON0) / (MAP_LON1 - MAP_LON0) * BN, ay = (MAP_LAT1 - a->lat) / (MAP_LAT1 - MAP_LAT0) * BN;
+    float bx = (b->lon - MAP_LON0) / (MAP_LON1 - MAP_LON0) * BN, by = (MAP_LAT1 - b->lat) / (MAP_LAT1 - MAP_LAT0) * BN;
+    float dx = bx - ax, dy = by - ay, len = sqrtf(dx * dx + dy * dy);
+    bool sea = EDGES[e].sea;
+    float wid = sea ? 2.2f : 3.0f, r0 = sea ? 0.22f : 0.52f, g0 = sea ? 0.30f : 0.20f, b0 = sea ? 0.32f : 0.12f;
+    for (float s = 22; s < len - 22; s += 0.5f) {
+      float ph = sea ? fmodf(s, 14.0f) : fmodf(s, 18.0f);
+      if (sea ? ph > 4.5f : ph > 11.0f) continue;
+      float cx = ax + dx * s / len, cy = ay + dy * s / len;
+      for (int oy = -3; oy <= 3; oy++)
+        for (int ox = -3; ox <= 3; ox++) {
+          int x = (int)cx + ox, y = (int)cy + oy;
+          if (x < 0 || y < 0 || x >= BN || y >= BN) continue;
+          float ddx = x + 0.5f - cx, ddy = y + 0.5f - cy, d = sqrtf(ddx * ddx + ddy * ddy);
+          float k = clamp01(wid - d) * 0.85f;
+          if (k <= 0) continue;
+          uint8_t *o = &px[(y * BN + x) * 4];
+          o[0] = (uint8_t)(o[0] + (b8(r0) - o[0]) * k), o[1] = (uint8_t)(o[1] + (b8(g0) - o[1]) * k), o[2] = (uint8_t)(o[2] + (b8(b0) - o[2]) * k);
+        }
+    }
+  }
   t3_texture *t = finish(BN, BN, px, true, false);
   if (hash) *hash = fnv(px, BN * BN * 4, 2166136261u);
   free(px);

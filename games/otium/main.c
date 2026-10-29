@@ -14,7 +14,7 @@
  *   scoring   each god counts one thing (Jupiter towns, Saturn regions,
  *             Mercury kinds of goods, Mars carts, Vesta wealth) and
  *             multiplies it by your favor with him; six seasons, then
- *             the gods tally
+ *             the gods tally. Hold Back (I) to see the gods' ledger
  *
  * Determinism: the game replays identically from the input stream (fixed
  * ticks, integer sim.c, ai.c on it); the debug fields name what the gates
@@ -76,10 +76,10 @@ static struct {
   order_req queued;
   bool has_queued;
   int32_t dbg_coins[NP], dbg_houses[NP], dbg_units[NP], dbg_total[NP], dbg_orders[NP], dbg_free[NP];
-  int32_t tick, season, idle, winner;
+  int32_t tick, season, idle, winner, you_goods[GOODS], you_spent, you_favor[GODS];
   uint32_t state_hash;
   cw_node scene, camera, sun;
-  cw_action a_left, a_right, a_up, a_down, a_ok, a_back, a_wait, a_prev, a_next, a_pause, a_zoom_in, a_zoom_out;
+  cw_action a_left, a_right, a_up, a_down, a_ok, a_back, a_wait, a_prev, a_next, a_pause, a_zoom_in, a_zoom_out, a_ledger;
   /* stick hops: the repeat clock */
   int hop_hold, hop_dir;
   float zoom;
@@ -87,6 +87,10 @@ static struct {
   t3_vec3 cam_at, cam_eye;
   bool cam_snap;
   int deny_ticks; /* the wheel's slot shakes when an order cannot be given */
+  /* icons that rise over the map when something happens (render only) */
+  struct { int city, kind, who, age; } pops[24];
+  int npops;
+  int season_banner;
   int auto_think;
 } G;
 
@@ -191,7 +195,35 @@ static order_req wheel_req(int order) {
   return r;
 }
 
+enum { POP_GOOD0 = 0, POP_HOUSE = GOODS, POP_COIN, POP_CART, POP_GOD0 };
+static void add_pop(int city, int kind, int who) {
+  if (G.npops == 24) memmove(G.pops, G.pops + 1, sizeof G.pops[0] * 23), G.npops--;
+  G.pops[G.npops++] = (typeof(G.pops[0])){ city, kind, who, 0 };
+}
+/* this tick's events as pops over the cities they happened in */
+static void sim_pops(void) {
+  const sim *S = &G.S;
+  for (int p = 0; p < NP; p++) {
+    if (S->ev_build[p]) add_pop(S->ev_build_city[p], POP_HOUSE, p);
+    if (S->ev_harvest[p]) {
+      int reg = S->ev_harvest_region[p], first = -1;
+      for (int c = 0; c < N_CITIES; c++) {
+        if (CITIES[c].region != reg) continue;
+        if (first < 0) first = c;
+        for (int i = 0; i < NP; i++)
+          if (S->house[c] >> i & 1) add_pop(c, POP_GOOD0 + CITIES[c].good, i);
+      }
+      if (first >= 0) add_pop(first, POP_GOOD0 + REGIONS[reg].bonus, p);
+    }
+    if (S->ev_trade[p] || S->ev_rest[p]) add_pop(CAPITAL, POP_COIN, p);
+    if (S->ev_recruit[p]) add_pop(S->p[p].order_city, POP_CART, p);
+    if (S->ev_temple[p]) add_pop(CAPITAL, POP_GOD0 + S->ev_temple[p] - 1, p);
+  }
+  if (S->ev_season) G.season_banner = 150;
+}
+
 static void sim_sounds(void) {
+  sim_pops();
   const sim *S = &G.S;
   for (int p = 0; p < NP; p++) {
     float v = p == 0 ? 0.9f : 0.35f;
@@ -265,9 +297,12 @@ static int hop(int from, float dx, float dz) {
   return best < 0 ? from : best;
 }
 
+/* the direction held: raw strengths (before each axis's own deadzone, which
+ * would bend a diagonal toward the nearer axis), with one radial deadzone
+ * applied by the callers */
 static cw_vec2 stick(void) {
-  float x = cw_action_strength(0, G.a_right) - cw_action_strength(0, G.a_left);
-  float y = cw_action_strength(0, G.a_down) - cw_action_strength(0, G.a_up);
+  float x = cw_action_raw_strength(0, G.a_right) - cw_action_raw_strength(0, G.a_left);
+  float y = cw_action_raw_strength(0, G.a_down) - cw_action_raw_strength(0, G.a_up);
   return cw_v2(x, y);
 }
 /* a direction press: on the edge, then repeating while held */
@@ -409,6 +444,9 @@ static void debug_fields(void) {
     G.dbg_orders[p] = S->orders_done[p];
     G.dbg_free[p] = S->p[p].free_at;
   }
+  for (int g = 0; g < GOODS; g++) G.you_goods[g] = S->p[0].goods[g];
+  for (int g = 0; g < GODS; g++) G.you_favor[g] = S->p[0].favor[g];
+  G.you_spent = (int32_t)S->p[0].spent;
   G.tick = S->tick;
   G.season = sim_season(S);
   G.idle = sim_idle(S, 0);
@@ -423,6 +461,9 @@ static void fixed(void *u, double dt) {
   for (int i = 0; i < SFX_COUNT; i++)
     if (A.cooldown[i] > 0) A.cooldown[i]--;
   if (G.deny_ticks > 0) G.deny_ticks--;
+  if (G.season_banner > 0) G.season_banner--;
+  for (int i = 0; i < G.npops; i++)
+    if (++G.pops[i].age > 90) memmove(&G.pops[i], &G.pops[i + 1], sizeof G.pops[0] * (size_t)(G.npops - i - 1)), G.npops--, i--;
   /* zoom: the right stick or + / - */
   float zin = cw_action_strength(0, G.a_zoom_in), zout = cw_action_strength(0, G.a_zoom_out);
   G.zoom = cw_clampf(G.zoom + (zout - zin) * 0.02f, 0.55f, 1.5f);
@@ -504,6 +545,7 @@ static void sync_hook(cw_tree *t, double alpha, void *u) {
     at = v3lerp(c, (t3_vec3){ 0.2f, 0, 0.3f }, 0.2f);
     at.y = 0;
     float z = G.zoom > 0 ? G.zoom : 1;
+    if (G.state == GS_PLAY && G.mode != MODE_MAP) at.z += 1.9f * z; /* the city up out from behind the wheel */
     eye = (t3_vec3){ at.x, 5.4f * z, at.z + 4.6f * z };
     if (G.state == GS_END) eye = (t3_vec3){ 0.3f, 11.5f, 7.5f }, at = (t3_vec3){ 0.3f, 0, 0.4f };
   }
@@ -597,21 +639,22 @@ static void good_icon(int g, cw_vec2 c, float r, float a) {
     }
     cw_r2d_circle(cw_v2(c.x, c.y - r * 0.95f), r * 0.22f, 10, col);
     break;
-  case GD_TOOLS:
-    cw_r2d_line(cw_v2(c.x - r * 0.6f, c.y + r * 0.8f), cw_v2(c.x + r * 0.35f, c.y - r * 0.35f), r * 0.24f, rgba(0.5f, 0.32f, 0.18f, a));
-    {
-      cw_vec2 h[4] = { cw_v2(c.x - r * 0.05f, c.y - r * 0.95f), cw_v2(c.x + r * 0.95f, c.y + r * 0.05f), cw_v2(c.x + r * 0.6f, c.y + r * 0.4f),
-                       cw_v2(c.x - r * 0.4f, c.y - r * 0.6f) };
-      cw_r2d_polygon(h, 4, col);
-      cw_r2d_polygon_lines(h, 4, r * 0.1f, dark);
-    }
+  case GD_TOOLS: { /* an anvil */
+    cw_vec2 face[6] = { cw_v2(c.x - r * 0.95f, c.y - r * 0.55f), cw_v2(c.x + r * 0.55f, c.y - r * 0.55f), cw_v2(c.x + r * 1.0f, c.y - r * 0.35f),
+                        cw_v2(c.x + r * 0.5f, c.y - r * 0.12f), cw_v2(c.x - r * 0.55f, c.y - r * 0.12f), cw_v2(c.x - r * 0.95f, c.y - r * 0.3f) };
+    cw_r2d_polygon(face, 6, col);
+    cw_r2d_rect(cw_rect_make(c.x - r * 0.28f, c.y - r * 0.14f, r * 0.56f, r * 0.5f), col);
+    cw_r2d_rect(cw_rect_make(c.x - r * 0.7f, c.y + r * 0.34f, r * 1.4f, r * 0.42f), col);
+    cw_r2d_polygon_lines(face, 6, r * 0.09f, dark);
+    cw_r2d_rect_lines(cw_rect_make(c.x - r * 0.7f, c.y + r * 0.34f, r * 1.4f, r * 0.42f), r * 0.09f, dark);
     break;
-  case GD_WINE:
-    cw_r2d_circle(cw_v2(c.x, c.y + r * 0.15f), r * 0.62f, 18, col);
-    cw_r2d_rect(cw_rect_make(c.x - r * 0.2f, c.y - r * 0.95f, r * 0.4f, r * 0.6f), col);
-    cw_r2d_line(cw_v2(c.x - r * 0.2f, c.y - r * 0.7f), cw_v2(c.x - r * 0.55f, c.y - r * 0.15f), r * 0.12f, col);
-    cw_r2d_line(cw_v2(c.x + r * 0.2f, c.y - r * 0.7f), cw_v2(c.x + r * 0.55f, c.y - r * 0.15f), r * 0.12f, col);
-    cw_r2d_circle_lines(cw_v2(c.x, c.y + r * 0.15f), r * 0.62f, r * 0.1f, 18, dark);
+  }
+  case GD_WINE: /* a pitcher: a round body, a neck, a handle */
+    cw_r2d_circle_lines(cw_v2(c.x + r * 0.55f, c.y - r * 0.1f), r * 0.32f, r * 0.13f, 14, col);
+    cw_r2d_circle(cw_v2(c.x, c.y + r * 0.25f), r * 0.6f, 18, col);
+    cw_r2d_rect(cw_rect_make(c.x - r * 0.24f, c.y - r * 0.75f, r * 0.48f, r * 0.6f), col);
+    cw_r2d_rect(cw_rect_make(c.x - r * 0.38f, c.y - r * 0.95f, r * 0.76f, r * 0.22f), col);
+    cw_r2d_circle_lines(cw_v2(c.x, c.y + r * 0.25f), r * 0.6f, r * 0.09f, 18, dark);
     break;
   case GD_CLOTH: {
     cw_rect b = cw_rect_make(c.x - r * 0.85f, c.y - r * 0.6f, r * 1.7f, r * 1.2f);
@@ -740,155 +783,165 @@ static void sundial(cw_vec2 c, float r, int days, float a, cw_color tint) {
 static const char *const ROMAN[SEASONS] = { "I", "II", "III", "IV", "V", "VI" };
 
 /* the year across the top: seasons, now, when each house is next free */
+/* the year across the top: a slim band, where now is, when each house is next free */
 static void draw_timeline(float W, int preview_days) {
   const sim *S = &G.S;
-  float x0 = W * 0.27f, x1 = W * 0.73f, y = 22 * S_, h = 14 * S_;
-  parch(cw_rect_make(x0 - 14 * S_, y - 14 * S_, x1 - x0 + 28 * S_, 44 * S_), 1);
+  float x0 = W * 0.33f, x1 = W * 0.67f, y = 20 * S_, h = 8 * S_;
   float span = x1 - x0;
 #define TX(tk) (x0 + span * cw_clampf((float)(tk) / END_TICK, 0, 1))
-  for (int s = 0; s < SEASONS; s++) {
-    float a = TX(s * SEASON_DAYS * DAY), b = TX((s + 1) * SEASON_DAYS * DAY);
-    cw_r2d_rect(cw_rect_make(a + 1, y, b - a - 2, h), s % 2 ? rgba(0.82f, 0.74f, 0.55f, 1) : rgba(0.86f, 0.79f, 0.6f, 1));
-    label(ROMAN[s], (a + b) * 0.5f, y + h + 1 * S_, 9 * S_, rgba(0.4f, 0.28f, 0.18f, 0.9f), CW_ALIGN_CENTER, 0);
+  cw_r2d_round_rect(cw_rect_make(x0 - 4 * S_, y - 4 * S_, span + 8 * S_, h + 8 * S_), 8 * S_, 8, rgba(0.95f, 0.89f, 0.74f, 0.88f));
+  for (int s = 1; s < SEASONS; s++) {
+    float a = TX(s * SEASON_DAYS * DAY);
+    cw_r2d_line(cw_v2(a, y), cw_v2(a, y + h), 1.5f * S_, rgba(0.45f, 0.3f, 0.18f, 0.35f));
   }
   float now = TX(frame_tick);
-  cw_r2d_rect(cw_rect_make(x0, y, now - x0, h), rgba(0.45f, 0.3f, 0.18f, 0.55f));
-  /* the preview: where you would be free after this order */
+  cw_r2d_round_rect(cw_rect_make(x0, y, now - x0, h), 4 * S_, 6, rgba(0.55f, 0.38f, 0.2f, 0.75f));
   if (preview_days > 0) {
     float e = TX(S->tick + preview_days * DAY);
-    cw_r2d_rect(cw_rect_make(now, y + h * 0.3f, e - now, h * 0.4f), pcol(0, 0.6f));
-    cw_r2d_line(cw_v2(e, y - 3 * S_), cw_v2(e, y + h + 3 * S_), 2 * S_, pcol(0, 1));
+    cw_r2d_round_rect(cw_rect_make(now, y + 1 * S_, e - now, h - 2 * S_), 3 * S_, 6, pcol(0, 0.55f));
   }
-  /* each house's marker: when it is next free */
   for (int p = NP - 1; p >= 0; p--) {
     float fx = TX(S->p[p].free_at > S->tick ? S->p[p].free_at : S->tick);
-    float yy = y - 6 * S_ - (p == 0 ? 0 : 0);
-    cw_vec2 tri[3] = { cw_v2(fx - 6 * S_, yy - 8 * S_), cw_v2(fx + 6 * S_, yy - 8 * S_), cw_v2(fx, yy + 1 * S_) };
-    cw_r2d_polygon(tri, 3, pcol(p, 1));
-    cw_r2d_polygon_lines(tri, 3, 1.2f * S_, rgba(0.15f, 0.1f, 0.05f, 0.8f));
+    cw_r2d_circle(cw_v2(fx, y + h * 0.5f), 6 * S_, 14, pcol(p, 1));
+    cw_r2d_circle_lines(cw_v2(fx, y + h * 0.5f), 6 * S_, 1.5f * S_, 14, rgba(1, 0.96f, 0.86f, 0.9f));
   }
-  cw_r2d_line(cw_v2(now, y - 2 * S_), cw_v2(now, y + h + 2 * S_), 2.5f * S_, INK);
 #undef TX
 }
 
+/* your purse: coins and goods, nothing else (carts and houses are on the map) */
 static void draw_purse(float W, float H) {
   (void)W, (void)H;
   const player *pl = &G.S.p[0];
-  cw_rect r = cw_rect_make(12 * S_, 10 * S_, 200 * S_, 102 * S_);
-  parch(r, 1);
-  coin(cw_v2(r.x + 24 * S_, r.y + 24 * S_), 11 * S_, 1);
-  num(pl->coins, r.x + 42 * S_, r.y + 24 * S_, 20 * S_, INK, CW_ALIGN_LEFT);
-  /* carts */
-  order_icon(O_MOVE, cw_v2(r.x + 116 * S_, r.y + 24 * S_), 11 * S_, pcol(0, 1));
-  num(pl->n_units, r.x + 134 * S_, r.y + 24 * S_, 20 * S_, INK, CW_ALIGN_LEFT);
-  order_icon(O_BUILD, cw_v2(r.x + 164 * S_, r.y + 24 * S_), 10 * S_, pcol(0, 1));
-  num(pl->houses, r.x + 180 * S_, r.y + 24 * S_, 20 * S_, INK, CW_ALIGN_LEFT);
+  cw_rect r = cw_rect_make(14 * S_, 12 * S_, 300 * S_, 46 * S_);
+  parch(r, 0.95f);
+  float y = r.y + r.h * 0.5f;
+  coin(cw_v2(r.x + 24 * S_, y), 12 * S_, 1);
+  num(pl->coins, r.x + 42 * S_, y, 22 * S_, INK, CW_ALIGN_LEFT);
   for (int g = 0; g < GOODS; g++) {
-    float x = r.x + 22 * S_ + g * 37 * S_;
-    good_icon(g, cw_v2(x, r.y + 58 * S_), 10 * S_, 1);
-    num(pl->goods[g], x + 12 * S_, r.y + 66 * S_, 15 * S_, INK, CW_ALIGN_LEFT);
-  }
-  /* the orders: spent ones dim until a rest */
-  for (int o = 0; o < ORDERS; o++) {
-    float x = r.x + 20 * S_ + o * 27 * S_;
-    bool spent = o != O_MOVE && (pl->spent >> o & 1);
-    order_icon(o, cw_v2(x, r.y + 88 * S_), 8 * S_, spent ? rgba(0.45f, 0.35f, 0.25f, 0.3f) : INK);
+    float x = r.x + 96 * S_ + g * 41 * S_;
+    good_icon(g, cw_v2(x, y), 11 * S_, pl->goods[g] ? 1 : 0.35f);
+    num(pl->goods[g], x + 14 * S_, y + 1 * S_, 19 * S_, pl->goods[g] ? INK : rgba(0.45f, 0.35f, 0.25f, 0.5f), CW_ALIGN_LEFT);
   }
 }
 
-static void draw_gods(float W, float H) {
+/* the scores: three medallions, quiet in a corner */
+static void draw_scores(float W, float H) {
   (void)H;
   const sim *S = &G.S;
-  cw_rect r = cw_rect_make(W - 196 * S_, 10 * S_, 184 * S_, 232 * S_);
-  parch(r, 1);
-  for (int g = 0; g < GODS; g++) {
-    float y = r.y + 26 * S_ + g * 36 * S_;
-    god_icon(g, cw_v2(r.x + 22 * S_, y), 14 * S_, 1);
-    /* each house's favor as pips, its count beside */
-    for (int p = 0; p < NP; p++) {
-      float x = r.x + 46 * S_ + p * 46 * S_;
-      int f = S->p[p].favor[g];
-      for (int i = 0; i < f && i < 6; i++) cw_r2d_circle(cw_v2(x + (i % 3) * 7 * S_, y - 6 * S_ + (i / 3) * 7 * S_), 2.8f * S_, 8, pcol(p, 1));
-      num(sim_score(S, p, g), x + 24 * S_, y + 1 * S_, 13 * S_, p == 0 ? INK : rgba(0.35f, 0.27f, 0.2f, 0.85f), CW_ALIGN_LEFT);
-    }
-  }
-  /* totals */
   for (int p = 0; p < NP; p++) {
-    cw_vec2 c = cw_v2(r.x + 34 * S_ + p * 58 * S_, r.y + 206 * S_);
-    cw_r2d_circle(c, 18 * S_, 24, pcol(p, 1));
-    cw_r2d_circle_lines(c, 18 * S_, 2 * S_, 24, rgba(0.95f, 0.85f, 0.5f, 1));
+    cw_vec2 c = cw_v2(W - 36 * S_ - (NP - 1 - p) * 50 * S_, 34 * S_);
+    float r = (p == 0 ? 20 : 17) * S_;
+    cw_r2d_circle(cw_v2(c.x + 2 * S_, c.y + 3 * S_), r, 24, rgba(0.1f, 0.06f, 0.03f, 0.3f));
+    cw_r2d_circle(c, r, 24, pcol(p, 1));
+    cw_r2d_circle_lines(c, r, 2 * S_, 24, rgba(0.98f, 0.88f, 0.55f, 1));
     char b[16];
     snprintf(b, sizeof b, "%d", sim_total(S, p));
-    cw_text_style st = { .size = 17 * S_, .color = rgba(1, 0.97f, 0.9f, 1), .align = CW_ALIGN_CENTER, .wrap_width = 40 * S_ };
-    cw_r2d_text(font_num, b, cw_v2(c.x - 20 * S_, c.y - 10 * S_), &st);
+    cw_text_style st = { .size = r * 0.95f, .color = rgba(1, 0.98f, 0.92f, 1), .align = CW_ALIGN_CENTER, .wrap_width = r * 2 };
+    cw_r2d_text(font_num, b, cw_v2(c.x - r, c.y - r * 0.55f), &st);
+  }
+}
+/* the gods' ledger, only while you hold it open: each god, each house's favor and count */
+static void draw_ledger(float W, float H) {
+  const sim *S = &G.S;
+  cw_rect r = cw_rect_make(W * 0.5f - 200 * S_, H * 0.22f, 400 * S_, 300 * S_);
+  parch(r, 1);
+  for (int p = 0; p < NP; p++) {
+    cw_vec2 c = cw_v2(r.x + 160 * S_ + p * 90 * S_, r.y + 34 * S_);
+    cw_r2d_circle(c, 14 * S_, 20, pcol(p, 1));
+  }
+  for (int g = 0; g < GODS; g++) {
+    float y = r.y + 82 * S_ + g * 46 * S_;
+    god_icon(g, cw_v2(r.x + 50 * S_, y), 18 * S_, 1);
+    for (int p = 0; p < NP; p++) {
+      float x = r.x + 160 * S_ + p * 90 * S_;
+      int f = S->p[p].favor[g];
+      for (int i = 0; i < f && i < 6; i++) cw_r2d_circle(cw_v2(x - 26 * S_, y - 8 * S_ + i * 5 * S_ - (f > 3 ? 4 : 0) * S_), 3 * S_, 8, pcol(p, 1));
+      num(f * sim_score(S, p, g), x + 4 * S_, y, 22 * S_, INK, CW_ALIGN_CENTER);
+    }
   }
 }
 
 /* small marks over the cities: the good each makes, a fallow sickle, the rivals' busy orders */
+/* what each rival is doing: its order's icon at the city, a ring filling as it ends */
 static void draw_city_marks(float W, float H) {
   const sim *S = &G.S;
-  for (int c = 0; c < N_CITIES; c++) {
-    cw_vec2 sp;
-    t3_vec3 p = world_city_pos(c);
-    p.y += 0.26f;
-    if (!project(p, W, H, &sp)) continue;
-    if (CITIES[c].good >= 0) {
-      cw_r2d_circle(sp, 9 * S_, 16, rgba(0.98f, 0.93f, 0.8f, 0.85f));
-      good_icon(CITIES[c].good, sp, 6 * S_, 1);
-      if (S->fallow[CITIES[c].region]) {
-        cw_r2d_line(cw_v2(sp.x - 8 * S_, sp.y - 8 * S_), cw_v2(sp.x + 8 * S_, sp.y + 8 * S_), 2 * S_, rgba(0.5f, 0.2f, 0.1f, 0.85f));
-      }
-    }
-  }
-  /* what each rival is doing, at its order's city, with a ring that fills as it ends */
   for (int pi = 1; pi < NP; pi++) {
     const player *pl = &S->p[pi];
     if (pl->order == O_NONE || pl->free_at <= S->tick) continue;
-    int c = pl->order == O_MOVE ? pl->order_city : pl->order_city;
+    int c = pl->order_city >= 0 ? pl->order_city : CAPITAL;
     cw_vec2 sp;
-    t3_vec3 p = world_city_pos(c >= 0 ? c : CAPITAL);
+    t3_vec3 p = world_city_pos(c);
     p.y += 0.3f;
     if (!project(p, W, H, &sp)) continue;
-    sp.x += (pi == 1 ? -1 : 1) * 14 * S_;
-    sp.y -= 12 * S_;
-    int start = pl->free_at - (pl->order == O_MOVE ? pl->units[pl->order_unit >= 0 ? pl->order_unit : 0].t1 - pl->units[pl->order_unit >= 0 ? pl->order_unit : 0].t0 : ORDER_DAYS[pl->order] * DAY);
-    float k = cw_clampf((frame_tick - start) / (float)(pl->free_at - start), 0, 1);
-    cw_r2d_circle(sp, 13 * S_, 20, rgba(0.98f, 0.93f, 0.8f, 0.92f));
-    cw_r2d_arc(sp, 11 * S_, 14 * S_, -1.5707963f, -1.5707963f + k * 6.2831853f, 24, pcol(pi, 1));
-    order_icon(pl->order, sp, 7 * S_, pcol(pi, 1));
+    sp.x += (pi == 1 ? -1 : 1) * 16 * S_;
+    sp.y -= 14 * S_;
+    int u = pl->order_unit >= 0 ? pl->order_unit : 0;
+    int start = pl->free_at - (pl->order == O_MOVE ? pl->units[u].t1 - pl->units[u].t0 : ORDER_DAYS[pl->order] * DAY);
+    float k = cw_clampf((frame_tick - start) / (float)(pl->free_at - start > 0 ? pl->free_at - start : 1), 0, 1);
+    cw_r2d_circle(sp, 14 * S_, 20, rgba(0.98f, 0.93f, 0.8f, 0.85f));
+    cw_r2d_arc(sp, 12 * S_, 15 * S_, -1.5707963f, -1.5707963f + k * 6.2831853f, 24, pcol(pi, 0.9f));
+    order_icon(pl->order, sp, 8 * S_, pcol(pi, 1));
   }
 }
 
+static void draw_pops(float W, float H) {
+  for (int i = 0; i < G.npops; i++) {
+    float k = G.pops[i].age / 90.0f, a = k < 0.7f ? 1 : 1 - (k - 0.7f) / 0.3f;
+    t3_vec3 p = world_city_pos(G.pops[i].city);
+    p.y += 0.3f + 0.35f * k;
+    cw_vec2 sp;
+    if (!project(p, W, H, &sp)) continue;
+    /* several pops at one city fan out */
+    int same = 0;
+    for (int j = 0; j < i; j++) same += G.pops[j].city == G.pops[i].city && G.pops[j].age - G.pops[i].age < 10;
+    sp.x += (same % 2 ? 1 : -1) * ((same + 1) / 2) * 22 * S_;
+    float r = 12 * S_ * (k < 0.1f ? k * 10 : 1);
+    cw_r2d_circle(sp, r * 1.25f, 20, rgba(0.98f, 0.93f, 0.8f, 0.92f * a));
+    cw_r2d_circle_lines(sp, r * 1.25f, 2 * S_, 20, pcol(G.pops[i].who, a));
+    int kind = G.pops[i].kind;
+    if (kind < GOODS) good_icon(kind, sp, r * 0.8f, a);
+    else if (kind == POP_HOUSE) order_icon(O_BUILD, sp, r * 0.75f, pcol(G.pops[i].who, a));
+    else if (kind == POP_COIN) coin(sp, r * 0.7f, a);
+    else if (kind == POP_CART) order_icon(O_MOVE, sp, r * 0.75f, pcol(G.pops[i].who, a));
+    else god_icon(kind - POP_GOD0, sp, r * 0.9f, a);
+  }
+  if (G.season_banner > 0 && G.S.tick < END_TICK) { /* the new season's numeral, fading under the year */
+    int t = 150 - G.season_banner;
+    float a = t < 20 ? t / 20.0f : G.season_banner < 50 ? G.season_banner / 50.0f : 1;
+    cw_text_style st = { .size = 44 * S_, .color = rgba(0.55f, 0.12f, 0.08f, a), .align = CW_ALIGN_CENTER, .wrap_width = W,
+                         .outline_width = 3 * S_, .outline_color = rgba(1, 0.95f, 0.85f, 0.8f * a) };
+    cw_r2d_text(font_title, ROMAN[sim_season(&G.S) % SEASONS], cw_v2(0, 38 * S_), &st);
+  }
+
+}
+
 /* the cursor's city: what a house there costs, who has one */
+/* the cursor's city: its name, its good, who has a house, what yours would cost */
 static void draw_city_card(float W, float H) {
   const sim *S = &G.S;
   int c = G.cursor;
   cw_vec2 sp;
-  t3_vec3 p = world_city_pos(c);
-  if (!project(p, W, H, &sp)) return;
-  float w = 150 * S_, h = 64 * S_;
-  cw_rect r = cw_rect_make(cw_clampf(sp.x + 26 * S_, 8 * S_, W - w - 200 * S_), cw_clampf(sp.y - h - 20 * S_, 60 * S_, H - h - 40 * S_), w, h);
+  if (!project(world_city_pos(c), W, H, &sp)) return;
+  float w = 176 * S_, h = 74 * S_;
+  cw_rect r = cw_rect_make(cw_clampf(sp.x + 34 * S_, 8 * S_, W - w - 8 * S_), cw_clampf(sp.y - h - 24 * S_, 70 * S_, H - h - 40 * S_), w, h);
   parch(r, 0.95f);
-  label(CITIES[c].name, r.x + 10 * S_, r.y + 6 * S_, 14 * S_, INK, CW_ALIGN_LEFT, 0);
-  for (int i = 0; i < NP; i++) {
-    cw_rect hr = cw_rect_make(r.x + w - 52 * S_ + i * 15 * S_, r.y + 9 * S_, 11 * S_, 11 * S_);
-    if (S->house[c] >> i & 1) cw_r2d_rect(hr, pcol(i, 1));
-    else cw_r2d_rect_lines(hr, 1.2f * S_, pcol(i, 0.6f));
+  label(CITIES[c].name, r.x + 12 * S_, r.y + 8 * S_, 18 * S_, INK, CW_ALIGN_LEFT, 0);
+  float y = r.y + 52 * S_;
+  if (CITIES[c].good >= 0) good_icon(CITIES[c].good, cw_v2(r.x + 22 * S_, y), 12 * S_, 1);
+  else order_icon(O_TEMPLE, cw_v2(r.x + 22 * S_, y), 12 * S_, INK);
+  for (int i = 0; i < NP; i++) { /* who has a house: top right, beside the name */
+    cw_vec2 hc = cw_v2(r.x + w - 50 * S_ + i * 18 * S_, r.y + 20 * S_);
+    if (S->house[c] >> i & 1) cw_r2d_circle(hc, 7 * S_, 14, pcol(i, 1));
+    else cw_r2d_circle_lines(hc, 6 * S_, 1.5f * S_, 14, pcol(i, 0.45f));
   }
-  if (CITIES[c].good >= 0) {
-    good_icon(CITIES[c].good, cw_v2(r.x + 20 * S_, r.y + 42 * S_), 10 * S_, 1);
-    /* a house's price here */
+  if (CITIES[c].good >= 0 && !(S->house[c] & 1)) {
     int goods[GOODS], coins = sim_house_cost(S, 0, c, goods);
-    float x = r.x + 48 * S_;
-    order_icon(O_BUILD, cw_v2(x, r.y + 42 * S_), 8 * S_, rgba(0.4f, 0.28f, 0.18f, 1));
-    x += 16 * S_;
-    for (int g = 0; g < GOODS; g++)
-      for (int k = 0; k < goods[g]; k++) good_icon(g, cw_v2(x, r.y + 42 * S_), 8 * S_, 1), x += 18 * S_;
-    coin(cw_v2(x + 2 * S_, r.y + 42 * S_), 7 * S_, 1);
-    num(coins, x + 12 * S_, r.y + 43 * S_, 14 * S_, S->p[0].coins >= coins ? INK : rgba(0.7f, 0.15f, 0.1f, 1), CW_ALIGN_LEFT);
-    if (S->fallow[CITIES[c].region]) order_icon(O_HARVEST, cw_v2(r.x + w - 16 * S_, r.y + 42 * S_), 8 * S_, rgba(0.55f, 0.2f, 0.1f, 0.8f));
-  } else {
-    order_icon(O_TEMPLE, cw_v2(r.x + 22 * S_, r.y + 42 * S_), 10 * S_, rgba(0.4f, 0.28f, 0.18f, 1));
+    float x = r.x + w - 14 * S_;
+    num(coins, x, y, 18 * S_, S->p[0].coins >= coins ? INK : rgba(0.7f, 0.15f, 0.1f, 1), CW_ALIGN_RIGHT);
+    x -= 30 * S_;
+    coin(cw_v2(x, y), 9 * S_, 1);
+    for (int g = GOODS - 1; g >= 0; g--)
+      for (int k = 0; k < goods[g]; k++) x -= 22 * S_, good_icon(g, cw_v2(x, y), 10 * S_, S->p[0].goods[g] > k ? 1 : 0.4f);
   }
 }
 
@@ -926,7 +979,16 @@ static void draw_wheel(float W, float H) {
     cw_r2d_circle(p, (sel ? 27 : 22) * S_, 24, sel ? rgba(0.98f, 0.82f, 0.4f, 1) : rgba(0.92f, 0.85f, 0.68f, 1));
     cw_r2d_circle_lines(p, (sel ? 27 : 22) * S_, 2 * S_, 24, rgba(0.45f, 0.3f, 0.18f, 1));
     order_icon(o, p, (sel ? 15 : 12) * S_, ok ? INK : rgba(0.45f, 0.35f, 0.25f, 0.35f));
-    if (!ok) cw_r2d_line(cw_v2(p.x - 10 * S_, p.y + 10 * S_), cw_v2(p.x + 10 * S_, p.y - 10 * S_), 2.5f * S_, rgba(0.6f, 0.2f, 0.1f, 0.6f));
+    if (!ok) { /* why not: a small badge on the slot's rim */
+      cw_vec2 b = cw_v2(p.x + 15 * S_, p.y + 15 * S_);
+      cw_r2d_circle(b, 8 * S_, 16, rgba(0.98f, 0.93f, 0.8f, 1));
+      cw_r2d_circle_lines(b, 8 * S_, 1.2f * S_, 16, rgba(0.6f, 0.2f, 0.1f, 0.9f));
+      if (why == WHY_POOR) coin(b, 5.5f * S_, 1);
+      else if (why == WHY_NO_UNIT) order_icon(O_MOVE, b, 5 * S_, rgba(0.6f, 0.2f, 0.1f, 1));
+      else if (why == WHY_FALLOW) order_icon(O_HARVEST, b, 5 * S_, rgba(0.6f, 0.2f, 0.1f, 1));
+      else if (why == WHY_SPENT) order_icon(O_REST, b, 5 * S_, rgba(0.6f, 0.2f, 0.1f, 1));
+      else cw_r2d_line(cw_v2(b.x - 5 * S_, b.y + 5 * S_), cw_v2(b.x + 5 * S_, b.y - 5 * S_), 2 * S_, rgba(0.6f, 0.2f, 0.1f, 1));
+    }
   }
   /* the middle: the days it costs, and what it pays */
   sundial(c, 34 * S_, sel_days, 1, pcol(0, 1));
@@ -938,10 +1000,8 @@ static void draw_wheel(float W, float H) {
     float xx = x - n * 14 * S_;
     for (int i = 0; i < n; i++) order_icon(O_BUILD, cw_v2(xx + i * 28 * S_, y), 10 * S_, pcol(0, 1));
   } else if (G.wheel == O_RECRUIT) {
-    good_icon(GD_FOOD, cw_v2(x - 40 * S_, y), 9 * S_, 1);
-    good_icon(GD_TOOLS, cw_v2(x - 16 * S_, y), 9 * S_, 1);
-    coin(cw_v2(x + 10 * S_, y), 8 * S_, 1);
-    num(3, x + 22 * S_, y, 15 * S_, INK, CW_ALIGN_LEFT);
+    good_icon(GD_FOOD, cw_v2(x - 14 * S_, y), 11 * S_, 1);
+    good_icon(GD_TOOLS, cw_v2(x + 14 * S_, y), 11 * S_, 1);
   } else if (G.wheel == O_REST) {
     int n = 0;
     for (int o = 0; o < ORDERS; o++) n += S->p[0].spent >> o & 1;
@@ -1004,8 +1064,10 @@ static void draw_temple(float W, float H) {
     const offer *o = &S->offers[i];
     float x = x0 + i * (cw + gap);
     bool sel = i == G.temple_sel;
+    bool afford = S->p[0].coins >= o->coins;
+    for (int g = 0; g < GOODS; g++) afford &= S->p[0].goods[g] >= o->cost[g];
     cw_rect r = cw_rect_make(x, y - (sel ? 8 * S_ : 0), cw, 170 * S_);
-    parch(r, 1);
+    parch(r, afford ? 1 : 0.75f);
     if (sel) cw_r2d_round_rect_lines(cw_rect_make(r.x - 3 * S_, r.y - 3 * S_, r.w + 6 * S_, r.h + 6 * S_), 12 * S_, 3 * S_, 8, rgba(0.95f, 0.7f, 0.25f, 1));
     god_icon(o->god, cw_v2(x + cw * 0.5f, r.y + 48 * S_), 30 * S_, 1);
     /* what you have with this god now, and what one more favor adds */
@@ -1017,9 +1079,14 @@ static void draw_temple(float W, float H) {
     cw_r2d_text(font_num, b, cw_v2(x, r.y + 100 * S_), &st);
     float gx = x + 16 * S_;
     for (int g = 0; g < GOODS; g++)
-      for (int k = 0; k < o->cost[g]; k++) good_icon(g, cw_v2(gx, r.y + 146 * S_), 9 * S_, 1), gx += 22 * S_;
+      for (int k = 0; k < o->cost[g]; k++) {
+        cw_vec2 c = cw_v2(gx, r.y + 146 * S_);
+        if (S->p[0].goods[g] <= k) cw_r2d_circle(c, 11 * S_, 16, rgba(0.85f, 0.3f, 0.2f, 0.35f)); /* one you lack */
+        good_icon(g, c, 9 * S_, 1), gx += 22 * S_;
+      }
     coin(cw_v2(gx + 4 * S_, r.y + 146 * S_), 8 * S_, 1);
-    num(o->coins, gx + 16 * S_, r.y + 147 * S_, 15 * S_, INK, CW_ALIGN_LEFT);
+    num(o->coins, gx + 16 * S_, r.y + 147 * S_, 15 * S_, S->p[0].coins >= o->coins ? INK : rgba(0.7f, 0.15f, 0.1f, 1), CW_ALIGN_LEFT);
+    if (!afford) cw_r2d_round_rect(r, 12 * S_, 8, rgba(0.3f, 0.2f, 0.12f, 0.18f));
   }
 }
 
@@ -1029,52 +1096,42 @@ static void glyph(const char *k, cw_vec2 c, float r) {
   cw_text_style st = { .size = r * 1.15f, .color = rgba(1, 0.95f, 0.85f, 1), .align = CW_ALIGN_CENTER, .wrap_width = r * 4 };
   cw_r2d_text(font_num, k, cw_v2(c.x - r * 2, c.y - r * 0.62f), &st);
 }
+/* the controls as button glyphs, until you have the hang of them */
 static void draw_help(float W, float H) {
   bool pad = last_device == DEV_PAD;
-  float x = W - 16 * S_, y = H - 22 * S_, r = 10 * S_;
-  struct { const char *k; int icon; } items[4];
-  int n = 0;
-  if (G.mode == MODE_MAP) {
-    items[n++] = (typeof(items[0])){ pad ? "A" : "\xe2\x86\xb5", -1 };
-    items[n++] = (typeof(items[0])){ pad ? "RT" : "Tab", -2 };
-    items[n++] = (typeof(items[0])){ pad ? "RB" : "E", O_MOVE };
-  } else {
-    items[n++] = (typeof(items[0])){ pad ? "A" : "\xe2\x86\xb5", -3 };
-    items[n++] = (typeof(items[0])){ pad ? "B" : "Esc", -4 };
+  float fade = cw_clampf(1 - (G.S.orders_done[0] - 6) / 4.0f, 0, 1);
+  if (G.mode != MODE_MAP) fade = fmaxf(fade, 0.8f);
+  float y = H - 26 * S_, r = 12 * S_;
+  if (fade > 0) {
+    float x = W - 30 * S_;
+    if (G.mode == MODE_MAP) {
+      glyph(pad ? "A" : "\xe2\x86\xb5", cw_v2(x, y), r);
+      cw_r2d_circle_lines(cw_v2(x - 30 * S_, y), 9 * S_, 2.5f * S_, 20, rgba(INK.r, INK.g, INK.b, fade));
+      glyph(pad ? "RT" : "Tab", cw_v2(x - 80 * S_, y), r);
+      sundial(cw_v2(x - 112 * S_, y), 10 * S_, 0, fade, INK);
+    } else {
+      glyph(pad ? "A" : "\xe2\x86\xb5", cw_v2(x, y), r);
+      glyph(pad ? "B" : "Esc", cw_v2(x - 50 * S_, y), r);
+    }
   }
-  for (int i = 0; i < n; i++) {
-    float cx = x - 22 * S_ - i * 70 * S_;
-    glyph(items[i].k, cw_v2(cx - 22 * S_, y), r);
-    cw_vec2 ic = cw_v2(cx, y);
-    if (items[i].icon == -1) cw_r2d_circle_lines(ic, 9 * S_, 2.5f * S_, 20, INK), cw_r2d_circle(ic, 3 * S_, 8, INK); /* the wheel */
-    else if (items[i].icon == -2) sundial(ic, 10 * S_, 0, 1, INK);
-    else if (items[i].icon == -3) cw_r2d_polyline((cw_vec2[]){ cw_v2(ic.x - 7 * S_, ic.y), cw_v2(ic.x - 2 * S_, ic.y + 6 * S_), cw_v2(ic.x + 8 * S_, ic.y - 6 * S_) }, 3, 3 * S_, false, INK);
-    else if (items[i].icon == -4) cw_r2d_line(cw_v2(ic.x - 6 * S_, ic.y - 6 * S_), cw_v2(ic.x + 6 * S_, ic.y + 6 * S_), 3 * S_, INK), cw_r2d_line(cw_v2(ic.x + 6 * S_, ic.y - 6 * S_), cw_v2(ic.x - 6 * S_, ic.y + 6 * S_), 3 * S_, INK);
-    else order_icon(items[i].icon, ic, 9 * S_, INK);
+  if (G.has_queued) { /* a queued order waits beside your marker */
+    cw_vec2 c = cw_v2(W * 0.67f + 26 * S_, 24 * S_);
+    cw_r2d_circle(c, 12 * S_, 20, pcol(0, 0.9f));
+    order_icon(G.queued.order, c, 7 * S_, rgba(1, 0.95f, 0.85f, 1));
   }
-  /* a queued order waits beside your marker */
-  if (G.has_queued) {
-    cw_vec2 c = cw_v2(W * 0.73f + 32 * S_, 30 * S_);
-    cw_r2d_circle(c, 13 * S_, 20, pcol(0, 0.9f));
-    order_icon(G.queued.order, c, 8 * S_, rgba(1, 0.95f, 0.85f, 1));
-  }
-  /* waiting: the sundial turning */
-  if (G.waiting && sim_idle(&G.S, 0)) {
-    cw_vec2 c = cw_v2(W * 0.5f, H * 0.86f);
-    sundial(c, 22 * S_, (G.S.tick / DAY) % SEASON_DAYS, 0.9f, INK);
-  }
+  if (G.waiting && sim_idle(&G.S, 0)) sundial(cw_v2(W * 0.5f, H * 0.86f), 24 * S_, (G.S.tick / DAY) % SEASON_DAYS, 0.9f, INK);
 }
 
 static void draw_title(float W, float H) {
   float in = cw_clampf(G.state_ticks / 40.0f, 0, 1);
   cw_r2d_rect(cw_rect_make(0, 0, W, H), rgba(0.08f, 0.05f, 0.02f, 0.25f * in));
-  cw_rect r = cw_rect_make(W * 0.5f - 230 * S_, H * 0.16f, 460 * S_, 150 * S_);
+  cw_rect r = cw_rect_make(W * 0.5f - 230 * S_, H * 0.12f, 460 * S_, 178 * S_);
   parch(r, in);
   cw_text_style st = { .size = 96 * S_, .color = rgba(0.55f, 0.12f, 0.08f, in), .align = CW_ALIGN_CENTER, .wrap_width = r.w, .outline_width = 2 * S_,
                        .outline_color = rgba(0.3f, 0.18f, 0.08f, in) };
   cw_r2d_text(font_title, OTIUM_TITLE, cw_v2(r.x, r.y + 14 * S_), &st);
   /* a laurel of the five gods under the name */
-  for (int g = 0; g < GODS; g++) god_icon(g, cw_v2(W * 0.5f + (g - 2) * 44 * S_, r.y + 124 * S_), 15 * S_, in);
+  for (int g = 0; g < GODS; g++) god_icon(g, cw_v2(W * 0.5f + (g - 2) * 44 * S_, r.y + 146 * S_), 15 * S_, in);
   float p = 0.6f + 0.4f * cw_sin(frame_t * 3);
   glyph(last_device == DEV_PAD ? "A" : "\xe2\x86\xb5", cw_v2(W * 0.5f, H * 0.84f), 18 * S_ * (0.9f + 0.1f * p));
   if (SAVE.games > 0) {
@@ -1152,10 +1209,12 @@ static void render(void *u, double alpha) {
       preview = wheel_days(G.wheel, &why);
     }
     draw_city_marks(W, H);
+    draw_pops(W, H);
     if (G.state == GS_PLAY && G.mode == MODE_MAP) draw_city_card(W, H);
     draw_timeline(W, preview);
     draw_purse(W, H);
-    draw_gods(W, H);
+    draw_scores(W, H);
+    if (G.state == GS_PLAY && cw_action_pressed(0, G.a_ledger)) draw_ledger(W, H);
     if (G.state == GS_PLAY) {
       if (G.mode == MODE_WHEEL) draw_wheel(W, H);
       if (G.mode == MODE_TRADE) draw_trade(W, H);
@@ -1208,6 +1267,7 @@ static void init(void *u) {
   G.a_pause = cw_action_find("pause");
   G.a_zoom_in = cw_action_find("zoom_in");
   G.a_zoom_out = cw_action_find("zoom_out");
+  G.a_ledger = cw_action_find("ledger");
   G.zoom = 0.85f;
   audio_init();
   const cw_font_desc fd = { .mode = CW_FONT_SDF, .sdf_padding = 8 };
@@ -1238,6 +1298,9 @@ static void init(void *u) {
   cw_debug_field("players.total", G.dbg_total, CW_DBG_I32, NP);
   cw_debug_field("players.orders", G.dbg_orders, CW_DBG_I32, NP);
   cw_debug_field("players.free_at", G.dbg_free, CW_DBG_I32, NP);
+  cw_debug_field("you.goods", G.you_goods, CW_DBG_I32, GOODS);
+  cw_debug_field("you.favor", G.you_favor, CW_DBG_I32, GODS);
+  cw_debug_i32("you.spent", &G.you_spent);
   cw_debug_u32("state.hash", &G.state_hash);
   cw_debug_u32("tex.hash", &tex_hash);
   cw_debug_u32("world.hash", &world_hash);

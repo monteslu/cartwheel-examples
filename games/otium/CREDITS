@@ -1,0 +1,17 @@
+Otium: credits
+
+Everything in this game was made for it: code, the map and its relief, the
+towns, carts and galleys, the procedural textures (textures.c, made at load
+time) and the synthesized sound and music (tools/make-audio.mjs). The
+exceptions are the fonts below. City positions and coastlines follow real
+geography (traced by hand in map.c).
+
+Fonts (each licence ships beside its font in assets/fonts/):
+
+  Cinzel (variable): the title, city names and season numerals.
+    Copyright 2020 The Cinzel Project Authors.
+    SIL Open Font License 1.1 (assets/fonts/Cinzel-OFL.txt).
+
+  Lato (Bold): numbers and button glyphs.
+    Copyright (c) 2010-2011, Łukasz Dziedzic.
+    SIL Open Font License 1.1 (assets/fonts/Lato-OFL.txt).
