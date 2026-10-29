@@ -397,8 +397,11 @@ cw_node water_surface(cw_node parent, float cx, float cz, float size_x, float si
   float fl = sqrtf(w.flow_x * w.flow_x + w.flow_z * w.flow_z);
   if (fl > 1e-5f) cw_node_set(n, "flow_direction", cw_val_vec2(w.flow_x / fl, w.flow_z / fl));
   cw_node_set(n, "flow_speed", cw_val_float(fl));
-  cw_node_set(n, "reflection", cw_val_bool(true));
-  cw_node_set(n, "refraction", cw_val_bool(w.refract));
+  /* three or four views: no planar reflection or refraction (each redraws the scene twice more per view: 4.7 ms of CPU on
+   * the temple in four views); the sky's reflection and deep_color stand in, as the engine's Low quality does */
+  bool many = game_planned_views() > 2;
+  cw_node_set(n, "reflection", cw_val_bool(!many));
+  cw_node_set(n, "refraction", cw_val_bool(w.refract && !many));
   if (w.horizon > 0 && !cw_node_set(n, "horizon_distance", cw_val_float(w.horizon))) cw_warn("water: this engine has no horizon_distance");
   return n;
 }
