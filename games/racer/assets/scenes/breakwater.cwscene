@@ -4,14 +4,14 @@
 
 [node name="Sky" parent="." type="ProceduralSky"]
 sun = "../Sun"
-time_of_day = 8.2
+time_of_day = 8.8
 latitude = 36
 declination = 18
 north = 60
-sun_energy = 2.6
+sun_energy = 3.2
 sky_energy = 1.0
-rayleigh = 2.2
-mie = 1.6
+rayleigh = 1.7
+mie = 1.0
 mie_g = 0.8
 sun_disk_intensity = 1.2
 ground_color = color(0.2, 0.24, 0.26, 1)
@@ -37,14 +37,14 @@ ground_color = color(0.42, 0.4, 0.34, 1)
 hemi_energy = 0.8
 
 [node name="Fog" parent="." type="HeightFog"]
-density = 0.00035
+density = 0.00016
 height_falloff = 0.012
 base_height = -60
 use_sky_color = false
 color = color(0.66, 0.74, 0.8, 1)
 sun_scatter = 0.5
 sun_g = 0.8
-max_opacity = 0.45
+max_opacity = 0.3
 start_distance = 60
 sky_distance = 1800
 volumetric_distance = 1

@@ -46,6 +46,15 @@ enum { O_PILL_W, O_PILL_C, O_PILL_E, O_GATE, O_NEST_W, O_NEST_E, O_HEIGHTS, O_NE
   GDECO(AL_FEATURE, x, z - 1.6f, y + 1.8f, 0.5f, 0.5f, 3.0f, STEEL, GATE_OBJ(o)), GGLOWPOST(x, z, y + 2.4f, 0.5f, 0.5f, RED, GATE_OBJ(o))
 
 static const arena_prim PRIMS[] = {
+  /* the cove: the sand, the beach running down under the sea at the south (drive in and you are back at the boats), grey
+   * cliffs either side and behind the fortress */
+  BOX(AL_FLOOR, 0, 2, -2, 200, 2, 664, 0, 0),
+  { AP_RAMP, AL_FLOOR, 0, -345, -3.2f, 200, 1.2f, 30, 0, false, 0 },
+  BOX(AL_WALL, -150, 0, -4, 100, 34, 700, 0, 0), BOX(AL_WALL, 150, 0, -4, 100, 34, 700, 0, 0), BOX(AL_WALL, 0, 385, -4, 400, 34, 100, 0, 0),
+  /* the wet sand at the waterline, darker, and driftwood on it */
+  DECO(AL_PAINT, 0, -318, 0.01f, 200, 0.02f, 24, 0, 0x8a7c5e),
+  DECO(AL_COVER, -40, -296, 0, 7, 0.5f, 0.6f, 25, 0x8a6a4a), DECO(AL_COVER, 22, -282, 0, 5, 0.4f, 0.5f, -40, 0x7a5a3a),
+  DECO(AL_COVER, 72, -300, 0, 6, 0.45f, 0.55f, 70, 0x8a6a4a),
   /* the surf line: foam on the wet sand */
   DECO(AL_PAINT, 0, -318, 0, 200, 0.03f, 4, 0, 0xd8e4e4), DECO(AL_PAINT, 0, -300, 0, 200, 0.03f, 2, 0, 0xc4d2d2),
   DECO(AL_PAINT, 0, -309, 0, 200, 0.02f, 14, 0, 0x6a7d7c),
@@ -70,7 +79,12 @@ static const arena_prim PRIMS[] = {
   GDECO(AL_TRIM, -55, -116.05f, 1.3f, 16, 0.5f, 0.1f, 0, GATE_OBJ(O_PILL_W)), GDECO(AL_TRIM, 0, -116.05f, 1.3f, 16, 0.5f, 0.1f, 0, GATE_OBJ(O_PILL_C)),
   GDECO(AL_TRIM, 55, -116.05f, 1.3f, 16, 0.5f, 0.1f, 0, GATE_OBJ(O_PILL_E)),
   /* the seawall, its gate, the lamps over the gate */
-  BOX(AL_WALL, -54.5f, -50, 0, 91, 7, 5, 0, 0), BOX(AL_WALL, 54.5f, -50, 0, 91, 7, 5, 0, 0),
+  BOX(AL_FEATURE, -54.5f, -50, 0, 91, 7, 5, 0, CONC), BOX(AL_FEATURE, 54.5f, -50, 0, 91, 7, 5, 0, CONC),
+  /* its parapet: merlons along the top, a dark band at the waterline of old storms, lamps */
+  DECO(AL_FEATURE, -54.5f, -51.5f, 7, 91, 1.2f, 2, 0, 0x8a867c), DECO(AL_FEATURE, 54.5f, -51.5f, 7, 91, 1.2f, 2, 0, 0x8a867c),
+  DECO(AL_PAINT, -54.5f, -52.55f, 0.4f, 91, 1.6f, 0.05f, 0, 0x4a4c48), DECO(AL_PAINT, 54.5f, -52.55f, 0.4f, 91, 1.6f, 0.05f, 0, 0x4a4c48),
+  DECO(AL_GLOW, -30, -52.6f, 5.6f, 0.8f, 0.8f, 0.2f, 0, 0xffd890), DECO(AL_GLOW, 30, -52.6f, 5.6f, 0.8f, 0.8f, 0.2f, 0, 0xffd890),
+  DECO(AL_GLOW, -75, -52.6f, 5.6f, 0.8f, 0.8f, 0.2f, 0, 0xffd890), DECO(AL_GLOW, 75, -52.6f, 5.6f, 0.8f, 0.8f, 0.2f, 0, 0xffd890),
   GBOX(AL_FEATURE, 0, -50, 0, 18, 7, 3, STEEL, GATE_OBJ(O_GATE)), GDECO(AL_GLOW, 0, -51.6f, 6.2f, 14, 0.4f, 0.1f, 0xffb050, GATE_OBJ(O_GATE)),
   DECO(AL_FEATURE, -11, -50, 7, 4, 3, 6, 0, CONC), DECO(AL_FEATURE, 11, -50, 7, 4, 3, 6, 0, CONC),
   NEST(O_NEST_W, -40, -72, 0), NEST(O_NEST_E, 40, -72, 0),
@@ -83,8 +97,8 @@ static const arena_prim PRIMS[] = {
   NEST(O_NEST_T2, -30, 130, 12),
   POST(AL_COVER, 10, 92, 6, 3, 1.2f, SANDBAG), POST(AL_COVER, -20, 132, 12, 3, 1.2f, SANDBAG),
   /* the cannon bunker on the top: its walls, the door that opens once the heights are taken, the core and the gun */
-  BOX(AL_WALL, -25.5f, 256, 18, 31, 6, 2, 0, 0), BOX(AL_WALL, 25.5f, 256, 18, 31, 6, 2, 0, 0),
-  BOX(AL_WALL, -40, 289, 18, 2, 6, 64, 0, 0), BOX(AL_WALL, 40, 289, 18, 2, 6, 64, 0, 0), BOX(AL_WALL, 0, 320, 18, 82, 6, 2, 0, 0),
+  BOX(AL_FEATURE, -25.5f, 256, 18, 31, 6, 2, 0, CONC), BOX(AL_FEATURE, 25.5f, 256, 18, 31, 6, 2, 0, CONC),
+  BOX(AL_FEATURE, -40, 289, 18, 2, 6, 64, 0, CONC), BOX(AL_FEATURE, 40, 289, 18, 2, 6, 64, 0, CONC), BOX(AL_FEATURE, 0, 320, 18, 82, 6, 2, 0, CONC),
   GBOX(AL_FEATURE, 0, 256, 18, 20, 6, 2, STEEL, GATE_STAGE(2)), GDECO(AL_TRIM, 0, 254.9f, 21, 20, 0.6f, 0.1f, 0, GATE_STAGE(2)),
   GPOST(AL_FEATURE, 0, 292, 18, 7, 5, STEEL, GATE_OBJ(O_CORE)), GPOST(AL_GLOW, 0, 292, 23, 4.5f, 2.2f, CORE, GATE_OBJ(O_CORE)),
   GGLOWPOST(0, 292, 18.2f, 9, 0.25f, CORE, GATE_OBJ(O_CORE)),
@@ -155,7 +169,7 @@ static const uint8_t LINKS[][2] = {
 };
 
 static const arena_def ARENA = {
-  .half_x = 100, .half_z = 330, .wall_h = 5.0f,
+  .half_x = 100, .half_z = 330, .open = true,
   .prims = PRIMS, .nprims = sizeof PRIMS / sizeof PRIMS[0],
   .spawns = ATT, .nspawns = 8,
   .boxes = BOXES, .nboxes = sizeof BOXES / sizeof BOXES[0],
@@ -164,12 +178,12 @@ static const arena_def ARENA = {
   .modes = 1 << AM_ASSAULT,
   .assault = &ASSAULT,
   .look = {
-    [AL_FLOOR] = { TEX_GROUND_SAND, { 0.86f, 0.78f, 0.62f }, 1.15f, 9.0f, 0.9f, 0 },
-    [AL_WALL] = { TEX_WALL_CONCRETE, { 0.72f, 0.72f, 0.7f }, 1.3f, 6.0f, 0.9f, 0 },
+    [AL_FLOOR] = { TEX_GROUND_SAND, { 0.92f, 0.84f, 0.68f }, 1.15f, 9.0f, 0.9f, 0 },
+    [AL_WALL] = { TEX_GROUND_ROCK, { 0.62f, 0.62f, 0.6f }, 1.4f, 14.0f, 0.95f, 0 },
     [AL_COVER] = { TEX_WALL_CONCRETE, { 0.78f, 0.76f, 0.72f }, 1.3f, 4.0f, 0.85f, 0 },
-    [AL_DECK] = { TEX_GROUND_ROCK, { 0.62f, 0.62f, 0.58f }, 1.4f, 9.0f, 0.95f, 0 },
+    [AL_DECK] = { TEX_GROUND_GRASS, { 0.5f, 0.6f, 0.38f }, 1.2f, 9.0f, 0.95f, 0 },
     [AL_RAMP] = { TEX_ROAD_CONCRETE, { 0.8f, 0.78f, 0.74f }, 1.3f, 6.0f, 0.9f, 0 },
-    [AL_TRIM] = { TEX_WALL_HAZARD, { 1, 1, 1 }, 1.2f, 2.0f, 0.8f, 0 },
+    [AL_TRIM] = { TEX_WALL_CONCRETE, { 0.7f, 0.7f, 0.68f }, 1.3f, 2.0f, 0.9f, 0 },
     [AL_FEATURE] = { TEX_WALL_CONCRETE, { 0.8f, 0.8f, 0.78f }, 1.3f, 5.0f, 0.85f, 0 },
     [AL_GLOW] = { -1, { 1.0f, 0.7f, 0.4f }, 1, 1, 1, 0, 3.0f },
     [AL_PAINT] = { -1, { 1, 1, 1 }, 1.0f, 1, 0.8f, 0 },
@@ -188,15 +202,23 @@ static float coast_ground(float x, float z, void *ud) {
   (void)ud;
   float lz = z - ARENA_CZ, dx = fabsf(x);
   /* the bay's floor, the headlands either side climbing to the cliff's height and beyond, the plateau behind it */
-  float side = dx - 104.0f;
+  float side = dx - 150.0f; /* (the land rises behind the cliffs' blocks, so its coarse slope never shows in front of them) */
   float h = -0.05f;
   if (lz < -334.0f) h = -0.05f - fminf((-334.0f - lz) * 0.08f, 6.0f); /* the sand running into the sea */
-  if (side > 0) {
-    float rise = fminf(side * 0.9f, 30.0f) * (lz < -300.0f ? fmaxf(0.0f, 1.0f - (-300.0f - lz) / 120.0f) : 1.0f);
-    h = fmaxf(h, rise + ground_noise(x, z, 60, 6, 3, 41) * fminf(side / 40.0f, 1.0f));
+  if (side > -18.0f) {
+    /* the headlands: level with the cliffs' tops (30) just behind them, rolling on, sinking to the sea round the bay */
+    float sea = lz < -330.0f ? fmaxf(0.0f, 1.0f - (-330.0f - lz) / 160.0f) : 1.0f;
+    h = fmaxf(h, (29.0f + ground_noise(x, z, 90, 10, 3, 41) * fminf(fmaxf(side, 0) / 60.0f, 1.0f)) * sea);
   }
-  if (lz > 334.0f) h = fmaxf(h, 18.0f + ground_noise(x, z, 80, 8, 3, 43) * fminf((lz - 334.0f) / 60.0f, 1.0f));
+  if (lz > 380.0f) h = fmaxf(h, 30.0f + ground_noise(x, z, 80, 8, 3, 43) * fminf((lz - 340.0f) / 60.0f, 1.0f));
   return h;
+}
+
+/* what a prop stands on: the cliffs' tops where they are (30 m), else the land */
+static float land_at(float x, float z) {
+  float lz = z - ARENA_CZ, g = coast_ground(x, z, NULL);
+  bool cliff = (fabsf(x) > 100.0f && fabsf(x) < 200.0f && lz > -350.0f) || (lz > 335.0f && lz < 435.0f && fabsf(x) < 200.0f);
+  return cliff ? fmaxf(g, 30.0f) : g;
 }
 
 static void breakwater_scenery(cw_node scene, const track *t, uint32_t seed) {
@@ -208,10 +230,10 @@ static void breakwater_scenery(cw_node scene, const track *t, uint32_t seed) {
   g.cx = 0, g.cz = ARENA_CZ;
   g.half = 1400.0f;
   g.height = coast_ground;
-  g.tex = TEX_GROUND_SAND;
+  g.tex = TEX_GROUND_GRASS;
   g.tex_repeat = 10.0f;
-  g.tint = pc_mul(hex(0xc8b890), 1.25f);
-  g.tint2 = pc_mul(hex(0x6e7462), 1.2f);
+  g.tint = pc_mul(hex(0x6a8a48), 1.3f);
+  g.tint2 = pc_mul(hex(0x8a8a60), 1.25f);
   g.near_cell = split ? 96.0f : 64.0f;
   g.detail_range = 40.0f;
   g.follow_road = false;
@@ -240,7 +262,25 @@ static void breakwater_scenery(cw_node scene, const track *t, uint32_t seed) {
   /* rocks along the headlands and the cliff's foot outside the walls */
   for (int i = 0; i < (split ? 14 : 28); i++) {
     float side = i & 1 ? 1.0f : -1.0f, z = -hz + 20 + (float)(i / 2) * 48.0f + 16 * hf(2100u + (uint32_t)i), x = side * (hx + 8 + 20 * hf(2110u + (uint32_t)i));
-    ps_add(ps, i % 3 ? PK_BOULDERS : PK_ROCK, (t3_vec3){ x, coast_ground(x, z + cz, NULL) - 0.4f, z + cz }, hf(2120u + (uint32_t)i) * 6.28f, 1.4f + 1.2f * hf(2130u + (uint32_t)i), 2140u + (uint32_t)i);
+    ps_add(ps, i % 3 ? PK_BOULDERS : PK_ROCK, (t3_vec3){ x, land_at(x, z + cz) - 0.4f, z + cz }, hf(2120u + (uint32_t)i) * 6.28f, 1.4f + 1.2f * hf(2130u + (uint32_t)i), 2140u + (uint32_t)i);
+  }
+  /* gorse and grass along the cliffs' rims */
+  for (int i = 0; i < (split ? 30 : 70); i++) {
+    float side = i & 1 ? 1.0f : -1.0f, z = -hz + 10 + (float)(i / 2) * (2 * hz / (float)((split ? 30 : 70) / 2)) + 6 * hf(2500u + (uint32_t)i);
+    float x = side * (hx + 2.0f + 14.0f * hf(2510u + (uint32_t)i));
+    ps_add(ps, i % 3 ? PK_BUSH : PK_GRASS, (t3_vec3){ x, 30.0f, z + cz }, hf(2520u + (uint32_t)i) * 6.28f, 1.2f + 0.9f * hf(2530u + (uint32_t)i), 2540u + (uint32_t)i);
+  }
+  /* gorse and rocks along the backs of the terraces */
+  for (int i = 0; i < (split ? 12 : 30); i++) {
+    int tier = i % 3;
+    float z = (tier == 0 ? 106.0f : tier == 1 ? 146.0f : 320.0f) + cz, x = -92.0f + 184.0f * hf(2600u + (uint32_t)i);
+    if (tier == 2 && fabsf(x) < 46.0f) x += x < 0 ? -46.0f : 46.0f; /* (not in the bunker) */
+    ps_add(ps, i % 4 ? PK_BUSH : PK_ROCK, (t3_vec3){ x, 6.0f * (float)(tier + 1), z }, hf(2610u + (uint32_t)i) * 6.28f, 1.0f + 0.8f * hf(2620u + (uint32_t)i), 2630u + (uint32_t)i);
+  }
+  /* boulders fallen at the cliffs' feet, inside the cove */
+  for (int i = 0; i < (split ? 10 : 22); i++) {
+    float side = i & 1 ? 1.0f : -1.0f, z = -hz + 30 + (float)(i / 2) * 58.0f + 20 * hf(2150u + (uint32_t)i);
+    ps_add(ps, i % 2 ? PK_BOULDERS : PK_ROCK, (t3_vec3){ side * (hx - 1.0f), -0.3f, z + cz }, hf(2160u + (uint32_t)i) * 6.28f, 0.9f + 0.7f * hf(2170u + (uint32_t)i), 2180u + (uint32_t)i);
   }
   /* the breakwater itself: a long rubble arm out into the sea, and wrecks and buoys off the beach */
   for (int i = 0; i < (split ? 10 : 20); i++) {
@@ -250,14 +290,14 @@ static void breakwater_scenery(cw_node scene, const track *t, uint32_t seed) {
   ps_add(ps, PK_WRECK_TRUCK, (t3_vec3){ -40, coast_ground(-40, -hz - 80 + cz, NULL) - 0.3f, -hz - 80 + cz }, 0.7f, 2.2f, 2301u);
   ps_add(ps, PK_WRECK_TRUCK, (t3_vec3){ 70, coast_ground(70, -hz - 140 + cz, NULL) - 0.3f, -hz - 140 + cz }, 2.4f, 2.6f, 2302u);
   /* the lighthouse and the radio masts on the plateau, pines along the headlands */
-  ps_add(ps, PK_SILO, (t3_vec3){ -150, coast_ground(-150, cz - 260, NULL), cz - 260 }, 0.0f, 1.2f, 2310u);
+  ps_add(ps, PK_SILO, (t3_vec3){ -150, land_at(-150, cz - 260), cz - 260 }, 0.0f, 1.2f, 2310u);
   for (int i = 0; i < 4; i++) {
     float x = -60.0f + (float)i * 40.0f, z = hz + 30 + cz;
-    ps_add(ps, PK_ANTENNA, (t3_vec3){ x, coast_ground(x, z, NULL) - 0.3f, z }, 0, 1.6f, 2320u + (uint32_t)i);
+    ps_add(ps, PK_ANTENNA, (t3_vec3){ x, land_at(x, z) - 0.3f, z }, 0, 1.6f, 2320u + (uint32_t)i);
   }
   for (int i = 0; i < (split ? 18 : 40); i++) {
     float side = i & 1 ? 1.0f : -1.0f, x = side * (hx + 30 + 140 * hf(2400u + (uint32_t)i)), z = (hf(2410u + (uint32_t)i) * 2 - 1) * hz * 0.9f + cz + 60;
-    ps_add(ps, PK_PINE, (t3_vec3){ x, coast_ground(x, z, NULL) - 0.2f, z }, hf(2420u + (uint32_t)i) * 6.28f, 1.0f + 0.5f * hf(2430u + (uint32_t)i), 2440u + (uint32_t)i);
+    ps_add(ps, PK_PINE, (t3_vec3){ x, land_at(x, z) - 0.2f, z }, hf(2420u + (uint32_t)i) * 6.28f, 1.0f + 0.5f * hf(2430u + (uint32_t)i), 2440u + (uint32_t)i);
   }
   ps_finish(ps);
   fx_ambient_follow(scene, FXA_DUST, split ? 0.15f : 0.3f);
