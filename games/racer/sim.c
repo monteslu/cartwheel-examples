@@ -471,6 +471,24 @@ static void spin_kart(sim *s, int i, int kind, int by) {
   }
   /* inside a loop or corkscrew a hit only shakes a kart and costs it speed: spun round in the tube it rolled through the rest
    * of it backwards (Wreck Orbit's first corkscrew, 17 s), and it cannot steer out of a tube anyway */
+  /* and on a jump's run-up or in its flight a hit only shakes it, at full speed: spun on the ramp at 62 m/s a kart left the
+   * lip at 25 and dropped into Wreck Orbit's pit */
+  bool on_jump = false;
+  if (!s->battle && k->loc.i >= 0 && k->loc.br < 0) {
+    uint32_t fl = s->track->s[k->loc.i].flags;
+    on_jump = (fl & TF_GAP) != 0;
+    for (int g = 0; g < s->track->ngaps && !on_jump && (fl & TF_RAMP); g++) {
+      float ahead = s->track->s[s->track->gap_from[g]].s - k->loc.s;
+      if (s->track->circuit && ahead < 0) ahead += s->track->length;
+      on_jump = ahead >= 0 && ahead < 70.0f;
+    }
+  }
+  if (on_jump) {
+    k->hits_taken++;
+    if (by >= 0 && by != i) s->k[by].hits_given++;
+    event(s, EV_SPIN, i, by, k->p, (float)kind);
+    return;
+  }
   if (!s->battle && k->loc.i >= 0 && (s->track->s[k->loc.i].flags & TF_LOOP)) {
     t3_vec3 v = cw_body3d_velocity(PH.body[i]);
     cw_body3d_set_velocity(PH.body[i], v3mul(v, 0.75f));
@@ -1157,9 +1175,11 @@ static void kart_control(sim *s, int i, kin in) {
       for (int g = 0; g < t->ngaps && !lip; g++) {
         float ahead = t->s[t->gap_from[g]].s - ts->s;
         if (t->circuit && ahead < 0) ahead += t->length;
-        lip = ahead > -2.0f && ahead < 30.0f;
+        float span = t->s[t->gap_to[g]].s - t->s[t->gap_from[g]].s;
+        lip = ahead > -span - 10.0f && ahead < 30.0f; /* the run-up and the whole flight (held down just past the lip, a kart
+                                                      * at the jump's speed dropped into Frostbite's crevasse) */
       }
-      if (ds > 1.0f && !lip && !grounded) { /* (only as it lifts: pressed down on every crest it was dragged, 6 s a lap on the refinery) */
+      if (ds > 1.0f && !lip && !grounded && !(nx->flags & TF_GAP)) { /* (only as it lifts: pressed down on every crest it was dragged, 6 s a lap on the refinery) */
         float kappa = -v3dot(v3sub(nx->f, ts->f), ts->u) / ds; /* > 0: the road bends down ahead */
         float need = sp * sp * kappa - 0.85f * GRAV;
         if (need > 0) cw_body3d_apply_force(b, v3mul(m.u, -fminf(need, 2.0f * GRAV) * mass * attach), NULL);
@@ -1741,6 +1761,17 @@ void sim_step(sim *s, const kin in_raw[MAXK]) {
       tsample gm = track_at_loc(s->track, &k->loc, 0);
       float vlat = v3dot(k->v, gm.r), want = clampf(-k->loc.lat * 1.4f, -9.0f, 9.0f);
       k->v = v3add(k->v, v3mul(gm.r, (want - vlat) * 0.08f));
+      /* and up toward the arc the landing is built for when a kart near the jump's speed is falling below it (one that left
+       * the ramp a moment early at 33 m/s on a 31 m/s jump dropped into Frostbite's crevasse) */
+      float along = v3dot(k->v, gm.f);
+      for (int g = 0; g < s->track->ngaps; g++) {
+        if (k->loc.i < s->track->gap_from[g] || k->loc.i > s->track->gap_to[g]) continue;
+        if (along > 0.85f * s->track->gap_v[g] && k->loc.height < -0.3f) {
+          float vn = v3dot(k->v, gm.u), want_n = clampf(-k->loc.height * 2.0f, 0.0f, 6.0f);
+          if (vn < want_n) k->v = v3add(k->v, v3mul(gm.u, (want_n - vn) * 0.1f));
+        }
+        break;
+      }
       cw_body3d_set_velocity(PH.body[i], k->v);
     }
     if (k->loc.i >= 0 && k->loc.br < 0 && !(s->track->s[k->loc.i].flags & (TF_LOOP | TF_GAP)) && !k->grounded && k->air_ticks > 10 &&
