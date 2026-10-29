@@ -13,7 +13,7 @@
  *   hazards    smoke and flame trails and a light on each missile in flight
  *   detail     what a kart emits depends on its distance to the nearest camera, so four views and eight karts stay
  *              cheap: near all of it, middle puffs and flames, far nothing; an emitter idle for a while is hidden
- *   shake      per kart, from landings, hits and boosts, decaying; speed lines strength from speed, boost and drafting
+ *   speed lines strength from speed, boost and drafting (no camera shake: the pad rumbles instead)
  *
  * Dev aid: RACER_FX=<name> forces that effect on kart 0 once a second (land, wall, bump, trick, boost0..boost4, box,
  * missile, homing, mine, oil, shock, shield, respawn, fall, water, level1..3). */
@@ -31,7 +31,7 @@
 static const char *const R_PUFF[] = { "amount", "90", "lifetime", "1.4", "lifetime_random", "0.4", "emission_shape", "BOX",
   "emission_extents", "vec3(0.7, 0.05, 0.15)", "direction", "vec3(0, 0.5, -1)", "spread", "35", "speed_min", "0.8", "speed_max", "3",
   "gravity", "vec3(0, 0.35, 0)", "damping", "1.2", "size", "0.7", "size_random", "0.5", "size_curve", "\"0 0.4, 0.25 1, 1 2.6\"",
-  "color_ramp", "\"0 0.5 0.4 0.3 0, 0.1 0.5 0.4 0.3 0.4, 1 0.5 0.4 0.3 0\"", "blend", "ALPHA", "soft_distance", "0.5",
+  "color_ramp", "\"0 0.5 0.4 0.3 0, 0.1 0.5 0.4 0.3 0.4, 1 0.5 0.4 0.3 0\"", "blend", "ALPHA", "soft_distance", "0.5", "camera_fade", "2.5",
   "turbulence", "0.8", "turbulence_scale", "0.4", "local_coords", "false", NULL };
 static const char *const R_DRIFT[] = { "amount", "40", "lifetime", "0.36", "lifetime_random", "0.4", "emission_shape", "BOX",
   "emission_extents", "vec3(0.75, 0.03, 0.1)", "direction", "vec3(0, 0.6, -1)", "spread", "50", "speed_min", "5", "speed_max", "11",
@@ -66,15 +66,15 @@ static const char *const R_CHIPS[] = { "amount", "24", "lifetime", "1.4", "lifet
 static const char *const R_CLOUD[] = { "amount", "36", "lifetime", "1.6", "lifetime_random", "0.4", "explosiveness", "0.9", "one_shot", "true",
   "emission_shape", "SPHERE", "emission_radius", "0.6", "spread", "100", "speed_min", "1", "speed_max", "3.6", "direction", "vec3(0, 0.5, 0)",
   "gravity", "vec3(0, 0.3, 0)", "damping", "1.8", "size", "1.2", "size_random", "0.5", "size_curve", "\"0 0.4, 0.3 1, 1 1.8\"",
-  "color_ramp", "\"0 0.5 0.4 0.3 0, 0.08 0.5 0.4 0.3 0.5, 1 0.5 0.4 0.3 0\"", "blend", "ALPHA", "soft_distance", "0.8",
+  "color_ramp", "\"0 0.5 0.4 0.3 0, 0.08 0.5 0.4 0.3 0.5, 1 0.5 0.4 0.3 0\"", "blend", "ALPHA", "soft_distance", "0.8", "camera_fade", "3.5",
   "turbulence", "0.9", "turbulence_scale", "0.35", NULL };
 static const char *const R_BOOM[] = { "amount", "80", "lifetime", "0.9", "explosiveness", "1", "one_shot", "true", "emission_shape", "SPHERE",
   "emission_radius", "0.6", "spread", "180", "speed_min", "1.5", "speed_max", "7", "gravity", "vec3(0, 3, 0)", "damping", "3.2",
   "size", "1.4", "size_random", "0.5", "size_curve", "\"0 0.5, 0.2 1.4, 1 0.3\"",
-  "color_ramp", "\"0 1 0.62 0.25 1, 0.25 1 0.36 0.07 1, 0.6 0.45 0.1 0.03 0.8, 1 0.08 0.05 0.05 0\"", "energy", "0.9", "blend", "ADD",
+  "color_ramp", "\"0 1 0.62 0.25 1, 0.25 1 0.36 0.07 1, 0.6 0.45 0.1 0.03 0.8, 1 0.08 0.05 0.05 0\"", "energy", "0.9", "blend", "ADD", "camera_fade", "3.5",
   "turbulence", "1.5", "turbulence_scale", "0.5", NULL };
 static const char *const R_FLARE[] = { "amount", "1", "lifetime", "0.3", "explosiveness", "1", "one_shot", "true", "emission_shape", "POINT",
-  "size", "1.5", "size_curve", "\"0 0.3, 0.15 1, 1 0.2\"", "color_ramp", "\"0 1 0.9 0.6 1, 1 1 0.4 0.1 0\"", "energy", "0.9", "blend", "ADD", NULL };
+  "size", "1.5", "size_curve", "\"0 0.3, 0.15 1, 1 0.2\"", "color_ramp", "\"0 1 0.9 0.6 1, 1 1 0.4 0.1 0\"", "energy", "0.9", "blend", "ADD", "camera_fade", "3.5", NULL };
 static const char *const R_SPLASH[] = { "amount", "80", "lifetime", "0.9", "lifetime_random", "0.4", "explosiveness", "0.8", "one_shot", "true",
   "emission_shape", "BOX", "emission_extents", "vec3(0.8, 0.05, 0.6)", "direction", "vec3(0, 1, 0)", "spread", "60", "speed_min", "4", "speed_max", "11",
   "gravity", "vec3(0, -16, 0)", "draw_mode", "STRETCHED", "stretch", "0.03", "size", "0.045", "size_random", "0.5",
@@ -87,7 +87,7 @@ static const char *const R_TRAIL_SMOKE[] = { "amount", "60", "lifetime", "1.4", 
   "emission_radius", "0.15", "direction", "vec3(0, 0.3, 0)", "spread", "30", "speed_min", "0.2", "speed_max", "0.9",
   "gravity", "vec3(0, 0.5, 0)", "damping", "0.8", "size", "0.5", "size_random", "0.4", "size_curve", "\"0 0.4, 0.3 1, 1 2\"",
   "color_ramp", "\"0 0.6 0.6 0.6 0, 0.08 0.55 0.55 0.55 0.6, 1 0.45 0.45 0.45 0\"", "blend", "ALPHA", "turbulence", "0.7",
-  "turbulence_scale", "0.4", "local_coords", "false", NULL };
+  "turbulence_scale", "0.4", "local_coords", "false", "camera_fade", "2.5", NULL };
 static const char *const R_TRAIL_FLAME[] = { "amount", "40", "lifetime", "0.3", "lifetime_random", "0.3", "emission_shape", "SPHERE",
   "emission_radius", "0.1", "direction", "vec3(0, 0, -1)", "spread", "12", "speed_min", "3", "speed_max", "7",
   "size", "0.4", "size_curve", "\"0 0.7, 0.3 1, 1 0.1\"",
@@ -183,7 +183,6 @@ typedef struct kfx {
   emit puff, drift, flame, spray, stars;
   int puff_mode, drift_level, flame_src, stars_mode;
   int flame_size;      /* quantised */
-  float shake;
   float sl;            /* speed lines, smoothed */
   int prev_dlvl;       /* drift level last tick (the release event arrives after it was reset) */
   int wall_cool;
@@ -307,6 +306,7 @@ static void chips_burst(t3_vec3 at, t3_vec3 up, float r, float g, float b) {
   fx_set_str(n, "color_ramp", s);
   burst(n, at, up, v3(0, 0, 1));
 }
+static float dist2_to_cams(t3_vec3 p);
 static void flare_at(t3_vec3 at, float size, float r, float g, float b) {
   cw_node n = NEXT(flare, flare_i);
   char s[120];
@@ -351,19 +351,6 @@ static void rings_update(void) {
   }
 }
 
-static void shake_add(int kart, float a) {
-  if (kart < 0 || kart >= MAXK) return;
-  if (a > FX.k[kart].shake) FX.k[kart].shake = a > 1 ? 1 : a;
-}
-/* a blast shakes every kart near it, less with distance */
-static void shake_near(const sim *s, t3_vec3 at, float a, float reach) {
-  for (int i = 0; i < MAXK; i++) {
-    if (!s->k[i].on) continue;
-    t3_vec3 d = v3sub(s->k[i].p, at);
-    float dist = v3len(d);
-    if (dist < reach) shake_add(i, a * (1 - dist / reach));
-  }
-}
 
 static const float DRIFT_RGB[4][3] = { { 1, 0.9, 0.6 }, { 0.3, 0.6, 1 }, { 1, 0.55, 0.1 }, { 0.8, 0.3, 1 } };
 
@@ -503,7 +490,6 @@ static void on_event(const sim *s, const struct sim_event *e) {
     if (ka && (s->track->s[s->k[a].loc.i].flags & TF_WATER)) {
       burst(NEXT(splash, splash_i), under, up, fwd);
     }
-    shake_add(a, 0.15f + 0.8f * h);
     break;
   }
   case EV_WALL: {
@@ -512,20 +498,16 @@ static void on_event(const sim *s, const struct sim_event *e) {
     burst(NEXT(grind, grind_i), e->at, up, fwd);
     if (e->k > 0.5f) chips_burst(e->at, up, kr[0], kr[1], kr[2]);
     if (e->k > 0.3f) light_flash(e->at, 6 + 10 * e->k, 5, 0.2f, 1, 0.75f, 0.35f);
-    shake_add(a, 0.1f + 0.5f * e->k);
     break;
   }
   case EV_BUMP: {
     spark_burst(e->at, v3(0, 1, 0), fwd, 1, 0.85f, 0.4f);
     if (e->k > 0.4f && ka) chips_burst(e->at, up, kr[0], kr[1], kr[2]);
     flare_at(e->at, 0.35f + 0.35f * e->k, 1, 0.8f, 0.4f);
-    shake_add(a, 0.1f + 0.4f * e->k);
-    shake_add(e->b, 0.1f + 0.4f * e->k);
     break;
   }
   case EV_TRICK:
     if (ka) sparkle_burst(s->k[a].p, up, 1, 0.85f, 0.3f);
-    shake_add(a, 0.1f);
     break;
   case EV_BOOST: {
     if (!ka) break;
@@ -542,7 +524,6 @@ static void on_event(const sim *s, const struct sim_event *e) {
     if (src != 0) spark_burst(rear, kart_up(k), v3mul(kart_fwd(k), -1), r, g, b);
     if (src == 2 || src == 4) sparkle_burst(rear, kart_up(k), r, g, b);
     if (src != 0) light_flash(v3add(rear, v3mul(kart_up(k), 0.5f)), 16 + 6 * (float)f->prev_dlvl, 9, 0.22f, r, g, b);
-    shake_add(a, src == 0 ? 0.12f : src == 2 ? 0.2f + 0.1f * (float)f->prev_dlvl : 0.4f);
     break;
   }
   case EV_DRIFT_LEVEL: {
@@ -551,7 +532,6 @@ static void on_event(const sim *s, const struct sim_event *e) {
     int l = e->b & 3;
     t3_vec3 rear = v3sub(k->p, v3mul(kart_fwd(k), VEH[k->veh].len * 0.7f));
     sparkle_burst(v3sub(rear, v3mul(kart_up(k), 0.3f)), kart_up(k), DRIFT_RGB[l][0], DRIFT_RGB[l][1], DRIFT_RGB[l][2]);
-    shake_add(a, 0.08f);
     break;
   }
   case EV_BOX: {
@@ -562,21 +542,26 @@ static void on_event(const sim *s, const struct sim_event *e) {
   }
   case EV_HIT: {
     int hk = (int)e->k;
+    /* a blast at a player's camera (on the kart it follows, 5 m off) comes out small, thin and dim: full size there its
+     * flare, cloud and light whited out the whole view for half a second. Full size from 17 m out */
+    float nk = 0.35f + 0.65f * CW_CLAMP((sqrtf(dist2_to_cams(e->at)) - 5.0f) / 12.0f, 0, 1);
     if (hk == HZ_BOMB && ka) {
-      /* a kart caught in a bomb's blast: the blast (a = -1) has the fire; here only the jolt */
-      shake_add(a, 1.0f);
+      /* a kart caught in a bomb's blast: the blast (a = -1) has the fire (the pad rumbles in rumble.c) */
       break;
     }
     if (hk == HZ_BOMB) {
       t3_vec3 u = v3(0, 1, 0);
-      burst(NEXT(boom, boom_i), v3add(e->at, v3mul(u, 0.8f)), u, v3(0, 0, 1));
-      flare_at(e->at, 4.0f, 1, 0.7f, 0.3f);
-      cloud_burst(v3add(e->at, v3mul(u, 0.5f)), u, 0.13f, 0.12f, 0.11f, 0.85f, 4.0f);
+      {
+      cw_node bn = NEXT(boom, boom_i);
+      cw_node_set(bn, "size", cw_val_float(1.4f * nk));
+      burst(bn, v3add(e->at, v3mul(u, 0.8f)), u, v3(0, 0, 1));
+    }
+      flare_at(e->at, 4.0f * nk, 1, 0.7f, 0.3f);
+      cloud_burst(v3add(e->at, v3mul(u, 0.5f)), u, 0.13f, 0.12f, 0.11f, 0.85f * nk, 4.0f * nk);
       ring_at(e->at, u, v3(0, 0, 1), 1, 0.65f, 0.25f, 14);
       spark_burst(e->at, u, v3(0, 0, 1), 1, 0.7f, 0.2f);
       chips_burst(e->at, u, 0.12f, 0.1f, 0.1f);
-      light_flash(e->at, 220, 34, 0.12f, 1, 0.6f, 0.2f);
-      shake_near(s, e->at, 1.0f, 60);
+      light_flash(e->at, 220 * nk * nk, 34, 0.12f, 1, 0.6f, 0.2f);
       break;
     }
     if (hk == HZ_SHOCK) {
@@ -584,20 +569,21 @@ static void on_event(const sim *s, const struct sim_event *e) {
       ring_at(e->at, up, fwd, 0.45f, 0.65f, 1, 13);
       sparkle_burst(e->at, up, 0.6f, 0.8f, 1);
       light_flash(e->at, 60, 22, 0.15f, 0.5f, 0.7f, 1);
-      shake_near(s, e->at, 0.6f, 40);
       break;
     }
     t3_vec3 u = v3(0, 1, 0);
     if (ka) u = up;
-    burst(NEXT(boom, boom_i), v3add(e->at, v3mul(u, 0.8f)), u, v3(0, 0, 1));
-    flare_at(e->at, hk == HZ_MINE ? 2.2f : 1.8f, 1, 0.8f, 0.4f);
-    cloud_burst(v3add(e->at, v3mul(u, 0.4f)), u, 0.12f, 0.11f, 0.1f, 0.75f, 2.0f);
+    {
+      cw_node bn = NEXT(boom, boom_i);
+      cw_node_set(bn, "size", cw_val_float(1.4f * nk));
+      burst(bn, v3add(e->at, v3mul(u, 0.8f)), u, v3(0, 0, 1));
+    }
+    flare_at(e->at, (hk == HZ_MINE ? 2.2f : 1.8f) * nk, 1, 0.8f, 0.4f);
+    cloud_burst(v3add(e->at, v3mul(u, ka ? 1.2f : 0.4f)), u, 0.12f, 0.11f, 0.1f, 0.75f * nk, 2.0f * nk);
     ring_at(e->at, u, v3(0, 0, 1), 1, 0.6f, 0.25f, 7);
     spark_burst(e->at, u, v3(0, 0, 1), 1, 0.7f, 0.2f);
     chips_burst(e->at, u, 0.12f, 0.1f, 0.1f);
-    light_flash(e->at, 140, 26, 0.1f, 1, 0.6f, 0.2f);
-    shake_near(s, e->at, hk == HZ_MINE ? 1.0f : 0.9f, 40);
-    shake_add(a, 1.0f);
+    light_flash(e->at, 140 * nk * nk, 26, 0.1f, 1, 0.6f, 0.2f);
     break;
   }
   case EV_SPIN:
@@ -605,11 +591,9 @@ static void on_event(const sim *s, const struct sim_event *e) {
       cloud_burst(e->at, up, 0.04f, 0.035f, 0.03f, 0.8f, 1.4f);
       chips_burst(e->at, up, 0.03f, 0.03f, 0.03f);
       burst(NEXT(splash, splash_i), e->at, up, fwd);
-      shake_add(a, 0.3f);
     }
     break;
   case EV_WARN:
-    if (ka) shake_add(a, 0.25f);
     break;
   case EV_SHIELD:
     if (!ka) break;
@@ -617,7 +601,6 @@ static void on_event(const sim *s, const struct sim_event *e) {
     sparkle_burst(s->k[a].p, up, 0.5f, 0.95f, 1);
     flare_at(s->k[a].p, 1.1f, 0.5f, 0.9f, 1);
     light_flash(s->k[a].p, 30, 10, 0.18f, 0.4f, 0.8f, 1);
-    shake_add(a, 0.5f);
     break;
   case EV_RESPAWN:
     if (!ka) break;
@@ -643,7 +626,6 @@ static void on_event(const sim *s, const struct sim_event *e) {
       flare_at(v3add(at, v3mul(up0, 0.8f)), 2.2f, c[0], c[1], c[2]);
       light_flash(v3add(at, v3mul(up0, 1.0f)), 40, 12, 0.22f, c[0], c[1], c[2]);
     }
-    shake_add(a, 0.3f);
     break;
   }
   case EV_FALL:
@@ -913,17 +895,8 @@ static void kart_tick(const sim *s, int i) {
     FX.skid_alpha[di] = 7;
   }
 
-  /* rumble that never goes away while the kart is working, and the speed lines */
+  /* the speed lines */
   float top = vd->top;
-  float rumble = 0;
-  if (ground && race) {
-    float sp = CW_CLAMP(spd / top, 0, 1.3f);
-    if ((ts->flags & TF_ROUGH) || ts->surf == SURF_DIRT) rumble = 0.09f * sp;
-    if (k->drifting) rumble = fmaxf(rumble, 0.05f + 0.025f * (float)k->drift_level);
-  }
-  if (k->boost_ticks > 0) rumble = fmaxf(rumble, 0.08f * CW_CLAMP(k->boost_k, 0.5f, 1.5f));
-  f->shake *= 0.9f;
-  if (f->shake < rumble) f->shake = rumble;
 
   float raw = CW_CLAMP((spd / top - 0.8f) * 3.0f, 0, 1) * 0.8f;
   if (k->boost_ticks > 0) raw += 0.35f + 0.15f * CW_CLAMP(k->boost_k - 1, 0, 1);
@@ -1065,10 +1038,6 @@ void fx_frame(const sim *s, float alpha) {
   fx_amb_frame(FX.cam_pos, FX.cam_vel, FX.ncams);
 }
 
-float fx_shake(int kart) {
-  if (kart < 0 || kart >= MAXK) return 0;
-  return FX.k[kart].shake;
-}
 
 float fx_speed_lines(int kart) {
   if (kart < 0 || kart >= MAXK) return 0;

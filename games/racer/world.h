@@ -66,13 +66,12 @@ void world_tick(const sim *s);
 void world_frame(double alpha);   /* every frame: animated materials (boost strips, water), map scenery_frame */
 const track_geo *world_geo(void);
 
-/* fx.c: everything that flies and flashes (particles, sparks, smoke, splashes, speed lines, shake) */
+/* fx.c: everything that flies and flashes (particles, sparks, smoke, splashes, speed lines) */
 void fx_init(cw_node scene, const sim *s, const map_def *map);
 void fx_reset(void);
 void fx_events(const sim *s);        /* fixed tick: this tick's sim events become effects */
 void fx_tick(const sim *s);          /* fixed tick */
 void fx_frame(const sim *s, float alpha); /* every frame: emitters follow the karts as drawn */
-float fx_shake(int kart);            /* camera shake for the view following this kart, 0..1 */
 float fx_speed_lines(int kart);      /* 0..1: how hard the view following this kart should show speed (HUD uses it) */
 
 /* Ambient particle emitters a map can place from its scenery() callback (fx_amb.c). All are render only.

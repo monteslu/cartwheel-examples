@@ -554,15 +554,7 @@ static void rig_tick(int v) {
     float want_k = cw_clampf((spd - 24.0f) / 32.0f, 0, 1) + (k->boost_ticks > 0 ? 0.6f : 0);
     r->fov_k += (want_k - r->fov_k) * 0.06f;
     if (r->base_fov > 0) cw_node_set(r->cam, "fov", cw_val_float(r->base_fov + 13.0f * r->fov_k));
-    /* the shake: across the view and up and down only, a few times a second. It was 0.25 m at 15 to 26 Hz in all three
-     * axes, near what a 60 Hz tick can show at all: along the view it made the kart twitch toward and away */
-    float sh = fx_shake(me);
-    if (sh > 0.001f) {
-      t3_vec3 rt = v3norm(v3cross(fh, r->up));
-      float tt = (float)G.ticks;
-      e = v3add(e, v3mul(rt, sh * 0.07f * cw_sin(tt * 0.47f + (float)v)));
-      e = v3add(e, v3mul(r->up, sh * 0.06f * cw_sin(tt * 0.61f + 1 + (float)v)));
-    }
+    /* no camera shake: hits and blasts rumble the pad (rumble_events) and never move the picture */
   }
   r->cam_eye = e, r->cam_at = at;
   bool snapped = r->snap;
