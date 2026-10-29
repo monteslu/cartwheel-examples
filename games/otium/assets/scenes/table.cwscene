@@ -1,0 +1,46 @@
+[scene format=1]
+
+[node name="Table" type="Node3D"]
+
+[node name="Sun" parent="." type="DirectionalLight3D"]
+rotation = vec3(-52, 28, 0)
+color = color(1, 0.93, 0.82, 1)
+energy = 4.2
+shadow = true
+shadow_size = 2048
+shadow_extent = 5
+shadow_far = 60
+shadow_bias = -0.0003
+shadow_normal_bias = 0.01
+
+[node name="Env" parent="." type="WorldEnvironment"]
+background = color(0.06, 0.04, 0.03, 1)
+ambient_color = color(1, 0.88, 0.72, 1)
+ambient_energy = 0.15
+sky_color = color(1, 0.92, 0.8, 1)
+ground_color = color(0.35, 0.22, 0.12, 1)
+hemi_energy = 1.1
+
+[node name="Post" parent="." type="PostProcess"]
+tonemap = NEUTRAL
+exposure = 1.15
+bloom = true
+bloom_intensity = 0.03
+bloom_threshold = 1.3
+bloom_knee = 0.6
+ssao = true
+ssao_radius = 0.12
+ssao_intensity = 0.9
+ssao_power = 1.5
+aa = SMAA
+vignette = true
+vignette_intensity = 0.45
+vignette_smoothness = 0.55
+grain = true
+grain_intensity = 0.02
+
+[node name="Camera" parent="." type="Camera3D"]
+position = vec3(0, 6, 5)
+fov = 40
+near = 0.05
+far = 120
