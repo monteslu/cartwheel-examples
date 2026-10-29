@@ -214,6 +214,11 @@ void world_build(cw_node scene, const sim *s, const map_def *map) {
   kartgfx_build(W.root, s);
   ground_forget(); /* the last map's ground must not stand in for this one's */
   if (map->scenery) map->scenery(scene, s->track, 1234);
+  /* three or four views: the height fog keeps its haze but not its volumetric light shafts (a froxel grid per view) */
+  if (game_planned_views() > 2) {
+    cw_node fog = cw_node_get(scene, "Fog");
+    if (cw_node_valid(fog)) cw_node_set(fog, "volumetric", cw_val_bool(false));
+  }
   {
     /* dev aid: RACER_LIST=1 logs the scene's nodes (to a depth of three) with their child counts; RACER_HIDE=text hides the nodes whose name contains it (draw-call attribution) */
     const char *hide = getenv("RACER_HIDE");
