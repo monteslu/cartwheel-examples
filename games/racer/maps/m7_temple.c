@@ -570,15 +570,172 @@ static prop_model model_crown(uint32_t seed, float rad, float trunk) {
     float a = (float)k * 2.094f + rnd(&r);
     pm_limb(b, V(0, -3.5f, 0), V(cosf(a) * rad * 0.55f, rad * 0.1f, sinf(a) * rad * 0.55f), 0.8f, 0.4f, 5, bark0, bark1);
   }
+  /* the canopy in tiers: a broad lower shelf of flattened leaf pads, a narrower one over it and a few tops, each pad dark
+   * underneath and sunlit on top, so the crown reads as stacked shelves of leaves (it was six lumps: a blob at speed) */
   pm_layer(b, PL_LEAF);
   pm_vary(b, 0.1f);
-  for (int k = 0; k < 6; k++) {
+  static const struct { float y, ring, n, size, flat; } TIER[3] = {
+    { 0.04f, 0.66f, 8, 0.36f, 0.34f }, { 0.24f, 0.42f, 6, 0.34f, 0.42f }, { 0.42f, 0.16f, 3, 0.3f, 0.55f },
+  };
+  float a0 = rnd(&r) * 6.2832f;
+  for (int ti = 0; ti < 3; ti++) {
+    int n = (int)TIER[ti].n;
+    for (int k = 0; k <= n; k++) {
+      float an = a0 + 6.2832f * ((float)k + 0.35f * rnds(&r)) / (float)n + (float)ti * 0.5f;
+      float d = k == n ? 0.0f : rad * TIER[ti].ring * (0.8f + 0.3f * rnd(&r));
+      float s = rad * TIER[ti].size * (0.8f + 0.4f * rnd(&r)) * (k == n ? 1.25f : 1.0f);
+      pm_push(b);
+      pm_move(b, cosf(an) * d, rad * (TIER[ti].y + 0.04f * rnds(&r)), sinf(an) * d);
+      pm_roty(b, an);
+      pcol leaf = leaf_green(&r, 0.55f + 0.15f * (float)ti);
+      float fy = 0.85f + 0.3f * rnd(&r), fz = 0.75f + 0.3f * rnd(&r);
+      pm_ball(b, s, s * TIER[ti].flat * fy, s * fz, 1, 0.3f, rgb(0.03f, 0.13f, 0.04f), leaf);
+      pm_pop(b);
+    }
+  }
+  /* small clumps round the lower shelf's rim and drooping off it break the outline */
+  for (int k = 0; k < 12; k++) {
+    float an = a0 + 6.2832f * ((float)k + 0.5f) / 12.0f, d = rad * (0.86f + 0.14f * rnd(&r)), s = rad * (0.1f + 0.06f * rnd(&r));
     pm_push(b);
-    float mx = rnds(&r), my = rnds(&r), mz = rnds(&r);
-    pm_move(b, mx * rad * 0.55f, my * rad * 0.12f + rad * 0.12f, mz * rad * 0.55f);
-    float s = rad * (0.45f + 0.5f * rnd(&r)), sy = s * (0.5f + 0.45f * rnd(&r)), sz = s * (0.8f + 0.3f * rnd(&r));
-    pcol leaf = leaf_green(&r, 0.6f);
-    pm_ball(b, s, sy, sz, 2, 0.35f, rgb(0.06f, 0.26f, 0.08f), leaf);
+    pm_move(b, cosf(an) * d, rad * (0.0f - 0.05f * rnd(&r)), sinf(an) * d);
+    pm_ball(b, s, s * 0.7f, s, 1, 0.3f, rgb(0.04f, 0.16f, 0.05f), leaf_green(&r, 0.5f));
+    pm_pop(b);
+  }
+  /* aerial roots dropping from under the lower shelf, kinked once, tapering to a point */
+  pm_layer(b, PL_MAIN);
+  for (int k = 0; k < 9; k++) {
+    float an = a0 + 6.2832f * ((float)k + 0.4f * rnds(&r)) / 9.0f, d = rad * (0.3f + 0.4f * rnd(&r)), len = rad * (0.35f + 0.35f * rnd(&r));
+    t3_vec3 top = V(cosf(an) * d, -rad * 0.04f, sinf(an) * d);
+    float j0 = rnds(&r) * 0.6f, j1 = rnds(&r) * 0.6f, j2 = rnds(&r) * 0.4f, j3 = rnds(&r) * 0.4f;
+    t3_vec3 mid = vadd(top, V(j0, -len * 0.55f, j1)), end = vadd(mid, V(j2, -len * 0.45f, j3));
+    pm_limb(b, top, mid, 0.16f, 0.1f, 4, bark0, pc_mix(bark0, bark1, 0.5f));
+    pm_limb(b, mid, end, 0.1f, 0.02f, 4, bark0, pc_mix(bark0, bark1, 0.5f));
+  }
+  /* flowering vines draped over the lower shelf's edge, blossoms in clusters down each strand */
+  pm_layer(b, PL_LEAF);
+  static const uint32_t bloom[4] = { 0xff5a9a, 0xffa22a, 0xfff0f0, 0xe83a3a };
+  for (int k = 0; k < 7; k++) {
+    float an = a0 + 6.2832f * ((float)k + 0.5f * rnds(&r)) / 7.0f, d = rad * (0.78f + 0.12f * rnd(&r));
+    float len = rad * (0.25f + 0.25f * rnd(&r));
+    pcol bc = hex(bloom[(int)(rnd(&r) * 3.99f)]);
+    t3_vec3 prev = V(cosf(an) * d, rad * 0.06f, sinf(an) * d);
+    for (int j = 1; j <= 4; j++) {
+      float u = (float)j / 4.0f;
+      t3_vec3 cur = V(cosf(an) * (d + 0.4f * u), rad * 0.06f - len * u, sinf(an) * (d + 0.4f * u));
+      pm_rod(b, prev, cur, 0.05f, 3, rgb(0.12f, 0.24f, 0.07f));
+      for (int f = 0; f < 2; f++) { /* blossoms: small cubes turned on a corner */
+        pm_push(b);
+        float ox = rnds(&r) * 0.35f, oy = rnds(&r) * 0.25f, oz = rnds(&r) * 0.35f;
+        pm_move(b, cur.x + ox, cur.y + oy, cur.z + oz);
+        pm_rotx(b, 0.62f);
+        pm_rotz(b, 0.78f);
+        float fs = 0.32f + 0.16f * rnd(&r);
+        pm_box_c(b, fs, fs, fs, bc);
+        pm_pop(b);
+      }
+      prev = cur;
+    }
+  }
+  return pm_finish(b);
+}
+
+/* The jungle's own trees (the toolbox's jungle tree and broadleaf are a few faceted lumps on a stick: plain blobs once
+ * the canopy giants scale them up). A buttressed trunk, limbs, a canopy in tiers of flattened pads dark underneath, a
+ * ragged rim, aerial roots and vines hanging from under the lowest tier, blossoms on some of the vines. All of it is
+ * leaf material (two-sided, like the toolbox's trees), so a tree is still one draw per cell. size is the height;
+ * variant 3 is a rounder, lower tree with a short trunk (it stands in for the broadleaf). */
+static prop_model model_giant(uint32_t seed, int variant, float size, int lod) {
+  pm *b = pm_new(seed);
+  rng r = { seed * 2246822519u + 3u + (uint32_t)variant * 977u };
+  pm_layer(b, PL_LEAF);
+  pm_vary(b, 0.07f);
+  pcol b0 = rgb(0.14f, 0.1f, 0.07f), b1 = rgb(0.4f, 0.32f, 0.22f);
+  pcol l0 = rgb(0.03f, 0.15f, 0.06f), l1 = rgb(0.16f, 0.48f, 0.18f), l2 = rgb(0.42f, 0.72f, 0.28f);
+  if (variant == 1) l1 = rgb(0.1f, 0.42f, 0.32f), l2 = rgb(0.32f, 0.66f, 0.5f);
+  if (variant == 2) l1 = rgb(0.32f, 0.5f, 0.12f), l2 = rgb(0.64f, 0.76f, 0.24f);
+  if (variant == 3) l1 = rgb(0.2f, 0.52f, 0.2f), l2 = rgb(0.5f, 0.78f, 0.34f);
+  bool round_ = variant == 3;
+  float th = size * (round_ ? 0.42f : 0.62f), rt = size * (round_ ? 0.035f : 0.04f), spread = size * (round_ ? 0.3f : 0.36f);
+  /* the trunk, flanged at the foot */
+  pm_cyl_ex(b, rt * 1.5f, rt * 0.8f, th, lod ? 6 : 9, b0, b1, false, false);
+  for (int i = 0, fl = lod ? 3 : 5; i < fl; i++) {
+    pm_push(b);
+    pm_roty(b, (float)i / (float)fl * 6.2832f + 0.3f);
+    pm_move(b, rt, 0, 0);
+    pm_wedge(b, rt * 0.3f, size * 0.12f, rt * 2.2f, pc_mul(b0, 0.8f), b1);
+    pm_pop(b);
+  }
+  /* limbs from the top of the trunk out under the canopy's lowest tier */
+  float a0 = rnd(&r) * 6.2832f;
+  int nl = lod ? 3 : 4;
+  for (int i = 0; i < nl; i++) {
+    float an = a0 + 6.2832f * (float)i / (float)nl;
+    pm_limb(b, V(0, th * 0.82f, 0), V(cosf(an) * spread * 0.62f, th + size * 0.05f, sinf(an) * spread * 0.62f), rt * 0.7f, rt * 0.3f, lod ? 4 : 5, b0, b1);
+  }
+  /* the canopy in tiers */
+  static const struct { float y, ring, n, size, flat; } TIER[3] = {
+    { 0.05f, 0.85f, 6, 0.44f, 0.36f }, { 0.36f, 0.5f, 4, 0.42f, 0.42f }, { 0.64f, 0.16f, 2, 0.36f, 0.5f },
+  };
+  for (int ti = 0; ti < 3; ti++) {
+    int n = (int)TIER[ti].n - (lod ? 2 : 0);
+    if (n < 1) n = 1;
+    for (int k = 0; k <= n; k++) {
+      float an = a0 + 6.2832f * ((float)k + 0.3f * rnds(&r)) / (float)n + (float)ti * 0.6f;
+      float d = k == n ? 0.0f : spread * TIER[ti].ring * (0.82f + 0.3f * rnd(&r));
+      float s = spread * TIER[ti].size * (0.8f + 0.4f * rnd(&r)) * (k == n ? 1.2f : 1.0f);
+      float fy = TIER[ti].flat * (0.85f + 0.3f * rnd(&r)) * (round_ ? 1.35f : 1.0f), fz = 0.78f + 0.3f * rnd(&r);
+      pcol top = pc_mix(l1, l2, 0.35f + 0.25f * (float)ti + 0.25f * rnd(&r));
+      pm_push(b);
+      pm_move(b, cosf(an) * d, th + spread * TIER[ti].y * (round_ ? 0.8f : 0.6f), sinf(an) * d);
+      pm_roty(b, an);
+      pm_ball(b, s, s * fy, s * fz, lod || ti == 2 ? 0 : 1, 0.28f, l0, top);
+      pm_pop(b);
+    }
+  }
+  if (lod) return pm_finish(b);
+  /* a ragged rim: small clumps round the lowest tier, some drooping */
+  for (int k = 0; k < 7; k++) {
+    float an = a0 + 6.2832f * ((float)k + 0.5f) / 7.0f, d = spread * (1.05f + 0.15f * rnd(&r)), s = spread * (0.12f + 0.06f * rnd(&r));
+    float dy = spread * (0.02f - 0.08f * rnd(&r));
+    pm_push(b);
+    pm_move(b, cosf(an) * d, th + dy, sinf(an) * d);
+    pm_ball(b, s, s * 0.75f, s, 0, 0.3f, l0, pc_mix(l1, l2, 0.4f));
+    pm_pop(b);
+  }
+  /* aerial roots from under the lowest tier, kinked once, thinning to a point */
+  for (int k = 0; k < 6; k++) {
+    float an = a0 + 6.2832f * ((float)k + 0.4f * rnds(&r)) / 6.0f, d = spread * (0.35f + 0.45f * rnd(&r)), len = size * (0.16f + 0.16f * rnd(&r));
+    t3_vec3 top = V(cosf(an) * d, th - spread * 0.02f, sinf(an) * d);
+    float j0 = rnds(&r) * 0.3f, j1 = rnds(&r) * 0.3f;
+    t3_vec3 mid = vadd(top, V(j0, -len * 0.55f, j1)), end = vadd(mid, V(-j1 * 0.6f, -len * 0.45f, j0 * 0.6f));
+    pm_limb(b, top, mid, size * 0.008f, size * 0.005f, 4, b0, pc_mix(b0, b1, 0.5f));
+    pm_limb(b, mid, end, size * 0.005f, size * 0.0015f, 4, b0, pc_mix(b0, b1, 0.5f));
+  }
+  /* vines with leaf drops, every third in flower */
+  static const uint32_t bloom[4] = { 0xff5a9a, 0xffa22a, 0xfff0f0, 0xe83a3a };
+  for (int i = 0; i < 7; i++) {
+    float an = a0 + 6.2832f * ((float)i + 0.5f * rnds(&r)) / 7.0f, d = spread * (0.5f + 0.5f * rnd(&r)), len = size * (0.14f + 0.22f * rnd(&r));
+    float x = cosf(an) * d, z = sinf(an) * d, y = th - spread * 0.02f;
+    bool flower = (i % 3) == 0;
+    pcol bc = hex(bloom[(int)(rnd(&r) * 3.99f)]);
+    t3_vec3 prev = V(x, y, z);
+    for (int k = 1; k <= 4; k++) {
+      t3_vec3 cur = V(x + 0.35f * sinf((float)k + (float)i), y - len * (float)k / 4.0f, z + 0.3f * cosf((float)k * 1.3f + (float)i));
+      pm_rod(b, prev, cur, size * 0.005f, 3, rgb(0.12f, 0.3f, 0.12f));
+      if (flower) { /* a blossom: a small cube turned on its corner reads as a flower at any distance a kart sees it from */
+        float ox = rnds(&r) * size * 0.012f, fs = size * (0.016f + 0.008f * rnd(&r));
+        pm_push(b);
+        pm_move(b, cur.x + ox, cur.y, cur.z - ox);
+        pm_rotx(b, 0.62f);
+        pm_rotz(b, 0.78f);
+        pm_box_c(b, fs, fs, fs, bc);
+        pm_pop(b);
+      }
+      prev = cur;
+    }
+    pm_push(b);
+    pm_move(b, prev.x, prev.y, prev.z);
+    pm_ball(b, size * 0.016f, size * 0.03f, size * 0.016f, 0, 0.2f, l1, l2);
     pm_pop(b);
   }
   return pm_finish(b);
@@ -808,6 +965,17 @@ static int fm_make(prop_kind k, int variant, float size, int tex, pcol tint, uin
   }
   return nfm++;
 }
+/* the same for the map's own trees (model_giant): kind stays the toolbox's, for the shadow choice and the logs */
+static int fm_make_giant(prop_kind k, int variant, float size, pcol tint, uint32_t seed) {
+  fmodel *f = &FM[nfm];
+  f->kind = k;
+  for (int lod = 0; lod < 2; lod++) {
+    prop_model pmod = model_giant(seed, variant, size, lod);
+    if (lod == 0) f->radius = pmod.radius;
+    f->in[lod] = inst_new(pmod, -1, tint, 1.0f);
+  }
+  return nfm++;
+}
 /* every copy leans a little, is taller or squatter than its neighbours and has its own shade of green (a few turn yellow) */
 static rng VAR = { 99 };
 static void fm_add(int i, t3_vec3 p, float yaw, float scale, bool far_) {
@@ -870,10 +1038,10 @@ static void build_jungle(cw_node scene, const track *t) {
   nfm = 0;
   /* big trees: jungle giants and round broadleaf */
   planting trees = { .n = 0, .spacing = thin(9.5f, 17.0f), .lat_min = 2.5f, .lat_max = 85, .curve = 1.5f, .smin = 1.0f, .smax = 1.9f, .far_dist = 38, .far_keep = thin(0.5f, 0.3f) };
-  trees.models[trees.n++] = fm_make(PK_JUNGLE_TREE, 0, 0, -1, rgb(0.7f, 1.0f, 0.55f), 11);
-  trees.models[trees.n++] = fm_make(PK_JUNGLE_TREE, 1, 0, -1, rgb(0.62f, 1.0f, 0.5f), 12);
-  trees.models[trees.n++] = fm_make(PK_JUNGLE_TREE, 2, 0, -1, rgb(0.66f, 0.98f, 0.5f), 14);
-  trees.models[trees.n++] = fm_make(PK_BROADLEAF, 0, 0, -1, rgb(0.55f, 0.95f, 0.45f), 13);
+  trees.models[trees.n++] = fm_make_giant(PK_JUNGLE_TREE, 0, 20.0f, rgb(0.7f, 1.0f, 0.55f), 11);
+  trees.models[trees.n++] = fm_make_giant(PK_JUNGLE_TREE, 1, 20.0f, rgb(0.62f, 1.0f, 0.5f), 12);
+  trees.models[trees.n++] = fm_make_giant(PK_JUNGLE_TREE, 2, 20.0f, rgb(0.66f, 0.98f, 0.5f), 14);
+  trees.models[trees.n++] = fm_make_giant(PK_BROADLEAF, 3, 10.0f, rgb(0.55f, 0.95f, 0.45f), 13);
   int a = plant_along(t, &trees, &r, mask_jungle);
   /* the canopy sea round the pyramid: giants whose crowns reach the helix's upper turns */
   int canopy = 0;
@@ -2313,6 +2481,69 @@ static void build_flyers(cw_node scene, const track *t) {
   }
 }
 
+/* cheap life round the canopy: particle swarms, one draw each where they are seen. Flocks of small birds wheeling high
+ * over the crowns, and clouds of butterflies over the verges (both well off the road) */
+static cw_node particles_at(cw_node parent, const char *name, const char *const *kv, int seed, t3_vec3 at) {
+  cw_node n = cw_node_new("GPUParticles3D", name);
+  cw_node_add_child(parent, n);
+  for (int i = 0; kv[i]; i += 2) {
+    cw_value v;
+    const cw_prop *p = cw_node_find_prop(n, kv[i], NULL);
+    if (p && p->type == CW_T_ENUM) {
+      cw_node_set(n, kv[i], cw_val_enum(kv[i + 1]));
+      continue;
+    }
+    if (!p || !cw_value_parse(kv[i + 1], p->type, &v)) {
+      cw_warn("temple: bad particle setting %s = %s", kv[i], kv[i + 1]);
+      continue;
+    }
+    cw_node_set(n, kv[i], v);
+  }
+  cw_node_set(n, "seed", cw_val_int(seed));
+  cw_node3d_set_position(n, at);
+  cw_node_set(n, "emitting", cw_val_bool(true));
+  return n;
+}
+static void build_canopy_life(cw_node scene, const track *t) {
+  rng r = { 7171 };
+  int flocks = 0, swarms = 0;
+  /* birds: dark specks drifting and turning in a wide box high over the trees at three places round the course */
+  for (int k = 0; k < 3; k++) {
+    tsample a = track_at(t, t->length * (0.18f + 0.3f * (float)k));
+    char nm[24];
+    snprintf(nm, sizeof nm, "Birds%d", k);
+    const char *kv[] = { "amount", NV > 1 ? "14" : "30", "lifetime", "18", "lifetime_random", "0.3", "emission_shape", "BOX", "emission_extents", "vec3(70, 6, 70)",
+      "direction", "vec3(1, 0.05, 0.3)", "spread", "180", "speed_min", "5", "speed_max", "9", "gravity", "vec3(0, 0, 0)", "turbulence", "4", "turbulence_scale", "0.03",
+      "turbulence_speed", "0.4", "size", "0.9", "size_random", "0.35", "color_ramp", "\"0 0.05 0.06 0.05 0, 0.08 0.05 0.06 0.05 1, 0.9 0.05 0.06 0.05 1, 1 0.05 0.06 0.05 0\"",
+      "blend", "ALPHA", "local_coords", "false", "preprocess", "20", NULL };
+    particles_at(scene, nm, kv, 900 + k, V(a.p.x, a.p.y + 42.0f, a.p.z));
+    flocks++;
+  }
+  /* butterflies: bright flecks fluttering over the ferns beside the road, each swarm in its own colours */
+  static const char *const ramps[4] = {
+    "\"0 1 0.55 0.1 0, 0.1 1 0.55 0.1 1, 0.9 1 0.8 0.2 1, 1 1 0.8 0.2 0\"", "\"0 0.25 0.6 1 0, 0.1 0.25 0.6 1 1, 0.9 0.5 0.85 1 1, 1 0.5 0.85 1 0\"",
+    "\"0 1 0.95 0.3 0, 0.1 1 0.95 0.3 1, 0.9 1 1 0.7 1, 1 1 1 0.7 0\"", "\"0 1 0.35 0.7 0, 0.1 1 0.35 0.7 1, 0.9 1 0.6 0.4 1, 1 1 0.6 0.4 0\"",
+  };
+  for (float s = 70; s < t->length - 60 && swarms < (NV > 1 ? 4 : 8); s += 210.0f + rnd(&r) * 90.0f) {
+    tsample a = track_at(t, s);
+    if (a.flags & (TF_GAP | TF_LOOP | TF_TUNNEL | TF_OPEN)) continue;
+    float side = rnd(&r) < 0.5f ? -1.0f : 1.0f;
+    t3_vec3 p = vadd(a.p, vmul(a.r, side * (a.hw + 9.0f)));
+    float ry, g = gy(p.x, p.z);
+    if (road_gap(t, p.x, p.z, &ry) < 5.0f || fabsf(g - a.p.y) > 3.0f) continue; /* on open ground beside the road, not under it */
+    p.y = g + 1.6f;
+    char nm[24];
+    snprintf(nm, sizeof nm, "Butterflies%d", swarms);
+    const char *kv[] = { "amount", NV > 1 ? "14" : "26", "lifetime", "5", "lifetime_random", "0.4", "emission_shape", "BOX", "emission_extents", "vec3(4, 1, 7)",
+      "direction", "vec3(0, 1, 0)", "spread", "180", "speed_min", "0.4", "speed_max", "1.2", "gravity", "vec3(0, 0.05, 0)", "damping", "0.3", "turbulence", "5",
+      "turbulence_scale", "0.6", "turbulence_speed", "1.5", "size", "0.3", "size_random", "0.3", "color_ramp", ramps[swarms & 3], "energy", "1.3", "spin", "8",
+      "blend", "ALPHA", "local_coords", "false", "preprocess", "5", NULL };
+    particles_at(scene, nm, kv, 950 + swarms, p);
+    swarms++;
+  }
+  cw_info("temple: %d bird flocks, %d butterfly swarms", flocks, swarms);
+}
+
 static void build_gorge_river(cw_node scene) {
   water_opts wo = water_defaults();
   wo.deep = rgb(0.04f, 0.36f, 0.36f);
@@ -2411,6 +2642,7 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
   dress_checkpoints(scene, t, &st);
   deco_jump_marks(scene, t, &st);
   if (!off("flyers")) build_flyers(scene, t);
+  if (!off("life")) build_canopy_life(scene, t);
   if (!off("fx")) ambient_fx(scene, t);
   if (!off("gorge")) build_gorge_river(scene);
   dec_finish(scene);
