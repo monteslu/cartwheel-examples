@@ -2623,6 +2623,150 @@ static bool skip(const char *what) {
   return e && strstr(e, what);
 }
 
+/* ── the snowfield's surface: the wind-ripple texture laid unevenly ────────────────────────────────── */
+
+/* The snow texture repeated every 10 m on a regular grid, and its ripples ran the same way over the whole pass: from
+ * any height the field read as one stamp. The ground's texture coordinates are bent through a slow two-level warp
+ * (the ripples curve, crowd together and spread apart, so their size changes from place to place) and its colours take
+ * a broad field of their own: bluer and darker in hollows and shade, a lavender cast in drifts, brighter on the crests.
+ * Only the ground's own attributes change: no draws, no new material. */
+static void snow_warp(float x, float z, float *du, float *dv) {
+  /* strong enough to turn the ripples by tens of degrees and halve or double their spacing, not enough to fold them */
+  *du = ground_noise(x, z, 70.0f, 15.0f, 2, 401) + ground_noise(x, z, 23.0f, 3.5f, 1, 402);
+  *dv = ground_noise(x, z, 70.0f, 15.0f, 2, 403) + ground_noise(x, z, 23.0f, 3.5f, 1, 404);
+}
+typedef struct { t3_geometry *g[2048]; int n; } geoset;
+static void rework_geo(t3_geometry *g, float repeat) {
+  t3_attribute *pa = g->attributes[T3_ATTR_POSITION], *ua = g->attributes[T3_ATTR_UV], *ca = g->attributes[T3_ATTR_COLOR];
+  if (!pa || !ua || pa->type != T3_FLOAT32 || ua->type != T3_FLOAT32) return;
+  const float *P = t3_attribute_f32(pa);
+  float *U = t3_attribute_f32(ua);
+  float *C = ca && ca->type == T3_FLOAT32 ? t3_attribute_f32(ca) : NULL;
+  int cs = C ? ca->item_size : 0;
+  for (int i = 0; i < pa->count; i++) {
+    float x = P[i * 3], y = P[i * 3 + 1], z = P[i * 3 + 2], du, dv;
+    snow_warp(x, z, &du, &dv);
+    U[i * 2] += du / repeat, U[i * 2 + 1] += dv / repeat;
+    if (C) {
+      float n1 = 0.5f + 0.5f * ground_noise(x, z, 120.0f, 1.0f, 2, 405), n2 = 0.5f + 0.5f * ground_noise(x, z, 260.0f, 1.0f, 2, 406);
+      float hollow = cw_clampf((rf_at(x, z) - y) * 0.08f, -1.0f, 1.0f); /* below the lie of the land: a hollow */
+      float k = 0.84f + 0.32f * n1 - 0.1f * hollow;
+      float *c = &C[i * cs];
+      float r = c[0] * k, gg = c[1] * k, b = c[2] * k;
+      /* lavender drifts and cyan shade, in broad patches */
+      float lav = cw_smoothstep(0.55f, 0.85f, n2) * 0.22f, cy = cw_smoothstep(0.45f, 0.15f, n2) * 0.18f;
+      c[0] = r * (1.0f + lav - cy * 0.6f), c[1] = gg * (1.0f - lav * 0.3f + cy * 0.15f), c[2] = b * (1.0f + lav * 0.4f + cy * 0.3f);
+    }
+  }
+  ua->version++;
+  if (C) ca->version++;
+}
+static void rework_obj(t3_object *o, geoset *gs, float repeat) {
+  if (!o) return;
+  if (o->type == T3_MESH) {
+    t3_geometry *g = ((t3_mesh *)o)->geometry;
+    bool seen = false;
+    for (int i = 0; i < gs->n && !seen; i++) seen = gs->g[i] == g;
+    if (!seen && gs->n < 2048) gs->g[gs->n++] = g, rework_geo(g, repeat);
+    /* the ripples' relief, softer: at a low sun the full normal map striped every slope like corduroy */
+    t3_mesh *me = (t3_mesh *)o;
+    for (int i = 0; i < me->material_count; i++) me->materials[i]->normal_scale = (t3_vec2){ 0.5f, 0.5f };
+  }
+  for (int i = 0; i < o->child_count; i++) rework_obj(o->children[i], gs, repeat);
+}
+static void rework_node(cw_node n, geoset *gs, float repeat) {
+  rework_obj(cw_node3d_object(n), gs, repeat);
+  for (int i = 0; i < cw_node_child_count(n); i++) rework_node(cw_node_child(n, i), gs, repeat);
+}
+
+/* ── rock ledges and frozen seeps on the steep faces ────────────────────────────────────────────── */
+
+/* The steep slopes were bare once the boulders that stood on them were sunk into the snow (set level on a slope, they
+ * hung in the air). Rock shows on a real face as ledges: a band of strata along the contour with a sheer front, snow
+ * on its tread and icicles under its lip. Each ledge here is a patch of the slope itself lifted into that shape: its
+ * rim is the ground's own height (so it cannot float or hang), it rises over a cliff of rock at its front and runs
+ * back into the hill; faces that look up wear snow, the rest is cold slate (or blue ice for a frozen seep). Built in
+ * world space straight into one chunked builder: a few draws for all of them. */
+static t3_vec3 vcross_(t3_vec3 a, t3_vec3 b) { return V3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x); }
+static void ledge(pm *b, float x, float z, float ux, float uz, float W, float D, float A, bool ice, uint32_t seed) {
+  enum { NU = 9, NV = 7 };
+  /* across the slope (cx) and down it (dx); v runs from the back (-D) to the foot (+D) */
+  float cxx = -uz, czz = ux, dxx = -ux, dzz = -uz;
+  static const float VS[NV] = { -1.0f, -0.55f, -0.1f, 0.22f, 0.3f, 0.65f, 1.0f };
+  static const float HS[NV] = { 0.0f, 0.55f, 0.9f, 1.0f, 0.35f, 0.08f, 0.0f }; /* back slope, tread, the cliff, a scree foot */
+  t3_vec3 P[NV][NU];
+  for (int j = 0; j < NV; j++)
+    for (int i = 0; i < NU; i++) {
+      float u = -0.5f + (float)i / (float)(NU - 1), v = VS[j];
+      float edge = 1.0f - cw_smoothstep(0.4f, 0.5f, fabsf(u) + 0.08f * (hashf2((int)seed, i * 7 + j, 31) - 0.5f));
+      float h = A * HS[j] * edge * (0.8f + 0.4f * hashf2((int)seed, i, 32));
+      float px = x + cxx * u * W + dxx * v * D, pz = z + czz * u * W + dzz * v * D;
+      if (j > 0 && j < NV - 1 && i > 0 && i < NU - 1) px += 0.4f * (hashf2((int)seed, i, j * 3 + 33) - 0.5f), pz += 0.4f * (hashf2((int)seed, j, i * 3 + 34) - 0.5f);
+      P[j][i] = V3(px, terrain(px, pz, NULL) + h - (edge < 0.05f ? 0.4f : 0.0f), pz);
+    }
+  pcol rockA = rgb(0.16f, 0.18f, 0.25f), rockB = rgb(0.3f, 0.33f, 0.44f), snow = rgb(0.66f, 0.76f, 1.0f), icec = rgb(0.4f, 0.78f, 1.15f);
+  pm_layer(b, PL_MAIN);
+  for (int j = 0; j + 1 < NV; j++)
+    for (int i = 0; i + 1 < NU; i++) {
+      t3_vec3 a = P[j][i], bq = P[j][i + 1], c = P[j + 1][i + 1], d = P[j + 1][i];
+      t3_vec3 n = vnorm3(vcross_(vsub3(c, a), vsub3(bq, d)));
+      if (n.y < 0) n = vmul3(n, -1.0f);
+      pcol col = n.y > 0.86f ? snow : pc_mix(rockA, rockB, hashf2((int)seed, i + j * 13, 35));
+      if (ice && j >= 3 && j <= 4 && n.y <= 0.86f) col = icec;
+      /* wound so the face looks up and out of the hill */
+      t3_vec3 wn = vcross_(vsub3(bq, a), vsub3(d, a));
+      if (wn.y >= 0) pm_quad(b, a, d, c, bq, col);
+      else pm_quad(b, a, bq, c, d, col);
+    }
+  /* icicles under the lip of the cliff */
+  for (int i = 1; i + 1 < NU; i++) {
+    if (hashf2((int)seed, i, 36) < 0.4f) continue;
+    t3_vec3 lip = P[3][i];
+    float len = 0.5f + 1.6f * hashf2((int)seed, i, 37);
+    pm_push(b);
+    pm_move(b, lip.x + dxx * 0.35f * D * 0.1f, lip.y - 0.1f, lip.z + dzz * 0.35f * D * 0.1f);
+    pm_rotx(b, 3.14159f);
+    pm_cyl(b, 0.14f + 0.08f * hashf2((int)seed, i, 38), 0.0f, len, 4, icec, icec);
+    pm_pop(b);
+  }
+}
+
+static void build_ledges(cw_node root, const track *t) {
+  pmc *c = pmc_new(700.0f, 9100u); /* very big cells: the ledges are cheap in triangles, each cell a draw per view and per shadow pass */
+  uint32_t hs = 9101;
+  int n = 0;
+  for (float zz = -1100.0f; zz < 900.0f; zz += 24.0f)
+    for (float xx = -560.0f; xx < 1240.0f; xx += 24.0f) {
+      float x = xx + 20.0f * rnds(&hs), z = zz + 20.0f * rnds(&hs);
+      float r1 = rnd1(&hs), r2 = rnd1(&hs), r3 = rnd1(&hs);
+      if (in_lake(x, z, 1.08f) || in_gorge(x, z, 16.0f)) continue;
+      const float e = 4.0f;
+      float gx = (terrain(x + e, z, NULL) - terrain(x - e, z, NULL)) / (2 * e), gz = (terrain(x, z + e, NULL) - terrain(x, z - e, NULL)) / (2 * e);
+      float g = sqrtf(gx * gx + gz * gz);
+      /* the steep faces only, and mostly the steepest: rock shows where snow cannot lie */
+      if (g < 0.4f || r1 > cw_smoothstep(0.4f, 0.9f, g) * 0.9f) continue;
+      g = fminf(g, 1.1f);
+      float W = 10.0f + 12.0f * r2, D = 3.0f + 2.0f * r3;
+      if (road_gap(t, x, z, NULL) < W * 0.65f + D * 1.6f + 4.0f) continue;
+      /* downhill is against the gradient; the ledge's +z looks down the slope */
+      float yaw = atan2f(-gx, -gz);
+      t3_vec3 p = V3(x, terrain(x, z, NULL), z);
+      /* the slope must carry on uphill behind it and downhill in front of it: on a ridge's lip the land flattens behind
+       * and the ledge stood proud of it, a black block against the sky */
+      float gl = sqrtf(gx * gx + gz * gz), ux = gx / gl, uz = gz / gl, back = D * 2.2f;
+      if (terrain(x + ux * back, z + uz * back, NULL) - p.y < 0.8f * g * back) continue;
+      if (p.y - terrain(x - ux * D, z - uz * D, NULL) < 0.6f * g * D) continue;
+      (void)yaw;
+      pm *b = pmc_at(c, p);
+      pm_push(b);
+      ledge(b, x, z, ux, uz, W * 1.3f, D * 1.6f, 3.5f + 3.0f * r3 + 2.0f * g, r3 > 0.8f, (uint32_t)n * 7u + 3u);
+      pm_pop(b);
+      n++;
+    }
+  pmc_finish(c, root, "Ledges", true, -1);
+  cw_info("frost: %d rock ledges on the steep faces", n);
+}
+
 static void frost_scenery(cw_node scene, const track *t, uint32_t seed) {
   THIN = game_planned_views() > 1 ? 0.5f : 1.0f;
   (void)seed;
@@ -2690,7 +2834,12 @@ static void frost_scenery(cw_node scene, const track *t, uint32_t seed) {
   F.g.darken_edge = 0.12f;
   F.g.lumpy = 0.22f;
   F.g.rough = 0.8f;
-  ground_plane(root, t, &F.g);
+  {
+    cw_node gn = ground_plane(root, t, &F.g);
+    static geoset gs;
+    gs.n = 0;
+    if (!skip("warp")) rework_node(gn, &gs, F.g.tex_repeat);
+  }
 
   /* the sky */
   build_aurora(root);
@@ -2728,6 +2877,7 @@ static void frost_scenery(cw_node scene, const track *t, uint32_t seed) {
   if (!skip("crags")) {
   build_outcrops(root, t);
   }
+  if (!skip("ledges")) build_ledges(root, t);
   if (!skip("lake")) {
   build_lake(root);
   }

@@ -1705,10 +1705,11 @@ static void build_intake_towers(cw_node parent, const track *t) {
 /* ── the flooded tunnel: a green-lit lining, water running off the roof, a few lamps ────────────────── */
 
 static void build_tunnel_lining(cw_node parent, const track *t) {
-  t3_material *m = phys(lin(0.22f, 0.36f, 0.32f), 0.5f, 0);
+  /* a glazed lining (the old drab brown concrete is now a pale sea-green tile that takes the lamps' glow) */
+  t3_material *m = phys(lin(0.5f, 0.78f, 0.72f), 0.35f, 0);
   tex_apply(m, TEX_TUNNEL, 1, 1, 1.0f, 1.0f);
-  m->emissive = lin(0.2f, 1.0f, 0.45f);
-  m->emissive_intensity = 3.4f;
+  m->emissive = lin(0.12f, 0.8f, 0.5f);
+  m->emissive_intensity = 2.2f;
   m->side = T3_DOUBLE_SIDE;
   const int ARC = 18;
   const float hc = 1.6f, Rt0 = 8.0f - 1.6f, inset = 0.1f;
@@ -2022,6 +2023,226 @@ static void dress_road(cw_node root, const track *t) {
   deco_banners(root, t, run0 + 40.0f, t->length - 60.0f, 130.0f, &st);
 }
 
+/* ── the closing crest: the reservoir opened up, a balustrade, lamp standards, flags and the gate hoists ── */
+
+/* The last half kilometre runs along the crest, and the solid 1.6 m wall on the reservoir side hid the water: a long
+ * grey straight between two grey walls. On that side the wall is no longer drawn (its collision stays exactly as it
+ * was, so nothing changes under the wheels) and a balustrade stands on its line instead: a concrete plinth, open
+ * steel rails and a capping rail, posts every three metres, so the lake shows between and over them. Every 36 m a
+ * lamp standard rises from a pier, every other one flying a long banner out over the water; on the downstream side the
+ * spillway gates' hoist towers stand in a row joined by a walkway, so the straight has a rhythm to read the speed by. */
+static int crest_i0, crest_i1;
+static float crest_side; /* the lake's side of the road, as a sign of lat */
+
+static void crest_find(const track *t) {
+  int j = t->n - 1;
+  while (j > 0 && fabsf(t->s[j].p.x) < 1.0f) j--;
+  crest_i0 = j + 12, crest_i1 = t->n - 30;
+  const tsample *m = &t->s[(crest_i0 + crest_i1) / 2];
+  crest_side = v3add(m->p, m->r).x > m->p.x ? 1.0f : -1.0f;
+}
+
+/* the drawn wall (its face and its top) on the lake's side of the crest collapses to a line under the road's edge */
+static void crest_unwall(cw_node scene, const track *t) {
+  cw_node world = cw_node_get(scene, "World");
+  const track_geo *geo = world_geo();
+  if (!cw_node_valid(world) || !geo) return;
+  int moved = 0;
+  for (int ci = 0; ci < geo->n; ci++) {
+    const track_chunk *c = &geo->c[ci];
+    if ((c->kind != TM_WALL && c->kind != TM_WALLTOP) || c->last < crest_i0 || c->first > crest_i1) continue;
+    char name[24];
+    snprintf(name, sizeof name, "T%d_%d", c->kind, ci);
+    cw_node n = cw_node_get(world, name);
+    if (!cw_node_valid(n)) continue;
+    t3_object *o = cw_node3d_object(n);
+    if (!o || o->child_count < 1 || o->children[0]->type != T3_MESH) continue;
+    t3_geometry *g = ((t3_mesh *)o->children[0])->geometry;
+    t3_attribute *pa = g->attributes[T3_ATTR_POSITION];
+    if (!pa || pa->type != T3_FLOAT32) continue;
+    float *P = t3_attribute_f32(pa);
+    for (int v = 0; v < pa->count; v++) {
+      t3_vec3 p = v3(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]);
+      int best = -1;
+      float bd = 1e9f;
+      for (int i = c->first; i <= c->last && i < t->n; i++) {
+        float dx = p.x - t->s[i].p.x, dz = p.z - t->s[i].p.z, d = dx * dx + dz * dz;
+        if (d < bd) bd = d, best = i;
+      }
+      if (best < crest_i0 || best > crest_i1) continue;
+      const tsample *s = &t->s[best];
+      float lat = v3dot(v3sub(p, s->p), s->r);
+      if (lat * crest_side <= 0) continue;
+      t3_vec3 q = v3add(v3add(s->p, v3mul(s->r, crest_side * s->hw)), v3mul(s->u, -0.5f));
+      P[v * 3] = q.x, P[v * 3 + 1] = q.y, P[v * 3 + 2] = q.z;
+      moved++;
+    }
+    pa->version++;
+    t3_geometry_compute_bounding_sphere(g);
+  }
+  cw_info("dam: crest wall opened on the lake side (%d vertices)", moved);
+}
+
+static void build_crest(cw_node parent, const track *t) {
+  pmc *c = pmc_new(260.0f, 4040u);
+  pcol conc = rgb(0.88f, 0.86f, 0.80f), conc_d = rgb(0.62f, 0.60f, 0.56f), steel = rgb(0.22f, 0.25f, 0.32f), brass = rgb(0.86f, 0.62f, 0.22f);
+  pcol bann[3] = { rgb(0.92f, 0.2f, 0.14f), rgb(0.98f, 0.78f, 0.08f), rgb(0.1f, 0.58f, 0.68f) };
+  float s0 = t->s[crest_i0].s, s1 = t->s[crest_i1].s, side = crest_side;
+  /* the balustrade: plinth and cap as continuous runs, posts and rails between */
+  t3_vec3 prev[4];
+  int k = 0;
+  for (float s = s0; s <= s1; s += 3.0f, k++) {
+    tsample a = track_at(t, s);
+    float lat = side * (a.hw + 0.18f);
+    t3_vec3 base = track_point(t, s, lat, 0);
+    t3_vec3 pts[4] = { v3add(base, v3(0, 0.22f, 0)), v3add(base, v3(0, 0.62f, 0)), v3add(base, v3(0, 0.95f, 0)), v3add(base, v3(0, 1.3f, 0)) };
+    pm *b = pmc_at(c, base);
+    pm_push(b);
+    if (k > 0) {
+      pm_layer(b, PL_MAIN);
+      pm_beam(b, prev[0], pts[0], 0.5f, conc_d);     /* the plinth */
+      pm_beam(b, prev[3], pts[3], 0.34f, conc);      /* the capping rail */
+      pm_layer(b, PL_METAL);
+      pm_rod(b, prev[1], pts[1], 0.05f, 5, steel);
+      pm_rod(b, prev[2], pts[2], 0.05f, 5, steel);
+    }
+    pm_layer(b, PL_MAIN);
+    pm_beam(b, base, pts[3], 0.3f, conc);            /* a post */
+    pm_pop(b);
+    for (int i = 0; i < 4; i++) prev[i] = pts[i];
+  }
+  /* lamp standards on piers, banners out over the water */
+  int n = 0;
+  for (float s = s0 + 12.0f; s < s1 - 6.0f; s += 36.0f, n++) {
+    tsample a = track_at(t, s);
+    t3_vec3 base = track_point(t, s, side * (a.hw + 0.7f), 0);
+    t3_vec3 out = v3mul(flat_right(&a), side);       /* toward the lake */
+    pm *b = frame_world(c, base, a.f);
+    pm_layer(b, PL_MAIN);
+    pm_box(b, 1.1f, 2.0f, 1.1f, conc_d, conc);
+    pm_push(b), pm_move(b, 0, 2.0f, 0), pm_box(b, 1.3f, 0.25f, 1.3f, conc, conc), pm_pop(b);
+    pm_layer(b, PL_METAL);
+    pm_push(b), pm_move(b, 0, 2.2f, 0), pm_cyl(b, 0.2f, 0.12f, 6.0f, 8, steel, steel), pm_pop(b);
+    pm_push(b), pm_move(b, 0, 7.6f, 0), pm_box_c(b, 2.6f, 0.14f, 0.14f, brass), pm_pop(b);
+    pm_layer(b, PL_GLOW);
+    for (int e = -1; e <= 1; e += 2) {
+      pm_push(b), pm_move(b, (float)e * 1.25f, 7.25f, 0), pm_ball(b, 0.38f, 0.45f, 0.38f, 1, 0, glow(rgb(1.0f, 0.86f, 0.6f), 3.0f), glow(rgb(1.0f, 0.86f, 0.6f), 3.0f)), pm_pop(b);
+    }
+    pm_push(b), pm_move(b, 0, 8.4f, 0), pm_ball(b, 0.3f, 0.3f, 0.3f, 1, 0, glow(rgb(1.0f, 0.86f, 0.6f), 3.0f), glow(rgb(1.0f, 0.86f, 0.6f), 3.0f)), pm_pop(b);
+    pm_pop(b);
+    if (n & 1) {
+      /* a banner on an arm reaching out over the water, hanging in two panels with a kink in it */
+      pm *q = pmc_at(c, base);
+      pm_push(q);
+      pm_layer(q, PL_METAL);
+      t3_vec3 a0 = v3add(base, v3(0, 6.6f, 0)), a1 = v3add(a0, v3mul(out, 2.4f));
+      pm_rod(q, a0, a1, 0.06f, 5, steel);
+      pm_layer(q, PL_MAIN);
+      pcol bc = bann[(n / 2) % 3];
+      t3_vec3 f = flat_dir(a.f), d = v3mul(f, 0.15f);
+      t3_vec3 p0 = v3add(base, v3mul(out, 0.5f)), p1 = v3add(base, v3mul(out, 2.4f));
+      t3_vec3 q0 = v3add(p0, v3(0, 6.5f, 0)), q1 = v3add(p1, v3(0, 6.5f, 0)), m0 = v3add(v3add(p0, v3(0, 4.6f, 0)), d), m1 = v3add(v3add(p1, v3(0, 4.6f, 0)), d);
+      t3_vec3 l0 = v3add(p0, v3(0, 3.0f, 0)), l1 = v3add(v3add(p1, v3(0, 2.6f, 0)), v3mul(f, -0.1f));
+      pm_quad(q, q0, m0, m1, q1, bc), pm_quad(q, q0, q1, m1, m0, bc);
+      pm_quad(q, m0, l0, l1, m1, pc_mul(bc, 0.85f)), pm_quad(q, m0, m1, l1, l0, pc_mul(bc, 0.85f));
+      pm_pop(q);
+    }
+  }
+  /* the hoist towers of the spillway gates on the downstream side, a walkway between them */
+  t3_vec3 last = { 0 };
+  bool have = false;
+  for (float s = s0 + 30.0f; s < s1 - 30.0f; s += 64.0f) {
+    tsample a = track_at(t, s);
+    t3_vec3 base = track_point(t, s, -side * (a.hw + 4.2f), 0);
+    pm *b = frame_world(c, base, a.f);
+    pm_layer(b, PL_MAIN);
+    pm_push(b), pm_move(b, 0, -9.0f, 0), pm_box(b, 3.2f, 21.0f, 6.0f, conc_d, conc), pm_pop(b);     /* the pier */
+    pm_push(b), pm_move(b, 0, 12.0f, 0), pm_box(b, 4.6f, 3.4f, 7.0f, rgb(0.92f, 0.9f, 0.84f), rgb(0.98f, 0.97f, 0.92f)); /* the hoist house */
+    pm_move(b, 0, 3.4f, 0), pm_prism(b, 5.2f, 1.3f, 7.6f, rgb(0.6f, 0.2f, 0.12f), rgb(0.84f, 0.3f, 0.18f)), pm_pop(b);
+    pm_layer(b, PL_METAL);
+    /* the gate's lifting chains down the pier's face, and its hazard band */
+    for (int e = -1; e <= 1; e += 2) pm_rod(b, v3((float)e * 1.2f, 12.0f, 3.1f), v3((float)e * 1.2f, -2.0f, 3.1f), 0.12f, 5, steel);
+    pm_layer(b, PL_MAIN);
+    pm_push(b), pm_move(b, 0, 8.0f, 0), pm_box(b, 3.3f, 0.8f, 6.1f, rgb(0.98f, 0.76f, 0.08f), rgb(0.98f, 0.76f, 0.08f)), pm_pop(b);
+    pm_layer(b, PL_GLOW);
+    pm_push(b), pm_move(b, 2.32f, 13.6f, 0), pm_box_c(b, 0.1f, 1.0f, 3.0f, glow(rgb(1.0f, 0.82f, 0.5f), 2.4f)), pm_pop(b);
+    pm_push(b), pm_move(b, 0, 17.5f, 0), pm_box_c(b, 0.4f, 0.4f, 0.4f, glow(rgb(1.0f, 0.15f, 0.1f), 5.0f)), pm_pop(b);
+    pm_pop(b);
+    t3_vec3 top = v3add(base, v3(0, 11.0f, 0));
+    if (have) {
+      pm *w = pmc_at(c, top);
+      pm_push(w);
+      pm_layer(w, PL_METAL);
+      pm_beam(w, last, top, 0.5f, steel);
+      pm_beam(w, v3add(last, v3(0, 1.1f, 0)), v3add(top, v3(0, 1.1f, 0)), 0.08f, steel);
+      pm_pop(w);
+    }
+    last = top, have = true;
+  }
+  pmc_finish(c, parent, "Crest", true, TEX_WALL_CONCRETE);
+}
+
+/* ── the water tunnel's lining: ribs, cable trays, a tide line and lit section numbers ──────────── */
+
+/* The tunnel was one smooth drab tube. Steel ring frames every 8 m (dark, so the green glow between them reads as
+ * bays), a pair of cable trays high on the walls, a band of hazard paint at the water's old level and a lit section
+ * plate every fourth frame give it a builder's character; all of it stays above head height or flat on the walls. */
+static void build_tunnel_ribs(cw_node parent, const track *t) {
+  pmc *c = pmc_new(120.0f, 4050u);
+  pcol steel = rgb(0.16f, 0.18f, 0.2f), tray = rgb(0.5f, 0.52f, 0.5f), haz = rgb(0.98f, 0.62f, 0.06f), dark = rgb(0.05f, 0.05f, 0.05f);
+  const float hc = 1.6f, Rt0 = 8.0f - 1.6f;
+  int ribs = 0;
+  for (int i = A.tun0 + 4; i < A.tun1 - 3; i += 8, ribs++) {
+    const tsample *s = &t->s[i];
+    float Rr = s->hw - 0.1f, Rt = Rt0 - 0.1f;
+    pm *b = pmc_at(c, s->p);
+    pm_push(b);
+    pm_basis(b, s->p, s->r, s->u, s->f);
+    pm_layer(b, PL_METAL);
+    /* the frame over the arch, from 2.4 m up one side to the other */
+    const int N = 12;
+    float a0 = asinf(fminf(1.0f, (2.6f - hc) / Rt));
+    for (int k = 0; k < N; k++) {
+      float u0 = a0 + (3.14159265f - 2 * a0) * (float)k / N, u1 = a0 + (3.14159265f - 2 * a0) * (float)(k + 1) / N;
+      t3_vec3 p0 = v3(-(Rr - 0.15f) * cosf(u0), hc + (Rt - 0.15f) * sinf(u0), 0), p1 = v3(-(Rr - 0.15f) * cosf(u1), hc + (Rt - 0.15f) * sinf(u1), 0);
+      pm_beam(b, p0, p1, 0.32f, steel);
+    }
+    /* the cable trays, high on both walls, run from this frame to the next */
+    if (i + 8 < A.tun1 - 3) {
+      const tsample *n = &t->s[i + 8];
+      float y = 4.3f, sa = (y - hc) / Rt, x = Rr * sqrtf(fmaxf(0.0f, 1.0f - sa * sa)) - 0.3f;
+      for (int e = -1; e <= 1; e += 2) {
+        t3_vec3 w0 = v3add(v3add(s->p, v3mul(s->r, (float)e * x)), v3mul(s->u, y));
+        t3_vec3 w1 = v3add(v3add(n->p, v3mul(n->r, (float)e * (n->hw - 0.1f) * sqrtf(fmaxf(0.0f, 1.0f - sa * sa)) - (float)e * 0.3f)), v3mul(n->u, y));
+        pm_pop(b);
+        b = pmc_at(c, s->p);
+        pm_push(b);
+        pm_rod(b, w0, w1, 0.16f, 6, tray);
+        pm_rod(b, v3add(w0, v3mul(s->u, -0.3f)), v3add(w1, v3mul(n->u, -0.3f)), 0.08f, 5, dark);
+        /* the tide line: a hazard band flat on the wall at kerb height, alternating with black */
+        pm_layer(b, PL_MAIN);
+        t3_vec3 h0 = v3add(v3add(s->p, v3mul(s->r, (float)e * (s->hw - 0.12f))), v3mul(s->u, 0.9f));
+        t3_vec3 h1 = v3add(v3add(n->p, v3mul(n->r, (float)e * (n->hw - 0.12f))), v3mul(n->u, 0.9f));
+        t3_vec3 g0 = v3add(h0, v3mul(s->u, 0.45f)), g1 = v3add(h1, v3mul(n->u, 0.45f));
+        pcol hc_ = (ribs & 1) ? haz : dark;
+        pm_quad(b, h0, h1, g1, g0, hc_), pm_quad(b, h1, h0, g0, g1, hc_);
+        pm_layer(b, PL_METAL);
+      }
+      pm_pop(b);
+      b = pmc_at(c, s->p);
+      pm_push(b);
+      pm_basis(b, s->p, s->r, s->u, s->f);
+    }
+    if (ribs % 4 == 0) {
+      /* a lit section plate on the crown */
+      pm_layer(b, PL_GLOW);
+      pm_push(b), pm_move(b, 0, hc + Rt - 0.45f, 0.4f), pm_box_c(b, 1.6f, 0.12f, 0.7f, glow(rgb(1.0f, 0.7f, 0.2f), 2.6f)), pm_pop(b);
+    }
+    pm_pop(b);
+  }
+  pmc_finish(c, parent, "TunnelRibs", false, -1);
+}
+
 static void dam_scenery(cw_node scene, const track *t, uint32_t seed) {
   (void)seed;
   PV = game_planned_views();
@@ -2049,7 +2270,11 @@ static void dam_scenery(cw_node scene, const track *t, uint32_t seed) {
     t3_release(conc);
   }
   build_tunnel_lining(root, t);
+  build_tunnel_ribs(root, t);
   build_tunnel_extras(root, t);
+  crest_find(t);
+  crest_unwall(scene, t);
+  build_crest(root, t);
   build_emitters(root, t);
   build_jets(root, t, sun_to);
   build_land_props(root, t);

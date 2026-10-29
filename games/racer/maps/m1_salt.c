@@ -883,6 +883,271 @@ static prop_model m_flock(uint32_t seed, int n) {
   return pm_finish(b);
 }
 
+/* ── the pan's tall pieces: built straight into a world-space chunked builder (a handful of draws for all of them) ── */
+
+/* a lattice mast of `legs` legs (3 or 4) from half-width w0 at the foot to w1 at the top, n bays; bays alternate the two
+ * paints (a radio mast's warning bands) when band is set. Built at the builder's origin, up y. */
+static void lattice_mast(pm *b, float H, float w0, float w1, int legs, int n, pcol c0, pcol c1, bool band, float thick) {
+  for (int j = 0; j < n; j++) {
+    float y0 = H * (float)j / (float)n, y1 = H * (float)(j + 1) / (float)n;
+    float a0 = lerpf(w0, w1, (float)j / (float)n), a1 = lerpf(w0, w1, (float)(j + 1) / (float)n);
+    pcol c = band && ((j >> 1) & 1) ? c1 : c0;
+    t3_vec3 q0[4], q1[4];
+    for (int k = 0; k < legs; k++) {
+      float a = 6.2832f * (float)k / (float)legs + 0.7854f;
+      q0[k] = V(cosf(a) * a0, y0, sinf(a) * a0), q1[k] = V(cosf(a) * a1, y1, sinf(a) * a1);
+    }
+    for (int k = 0; k < legs; k++) {
+      int m = (k + 1) % legs;
+      pm_beam(b, q0[k], q1[k], thick, c);
+      pm_beam(b, q1[k], q1[m], thick * 0.6f, c);
+      pm_beam(b, ((j + k) & 1) ? q0[k] : q0[m], ((j + k) & 1) ? q1[m] : q1[k], thick * 0.5f, c);
+    }
+  }
+}
+
+/* a standing stone of salt: two or three craggy drums, leaning a little, pink at the foot and bleached at the top,
+ * with crystal blades round its foot and a heaved ring of crust it stands in. Foot at the origin. */
+static void salt_stack(pm *b, float H, float R, uint32_t seed) {
+  pm_layer(b, PL_MAIN);
+  pm_vary(b, 0.1f);
+  pm_jitter(b, 0.22f);
+  /* the foot is stained by the brine and the dust the wind drives along the crust: it reads against the white pan */
+  pcol foot = pc_mix(hex(0xb7745e), hex(0x8a4f3e), hashf_(seed + 90)), mid = pc_mix(C_SALT, hex(0xe0a898), 0.45f), top = pc_mul(C_SALT, 1.05f);
+  int drums = H > 15.0f ? 3 : 2;
+  float y = -1.2f, r = R;
+  pm_push(b);
+  pm_rotz(b, (hashf_(seed) - 0.5f) * 0.16f);
+  pm_rotx(b, (hashf_(seed + 1) - 0.5f) * 0.16f);
+  for (int d = 0; d < drums; d++) {
+    float h = (H + 1.2f) * (d == 0 ? 0.5f : d == 1 ? (drums == 2 ? 0.5f : 0.32f) : 0.18f);
+    float r1 = r * (0.72f + 0.12f * hashf_(seed + 7u * (uint32_t)d));
+    pm_push(b);
+    pm_move(b, (hashf_(seed + 3u * (uint32_t)d) - 0.5f) * r * 0.25f, y, (hashf_(seed + 5u * (uint32_t)d) - 0.5f) * r * 0.25f);
+    pm_roty(b, hashf_(seed + 11u * (uint32_t)d) * 6.28f);
+    pm_cyl(b, r, r1, h, 7, d == 0 ? foot : mid, d + 1 == drums ? top : mid);
+    pm_pop(b);
+    /* a ledge of crust where one drum sits on the next */
+    if (d + 1 < drums) {
+      pm_push(b);
+      pm_move(b, 0, y + h - 0.3f, 0);
+      pm_cyl(b, r1 * 1.18f, r1 * 0.9f, 0.7f, 7, mid, top);
+      pm_pop(b);
+    }
+    y += h, r = r1 * 0.92f;
+  }
+  pm_pop(b);
+  pm_jitter(b, 0.0f);
+  /* crystal blades and a heaved ring of crust at the foot */
+  for (int i = 0; i < 6; i++) {
+    float a = 6.2832f * ((float)i + hashf_(seed + 20u + (uint32_t)i)) / 6.0f, d = R * (1.05f + 0.35f * hashf_(seed + 30u + (uint32_t)i));
+    float h = R * (0.6f + 0.9f * hashf_(seed + 40u + (uint32_t)i));
+    pm_push(b);
+    pm_move(b, cosf(a) * d, -0.4f, sinf(a) * d);
+    pm_rotz(b, cosf(a) * 0.45f), pm_rotx(b, -sinf(a) * 0.45f);
+    pm_cyl(b, 0.45f * R * 0.35f, 0.0f, h, 4, foot, top);
+    pm_pop(b);
+  }
+  pm_rock(b, R * 1.7f, 0.18f, 0.3f, foot, mid);
+}
+
+/* a signal tower: a three-legged mast in red and white bands, a gallery with two dishes, guy wires to three concrete
+ * anchors 0.45 H out, red lamps up its height. Foot at the origin. */
+static void signal_tower(pm *b, float H, uint32_t seed) {
+  pm_layer(b, PL_MAIN);
+  lattice_mast(b, H, 1.9f, 0.7f, 3, 12, C_RED, C_BONE, true, 0.26f);
+  /* the gallery and the dishes */
+  pm_push(b);
+  pm_move(b, 0, H * 0.78f, 0);
+  pm_cyl(b, 2.6f, 2.6f, 0.35f, 10, C_STEEL, C_STEEL_L);
+  for (int k = 0; k < 2; k++) {
+    float a = (float)k * 2.4f + hashf_(seed) * 6.28f;
+    pm_push(b);
+    pm_move(b, cosf(a) * 2.2f, 1.6f + (float)k * 1.8f, sinf(a) * 2.2f);
+    pm_roty(b, -a), pm_rotz(b, -1.5708f);
+    pm_cyl(b, 1.6f, 0.2f, 0.9f, 12, C_BONE, pc_mul(C_BONE, 0.8f));
+    pm_pop(b);
+  }
+  pm_pop(b);
+  pm_layer(b, PL_METAL);
+  pm_rod(b, V(0, H, 0), V(0, H + 7.0f, 0), 0.12f, 5, C_STEEL_L);
+  /* guy wires and their anchors */
+  for (int k = 0; k < 3; k++) {
+    float a = 6.2832f * (float)k / 3.0f + 0.3f;
+    t3_vec3 an = V(cosf(a) * H * 0.45f, 0.4f, sinf(a) * H * 0.45f);
+    pm_rod(b, V(cosf(a) * 0.9f, H * 0.82f, sinf(a) * 0.9f), an, 0.05f, 3, C_DARK);
+    pm_rod(b, V(cosf(a) * 1.3f, H * 0.45f, sinf(a) * 1.3f), an, 0.05f, 3, C_DARK);
+    pm_layer(b, PL_MAIN);
+    pm_push(b);
+    pm_move(b, an.x, -0.6f, an.z);
+    pm_box(b, 2.0f, 1.2f, 2.0f, pc_mul(C_BONE, 0.7f), C_BONE);
+    pm_pop(b);
+    pm_layer(b, PL_METAL);
+  }
+  pm_layer(b, PL_GLOW);
+  for (int i = 0; i < 3; i++) {
+    pm_push(b);
+    pm_move(b, 0, i == 2 ? H + 7.2f : H * (0.35f + 0.3f * (float)i), 0);
+    pm_box_c(b, 0.7f, 0.7f, 0.7f, glow(rgb(1.0f, 0.1f, 0.06f), 6.0f));
+    pm_pop(b);
+  }
+  /* a hut at the foot */
+  pm_layer(b, PL_MAIN);
+  pm_push(b);
+  pm_move(b, 4.5f, 0, -3.0f);
+  pm_box(b, 4.0f, 2.8f, 3.2f, C_TEAL, pc_mul(C_TEAL, 1.15f));
+  pm_move(b, 0, 2.8f, 0);
+  pm_prism(b, 4.6f, 0.9f, 3.8f, C_RUST_D, C_RUST);
+  pm_pop(b);
+}
+
+/* a wrecked drilling rig: its skid and drawworks shed, the derrick broken at the knee and leaning hard over, its crown
+ * block and a spill of drill pipe in the salt. Foot at the origin, the derrick leans toward +x. */
+static void wrecked_rig(pm *b, float H, uint32_t seed) {
+  pcol rust = pc_mul(C_RUST, 0.95f), dark = pc_mul(C_STEEL, 0.6f);
+  pm_layer(b, PL_MAIN);
+  pm_push(b);
+  pm_move(b, 0, -0.3f, 0);
+  pm_box(b, 16.0f, 2.4f, 14.0f, C_RUST_D, rust);                           /* the substructure */
+  pm_move(b, -4.5f, 2.4f, 3.5f);
+  pm_box(b, 6.0f, 3.6f, 5.0f, C_MUST, pc_mul(C_MUST, 1.1f));             /* the drawworks shed, still painted */
+  pm_move(b, 0, 3.6f, 0);
+  pm_prism(b, 6.6f, 1.2f, 5.6f, C_RUST_D, C_RUST);
+  pm_pop(b);
+  /* the stump of the derrick, then the rest of it hinged over at 1/4 of its height */
+  pm_layer(b, PL_METAL);
+  float knee = H * 0.25f;
+  pm_push(b);
+  pm_move(b, 0, 2.1f, 0);
+  lattice_mast(b, knee, 3.4f, 2.9f, 4, 3, rust, dark, false, 0.3f);
+  pm_move(b, 0, knee, 0);
+  pm_rotz(b, -0.62f - 0.12f * hashf_(seed));
+  pm_roty(b, 0.25f * (hashf_(seed + 1) - 0.5f));
+  lattice_mast(b, H * 0.75f, 2.9f, 0.8f, 4, 8, rust, dark, false, 0.24f);
+  pm_move(b, 0, H * 0.75f, 0);
+  pm_box_c(b, 2.4f, 1.6f, 2.4f, C_STEEL);                                  /* the crown block */
+  pm_layer(b, PL_GLOW);
+  pm_move(b, 0, 1.1f, 0);
+  pm_box_c(b, 0.5f, 0.5f, 0.5f, glow(rgb(1.0f, 0.12f, 0.1f), 5.0f));     /* its lamp, still burning */
+  pm_pop(b);
+  /* drill pipe spilled across the salt */
+  pm_layer(b, PL_METAL);
+  for (int i = 0; i < 9; i++) {
+    float a = 0.3f * (hashf_(seed + 50u + (uint32_t)i) - 0.5f), z = -6.0f + 1.4f * (float)i;
+    pm_rod(b, V(9.0f, 0.3f + 0.25f * (float)(i % 3), z), V(9.0f + 18.0f * cosf(a), 0.3f, z + 18.0f * sinf(a)), 0.22f, 6, i % 3 ? C_STEEL : C_RUST);
+  }
+}
+
+/* a crashed airship: the envelope lies pitched nose up at about 18 degrees, its tail third torn to the bare ring frames
+ * where it ploughed into the salt; a gondola hangs under the middle, fins at the tail, the old livery on its flanks and
+ * two mooring lines pinned to the crust. Tail at the origin, the nose toward +z. */
+static void crashed_airship(pm *b, uint32_t seed) {
+  const float L = 124.0f, R = 13.0f, pitch = 0.3f;
+  /* the radius along the hull, y from the tail (0) to the nose (L) */
+  float prof[] = { 0.10f, 0.0f, 0.40f, 0.04f, 0.68f, 0.13f, 0.88f, 0.26f, 0.98f, 0.42f, 1.0f, 0.58f, 0.95f, 0.72f, 0.82f, 0.84f, 0.58f, 0.93f, 0.26f, 0.985f, 0.02f, 1.0f };
+  float tear = 0.3f;                                  /* the fabric is gone from the tail to here */
+  pm_push(b);
+  pm_rotx(b, 1.5708f - pitch);                         /* the hull's axis (local y) toward +z, tipped nose up */
+  /* the skin: a lathe from the tear to the nose */
+  float rz[2 * 11];
+  int n = 0;
+  for (int i = 0; i < 11; i++) {
+    float r = prof[i * 2] * R, y = prof[i * 2 + 1] * L;
+    if (prof[i * 2 + 1] < tear) continue;
+    if (n == 0) rz[n * 2] = R * 0.96f, rz[n * 2 + 1] = tear * L, n++;
+    rz[n * 2] = r, rz[n * 2 + 1] = y, n++;
+  }
+  pm_layer(b, PL_MAIN);
+  pm_vary(b, 0.05f);
+  pm_lathe(b, rz, n, 20, pc_mul(C_STEEL_L, 0.85f), pc_mul(C_BONE, 0.95f));
+  /* a dark bulkhead closes the torn end (the skin is one sided) */
+  pm_push(b);
+  pm_move(b, 0, tear * L - 0.1f, 0);
+  pm_cyl(b, R * 0.95f, R * 0.95f, 0.3f, 20, C_DARK, pc_mul(C_RUST_D, 0.8f));
+  pm_pop(b);
+  /* the livery: two fat bands proud of the skin */
+  float bands[3] = { 0.5f, 0.56f, 0.8f };
+  pcol bandc[3] = { C_ORNG, C_TEAL, C_ORNG };
+  for (int k = 0; k < 3; k++) {
+    float y = bands[k] * L;
+    float r = R * (bands[k] < 0.6f ? 1.0f : 0.86f);
+    pm_push(b);
+    pm_move(b, 0, y, 0);
+    pm_rotx(b, 1.5708f);
+    pm_ring(b, r + 0.1f, 0.45f, 24, 4, bandc[k]);
+    pm_pop(b);
+  }
+  /* the gondola under the middle (local +z is down once tipped over) */
+  pm_push(b);
+  pm_move(b, 0, L * 0.58f, R + 1.6f);
+  pm_box_c(b, 4.4f, 18.0f, 3.4f, pc_mul(C_BONE, 0.9f));
+  pm_move(b, 0, 9.4f, 0);
+  pm_box_c(b, 3.6f, 1.6f, 2.8f, C_RUST);
+  pm_pop(b);
+  /* fins: two left standing at the torn tail, one bent */
+  for (int k = 0; k < 3; k++) {
+    float a = 1.5708f * (float)k + 0.7854f;
+    float ca = cosf(a), sa = sinf(a), r0 = R * 0.55f, r1 = R * 1.25f;
+    float bend = k == 2 ? 0.6f : 0.0f;
+    t3_vec3 p0 = V(ca * r0, 6.0f, sa * r0), p1 = V(ca * r1, 9.0f + bend * 6.0f, sa * r1 + bend * 4.0f);
+    t3_vec3 p2 = V(ca * r1, 22.0f, sa * r1), p3 = V(ca * r0, 30.0f, sa * r0);
+    pm_quad(b, p0, p1, p2, p3, k & 1 ? C_TEAL : C_ORNG);
+    pm_quad(b, p0, p3, p2, p1, k & 1 ? C_TEAL : C_ORNG);
+  }
+  /* the bare frames: rings and girders where the skin tore away */
+  pm_layer(b, PL_METAL);
+  int rings = 6;
+  for (int i = 0; i <= rings; i++) {
+    float y = tear * L * (float)i / (float)rings + 1.0f;
+    float t = y / L, r = R * (t < 0.04f ? 0.4f + 7.0f * t : t < 0.13f ? 0.68f + 2.2f * (t - 0.04f) : 0.88f + 0.75f * (t - 0.13f));
+    if (r > R) r = R;
+    if (i == 1) continue;                              /* one ring snapped clean away */
+    pm_push(b);
+    pm_move(b, 0, y, 0);
+    pm_rotx(b, 1.5708f);
+    pm_ring(b, r, 0.28f, 18, 4, C_STEEL);
+    pm_pop(b);
+  }
+  for (int k = 0; k < 10; k++) {
+    if (hashf_(seed + (uint32_t)k) < 0.25f) continue;
+    float a = 6.2832f * (float)k / 10.0f;
+    float y1 = tear * L * (0.75f + 0.25f * hashf_(seed + 9u + (uint32_t)k));
+    pm_beam(b, V(cosf(a) * R * 0.45f, 1.0f, sinf(a) * R * 0.45f), V(cosf(a) * R * 0.93f, y1, sinf(a) * R * 0.93f), 0.3f, C_STEEL);
+  }
+  pm_layer(b, PL_GLOW);
+  /* the gondola's windows, still lit */
+  for (int i = 0; i < 6; i++) {
+    for (int k = -1; k <= 1; k += 2) {
+      pm_push(b);
+      pm_move(b, (float)k * 2.25f, L * 0.58f - 7.0f + 2.6f * (float)i, R + 1.4f);
+      pm_box_c(b, 0.12f, 1.3f, 0.9f, glow(rgb(1.0f, 0.78f, 0.45f), 2.4f));
+      pm_pop(b);
+    }
+  }
+  pm_pop(b);
+  /* the mooring lines from the nose to two stakes in the salt, and wreckage heaped round the tail */
+  float ny = sinf(pitch) * L * 0.86f, nz = cosf(pitch) * L * 0.86f;
+  pm_layer(b, PL_METAL);
+  for (int k = -1; k <= 1; k += 2) {
+    t3_vec3 st_ = V((float)k * 26.0f, 0.2f, nz + 16.0f);
+    pm_rod(b, V(0, ny - 3.0f, nz), st_, 0.09f, 4, C_DARK);
+    pm_layer(b, PL_MAIN);
+    pm_push(b);
+    pm_move(b, st_.x, -0.5f, st_.z);
+    pm_box(b, 1.6f, 1.2f, 1.6f, C_STEEL, C_STEEL_L);
+    pm_pop(b);
+    pm_layer(b, PL_METAL);
+  }
+  pm_layer(b, PL_MAIN);
+  for (int i = 0; i < 7; i++) {
+    float a = 6.2832f * hashf_(seed + 60u + (uint32_t)i), d = R * (0.9f + 0.8f * hashf_(seed + 70u + (uint32_t)i));
+    pm_push(b);
+    pm_move(b, cosf(a) * d, -0.2f, sinf(a) * d - 4.0f);
+    pm_rock(b, 2.0f + 2.0f * hashf_(seed + 80u + (uint32_t)i), 0.4f, 0.4f, pc_mix(C_SALT, hex(0xd9a59a), 0.5f), C_SALT);
+    pm_pop(b);
+  }
+}
+
 /* ── the horizon: a ring of ridges, and the mirage ──────────────────────────────────────────────────── */
 
 /* a closed ridge line around the course: radius R, peaks `amp` high, colour fading from `low` at the foot to
@@ -1202,6 +1467,7 @@ static void salt_ramps(cw_node root, const track *t, prop_set *ps);
 static void salt_derricks(cw_node root, const track *t, prop_set *ps);
 static void salt_pan(cw_node root, const track *t, prop_set *ps);
 static void salt_life(cw_node scene, cw_node root, const track *t);
+static void salt_pan_tall(cw_node root, const track *t);
 
 static void salt_scenery(cw_node scene, const track *t, uint32_t seed) {
   (void)seed;
@@ -1271,8 +1537,28 @@ static void salt_scenery(cw_node scene, const track *t, uint32_t seed) {
     /* sit on the plateau side of the line, away from the road */
     float d = x * 0.649f - (z + 50.0f) * 0.760f;
     x -= 0.649f * (d + 95.0f), z += 0.760f * (d + 95.0f);
-    if (road_gap(t, x, z, NULL) < 36.0f) continue;
-    ps_add(ps, PK_CANYON_WALL, on_ground(x, z, -0.5f), yaw_to(V(x, 0, z), V(x + 0.649f, 0, z - 0.760f)), 0.95f + 0.3f * hashf_(720u + (uint32_t)i), 730u + (uint32_t)i);
+    /* A face is 90 m long: tested at its middle alone, one reached into the lanes at its end and the cleaner hid it, a
+     * gap in the cliff line. Test its whole footprint (both ends, its foot and its back) and slide it back onto the
+     * plateau, then along the line, until all of it is clear of every road. */
+    float sc = 0.95f + 0.3f * hashf_(720u + (uint32_t)i);
+    float half = 45.0f * sc + 4.0f;
+    bool ok = false;
+    for (int k = 0; k < 24 && !ok; k++) {
+      float back = 12.0f * (float)(k % 6), slide = (float)(k / 6) * 18.0f * ((k / 6) & 1 ? 1.0f : -1.0f);
+      float tx = x - 0.649f * back + 0.760f * slide, tz = z + 0.760f * back + 0.649f * slide;
+      ok = true;
+      for (int e = 0; e < 7 && ok; e++) {
+        float u = -half + 2.0f * half * (float)e / 6.0f;
+        for (int f = -1; f <= 1 && ok; f++) {
+          float v = f < 0 ? -20.0f * sc : f > 0 ? 10.0f * sc : 0.0f; /* the back of the wall, its face, its scree */
+          float px = tx + 0.760f * u + 0.649f * v, pz = tz + 0.649f * u - 0.760f * v;
+          ok = road_gap(t, px, pz, NULL) > 6.0f;
+        }
+      }
+      if (ok) x = tx, z = tz;
+    }
+    if (!ok) continue;
+    ps_add(ps, PK_CANYON_WALL, on_ground(x, z, -0.5f), yaw_to(V(x, 0, z), V(x + 0.649f, 0, z - 0.760f)), sc, 730u + (uint32_t)i);
   }
 
   /* loose boulders and low salt dunes across the flats, thin near the road, denser in the middle distance */
@@ -1715,6 +2001,102 @@ static void salt_pan(cw_node root, const track *t, prop_set *ps) {
     o.from_s = 1700.0f, o.to_s = 2800.0f, o.spacing = 30.0f, o.seed = 92;
     scatter_along(ps, t, &o);
   }
+  salt_pan_tall(root, t);
+}
+
+/* a spot for a piece of radius `r` (its whole footprint, guy wires and spills included) clear of every part of the
+ * course by `clear` metres: the point beside the road at s, lat, pushed further out until it fits (false: none did) */
+static bool clear_spot(const track *t, float s, float lat, float r, float clear, t3_vec3 *out) {
+  float side = lat < 0 ? -1.0f : 1.0f;
+  for (int k = 0; k < 8; k++) {
+    t3_vec3 p = beside(s, lat + side * 10.0f * (float)k, 0);
+    bool ok = true;
+    for (int i = 0; i < 9 && ok; i++) {
+      float a = 6.2832f * (float)i / 8.0f, rr = i == 8 ? 0.0f : r;
+      ok = road_gap(t, p.x + cosf(a) * rr, p.z + sinf(a) * rr, NULL) > clear;
+    }
+    if (ok) {
+      *out = p;
+      return true;
+    }
+  }
+  return false;
+}
+
+/* The pan below the escarpment was flat from kart height: everything on it stood lower than a kart's horizon. Tall
+ * verticals now stand out on the crust at every distance: standing stones of salt in clusters, red and white signal
+ * towers on guy wires, wrecked drilling rigs with their derricks broken over, and a crashed airship pitched nose up
+ * on the inside of the long bends. All of it goes into one chunked builder with big cells: a few draws per view. */
+static void salt_pan_tall(cw_node root, const track *t) {
+  float hw = t->s[0].hw;
+  pmc *c = pmc_new(320.0f, 8800u);
+  int placed = 0;
+  /* the airship, on the inside of the long bends, lying roughly along the road so its whole length shows */
+  {
+    float s = 2330.0f, lat = hw + 120.0f;
+    t3_vec3 pa = beside(s, lat, 0), pb = beside(s, -lat, 0);
+    float da = (pa.x - CX) * (pa.x - CX) + (pa.z - CZ) * (pa.z - CZ), db = (pb.x - CX) * (pb.x - CX) + (pb.z - CZ) * (pb.z - CZ);
+    if (db < da) lat = -lat;
+    t3_vec3 p;
+    if (clear_spot(t, s, lat, 75.0f, 12.0f, &p)) {
+      /* the tail lies up the road from the middle, so the nose points along the way the karts run */
+      float yaw = along_road(s) + 0.35f * (lat > 0 ? -1.0f : 1.0f);
+      t3_vec3 tail = vsub(p, V(sinf(yaw) * 55.0f, 0, cosf(yaw) * 55.0f));
+      tail.y = ground_y(tail.x, tail.z) - 2.5f;
+      pm *b = pmc_at(c, p);
+      pm_push(b);
+      pm_move(b, tail.x, tail.y, tail.z);
+      pm_roty(b, yaw);
+      crashed_airship(b, 8810u);
+      pm_pop(b);
+      placed++;
+      cw_info("salt: the airship's middle at (%.0f, %.0f)", p.x, p.z);
+    }
+  }
+  /* signal towers and wrecked rigs alternate sides down the pan */
+  struct { float s, lat; int kind; float H; } big[] = {
+    { 1815.0f, -34.0f, 0, 66.0f }, { 1960.0f, 30.0f, 1, 46.0f }, { 2140.0f, -40.0f, 0, 72.0f }, { 2290.0f, -30.0f, 1, 44.0f },
+    { 2470.0f, 36.0f, 0, 68.0f }, { 2600.0f, -32.0f, 1, 48.0f }, { 2760.0f, 40.0f, 0, 62.0f },
+  };
+  for (int i = 0; i < (int)(sizeof big / sizeof big[0]); i++) {
+    float lat = big[i].lat < 0 ? big[i].lat - hw : big[i].lat + hw;
+    float r = big[i].kind == 0 ? big[i].H * 0.47f + 3.0f : 30.0f;
+    t3_vec3 p;
+    if (!clear_spot(t, big[i].s, lat, r, 8.0f, &p)) continue;
+    pm *b = pmc_at(c, p);
+    pm_push(b);
+    pm_move(b, p.x, p.y - 0.2f, p.z);
+    /* a rig leans away from the road, so its broken derrick never reaches over the lanes */
+    pm_roty(b, big[i].kind == 0 ? hashf_(8820u + (uint32_t)i) * 6.28f : face_road(big[i].s, lat) + 1.5708f);
+    if (big[i].kind == 0) signal_tower(b, big[i].H, 8830u + (uint32_t)i);
+    else wrecked_rig(b, big[i].H, 8840u + (uint32_t)i);
+    pm_pop(b);
+    placed++;
+  }
+  /* standing stones of salt in clusters of one to three, near and far, both sides */
+  for (int i = 0; i < 30; i++) {
+    float s = 1760.0f + 1140.0f * ((float)i + hashf_(8850u + (uint32_t)i)) / 30.0f;
+    float side = (hash_u(8860u + (uint32_t)i) & 1) ? 1.0f : -1.0f;
+    float lat = side * (hw + 16.0f + 90.0f * powf(hashf_(8870u + (uint32_t)i), 1.6f));
+    int nst = 1 + (int)(hash_u(8880u + (uint32_t)i) % 3);
+    t3_vec3 p;
+    if (!clear_spot(t, s, lat, 14.0f, 6.0f, &p)) continue;
+    for (int k = 0; k < nst; k++) {
+      uint32_t h = 8890u + (uint32_t)(i * 5 + k);
+      float H = (k == 0 ? 16.0f : 8.0f) + 18.0f * hashf_(h);
+      float R = 1.8f + 0.11f * H * (0.7f + 0.6f * hashf_(h + 1));
+      float a = hashf_(h + 2) * 6.28f, d = k == 0 ? 0.0f : 6.0f + 4.0f * hashf_(h + 3);
+      t3_vec3 q = on_ground(p.x + cosf(a) * d, p.z + sinf(a) * d, 0);
+      pm *b = pmc_at(c, q);
+      pm_push(b);
+      pm_move(b, q.x, q.y, q.z);
+      salt_stack(b, H, R, h);
+      pm_pop(b);
+      placed++;
+    }
+  }
+  pmc_finish(c, root, "PanTall", true, -1);
+  cw_info("salt: %d tall pieces on the pan", placed);
 }
 
 /* a dust devil's body: three nested translucent funnels (narrow at the ground, wide and thin at the top) that turn at
