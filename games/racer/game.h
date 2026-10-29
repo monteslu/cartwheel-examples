@@ -32,7 +32,7 @@
 #define NMAPS 8
 #define NVEH 6
 #define MAX_LAPS 5
-#define NARENAS 8  /* arena maps (ARENAS[]; separate from the race maps): the battle arenas, the capture the flag maps, the assault maps */
+#define NARENAS 10  /* arena maps (ARENAS[]; separate from the race maps): the battle arenas, the capture the flag maps, the assault maps */
 #define BALLOONS 3 /* a battle kart's balloons at the start */
 #define BATTLE_SPIN_K 0.45f /* a battle spin lasts this share of a race spin (the pop is the cost; sim_battle.inc, kartgfx.c) */
 

@@ -14,6 +14,8 @@ scenes/orbit.cwscene
 scenes/spires.cwscene
 scenes/mesa.cwscene
 scenes/breakwater.cwscene
+scenes/breakout.cwscene
+scenes/deepwell.cwscene
 fonts/Bungee-OFL.txt
 fonts/Bungee-Regular.ttf
 fonts/Fredoka-OFL.txt

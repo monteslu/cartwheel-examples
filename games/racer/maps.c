@@ -21,4 +21,6 @@ extern const map_def map_spires;
 extern const map_def map_mesa;
 extern const map_def map_breakwater;
 extern const map_def map_sunspire;
-const map_def *const ARENAS[NARENAS] = { &map_yard, &map_foundry, &map_spillway, &map_frostlake, &map_spires, &map_mesa, &map_breakwater, &map_sunspire };
+extern const map_def map_breakout;
+extern const map_def map_deepwell;
+const map_def *const ARENAS[NARENAS] = { &map_yard, &map_foundry, &map_spillway, &map_frostlake, &map_spires, &map_mesa, &map_breakwater, &map_sunspire, &map_breakout, &map_deepwell };
