@@ -912,8 +912,10 @@ static void salt_stack(pm *b, float H, float R, uint32_t seed) {
   pm_layer(b, PL_MAIN);
   pm_vary(b, 0.1f);
   pm_jitter(b, 0.22f);
-  /* the foot is stained by the brine and the dust the wind drives along the crust: it reads against the white pan */
-  pcol foot = pc_mix(hex(0xb7745e), hex(0x8a4f3e), hashf_(seed + 90)), mid = pc_mix(C_SALT, hex(0xe0a898), 0.45f), top = pc_mul(C_SALT, 1.05f);
+  /* the foot is stained dark by the brine and the dust the wind drives along the crust, the flanks rose, and the top
+   * catches the low dawn sun in gold: a dark base and a bright crown read through the haze from across the pan */
+  pcol foot = pc_mix(hex(0x6e3628), hex(0x4e2820), hashf_(seed + 90)), mid = pc_mix(C_SALT, hex(0xd98a74), 0.62f);
+  pcol top = pc_mul(hex(0xffd59a), 1.12f);
   int drums = H > 15.0f ? 3 : 2;
   float y = -1.2f, r = R;
   pm_push(b);
@@ -925,13 +927,13 @@ static void salt_stack(pm *b, float H, float R, uint32_t seed) {
     pm_push(b);
     pm_move(b, (hashf_(seed + 3u * (uint32_t)d) - 0.5f) * r * 0.25f, y, (hashf_(seed + 5u * (uint32_t)d) - 0.5f) * r * 0.25f);
     pm_roty(b, hashf_(seed + 11u * (uint32_t)d) * 6.28f);
-    pm_cyl(b, r, r1, h, 7, d == 0 ? foot : mid, d + 1 == drums ? top : mid);
+    pm_cyl(b, r, r1, h, 7, d == 0 ? foot : mid, d + 1 == drums ? top : d == 0 ? pc_mix(foot, mid, 0.35f) : mid);
     pm_pop(b);
     /* a ledge of crust where one drum sits on the next */
     if (d + 1 < drums) {
       pm_push(b);
       pm_move(b, 0, y + h - 0.3f, 0);
-      pm_cyl(b, r1 * 1.18f, r1 * 0.9f, 0.7f, 7, mid, top);
+      pm_cyl(b, r1 * 1.18f, r1 * 0.9f, 0.7f, 7, d == 0 ? foot : mid, top);
       pm_pop(b);
     }
     y += h, r = r1 * 0.92f;
@@ -955,7 +957,8 @@ static void salt_stack(pm *b, float H, float R, uint32_t seed) {
  * anchors 0.45 H out, red lamps up its height. Foot at the origin. */
 static void signal_tower(pm *b, float H, uint32_t seed) {
   pm_layer(b, PL_MAIN);
-  lattice_mast(b, H, 1.9f, 0.7f, 3, 12, C_RED, C_BONE, true, 0.26f);
+  /* stout members: thin ones went to a grey thread in the haze past a couple of hundred metres */
+  lattice_mast(b, H, 2.1f, 0.8f, 3, 12, C_RED, C_BONE, true, 0.4f);
   /* the gallery and the dishes */
   pm_push(b);
   pm_move(b, 0, H * 0.78f, 0);
@@ -1042,7 +1045,7 @@ static void wrecked_rig(pm *b, float H, uint32_t seed) {
  * where it ploughed into the salt; a gondola hangs under the middle, fins at the tail, the old livery on its flanks and
  * two mooring lines pinned to the crust. Tail at the origin, the nose toward +z. */
 static void crashed_airship(pm *b, uint32_t seed) {
-  const float L = 124.0f, R = 13.0f, pitch = 0.3f;
+  const float L = 124.0f, R = 13.0f, pitch = 0.4f;
   /* the radius along the hull, y from the tail (0) to the nose (L) */
   float prof[] = { 0.10f, 0.0f, 0.40f, 0.04f, 0.68f, 0.13f, 0.88f, 0.26f, 0.98f, 0.42f, 1.0f, 0.58f, 0.95f, 0.72f, 0.82f, 0.84f, 0.58f, 0.93f, 0.26f, 0.985f, 0.02f, 1.0f };
   float tear = 0.3f;                                  /* the fabric is gone from the tail to here */
@@ -1059,7 +1062,8 @@ static void crashed_airship(pm *b, uint32_t seed) {
   }
   pm_layer(b, PL_MAIN);
   pm_vary(b, 0.05f);
-  pm_lathe(b, rz, n, 20, pc_mul(C_STEEL_L, 0.85f), pc_mul(C_BONE, 0.95f));
+  /* weathered dark silver darkening toward the torn tail: a pale hull went the colour of the haze across the pan */
+  pm_lathe(b, rz, n, 20, hex(0x4f4d4f), hex(0xa79d92));
   /* a dark bulkhead closes the torn end (the skin is one sided) */
   pm_push(b);
   pm_move(b, 0, tear * L - 0.1f, 0);
@@ -1074,7 +1078,7 @@ static void crashed_airship(pm *b, uint32_t seed) {
     pm_push(b);
     pm_move(b, 0, y, 0);
     pm_rotx(b, 1.5708f);
-    pm_ring(b, r + 0.1f, 0.45f, 24, 4, bandc[k]);
+    pm_ring(b, r + 0.1f, 0.9f, 24, 4, bandc[k]);
     pm_pop(b);
   }
   /* the gondola under the middle (local +z is down once tipped over) */
@@ -1124,6 +1128,11 @@ static void crashed_airship(pm *b, uint32_t seed) {
       pm_pop(b);
     }
   }
+  /* a warning beacon still burning on the raised nose: a point of red the eye finds across the pan */
+  pm_push(b);
+  pm_move(b, 0, L * 0.995f, 0);
+  pm_box_c(b, 1.6f, 1.6f, 1.6f, glow(rgb(1.0f, 0.12f, 0.08f), 7.0f));
+  pm_pop(b);
   pm_pop(b);
   /* the mooring lines from the nose to two stakes in the salt, and wreckage heaped round the tail */
   float ny = sinf(pitch) * L * 0.86f, nz = cosf(pitch) * L * 0.86f;
@@ -1389,7 +1398,7 @@ static void bunting(pmc *c, t3_vec3 a, t3_vec3 b, float sag, int n, uint32_t see
 static cw_node ROOT, ROOT_SCENE;
 
 /* development aid: SALT_OFF=letters leaves parts of the map out (g ground, s start, r ramps, d derricks, p pan, l life,
- * h horizon rings, c clouds, x mirage) so a run can show what each costs; unset in a normal run. */
+ * h horizon rings, c clouds, x mirage, w the road's wear) so a run can show what each costs; unset in a normal run. */
 static bool off(char c) {
   const char *e = getenv("SALT_OFF");
   return e && strchr(e, c);
@@ -1468,6 +1477,7 @@ static void salt_derricks(cw_node root, const track *t, prop_set *ps);
 static void salt_pan(cw_node root, const track *t, prop_set *ps);
 static void salt_life(cw_node scene, cw_node root, const track *t);
 static void salt_pan_tall(cw_node root, const track *t);
+static void salt_road_wear(cw_node root, const track *t);
 
 static void salt_scenery(cw_node scene, const track *t, uint32_t seed) {
   (void)seed;
@@ -1574,6 +1584,7 @@ static void salt_scenery(cw_node scene, const track *t, uint32_t seed) {
   if (!off('d')) salt_derricks(root, t, ps);
   if (!off('p')) salt_pan(root, t, ps);
   ps_finish(ps);
+  if (!off('w')) salt_road_wear(root, t);
   if (!off('l')) salt_life(scene, root, t);
 }
 
@@ -2097,6 +2108,222 @@ static void salt_pan_tall(cw_node root, const track *t) {
   }
   pmc_finish(c, root, "PanTall", true, -1);
   cw_info("salt: %d tall pieces on the pan", placed);
+}
+
+/* ── the road's wear: the one hex-plate texture ran the whole 3 km lap ──────────────────────────────────
+ * Two skins laid a few centimetres over the deck, in the road's own uv (u across the full width, v = s / tile_v) so
+ * they line up with it plate for plate:
+ *   - the same salt texture with vertex colours: 1 at a patch's edge (exactly the road below it, so no seam shows) and
+ *     a tint inside: dark rubber in the wheel tracks (heavier where karts brake for a bend), bright wind-blown salt
+ *     drifting across the deck in diagonal tongues on the open pan, and a brown stain that leads into
+ *   - the dirt road through the derrick field below the escarpment (the dirt texture), its two ends ragged tongues.
+ * Neither touches the start line, a boost strip, a checkpoint, a jump's run-up or its landing marks. */
+
+typedef struct rwbuf {
+  float *p, *n, *c, *uv;
+  uint32_t *ix;
+  int nv, ni, cv, ci;
+} rwbuf;
+static int rw_v(rwbuf *b, t3_vec3 p, t3_vec3 n, pcol c, float u, float v) {
+  if (b->nv == b->cv) {
+    b->cv = b->cv ? b->cv * 2 : 4096;
+    b->p = realloc(b->p, sizeof(float) * 3 * (size_t)b->cv), b->n = realloc(b->n, sizeof(float) * 3 * (size_t)b->cv);
+    b->c = realloc(b->c, sizeof(float) * 3 * (size_t)b->cv), b->uv = realloc(b->uv, sizeof(float) * 2 * (size_t)b->cv);
+  }
+  int i = b->nv++;
+  b->p[i * 3] = p.x, b->p[i * 3 + 1] = p.y, b->p[i * 3 + 2] = p.z;
+  b->n[i * 3] = n.x, b->n[i * 3 + 1] = n.y, b->n[i * 3 + 2] = n.z;
+  b->c[i * 3] = c.r, b->c[i * 3 + 1] = c.g, b->c[i * 3 + 2] = c.b;
+  b->uv[i * 2] = u, b->uv[i * 2 + 1] = v;
+  return i;
+}
+/* one point of a skin across the road */
+typedef struct rwpt {
+  t3_vec3 p, n;
+  pcol c;
+  float u, v;
+} rwpt;
+/* the quad between two rows' points c and c + 1 (a0 a1 on the row behind, b0 b1 on the row ahead), facing up */
+static void rw_quad(rwbuf *b, const rwpt *a0, const rwpt *a1, const rwpt *b0, const rwpt *b1, int tris) {
+  int i0 = rw_v(b, a0->p, a0->n, a0->c, a0->u, a0->v), i1 = rw_v(b, a1->p, a1->n, a1->c, a1->u, a1->v);
+  int j0 = rw_v(b, b0->p, b0->n, b0->c, b0->u, b0->v), j1 = rw_v(b, b1->p, b1->n, b1->c, b1->u, b1->v);
+  if (b->ni + 6 > b->ci) b->ci = b->ci ? b->ci * 2 : 8192, b->ix = realloc(b->ix, sizeof(uint32_t) * (size_t)b->ci);
+  /* wound so the front faces up the road's normal */
+  bool up = vdot(vcross(vsub(b0->p, a0->p), vsub(b1->p, a0->p)), a0->n) > 0;
+  uint32_t q[6] = { (uint32_t)i0, (uint32_t)j0, (uint32_t)j1, (uint32_t)i0, (uint32_t)j1, (uint32_t)i1 };
+  if (!up) q[1] = (uint32_t)j1, q[2] = (uint32_t)j0, q[4] = (uint32_t)i1, q[5] = (uint32_t)j1;
+  /* tris: bit 0 the triangle a0 b0 b1, bit 1 the triangle a0 b1 a1 */
+  if (tris & 1) memcpy(b->ix + b->ni, q, sizeof(uint32_t) * 3), b->ni += 3;
+  if (tris & 2) memcpy(b->ix + b->ni, q + 3, sizeof(uint32_t) * 3), b->ni += 3;
+}
+/* which of a quad's two triangles have every corner over thr (a skin with an edge cut on the diagonals, not in steps) */
+static int rw_tris(float a0, float a1, float b0, float b1, float thr) {
+  return (fminf(a0, fminf(b0, b1)) > thr ? 1 : 0) | (fminf(a0, fminf(b1, a1)) > thr ? 2 : 0);
+}
+/* the chunk's mesh, hung under parent (nothing if no quad was laid) */
+static void rw_finish(rwbuf *b, cw_node parent, const char *name, t3_material *m) {
+  if (b->ni > 0) {
+    t3_geometry *g = t3_geometry_new();
+    t3_attribute *a;
+    a = t3_attribute_new(T3_FLOAT32, b->p, b->nv, 3), t3_geometry_set_attribute(g, T3_ATTR_POSITION, a), t3_release(a);
+    a = t3_attribute_new(T3_FLOAT32, b->n, b->nv, 3), t3_geometry_set_attribute(g, T3_ATTR_NORMAL, a), t3_release(a);
+    a = t3_attribute_new(T3_FLOAT32, b->c, b->nv, 3), t3_geometry_set_attribute(g, T3_ATTR_COLOR, a), t3_release(a);
+    a = t3_attribute_new(T3_FLOAT32, b->uv, b->nv, 2), t3_geometry_set_attribute(g, T3_ATTR_UV, a), t3_release(a);
+    a = t3_attribute_new(T3_UINT32, b->ix, b->ni, 1), t3_geometry_set_index(g, a), t3_release(a);
+    t3_geometry_compute_bounding_sphere(g);
+    t3_retain(m);
+    add_mesh(parent, name, g, m, false, true);
+  }
+  free(b->p), free(b->n), free(b->c), free(b->uv), free(b->ix);
+  memset(b, 0, sizeof *b);
+}
+
+#define RW_COLS 20
+#define RW_DIRT0 1405.0f /* the dirt road through the derrick field, from the foot of the escarpment */
+#define RW_DIRT1 1552.0f
+
+/* 0 where nothing may be laid (paint and marks of the course's own), easing to 1 over a few metres */
+static float rw_allowed(const track *t, int i) {
+  float s = t->s[i].s, L = t->length, k = 1.0f;
+  if (s < 40.0f || s > L - 30.0f) return 0;
+  for (int d = -12; d <= 12; d++) {
+    int j = i + d;
+    if (j < 0 || j >= t->n) continue;
+    uint32_t f = t->s[j].flags;
+    float ds = fabsf(t->s[j].s - s);
+    if (f & (TF_BOOST | TF_CHECK)) k = fminf(k, sstep(3.0f, 9.0f, ds));
+  }
+  return k;
+}
+
+static void salt_road_wear(cw_node root, const track *t) {
+  const float tile = 8.0f; /* the map's mesh.tile_v */
+  /* the run-ups, flights and landing marks of the jumps, as s ranges: nothing is laid there */
+  float keep0[8], keep1[8];
+  int nkeep = 0;
+  for (int i = 1; i < t->n && nkeep < 8; i++)
+    if ((t->s[i].flags & TF_RAMP) && !(t->s[i - 1].flags & TF_RAMP)) {
+      int j = i;
+      while (j < t->n && !(t->s[j].flags & TF_GAP)) j++;
+      while (j < t->n && (t->s[j].flags & TF_GAP)) j++;
+      keep0[nkeep] = t->s[i].s - 15.0f, keep1[nkeep] = (j < t->n ? t->s[j].s : t->length) + 75.0f, nkeep++;
+    }
+  /* the salt skin's material is the road's own (map_salt.look), with vertex colours; the dirt is the dirt texture */
+  t3_material *ms = phys(lin(0.9f, 0.82f, 0.78f), 1.0f, 0);
+  tex_apply(ms, TEX_ROAD_SALT, 1, 1, 1.0f, 1.0f);
+  ms->roughness = 1.0f, ms->vertex_colors = true;
+  /* sun-dried ochre dust, not mud: the dirt texture lifted well above its own brown */
+  t3_material *md = phys((t3_color){ 1.2f, 0.95f, 0.72f }, 1.0f, 0);
+  tex_apply(md, TEX_ROAD_DIRT, 1, 1, 1.0f, 1.0f);
+  md->roughness = 1.0f, md->vertex_colors = true;
+  /* the drifts: wind-rippled grains (the sand texture) bleached to the salt's white and a little brighter than the deck */
+  t3_material *mw = phys((t3_color){ 1.2f, 1.46f, 2.0f }, 1.0f, 0); /* cancels the sand's tan */
+  tex_apply(mw, TEX_GROUND_SAND, 1, 1, 1.0f, 1.0f);
+  mw->roughness = 1.0f, mw->vertex_colors = true;
+
+  const pcol WEAR = { 0.52f, 0.49f, 0.49f }, DRIFT = { 1.34f, 1.33f, 1.4f }, STAIN = { 0.86f, 0.6f, 0.42f };
+  const float CHUNK = 420.0f;
+  rwbuf bs = { 0 }, bd = { 0 }, bw = { 0 };
+  float st_w = 0, st_d = 0;
+  int st_n = 0;
+  float cs = t->s[0].s;
+  int nq = 0, nd = 0, nw = 0, nchunk = 0;
+  rwpt prev_s[RW_COLS + 1], prev_d[RW_COLS + 1], cur_s[RW_COLS + 1], cur_d[RW_COLS + 1], prev_w[RW_COLS + 1], cur_w[RW_COLS + 1];
+  bool have_prev = false;
+  float prev_dm[RW_COLS + 1], prev_sm[RW_COLS + 1], prev_wm[RW_COLS + 1];
+  for (int i = 0; i <= t->n; i++) {
+    bool wrap = i == t->n;
+    if (wrap && !t->circuit) break;
+    const tsample *a = &t->s[wrap ? 0 : i];
+    float s = wrap ? t->length : a->s;
+    bool gone = (a->flags & (TF_GAP | TF_BRANCH | TF_TUNNEL | TF_LOOP)) != 0;
+    float allow = wrap ? 0.0f : rw_allowed(t, i);
+    for (int k = 0; k < nkeep; k++) allow = fminf(allow, 1.0f - sstep(keep0[k], keep0[k] + 8.0f, s) * (1.0f - sstep(keep1[k] - 8.0f, keep1[k], s)));
+    /* a new chunk every CHUNK metres: each chunk is its own mesh and culls alone (every quad carries its own four
+     * points, so the strip runs on across the cut) */
+    if (s - cs > CHUNK) {
+      char nm[24];
+      snprintf(nm, sizeof nm, "RoadWear_%d", nchunk);
+      rw_finish(&bs, root, nm, ms);
+      snprintf(nm, sizeof nm, "RoadDirt_%d", nchunk);
+      rw_finish(&bd, root, nm, md);
+      snprintf(nm, sizeof nm, "RoadDrift_%d", nchunk++);
+      rw_finish(&bw, root, nm, mw);
+      cs = s;
+    }
+    if (gone) {
+      have_prev = false;
+      continue;
+    }
+    /* how hard karts brake here: the heading turns ahead (the next 40 m) */
+    int ja = i + 20 < t->n ? i + 20 : t->n - 1;
+    float turn = 1.0f - vdot(a->f, t->s[ja].f);
+    float brake = sstep(0.01f, 0.08f, turn);
+    float hw = a->hw - 0.9f; /* the kerbs cover the last 0.9 m */
+    float sm[RW_COLS + 1], dm[RW_COLS + 1], wm[RW_COLS + 1];
+    for (int c = 0; c <= RW_COLS; c++) {
+      float lat = -hw + 2.0f * hw * (float)c / (float)RW_COLS;
+      t3_vec3 p = vadd(a->p, vmul(a->r, lat));
+      /* the wheel tracks: two dark bands either side of the racing line, patchy along the road, heavier into bends */
+      float band = expf(-((fabsf(lat) - 2.8f) * (fabsf(lat) - 2.8f)) / 2.2f) + 0.45f * expf(-((fabsf(lat) - 6.5f) * (fabsf(lat) - 6.5f)) / 1.6f);
+      float patchy = sstep(-0.3f, 0.15f, ground_noise(s, lat * 0.25f, 55.0f, 1.0f, 2, 61u) + 0.35f * brake);
+      float wear = fminf(band, 1.0f) * patchy * (0.7f + 0.3f * brake);
+      /* salt blown across the deck: diagonal tongues, many on the pan (the second half), a few on the plateau */
+      float pan = sstep(1700.0f, 1830.0f, s) * (1.0f - sstep(2850.0f, 2950.0f, s));
+      float plateau = sstep(560.0f, 640.0f, s) * (1.0f - sstep(1250.0f, 1330.0f, s));
+      float ph = (s + lat * 0.9f) / 31.0f + 0.35f * ground_noise(p.x, p.z, 40.0f, 1.0f, 2, 67u);
+      float tongue = sstep(0.62f, 0.9f, 0.5f + 0.5f * sinf(ph * 6.2832f)) * sstep(-0.3f, 0.1f, ground_noise(p.x, p.z, 22.0f, 1.0f, 3, 71u));
+      float drift = tongue * fmaxf(pan, 0.55f * plateau) * sstep(-0.4f, 0.0f, ground_noise(s, 0, 140.0f, 1.0f, 2, 73u));
+      st_w += wear, st_d += drift, st_n++;
+      /* the dirt road: the stain leads in over 30 m, the dirt itself starts in ragged tongues (each column its own) */
+      float jag = 9.0f * (0.5f + 0.5f * ground_noise(lat * 3.0f, 11.0f, 4.0f, 1.0f, 2, 79u));
+      float jag1 = 9.0f * (0.5f + 0.5f * ground_noise(lat * 3.0f, 37.0f, 4.0f, 1.0f, 2, 83u));
+      float stain = sstep(RW_DIRT0 - 30.0f, RW_DIRT0 + 4.0f, s) * (1.0f - sstep(RW_DIRT1 - 4.0f, RW_DIRT1 + 30.0f, s));
+      float dirt = s > RW_DIRT0 + jag && s < RW_DIRT1 - jag1 ? 1.0f : 0.0f;
+      /* the edges of the deck stay as built, so the skins never meet the kerbs */
+      float edge = 1.0f - sstep(hw - 1.5f, hw, fabsf(lat));
+      float w = allow * edge;
+      pcol col = { 1, 1, 1 };
+      col = pc_mix(col, WEAR, fminf(wear * w * (1.0f - stain), 1.0f));
+      col = pc_mix(col, DRIFT, fminf(drift * w * (1.0f - stain), 1.0f));
+      col = pc_mix(col, STAIN, stain * w);
+      sm[c] = fmaxf(fmaxf(wear, drift), stain) * w;
+      dm[c] = dirt * allow;
+      wm[c] = drift * w * (1.0f - stain);
+      t3_vec3 n = a->u;
+      float u = (lat + a->hw) / (2.0f * a->hw), v = s / tile;
+      cur_s[c] = (rwpt){ vadd(p, vmul(n, 0.03f)), n, col, u, v };
+      /* the dirt's own colours: darker oily blotches where the trucks stood */
+      float oil = sstep(0.1f, 0.6f, ground_noise(p.x, p.z, 9.0f, 1.0f, 2, 89u));
+      cur_d[c] = (rwpt){ vadd(p, vmul(n, 0.05f)), n, pc_mix((pcol){ 1, 1, 1 }, (pcol){ 0.55f, 0.5f, 0.48f }, 0.45f * oil), u, v };
+      /* the drift's grains: their ripples run across the wind, a repeat every 5 m */
+      cur_w[c] = (rwpt){ vadd(p, vmul(n, 0.04f)), n, pc_mul((pcol){ 1, 1, 1 }, 0.9f + 0.1f * drift), lat / 5.0f, s / 5.0f };
+    }
+    if (have_prev) {
+      for (int c = 0; c < RW_COLS; c++) {
+        /* a quad whose four corners are all the plain road is not laid */
+        if (fmaxf(fmaxf(prev_sm[c], prev_sm[c + 1]), fmaxf(sm[c], sm[c + 1])) > 0.02f) rw_quad(&bs, &prev_s[c], &prev_s[c + 1], &cur_s[c], &cur_s[c + 1], 3), nq++;
+        /* the dirt is laid only where every corner of a triangle is dirt: its ends run out in ragged tongues */
+        int tr = rw_tris(prev_dm[c], prev_dm[c + 1], dm[c], dm[c + 1], 0.5f);
+        if (tr) rw_quad(&bd, &prev_d[c], &prev_d[c + 1], &cur_d[c], &cur_d[c + 1], tr), nd++;
+        /* the drift's grains lie where it is deep (the bleached halo of the salt skin softens their ragged edge) */
+        tr = rw_tris(prev_wm[c], prev_wm[c + 1], wm[c], wm[c + 1], 0.6f);
+        if (tr) rw_quad(&bw, &prev_w[c], &prev_w[c + 1], &cur_w[c], &cur_w[c + 1], tr), nw++;
+      }
+    }
+    memcpy(prev_s, cur_s, sizeof cur_s), memcpy(prev_d, cur_d, sizeof cur_d), memcpy(prev_w, cur_w, sizeof cur_w);
+    memcpy(prev_sm, sm, sizeof sm), memcpy(prev_dm, dm, sizeof dm), memcpy(prev_wm, wm, sizeof wm);
+    have_prev = true;
+  }
+  char nm[24];
+  snprintf(nm, sizeof nm, "RoadWear_%d", nchunk);
+  rw_finish(&bs, root, nm, ms);
+  snprintf(nm, sizeof nm, "RoadDirt_%d", nchunk);
+  rw_finish(&bd, root, nm, md);
+  snprintf(nm, sizeof nm, "RoadDrift_%d", nchunk);
+  rw_finish(&bw, root, nm, mw);
+  t3_release(ms), t3_release(md), t3_release(mw);
+  cw_info("salt: road wear %d quads (mean wear %.2f, drift %.2f), drift grains %d quads, dirt %d quads, %d jump spans kept clear", nq, st_w / (float)(st_n ? st_n : 1), st_d / (float)(st_n ? st_n : 1), nw, nd, nkeep);
 }
 
 /* a dust devil's body: three nested translucent funnels (narrow at the ground, wide and thin at the top) that turn at
