@@ -1146,7 +1146,7 @@ static void kart_control(sim *s, int i, kin in) {
     float sp = absf(k->speed);
     float press = STICK * clampf(sp / 14.0f, 0, 1) * GRAV * mass;
     if (grounded || touching) cw_body3d_apply_force(b, v3mul(m.u, -press * attach), NULL);
-    /* over a crest the road falls away faster than gravity can follow at speed (v^2 x its downward curve beyond 0.85 g):
+    /* over a crest the road falls away faster than gravity can follow at speed (v^2 x its downward curve beyond 0.85 g, up to 6 g: a boosted kart at 68 m/s off the top of the temple's 13 degree descent needed 5):
      * the road holds the kart down the rest of the way, up to 2 g, so a crest is a lift, not a launch. A fast kart was
      * thrown off the top of the fairground's lift hill into the drop. A jump's lip (TF_RAMP before a gap) still throws */
     if (!(ts->flags & (TF_LOOP | TF_GAP)) && !s->battle && k->loc.br < 0 && sp > 15.0f) {
@@ -1742,6 +1742,21 @@ void sim_step(sim *s, const kin in_raw[MAXK]) {
       float vlat = v3dot(k->v, gm.r), want = clampf(-k->loc.lat * 1.4f, -9.0f, 9.0f);
       k->v = v3add(k->v, v3mul(gm.r, (want - vlat) * 0.08f));
       cw_body3d_set_velocity(PH.body[i], k->v);
+    }
+    if (k->loc.i >= 0 && k->loc.br < 0 && !(s->track->s[k->loc.i].flags & (TF_LOOP | TF_GAP)) && !k->grounded && k->air_ticks > 10 &&
+        k->loc.height > 0.3f && k->loc.height < 10.0f) {
+      /* a long flight over the road (off a crest at speed, down a slope): it drifts no further out over an edge, and past
+       * three quarters of the road's half width it bends gently back, as a jump's flight does toward its landing. A boosted
+       * kart off the top of the temple's descent drifted 6 m out in the air, clipped the wall top and tumbled off */
+      tsample am = track_at_loc(s->track, &k->loc, 0);
+      float edge = am.hw * 0.75f, lat = k->loc.lat;
+      if (absf(lat) > edge) {
+        float vlat = v3dot(k->v, am.r), want = clampf(-(lat - (lat > 0 ? edge : -edge)) * 1.2f, -6.0f, 6.0f);
+        if (vlat * lat > 0 || absf(vlat) < absf(want)) {
+          k->v = v3add(k->v, v3mul(am.r, (want - vlat) * 0.08f));
+          cw_body3d_set_velocity(PH.body[i], k->v);
+        }
+      }
     }
     if (k->loc.i >= 0 && (s->track->s[k->loc.i].flags & TF_LOOP) && !k->grounded && k->loc.height < 8.0f) {
       /* off the deck in a loop or corkscrew (the road rolled away faster than the kart followed): it stops drifting
