@@ -5468,6 +5468,49 @@
     "note": "racer capture the flag on Twin Spires, the long open map over the void (the flags 492 m apart on one asteroid, no floor: a kart knocked off falls past the kill plane and comes back at its base), shortened for the gate (a 60 second round, eight karts, two bot-driven humans on red in split screen): the teams, the flags, the score, the falls and the end of the round must match on every host. The rock the karts drive on is an arena_terrain: arena.c samples the map's function into a collision mesh and a rim of hulls round its edge on every host, so this also proves that build is deterministic. The towers' teleport pads (each hall up to its roof, each roof back down onto the island) move karts in the sim (EV_TELE: a way up to the view and the roofs' boxes); the boost strips, the rock's rim and the roofs' rails are all in the static world the ray queries see."
   },
   {
+    "name": "racer-assault",
+    "app": "racer",
+    "frames": 6700,
+    "startCmds": [
+      "bot 1",
+      "battle 6 1 45 8 3"
+    ],
+    "maxGt16": 0.08,
+    "fields": [
+      "race.loaded",
+      "race.phase",
+      "ticks",
+      "sim.hash",
+      "ui.mode",
+      "views",
+      "battle.mode",
+      "battle.left",
+      "battle.end",
+      "assault",
+      "karts.team",
+      "karts.caps",
+      "karts.points",
+      "karts.hits",
+      "karts.falls"
+    ],
+    "expect": {
+      "race.loaded": 1,
+      "race.phase": 3,
+      "ui.mode": 8,
+      "battle.mode": 3
+    },
+    "webgpu": {
+      "vsGl": 0.3,
+      "maxGt16": 0.08,
+      "hosts": [
+        "native",
+        "romdev"
+      ],
+      "note": "The dual cart on romdev against native WebGPU."
+    },
+    "note": "racer assault on Breakwater, shortened for the gate (45 second halves, eight karts: one bot-driven human on red, the CPUs evening the teams up). Red attacks the first half, blue the second; the objectives destroyed and reached, the gates that go with them, the halves results and the winner (the assault field), the points and the end of the match (the results screen, ui.mode 8) must match on every host. The CPU drivers play their roles (attackers at the stage s targets with the blaster and their items, defenders round them) from the sim alone, and the gun nests fire at the attackers."
+  },
+  {
     "name": "racer-koth",
     "app": "racer",
     "frames": 3000,
@@ -5518,7 +5561,10 @@
       "bot 1",
       "trial 0 1"
     ],
-    "webgpu": { "vsGl": 0.3, "maxGt16": 0.08 },
+    "webgpu": {
+      "vsGl": 0.3,
+      "maxGt16": 0.08
+    },
     "maxGt16": 0.08,
     "fields": [
       "race.loaded",

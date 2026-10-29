@@ -13,6 +13,7 @@ scenes/temple.cwscene
 scenes/orbit.cwscene
 scenes/spires.cwscene
 scenes/mesa.cwscene
+scenes/breakwater.cwscene
 fonts/Bungee-OFL.txt
 fonts/Bungee-Regular.ttf
 fonts/Fredoka-OFL.txt

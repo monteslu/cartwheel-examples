@@ -63,8 +63,8 @@ void kartgfx_build(cw_node parent, const sim *s) {
     rig_build(&K.rig[i], k->veh, k->colour, i + 1);
     /* each view draws a kart past this as its merged far version: nearer in split screen, where a view is smaller */
     rig_far_distance(&K.rig[i], game_planned_views() > 1 ? 22.0f : 45.0f);
-    if (s->battle && s->amode == AM_CTF) {
-      /* capture the flag: an outline in the team's colour, so a kart across the field reads as red or blue whatever its
+    if (s->battle && mode_teams(s)) {
+      /* a team round: an outline in the team's colour, so a kart across the field reads as red or blue whatever its
        * own paint (it fades in with distance: one alongside keeps its paint) */
       cw_rim_light_desc d = cw_rim_light_default();
       d.color = (k->team & 1) ? (t3_color){ 0.25f, 0.5f, 1.0f } : (t3_color){ 1.0f, 0.28f, 0.18f };

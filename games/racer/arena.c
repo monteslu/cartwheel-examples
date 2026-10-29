@@ -370,11 +370,22 @@ static void terr_phys(const arena_rt *rt, cw_body3d b, int track_layer, int wall
   }
 }
 
-void arena_phys_build(const arena_rt *rt, cw_body3d b, int track_layer, int wall_layer) {
-  terr_phys(rt, b, track_layer, wall_layer);
+int arena_gates(const arena_rt *rt, int *gates, int max) {
+  int n = 0;
+  for (int i = 0; i < rt->n; i++) {
+    int g = rt->prim[i].gate, k = 0;
+    if (!g || rt->prim[i].ghost) continue;
+    while (k < n && gates[k] != g) k++;
+    if (k == n && n < max) gates[n++] = g;
+  }
+  return n;
+}
+
+void arena_phys_build(const arena_rt *rt, cw_body3d b, int track_layer, int wall_layer, int gate) {
+  if (!gate) terr_phys(rt, b, track_layer, wall_layer);
   for (int i = 0; i < rt->n; i++) {
     const arena_prim *p = &rt->prim[i];
-    if (p->ghost) continue;
+    if (p->ghost || p->gate != gate) continue;
     bool floorish = p->look == AL_FLOOR || p->look == AL_DECK || p->look == AL_RAMP;
     cw_shape3d_def sd = cw_shape3d_default_def();
     sd.layer = floorish ? track_layer : wall_layer;
@@ -538,53 +549,81 @@ static void terr_gfx(cw_node root, const arena_def *ad, uint32_t seed) {
   pmc_finish(c, root, "ArenaRock", true, d->side_tex ? d->side_tex : d->tex);
 }
 
+/* the shapes of one look (and one gate: 0 the ones that never go) as one batch under parent */
+static void draw_look(cw_node parent, const arena_rt *rt, int look, int gate, uint32_t seed) {
+  const arena_look *L = &rt->def->look[look];
+  pmc *c = pmc_new(look == AL_FLOOR ? 30.0f : 48.0f, seed + (uint32_t)look * 31u + (uint32_t)(gate + 64) * 977u);
+  if (L->tex_m > 0) pmc_texture_metres(c, L->tex_m);
+  int count = 0;
+  for (int i = 0; i < rt->n; i++) {
+    const arena_prim *p = &rt->prim[i];
+    if (p->look != look || p->gate != gate) continue;
+    if (look == AL_FLOOR && p->kind == AP_BOX && p->w > 40) {
+      /* the floor in tiles, so the views cull it and the texture keeps its scale */
+      float tile = 20.0f;
+      int nx = (int)ceilf(p->w / tile), nz = (int)ceilf(p->d / tile);
+      for (int a = 0; a < nx; a++)
+        for (int z = 0; z < nz; z++) {
+          float x0 = p->x - p->w * 0.5f + (float)a * tile, z0 = p->z - p->d * 0.5f + (float)z * tile;
+          float w = fminf(tile, p->x + p->w * 0.5f - x0), dd = fminf(tile, p->z + p->d * 0.5f - z0);
+          arena_prim t = *p;
+          t.x = x0 + w * 0.5f, t.z = z0 + dd * 0.5f, t.w = w, t.d = dd;
+          pm *b = pmc_at(c, (t3_vec3){ t.x, 0, t.z });
+          if (L->metal > 0.5f) pm_layer(b, PL_METAL);
+          draw_prim(b, &t, L, i);
+          count++;
+        }
+      continue;
+    }
+    pm *b = pmc_at(c, (t3_vec3){ p->x, p->y + p->h * 0.5f, p->z });
+    pm_layer(b, look == AL_GLOW ? PL_GLOW : L->metal > 0.5f ? PL_METAL : PL_MAIN);
+    arena_prim q = *p;
+    if (look == AL_GLOW) {
+      pcol g = glow(q.col ? hex(q.col) : rgb(L->tint[0], L->tint[1], L->tint[2]), L->glow > 0 ? L->glow : 3.0f);
+      pm_push(b);
+      pm_move(b, q.x, q.y, q.z);
+      pm_roty(b, q.yaw * (CW_PI / 180.0f));
+      if (q.kind == AP_POST) pm_cyl(b, q.w * 0.5f, q.w * 0.5f, q.h, 10, g, g);
+      else pm_box(b, q.w, q.h, q.d, g, g);
+      pm_pop(b);
+    } else draw_prim(b, &q, L, i);
+    count++;
+  }
+  static const char *const NAME[AL_KINDS] = { "ArenaFloor", "ArenaWall", "ArenaCover", "ArenaDeck", "ArenaRamp", "ArenaTrim", "ArenaFeature", "ArenaGlow", "ArenaPaint" };
+  if (count) pmc_finish(c, parent, NAME[look], look != AL_FLOOR && look != AL_PAINT, L->tex);
+  else pmc_finish(c, parent, NAME[look], false, -1);
+}
+
+/* the gates' nodes (each gate's shapes under a node of its own, for modes_gfx to take away) */
+static int NGATE_NODE;
+static int GATE_KEY[32];
+static cw_node GATE_NODE[32];
+
+cw_node arena_gate_node(int gate) {
+  for (int k = 0; k < NGATE_NODE; k++)
+    if (GATE_KEY[k] == gate) return GATE_NODE[k];
+  return (cw_node){ 0 };
+}
+
 void arena_gfx_build(cw_node scene, const arena_rt *rt, uint32_t seed) {
   const arena_def *d = rt->def;
   cw_node root = cw_node_new("Node3D", "Arena");
   cw_node_add_child(scene, root);
   terr_gfx(root, d, seed);
-  for (int look = 0; look < AL_KINDS; look++) {
-    const arena_look *L = &d->look[look];
-    pmc *c = pmc_new(look == AL_FLOOR ? 30.0f : 48.0f, seed + (uint32_t)look * 31u);
-    if (L->tex_m > 0) pmc_texture_metres(c, L->tex_m);
-    int count = 0;
-    for (int i = 0; i < rt->n; i++) {
-      const arena_prim *p = &rt->prim[i];
-      if (p->look != look) continue;
-      if (look == AL_FLOOR && p->kind == AP_BOX && p->w > 40) {
-        /* the floor in tiles, so the views cull it and the texture keeps its scale */
-        float tile = 20.0f;
-        int nx = (int)ceilf(p->w / tile), nz = (int)ceilf(p->d / tile);
-        for (int a = 0; a < nx; a++)
-          for (int z = 0; z < nz; z++) {
-            float x0 = p->x - p->w * 0.5f + (float)a * tile, z0 = p->z - p->d * 0.5f + (float)z * tile;
-            float w = fminf(tile, p->x + p->w * 0.5f - x0), dd = fminf(tile, p->z + p->d * 0.5f - z0);
-            arena_prim t = *p;
-            t.x = x0 + w * 0.5f, t.z = z0 + dd * 0.5f, t.w = w, t.d = dd;
-            pm *b = pmc_at(c, (t3_vec3){ t.x, 0, t.z });
-            if (L->metal > 0.5f) pm_layer(b, PL_METAL);
-            draw_prim(b, &t, L, i);
-            count++;
-          }
-        continue;
-      }
-      pm *b = pmc_at(c, (t3_vec3){ p->x, p->y + p->h * 0.5f, p->z });
-      pm_layer(b, look == AL_GLOW ? PL_GLOW : L->metal > 0.5f ? PL_METAL : PL_MAIN);
-      arena_prim q = *p;
-      if (look == AL_GLOW) {
-        pcol g = glow(q.col ? hex(q.col) : rgb(L->tint[0], L->tint[1], L->tint[2]), L->glow > 0 ? L->glow : 3.0f);
-        pm_push(b);
-        pm_move(b, q.x, q.y, q.z);
-        pm_roty(b, q.yaw * (CW_PI / 180.0f));
-        if (q.kind == AP_POST) pm_cyl(b, q.w * 0.5f, q.w * 0.5f, q.h, 10, g, g);
-        else pm_box(b, q.w, q.h, q.d, g, g);
-        pm_pop(b);
-      } else draw_prim(b, &q, L, i);
-      count++;
-    }
-    static const char *const NAME[AL_KINDS] = { "ArenaFloor", "ArenaWall", "ArenaCover", "ArenaDeck", "ArenaRamp", "ArenaTrim", "ArenaFeature", "ArenaGlow", "ArenaPaint" };
-    if (count) pmc_finish(c, root, NAME[look], look != AL_FLOOR && look != AL_PAINT, L->tex);
-    else pmc_finish(c, root, NAME[look], false, -1);
+  for (int look = 0; look < AL_KINDS; look++) draw_look(root, rt, look, 0, seed);
+  /* the gates: every distinct key, drawn or not (a ghost's glow goes with its gate too) */
+  NGATE_NODE = 0;
+  for (int i = 0; i < rt->n; i++) {
+    int g = rt->prim[i].gate;
+    if (!g || cw_node_valid(arena_gate_node(g)) || NGATE_NODE >= 32) continue;
+    cw_node n = cw_node_new("Node3D", "ArenaGate");
+    cw_node_add_child(root, n);
+    GATE_KEY[NGATE_NODE] = g, GATE_NODE[NGATE_NODE++] = n;
+    bool has[AL_KINDS] = { 0 };
+    for (int j = 0; j < rt->n; j++)
+      if (rt->prim[j].gate == g) has[rt->prim[j].look] = true;
+    for (int look = 0; look < AL_KINDS; look++)
+      if (has[look]) draw_look(n, rt, look, g, seed);
   }
   if (rt->nboost > 0) {
     /* the boost strips: a dark plate and lit chevrons on it pointing the way it throws you */

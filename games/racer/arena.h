@@ -60,7 +60,43 @@ typedef struct arena_prim {
   bool ghost;         /* drawn only: no collision (a sign, a light) */
   uint32_t col;       /* 0xRRGGBB paint for this one (0: the look's tint) */
   float rail;         /* a deck: a rail this high round its edge (AL_TRIM), stopping where another deck carries on, 0 none */
+  int gate;           /* assault: GATE_OBJ(o) goes when objective o is done (its wreck stays drawn: modes_gfx), GATE_STAGE(n)
+                       * when stage n is (a door, a bridge's chains): it sinks out of the way and stops colliding. 0 never */
 } arena_prim;
+#define GATE_OBJ(o) (1 + (o))
+#define GATE_STAGE(n) (-1 - (n))
+
+/* ── assault (arena_def.assault) ─────────────────────────────────────────────────────────────────────────────
+ * One team attacks, the other defends; then they swap. The attackers work through stages of objectives: a stage needs
+ * `need` of its objectives (0: all), and when it is done its gates go and both teams' spawns move up to the next stage's.
+ *   AO_DESTROY  a target (x, z, its base y, radius r, height h) with hit points: the attackers' weapons and turbo rams wear
+ *               it down (the defenders' do nothing). Its shapes are the prims with gate GATE_OBJ(o)
+ *   AO_REACH    an attacker on its wheels inside the zone (r) does it
+ *   AO_HOLD     the attackers alone in the zone for `hp` seconds (a defender in it stops the count; it never runs back)
+ *   AO_TURRET   a defenders' gun: fires a missile at the nearest attacker in range it can see every few seconds. Not a goal:
+ *               the attackers may knock it out (hp) to make a way; it stops firing once its stage is passed */
+enum { AO_DESTROY, AO_REACH, AO_HOLD, AO_TURRET };
+typedef struct assault_obj {
+  int kind;           /* AO_* */
+  int stage;
+  float x, z, y;      /* the middle of its foot (arena frame) */
+  float r, h;         /* radius (zone or target) and height */
+  int hp;             /* destroy, turret: hit points (a missile 10, a bomb 25, a ram 15); hold: seconds */
+  const char *name;   /* for the HUD: "THE NORTH PILLBOX" */
+  float range;        /* a turret: metres it reaches */
+} assault_obj;
+#define ASSAULT_STAGES 8
+typedef struct assault_def {
+  int time_s;                          /* the first half's clock */
+  const assault_obj *objs;
+  int nobjs;
+  int nstages;
+  int need[ASSAULT_STAGES];            /* objectives each stage needs (0: all of them) */
+  const char *stage_name[ASSAULT_STAGES]; /* what the stage is, for the briefing and the HUD: "TAKE THE BEACH" */
+  /* each stage's spawns, four a team: attackers then defenders, (x, z, yaw degrees) */
+  const float (*att_spawns)[3];
+  const float (*def_spawns)[3];
+} assault_def;
 
 /* a teleport pad: drive onto it (within r of x, z, on the floor at y) and you are put at the far end, facing tyaw (degrees)
  * at `speed` m/s; then a moment (TELE_COOL ticks) before a pad takes that kart again. in_yaw is the way a driver comes onto
@@ -145,6 +181,8 @@ typedef struct arena_def {
   int modes;
   /* a rock to drive on as well as (or instead of) the decks, NULL none */
   const arena_terrain *terrain;
+  /* an assault map's objectives and spawns (list it with modes = 1 << AM_ASSAULT) */
+  const assault_def *assault;
 } arena_def;
 
 /* the rounds an arena is listed under */
@@ -180,10 +218,15 @@ typedef struct arena_rt {
 void arena_rt_build(arena_rt *rt, const arena_def *def);
 /* the sim's arena: built from def into the shared layout arena_current() returns (NULL forgets it: a race map) */
 const arena_rt *arena_load(const arena_def *def);
-/* the static physics shapes on body b (floor and decks on layer track_layer, the rest on wall_layer) */
-void arena_phys_build(const arena_rt *rt, cw_body3d b, int track_layer, int wall_layer);
+/* the static physics shapes on body b (floor and decks on layer track_layer, the rest on wall_layer). gate 0: every shape
+ * that never goes; else only the shapes of that gate (arena_prim.gate), each gate a body of its own the sim can take away */
+void arena_phys_build(const arena_rt *rt, cw_body3d b, int track_layer, int wall_layer, int gate);
+/* the gates an arena has (distinct arena_prim.gate values, not 0), up to max: how many */
+int arena_gates(const arena_rt *rt, int *gates, int max);
 /* the drawn arena: floor, walls, cover, ramps, decks, markings (a map's scenery() calls it first) */
 void arena_gfx_build(cw_node scene, const arena_rt *rt, uint32_t seed);
+/* a gate's drawn shapes (arena_prim.gate): the node they hang under (modes_gfx sinks it when the gate goes); invalid none */
+cw_node arena_gate_node(int gate);
 /* a point given in shape i's own frame (x across, y up from its base, z along) in the world, and back (x and z only) */
 t3_vec3 arena_prim_point(const arena_rt *rt, int i, float lx, float ly, float lz);
 void arena_prim_local(const arena_rt *rt, int i, t3_vec3 p, float *lx, float *lz);

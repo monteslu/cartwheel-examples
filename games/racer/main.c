@@ -28,7 +28,7 @@
  *   RACER_MODE=battle    with RACER_MAP=n: a battle in arena n (0 Crusher Yard, 1 Foundry Pit, 2 Spillway Basin, 3 Frost Lake,
  *                        4 Twin Spires, 5 Mesa Run: the last two capture the flag only);
  *                        RACER_KARTS=2..8 karts in it (humans first, CPUs fill), RACER_BATTLE_TIME=secs the round's length (three
- *                        minutes otherwise). RACER_MODE=ctf and RACER_MODE=koth the same for capture the flag and king of the
+ *                        minutes otherwise). RACER_MODE=ctf, koth and assault the same for capture the flag, king of the
  *                        mountain
  *   RACER_VOICE_LOG=file the announcer (announcer.c) logs every line it says, drops or cuts, with the time (1: the
  *                        engine log); tools/voice-log.mjs reads the logs back (pacing, overlaps)
@@ -81,6 +81,7 @@ static struct {
   int32_t place[MAXK], lap[MAXK], prog[MAXK], falls[MAXK], cuts[MAXK], speed[MAXK], tricks[MAXK], hits[MAXK], spd_max[MAXK], finished[MAXK], best_lap[MAXK], finish_tick[MAXK];
   int32_t balloons[MAXK], points[MAXK], out[MAXK], battle_left, battle_end, battle_alive;
   int32_t amode, team_score[2], flag_state[2], hill_holder, hill_spot, team[MAXK], caps[MAXK], hill[MAXK]; /* capture the flag, king of the mountain */
+  int32_t assault[7]; /* assault: half, stage, objectives done in each half, ticks to the last in each, the winning team */
   int spect[CW_MAX_VIEWS]; /* battle: the kart a view watches once its own is out (-1: none yet) */
   uint32_t hash;
   cw_node scene, sun;
@@ -346,7 +347,7 @@ void game_start_race(const race_setup *rs) {
     }
     /* the round's rules (capture the flag puts everyone in a team, and the teams wear red and blue) */
     sim_set_arena_mode(&G.S, rs->arena_mode);
-    if (G.S.amode == AM_CTF)
+    if (mode_teams(&G.S))
       for (int i = 0; i < MAXK; i++) G.S.k[i].colour = G.S.k[i].team & 1; /* Red, Blue */
   }
   for (int v = 0; v < CW_MAX_VIEWS; v++) G.pl[v] = v;
@@ -805,6 +806,8 @@ static void fixed(void *u, double dt) {
     G.battle_left = G.S.battle_left, G.battle_end = G.S.battle_end, G.battle_alive = G.S.alive;
     G.amode = G.S.amode, G.hill_holder = G.S.hill_holder, G.hill_spot = G.S.hill_i;
     for (int t = 0; t < 2; t++) G.team_score[t] = G.S.team_score[t], G.flag_state[t] = G.S.flag[t].state;
+    G.assault[0] = G.S.as_half, G.assault[1] = G.S.as_stage, G.assault[2] = G.S.as_res[0].done, G.assault[3] = G.S.as_res[1].done;
+    G.assault[4] = G.S.as_res[0].ticks, G.assault[5] = G.S.as_res[1].ticks, G.assault[6] = G.S.win_team;
     G.phase = G.S.phase;
     G.hash = G.S.hash;
   }
@@ -835,9 +838,9 @@ static void fixed(void *u, double dt) {
     if (getenv("RACER_CLASS")) rs.speed_class = CW_CLAMP(atoi(getenv("RACER_CLASS")), 0, CLASS_COUNT - 1);
     if (getenv("RACER_ASSIST")) rs.assist_steer = (atoi(getenv("RACER_ASSIST")) & 1) != 0, rs.assist_gas = (atoi(getenv("RACER_ASSIST")) & 2) != 0;
     const char *rm = getenv("RACER_MODE");
-    if (rm && (!strcmp(rm, "battle") || !strcmp(rm, "ctf") || !strcmp(rm, "koth"))) {
+    if (rm && (!strcmp(rm, "battle") || !strcmp(rm, "ctf") || !strcmp(rm, "koth") || !strcmp(rm, "assault"))) {
       rs.mode = RM_BATTLE, rs.map = (dm < 0 ? 0 : dm) % NARENAS;
-      rs.arena_mode = !strcmp(rm, "ctf") ? AM_CTF : !strcmp(rm, "koth") ? AM_KOTM : AM_BALLOON;
+      rs.arena_mode = !strcmp(rm, "ctf") ? AM_CTF : !strcmp(rm, "koth") ? AM_KOTM : !strcmp(rm, "assault") ? AM_ASSAULT : AM_BALLOON;
       rs.karts = getenv("RACER_KARTS") ? atoi(getenv("RACER_KARTS")) : 0;
       rs.battle_secs = getenv("RACER_BATTLE_TIME") ? atoi(getenv("RACER_BATTLE_TIME")) : 0;
     }
@@ -984,12 +987,13 @@ static void init(void *u) {
   cw_debug_command("trial", "trial <map 0..7> [runs]: start a time trial now (the bot drives <runs> runs when it is on)", cmd_trial);
   cw_debug_command("cup", "cup <0..1> [humans] [laps] [races]: a cup now, clicking through its own results (with `bot 1`)", cmd_cup);
   cw_debug_command("bot", "bot <0|1|2>: the human karts driven by the CPU driver (2: keyboard-style steering)", cmd_bot);
-  cw_debug_command("battle", "battle <arena 0..5> [humans] [secs] [karts] [mode 0 balloons|1 flag|2 hill]: an arena round now (secs 0: three minutes)", cmd_battle);
+  cw_debug_command("battle", "battle <arena 0..5> [humans] [secs] [karts] [mode 0 balloons|1 flag|2 hill|3 assault]: an arena round now (secs 0: three minutes)", cmd_battle);
   cw_debug_i32("battle.mode", &G.amode);
   cw_debug_field("ctf.score", G.team_score, CW_DBG_I32, 2);
   cw_debug_field("ctf.flag", G.flag_state, CW_DBG_I32, 2);
   cw_debug_i32("hill.holder", &G.hill_holder);
   cw_debug_i32("hill.spot", &G.hill_spot);
+  cw_debug_field("assault", G.assault, CW_DBG_I32, 7);
   cw_debug_field("karts.team", G.team, CW_DBG_I32, MAXK);
   cw_debug_field("karts.caps", G.caps, CW_DBG_I32, MAXK);
   cw_debug_field("karts.hill", G.hill, CW_DBG_I32, MAXK);

@@ -32,7 +32,7 @@
 #define NMAPS 8
 #define NVEH 6
 #define MAX_LAPS 5
-#define NARENAS 6  /* arena maps (ARENAS[]; separate from the race maps): the battle arenas, then the capture the flag maps */
+#define NARENAS 7  /* arena maps (ARENAS[]; separate from the race maps): the battle arenas, the capture the flag maps, the assault maps */
 #define BALLOONS 3 /* a battle kart's balloons at the start */
 #define BATTLE_SPIN_K 0.45f /* a battle spin lasts this share of a race spin (the pop is the cost; sim_battle.inc, kartgfx.c) */
 
@@ -70,8 +70,8 @@ extern const char *const ITEM_NAME[IT_KINDS];
 
 /* something in the race that is not a kart: a missile in flight, an oil slick, a mine */
 /* HZ_BOOMERANG flies out and comes back to its thrower (two hits at most); HZ_BOMB is lobbed, lands, and goes off a second
- * later with a wide blast (sim.c bomb_blast) */
-enum { HZ_NONE, HZ_MISSILE, HZ_HOMING, HZ_OIL, HZ_MINE, HZ_SHOCK, HZ_BOOMERANG, HZ_BOMB, HZ_KINDS };
+ * later with a wide blast (sim.c bomb_blast); HZ_BOLT is the assault blaster's shot (sim_battle.inc battle_bolt) */
+enum { HZ_NONE, HZ_MISSILE, HZ_HOMING, HZ_OIL, HZ_MINE, HZ_SHOCK, HZ_BOOMERANG, HZ_BOMB, HZ_BOLT, HZ_KINDS };
 typedef struct hazard {
   int kind;
   int owner;      /* the kart that set it down (immune for a moment) */
@@ -90,7 +90,7 @@ typedef struct hazard {
   int hitmask;    /* a boomerang: the karts it has hit (one hit each), and how many */
   int hits;
 } hazard;
-#define MAXHZ 48
+#define MAXHZ 64
 
 typedef struct itembox {
   float s, lat;
@@ -182,6 +182,7 @@ typedef struct kart {
   int flag_cool;        /* ticks before it can take a flag again (it just dropped one) */
   int hill_ticks;       /* king of the mountain: ticks it has held the hill alone */
   int tele_cool;        /* an arena's teleport pads: ticks before one takes this kart again */
+  int blast_cool;       /* assault: ticks before its blaster fires again */
 } kart;
 
 /* ── the race ───────────────────────────────────────────────────────── */
@@ -216,13 +217,19 @@ enum {
   EV_RAM,          /* battle: a = rammed b under a boost (the pop follows as EV_POP) */
   EV_FLAG,         /* capture the flag: a = kart (-1: none), b = FE_*, k = the flag's team */
   EV_HILL,         /* king of the mountain: a = kart (-1: none), b = HE_* */
-  EV_TELE          /* an arena's teleport pad: a = kart, b = the pad, at = where it left (it is at the far end now) */
+  EV_TELE,         /* an arena's teleport pad: a = kart, b = the pad, at = where it left (it is at the far end now) */
+  EV_OBJ           /* assault: a = kart (-1: none), b = OE_*, k = the objective (or the half, OE_HALF / OE_SWAP) */
 };
 enum { FE_TAKEN, FE_DROPPED, FE_RETURNED, FE_CAPTURED, FE_HOME /* left alone long enough, it went home by itself */ };
 enum { HE_SOON /* it moves in five seconds */, HE_MOVED, HE_TAKEN /* a = the kart holding it alone now */, HE_CONTESTED };
+/* assault events (EV_OBJ b): an objective hit (a the attacker), at half its hit points, done (a the kart that did it, -1 a
+ * team's hold); a stage done (k its number: the gates open, the spawns move up); the half over (k: 0 or 1, the attackers
+ * finished or the clock ran out is in sim.as_res); the sides swapped (the second half starts) */
+enum { OE_HIT, OE_HALFWAY, OE_DONE, OE_STAGE, OE_HALF, OE_SWAP, OE_TURRET_DOWN, OE_FIRE /* a turret fired (a: the kart it aims at) */ };
 
 /* what an arena round is played for (sim.amode): balloons (battle), capture the flag, king of the mountain */
-enum { AM_BALLOON, AM_CTF, AM_KOTM, AM_KINDS };
+enum { AM_BALLOON, AM_CTF, AM_KOTM, AM_ASSAULT, AM_KINDS };
+#define ASSAULT_MAXO 24  /* objectives and turrets on an assault map */
 #define CTF_WIN 3        /* captures that win a capture the flag round */
 #define HILL_R 9.0f      /* king of the mountain: the hill's radius */
 enum { FL_HOME, FL_CARRIED, FL_DROPPED };
@@ -277,6 +284,18 @@ typedef struct sim {
   int hill_i;              /* the arena's hill spot it stands on */
   int hill_left;           /* ticks until it moves */
   int hill_holder;         /* the kart holding it alone, -1 nobody, -2 contested */
+  /* assault (sim_battle.inc): the half (0, 1), the team attacking, the stage it is on, each objective's state, the halves'
+   * results, the break between the halves */
+  int as_half, as_att, as_stage;
+  int as_hp[ASSAULT_MAXO];       /* destroy and turrets: hit points left; reach: 0 until done; hold: ticks held */
+  bool as_done[ASSAULT_MAXO];
+  int as_done_tick[ASSAULT_MAXO];/* race tick of the half it was done at */
+  int as_holder[ASSAULT_MAXO];   /* hold: -1 nobody, -2 contested, else a kart of the attackers on it */
+  int as_fire[ASSAULT_MAXO];     /* a turret: ticks until its next shot */
+  int as_half_ticks;             /* ticks into this half */
+  struct as_result { int done, ticks; bool all; } as_res[2]; /* each half: objectives done, ticks to the last, all of them */
+  int as_break;                  /* ticks left of the break between the halves (the clock stands) */
+  int as_time;                   /* a first half's length asked for (sim_set_battle_time; 0: the map's own) */
   uint32_t hash;
   int ev_n;
   struct sim_event { int kind, a, b; t3_vec3 at; float k; } ev[96];
@@ -301,8 +320,10 @@ void sim_set_battle_time(sim *s, int ticks);
 /* an arena round's rules (AM_*): call after sim_init once the karts' human flags are set (capture the flag puts the humans
  * in teams by player: one or two players on red, three or four 1 and 3 red, 2 and 4 blue; the CPUs even the teams up) */
 void sim_set_arena_mode(sim *s, int mode);
-/* capture the flag: a and b are on opposite teams (always true outside capture the flag) */
-static inline bool kart_foe(const sim *s, int a, int b) { return s->amode != AM_CTF || s->k[a].team != s->k[b].team; }
+/* a round played in two teams (capture the flag, assault) */
+static inline bool mode_teams(const sim *s) { return s->amode == AM_CTF || s->amode == AM_ASSAULT; }
+/* a team round: a and b are on opposite teams (always true in the others) */
+static inline bool kart_foe(const sim *s, int a, int b) { return !mode_teams(s) || s->k[a].team != s->k[b].team; }
 /* a ray against the static world (floor, walls, cover; never the karts): true on a hit, with how far along (0..1) and the normal.
  * A query only: it changes nothing (the CPU drivers' feelers and line of sight) */
 bool sim_ray(const sim *s, t3_vec3 from, t3_vec3 delta, float *frac, t3_vec3 *normal);

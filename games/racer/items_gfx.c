@@ -33,6 +33,7 @@ static struct {
   t3_object *reticle[MAXK];
   t3_object *held_mine[MAXK], *held_oil[MAXK]; /* an item held out behind a kart */
   t3_object *boom[MAXHZ], *bomb[MAXHZ], *bomb_spark[MAXHZ];
+  t3_object *bolt[MAXHZ], *bolt_halo[MAXHZ][2]; /* the assault blaster: a hot core, a halo in the firer's team colour */
   t3_object *held_miss[MAXK][3], *held_boom[MAXK], *held_bomb[MAXK]; /* ready to use: circling the kart, over its back */
   t3_material *reticle_mat;
   fxrec fx[NFX];
@@ -326,6 +327,24 @@ void items_build(cw_node scene, const sim *s) {
     I.mine[h] = m;
     I.boom[h] = group_in(I.root);
     add_geo(I.boom[h], wg, mm, true);
+    {
+      static t3_geometry *bg;
+      static t3_material *bm[3];
+      if (!h || !bg) {
+        bg = keep(t3_sphere_geometry_new(1, 10, 8));
+        bm[0] = additive(1.0f, 0.95f, 0.8f, 0.95f), bm[1] = additive(1.0f, 0.3f, 0.15f, 0.55f), bm[2] = additive(0.25f, 0.55f, 1.0f, 0.55f);
+      }
+      I.bolt[h] = group_in(I.root);
+      t3_mesh *c = add_geo(I.bolt[h], bg, bm[0], false);
+      t3_object_set_scale(&c->base, 0.16f, 0.16f, 0.9f);
+      for (int t = 0; t < 2; t++) {
+        t3_mesh *hm2 = add_geo(I.bolt[h], bg, bm[1 + t], false);
+        t3_object_set_scale(&hm2->base, 0.38f, 0.38f, 1.6f);
+        I.bolt_halo[h][t] = &hm2->base;
+      }
+      if (h == MAXHZ - 1)
+        for (int t = 0; t < 3; t++) t3_release(bm[t]); /* the meshes hold them now */
+    }
     I.bomb[h] = group_in(I.root);
     add_geo(I.bomb[h], bgeo, mm, true);
     t3_mesh *sp = add_geo(I.bomb[h], lg, I.flame_mat[1], false);
@@ -497,6 +516,14 @@ void items_frame(const sim *s, float alpha) {
     I.mine[h]->visible = z->kind == HZ_MINE;
     I.boom[h]->visible = z->kind == HZ_BOOMERANG;
     I.bomb[h]->visible = z->kind == HZ_BOMB;
+    I.bolt[h]->visible = z->kind == HZ_BOLT;
+    if (z->kind == HZ_BOLT) {
+      t3_vec3 p = v3sub(z->p, v3mul(z->f, z->speed / (float)TICK_HZ * (1.0f - alpha)));
+      t3_object_set_position(I.bolt[h], p.x, p.y, p.z);
+      t3_object_set_quaternion(I.bolt[h], from_to(v3(0, 0, 1), z->f));
+      int tm = z->owner >= 0 && z->owner < MAXK ? s->k[z->owner].team & 1 : 0;
+      I.bolt_halo[h][0]->visible = tm == 0, I.bolt_halo[h][1]->visible = tm == 1;
+    }
     if (z->kind == HZ_BOOMERANG) {
       /* spinning flat as it flies, tipped a little */
       t3_vec3 p = v3sub(z->p, v3mul(z->f, z->speed / (float)TICK_HZ * (1.0f - alpha)));

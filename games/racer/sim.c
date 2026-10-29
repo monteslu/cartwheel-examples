@@ -81,12 +81,17 @@ static struct {
   t3_vec3 v0[MAXK];
   float prev_s[MAXK];
   float min_y;
+  /* assault: the arena's gates (arena_prim.gate), each a static body of its own while it stands */
+  int ngate, gate[32];
+  cw_body3d gateb[32];
+  bool gate_up[32];
 } PH;
 
 /* battle mode (sim_battle.inc, included after spin_kart) */
 static void battle_place_all(sim *s);
 static void battle_boxes(sim *s);
 static void battle_hit(sim *s, int i, int by);
+static void battle_bolt(sim *s, int i);
 
 /* ── small maths ─────────────────────────────────────────────────────── */
 
@@ -219,7 +224,8 @@ static void world_make(sim *s, const map_def *map, const bool on[MAXK], const in
   bd.type = CW_BODY_STATIC;
   bd.name = "road";
   PH.trackb = cw_body3d_create(PH.w, &bd);
-  if (s->battle) arena_phys_build(s->arena, PH.trackb, L_TRACK, L_WALL); /* an arena: its floor, walls and cover instead of a road */
+  if (s->battle) arena_phys_build(s->arena, PH.trackb, L_TRACK, L_WALL, 0); /* an arena: its floor, walls and cover instead of a road */
+  if (s->battle) PH.ngate = arena_gates(s->arena, PH.gate, 32); /* its gates: put up by the round (gates_set) */
   cw_shape3d_def sd = cw_shape3d_default_def();
   sd.layer = L_TRACK;
   sd.material.friction = 0.9f;
@@ -532,14 +538,22 @@ static void spin_kart(sim *s, int i, int kind, int by) {
   if (s->battle) battle_hit(s, i, by);
 }
 
+/* a hazard that passes kart j by: a teammate's in a team round (a turret's, owner -2 - its team: its own team's karts) */
+static bool hz_spares(const sim *s, const hazard *z, int j) {
+  if (z->owner <= -2) return mode_teams(s) && s->k[j].team == -2 - z->owner;
+  return j != z->owner && z->owner >= 0 && !kart_foe(s, j, z->owner);
+}
+static void assault_blast(sim *s, t3_vec3 at, float r, int dmg, int by);
+
 /* a bomb goes off at z->p: everyone within BOMB_R spins (thrown inside BOMB_CORE), its thrower too. One EV_HIT with no
  * victim (a = -1) for the blast itself, then one for each kart caught (for the announcer; the effects skip those) */
 static void bomb_blast(sim *s, hazard *z) {
   event(s, EV_HIT, -1, z->owner, z->p, (float)HZ_BOMB);
+  if (s->battle) assault_blast(s, z->p, BOMB_R, 25, z->owner);
   for (int j = 0; j < MAXK; j++) {
     kart *o = &s->k[j];
     if (!o->on || o->out || o->parked || o->respawn_ticks > 0) continue;
-    if (j != z->owner && z->owner >= 0 && !kart_foe(s, j, z->owner)) continue;
+    if (hz_spares(s, z, j)) continue;
     t3_vec3 d = v3sub(o->p, z->p);
     float dd = v3dot(d, d);
     if (dd > BOMB_R * BOMB_R) continue;
@@ -913,7 +927,7 @@ static void boxes_step(sim *s) {
       if (!k->on || k->respawn_ticks > 0 || k->finished || k->out) continue;
       t3_vec3 d = v3sub(k->p, x->p);
       if (v3dot(d, d) > 2.6f * 2.6f) continue;
-      x->cool = 6 * TICK_HZ;
+      x->cool = (s->battle && s->amode == AM_ASSAULT ? 4 : 6) * TICK_HZ; /* (an assault burns through items: quicker back) */
       event(s, EV_BOX, i, b, x->p, 0);
       if (k->item == IT_NONE && k->item_wait == 0) {
         k->item_wait = 50;
@@ -1446,6 +1460,11 @@ static void kart_control(sim *s, int i, kin in) {
       if (getenv("RACER_FALLLOG")) cw_info("trailing kart %d item %d tick %d", i, k->item, s->tick);
     }
     else if (pressed_item) use_item(s, i);
+    /* assault: nothing to use, the blaster instead (held, it fires again as soon as it can) */
+    if (s->battle && s->amode == AM_ASSAULT && k->item == IT_NONE && k->item_wait == 0 && (in.btn & KB_ITEM) && k->blast_cool == 0 &&
+        k->spin_ticks <= 0 && s->phase == PH_RACE)
+      battle_bolt(s, i);
+    if (k->blast_cool > 0) k->blast_cool--;
     if (k->trailing && (!holdable || !(in.btn & KB_ITEM))) {
       k->trailing = false;
       if (holdable) use_item(s, i);

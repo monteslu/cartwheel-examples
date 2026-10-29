@@ -17,7 +17,7 @@
 static const int BATTLE_SECS[4] = { 60, 120, 180, 300 };
 enum { BO_KARTS, BO_TIME, BO_CPU, BO_KINDS };
 static const char *const BO_LABEL[BO_KINDS] = { "KARTS", "TIME", "CPU DRIVERS" };
-static const char *const AM_NAME[AM_KINDS] = { "BATTLE", "CAPTURE THE FLAG", "KING OF THE MOUNTAIN" };
+static const char *const AM_NAME[AM_KINDS] = { "BATTLE", "CAPTURE THE FLAG", "KING OF THE MOUNTAIN", "ASSAULT" };
 static const char *const TEAM_NAME[2] = { "RED", "BLUE" };
 static cw_color team_col(int t) { return kart_col(t & 1); }
 
@@ -73,6 +73,26 @@ static void arena_map_mode(const arena_def *d, const afit *f, float s, const sim
       bool blink = fl->state != FL_HOME && ((int)(t * 4) & 1);
       if (fl->state == FL_DROPPED) cw_r2d_circle_lines(p, (5 + 3 * fmodf(t * 1.5f, 1.0f)) * s + 1, 1.5f * s + 0.5f, 14, c);
       map_flag(cw_v2(p.x, p.y - (fl->state == FL_CARRIED ? 4 * s : 0)), (blink ? 11 : 9) * s + 3, c, 1);
+    }
+  } else if (mode == AM_ASSAULT && d->assault) {
+    /* the objectives: the ones that count now bright (a target a cross in a ring, a zone a ring), the rest faint, done ones
+     * gone; the gun nests red dots */
+    const assault_def *as = d->assault;
+    for (int o = 0; o < as->nobjs && o < ASSAULT_MAXO; o++) {
+      const assault_obj *b = &as->objs[o];
+      if (S && S->as_done[o]) continue;
+      cw_vec2 c = arena_pt(f, b->x, b->z);
+      if (b->kind == AO_TURRET) {
+        cw_r2d_circle(c, 2.6f * s + 1, 10, RED);
+        continue;
+      }
+      bool live = S ? b->stage == S->as_stage : b->stage == 0;
+      float a = live ? 0.75f + 0.25f * cw_sin(t * 6) : 0.35f, r = fmaxf(b->r * f->sc, 4 * s);
+      cw_r2d_circle_lines(c, r, 1.5f * s + 0.5f, 18, alpha(MUSTARD, a));
+      if (b->kind == AO_DESTROY) {
+        cw_r2d_line(cw_v2(c.x - r * 1.3f, c.y), cw_v2(c.x + r * 1.3f, c.y), 1.2f * s + 0.5f, alpha(MUSTARD, a));
+        cw_r2d_line(cw_v2(c.x, c.y - r * 1.3f), cw_v2(c.x, c.y + r * 1.3f), 1.2f * s + 0.5f, alpha(MUSTARD, a));
+      } else if (live) cw_r2d_circle(c, r, 18, alpha(MUSTARD, 0.25f));
     }
   } else if (mode == AM_KOTM) {
     if (!S) {
@@ -253,7 +273,7 @@ typedef struct bhud {
   int pts_t;          /* the points counter flashes */
   int stamp_t, stamp; /* capture the flag, king of the mountain: the big word in the middle (ST_*) */
 } bhud;
-enum { ST_CAPTURED, ST_THEY_SCORED, ST_GOT_FLAG, ST_FLAG_TAKEN, ST_KING, ST_HILL_MOVED };
+enum { ST_CAPTURED, ST_THEY_SCORED, ST_GOT_FLAG, ST_FLAG_TAKEN, ST_KING, ST_HILL_MOVED, ST_OBJ_DONE, ST_OBJ_LOST, ST_SWAP, ST_HALF };
 static bhud BH[MAXV];
 static struct {
   int seen_tick;
@@ -275,12 +295,18 @@ static void battle_hud_event(int v, const struct sim_event *e, const sim *S) {
     if (e->b == FE_CAPTURED) h->stamp = ft == my_team ? ST_CAPTURED : ST_THEY_SCORED, h->stamp_t = 1, h->pts_t = e->a == me ? 1 : h->pts_t;
     else if (e->b == FE_TAKEN && e->a == me) h->stamp = ST_GOT_FLAG, h->stamp_t = 1;
     else if (e->b == FE_TAKEN && ft == my_team) h->stamp = ST_FLAG_TAKEN, h->stamp_t = 1;
+  } else if (e->kind == EV_OBJ && me >= 0) {
+    bool att = (S->k[me].team & 1) == S->as_att;
+    if (e->b == OE_DONE) h->stamp = att ? ST_OBJ_DONE : ST_OBJ_LOST, h->stamp_t = 1, h->pts_t = e->a == me ? 1 : h->pts_t;
+    else if (e->b == OE_SWAP) h->stamp = ST_SWAP, h->stamp_t = 1;
+    else if (e->b == OE_HALF && S->as_half == 0) h->stamp = ST_HALF, h->stamp_t = 1;
   } else if (e->kind == EV_HILL && me >= 0) {
     if (e->b == HE_TAKEN && e->a == me) h->stamp = ST_KING, h->stamp_t = 1;
     else if (e->b == HE_MOVED) h->stamp = ST_HILL_MOVED, h->stamp_t = 1;
   }
 }
 
+static void fmt_clock(char *b, size_t n, int ticks);
 /* a line for the news feed (capture the flag, king of the mountain) */
 static void battle_news(int team, const char *txt) {
   memmove(&BF.news[1], &BF.news[0], sizeof BF.news[0] * (FEED - 1));
@@ -308,6 +334,27 @@ static void battle_hud_tick(void) {
         default: snprintf(b, sizeof b, "The %s flag is back home", TEAM_NAME[ft]); break;
         }
         battle_news(e->b == FE_CAPTURED || e->b == FE_TAKEN || e->b == FE_RETURNED ? S->k[e->a >= 0 ? e->a : 0].team & 1 : ft, b);
+      } else if (e->kind == EV_OBJ && S->arena && S->arena->def->assault) {
+        const assault_def *as = S->arena->def->assault;
+        int o = (int)(e->k + 0.5f);
+        const char *on = o >= 0 && o < as->nobjs && as->objs[o].name ? as->objs[o].name : "IT";
+        int tm = S->as_att & 1;
+        if (e->a >= 0) kart_name(S, e->a, nm, sizeof nm, false);
+        b[0] = 0;
+        if (e->b == OE_DONE) {
+          if (o >= 0 && o < as->nobjs && as->objs[o].kind == AO_DESTROY) snprintf(b, sizeof b, "%s destroyed %s", e->a >= 0 ? nm : TEAM_NAME[tm], on);
+          else if (o >= 0 && o < as->nobjs && as->objs[o].kind == AO_HOLD) snprintf(b, sizeof b, "%s held %s", TEAM_NAME[tm], on);
+          else snprintf(b, sizeof b, "%s reached %s", e->a >= 0 ? nm : TEAM_NAME[tm], on);
+        } else if (e->b == OE_TURRET_DOWN) snprintf(b, sizeof b, "%s knocked out %s", e->a >= 0 ? nm : TEAM_NAME[tm], on);
+        else if (e->b == OE_HALFWAY) snprintf(b, sizeof b, "%s is half gone!", on);
+        else if (e->b == OE_STAGE && (int)e->k + 1 < as->nstages) snprintf(b, sizeof b, "Next: %s", as->stage_name[(int)e->k + 1] ? as->stage_name[(int)e->k + 1] : "");
+        else if (e->b == OE_HALF) {
+          char tmb[16];
+          fmt_clock(tmb, sizeof tmb, S->as_res[S->as_half].ticks);
+          if (S->as_res[S->as_half].all) snprintf(b, sizeof b, "%s made it through in %s", TEAM_NAME[tm], tmb);
+          else snprintf(b, sizeof b, "Time! %s got %d objectives", TEAM_NAME[tm], S->as_res[S->as_half].done);
+        } else if (e->b == OE_SWAP) snprintf(b, sizeof b, "%s attacks now", TEAM_NAME[tm]);
+        if (b[0]) battle_news(e->b == OE_HALFWAY ? -1 : tm, b);
       } else if (e->kind == EV_HILL && (e->b == HE_MOVED || e->b == HE_SOON)) {
         battle_news(-1, e->b == HE_MOVED ? "The hill moved!" : "The hill moves in 5 seconds");
       }
@@ -365,12 +412,20 @@ static void hud_b_clock(const hv *g) {
   int left = S->phase == PH_RACE || S->phase == PH_DONE ? S->battle_left : S->battle_limit;
   bool hurry = S->phase == PH_RACE && left < 10 * TICK_HZ;
   /* no panels: the clock in an outline, flashing red in the last ten seconds */
-  char b[24];
+  char b[48];
   fmt_clock(b, sizeof b, left);
   cw_color cc = hurry && ((S->tick / 15) & 1) ? RED : left < 30 * TICK_HZ ? RUST : CREAM;
   tx_o(U.f_title, b, x + w - 4 * s, y + 31 * s, 38 * s, cc, (txopt){ .align = CW_ALIGN_RIGHT, .outline = 2.6f * s });
   if (g->compact) return;
-  if (S->amode == AM_CTF) snprintf(b, sizeof b, "FIRST TO %d", CTF_WIN);
+  if (S->amode == AM_ASSAULT) {
+    if (S->as_break > 0) snprintf(b, sizeof b, "SWITCHING SIDES");
+    else if (S->as_half == 1 && S->as_res[0].done > 0) {
+      char tmb[16];
+      fmt_clock(tmb, sizeof tmb, S->as_res[0].ticks);
+      if (S->as_res[0].all) snprintf(b, sizeof b, "BEAT %s", tmb);
+      else snprintf(b, sizeof b, "BEAT %d BY %s", S->as_res[0].done, tmb);
+    } else snprintf(b, sizeof b, "HALF %d OF 2", S->as_half + 1);
+  } else if (S->amode == AM_CTF) snprintf(b, sizeof b, "FIRST TO %d", CTF_WIN);
   else if (S->amode == AM_KOTM) {
     int hs = (S->hill_left + TICK_HZ - 1) / TICK_HZ;
     snprintf(b, sizeof b, "HILL MOVES %d:%02d", hs / 60, hs % 60);
@@ -506,7 +561,9 @@ static void hud_b_banner(const hv *g) {
     tx_fit(U.f_title, b, cx, y + 24 * s, 26 * s, w - 40 * s, alpha(MUSTARD, a), CW_ALIGN_CENTER);
     char c[128], tm[16];
     fmt_clock(tm, sizeof tm, S->battle_limit);
-    if (S->amode == AM_CTF)
+    if (S->amode == AM_ASSAULT)
+      snprintf(c, sizeof c, "You are %s and you %s first. Then the sides swap: the faster attack wins.", g->k->team ? "BLUE" : "RED", (g->k->team & 1) == S->as_att ? "ATTACK" : "DEFEND");
+    else if (S->amode == AM_CTF)
       snprintf(c, sizeof c, "You are %s. Take their flag home while yours is there. First to %d, or most in %s.", g->k->team ? "BLUE" : "RED", CTF_WIN, tm);
     else if (S->amode == AM_KOTM) snprintf(c, sizeof c, "Hold the hill alone to score. It moves now and then. Most time on it in %s wins.", tm);
     else snprintf(c, sizeof c, "%d balloons each. Pop the others. Last one standing, or most pops in %s.", BALLOONS, tm);
@@ -515,7 +572,7 @@ static void hud_b_banner(const hv *g) {
   }
   if (S->phase != PH_DONE) return;
   const char *head = S->battle_end == BE_TIME ? "TIME!" : S->battle_end == BE_LAST ? "LAST ONE STANDING" : "FINISHED";
-  if (S->amode == AM_CTF) head = S->win_team < 0 ? "DRAW!" : S->win_team == 0 ? "RED WINS!" : "BLUE WINS!";
+  if (mode_teams(S)) head = S->win_team < 0 ? "DRAW!" : S->win_team == 0 ? "RED WINS!" : "BLUE WINS!";
   float in = ease_back((float)BF.end_t / 18.0f);
   float cx = g->x + g->w * 0.5f, cy = g->y + g->h * 0.3f;
   banner(g, head, NULL, MUSTARD, fminf((float)BF.end_t / 120.0f, 0.79f), cy, g->compact ? 40 : 54);
@@ -575,6 +632,31 @@ static void hud_kotm_score(const hv *g, const bhud *h) {
   (void)h;
 }
 
+/* top left in an assault: ATTACK or DEFEND in your team's colour, the stage and the objectives done (and in the second half
+ * the first half's result to beat) */
+static void hud_assault_score(const hv *g, const bhud *h) {
+  const sim *S = g->S;
+  const assault_def *as = S->arena ? S->arena->def->assault : NULL;
+  if (!as) return;
+  float s = g->s, x = g->x + 18 * s, y = g->y + 14 * s;
+  const kart *k = g->k;
+  bool att = (k->team & 1) == S->as_att;
+  float pop = h->pts_t > 0 ? 1 + 0.15f * (1 - (float)h->pts_t / 40.0f) : 1;
+  tx_o(U.f_title, att ? "ATTACK" : "DEFEND", x, y + 30 * s, 40 * s * pop, team_col(k->team), (txopt){ .align = CW_ALIGN_LEFT, .outline = 2.6f * s });
+  int st = S->as_stage < as->nstages ? S->as_stage : as->nstages - 1;
+  char b[64];
+  snprintf(b, sizeof b, "%s  %d/%d", as->stage_name[st] ? as->stage_name[st] : "", st + 1, as->nstages);
+  tx_o(U.f_small, b, x, y + 62 * s, hpx(15, s, 10), CREAM, (txopt){ .align = CW_ALIGN_LEFT, .outline = 1.6f * s });
+  if (g->compact) return;
+  /* each stage as a pip: done, on it, still to come */
+  for (int i = 0; i < as->nstages; i++) {
+    cw_vec2 c = cw_v2(x + 8 * s + (float)i * 22 * s, y + 86 * s);
+    cw_color col = i < S->as_stage ? team_col(S->as_att) : i == S->as_stage ? MUSTARD : alpha(DIM, 0.5f);
+    cw_r2d_circle(c, 7 * s, 14, INK);
+    cw_r2d_circle(c, 5.5f * s, 14, col);
+  }
+}
+
 /* where to go, at the bottom of the view: an arrow turned to it (straight up: dead ahead), what it is and how far */
 static void hud_mode_pointer(const hv *g) {
   const sim *S = g->S;
@@ -583,7 +665,27 @@ static void hud_mode_pointer(const hv *g) {
   t3_vec3 at;
   const char *what;
   cw_color c;
-  if (S->amode == AM_KOTM) {
+  static char asw[64];
+  int ao = -1;
+  if (S->amode == AM_ASSAULT) {
+    /* the nearest objective that counts now: to take (attackers) or to hold on to (defenders) */
+    const assault_def *as = S->arena ? S->arena->def->assault : NULL;
+    if (!as || S->as_break > 0) return;
+    float bd = 1e18f;
+    for (int o = 0; o < as->nobjs && o < ASSAULT_MAXO; o++) {
+      const assault_obj *b = &as->objs[o];
+      if (b->kind == AO_TURRET || b->stage != S->as_stage || S->as_done[o]) continue;
+      float dx = k->p.x - b->x, dz = k->p.z - (b->z + ARENA_CZ), dd = dx * dx + dz * dz;
+      if (dd < bd) bd = dd, ao = o;
+    }
+    if (ao < 0) return;
+    const assault_obj *b = &as->objs[ao];
+    bool att = (k->team & 1) == S->as_att;
+    static const char *const VERB[3] = { "DESTROY", "REACH", "HOLD" };
+    snprintf(asw, sizeof asw, "%s %s", att ? VERB[b->kind % 3] : "DEFEND", b->name ? b->name : "IT");
+    at = (t3_vec3){ b->x, b->y, b->z + ARENA_CZ }, what = asw, c = att ? MUSTARD : team_col(k->team);
+    if (att && b->kind != AO_DESTROY && bd < b->r * b->r) return; /* in the zone: the status line says so */
+  } else if (S->amode == AM_KOTM) {
     float dx = k->p.x - S->hill.x, dz = k->p.z - S->hill.z;
     if (dx * dx + dz * dz < HILL_R * HILL_R) return; /* on it already */
     at = S->hill, what = "THE HILL", c = MUSTARD;
@@ -611,9 +713,17 @@ static void hud_mode_pointer(const hv *g) {
   cw_r2d_polygon(p1, 3, c), cw_r2d_polygon(p2, 3, shade(c, 0.75f));
   cw_vec2 out[4] = { tip, bl, mid, br };
   cw_r2d_polygon_lines(out, 4, 2.5f * s, INK);
-  char b[48];
+  char b[80];
   snprintf(b, sizeof b, "%s  %.0f m", what, dist);
   tx_o(U.f_hud, b, cx, cy + R * 1.3f + 12 * s, hpx(16, s, 11), CREAM, (txopt){ .align = CW_ALIGN_CENTER, .outline = 2 * s });
+  /* a target's hit points left, as a bar under it */
+  if (ao >= 0 && S->arena->def->assault->objs[ao].kind == AO_DESTROY) {
+    const assault_obj *o = &S->arena->def->assault->objs[ao];
+    float frac = clamp01((float)S->as_hp[ao] / (float)(o->hp > 0 ? o->hp : 1)), bw = 150 * s, bh = 9 * s, by = cy + R * 1.3f + 28 * s;
+    cw_rect br = cw_rect_make(cx - bw * 0.5f, by, bw, bh);
+    cw_r2d_rect(cw_rect_make(br.x - 2 * s, br.y - 2 * s, br.w + 4 * s, br.h + 4 * s), alpha(INK, 0.85f));
+    cw_r2d_rect(cw_rect_make(br.x, br.y, br.w * frac, br.h), frac < 0.34f ? RED : MUSTARD);
+  }
 }
 
 /* the middle of the view: what you are doing (carrying the flag, holding the hill) and the big stamps */
@@ -622,11 +732,12 @@ static void hud_mode_status(const hv *g, const bhud *h) {
   const kart *k = g->k;
   float s = g->s, cx = g->x + g->w * 0.5f, cy = g->y + g->h * (g->compact || g->medium ? 0.44f : 0.32f);
   if (h->stamp_t > 0) {
-    static const char *const WORD[] = { "CAPTURED!", "THEY SCORED!", "GOT IT! GO HOME!", "YOUR FLAG IS TAKEN!", "KING!", "THE HILL MOVED!" };
+    static const char *const WORD[] = { "CAPTURED!", "THEY SCORED!", "GOT IT! GO HOME!", "YOUR FLAG IS TAKEN!", "KING!", "THE HILL MOVED!",
+                                        "OBJECTIVE DONE!", "THEY GOT THROUGH!", "SWITCH SIDES!", "HALF TIME!" };
     float t = (float)h->stamp_t / 80.0f, sc = (0.4f + 0.6f * ease_back((float)h->stamp_t / 10.0f)) * (g->compact ? 0.75f : 1.0f);
     float a = t > 0.7f ? 1 - (t - 0.7f) / 0.3f : 1;
-    bool good = h->stamp == ST_CAPTURED || h->stamp == ST_GOT_FLAG || h->stamp == ST_KING;
-    cw_color c = good ? (h->stamp == ST_KING ? MUSTARD : LIME) : h->stamp == ST_HILL_MOVED ? CREAM : RED;
+    bool good = h->stamp == ST_CAPTURED || h->stamp == ST_GOT_FLAG || h->stamp == ST_KING || h->stamp == ST_OBJ_DONE;
+    cw_color c = good ? (h->stamp == ST_KING ? MUSTARD : LIME) : h->stamp == ST_HILL_MOVED || h->stamp == ST_SWAP || h->stamp == ST_HALF ? CREAM : RED;
     if (h->stamp == ST_CAPTURED || h->stamp == ST_KING) {
       cw_vec2 st[16];
       for (int i = 0; i < 16; i++) {
@@ -641,6 +752,28 @@ static void hud_mode_status(const hv *g, const bhud *h) {
   }
   if (S->phase != PH_RACE) return;
   float pulse = 0.75f + 0.25f * cw_sin(U.time * 8);
+  if (S->amode == AM_ASSAULT && S->arena && S->arena->def->assault) {
+    const assault_def *as = S->arena->def->assault;
+    float ty = g->y + g->h * 0.6f;
+    char b[64];
+    if (S->as_break > 0) {
+      snprintf(b, sizeof b, "SWITCHING SIDES IN %d", (S->as_break + TICK_HZ - 1) / TICK_HZ);
+      tx_o(U.f_title, b, cx, ty, 26 * s, alpha(CREAM, pulse), (txopt){ .align = CW_ALIGN_CENTER, .outline = 2.4f * s });
+      snprintf(b, sizeof b, "Next you %s", (k->team & 1) == S->as_att ? "DEFEND" : "ATTACK");
+      tx_o(U.f_hud, b, cx, ty + 28 * s, hpx(18, s, 12), MUSTARD, (txopt){ .align = CW_ALIGN_CENTER, .outline = 2 * s });
+      return;
+    }
+    for (int o = 0; o < as->nobjs && o < ASSAULT_MAXO; o++) {
+      const assault_obj *b2 = &as->objs[o];
+      if (b2->kind != AO_HOLD || b2->stage != S->as_stage || S->as_done[o]) continue;
+      float dx = k->p.x - b2->x, dz = k->p.z - (b2->z + ARENA_CZ);
+      if (dx * dx + dz * dz > b2->r * b2->r) continue;
+      if (S->as_holder[o] == -2) snprintf(b, sizeof b, "CONTESTED! CLEAR THEM OUT");
+      else snprintf(b, sizeof b, "HOLDING %d / %d", S->as_hp[o] / TICK_HZ, b2->hp);
+      tx_o(U.f_title, b, cx, ty, 26 * s, alpha(S->as_holder[o] == -2 ? RED : MUSTARD, pulse), (txopt){ .align = CW_ALIGN_CENTER, .outline = 2.4f * s });
+    }
+    return;
+  }
   if (S->amode == AM_CTF && k->carry >= 0) {
     bool home = S->flag[k->team & 1].state == FL_HOME;
     tx_o(U.f_title, "YOU HAVE THE FLAG!", cx, g->y + g->h * 0.6f, 26 * s, alpha(team_col(k->carry), pulse), (txopt){ .align = CW_ALIGN_CENTER, .outline = 2.4f * s });
@@ -684,6 +817,7 @@ static void hud_battle_view(const hv *g, int nviews) {
   const bhud *h = &BH[g->v];
   if (S->amode == AM_CTF) hud_ctf_score(g, h);
   else if (S->amode == AM_KOTM) hud_kotm_score(g, h);
+  else if (S->amode == AM_ASSAULT) hud_assault_score(g, h);
   else hud_b_balloons(g, h);
   hud_item(g);
   hud_b_clock(g);
@@ -752,13 +886,13 @@ static void hud_battle_shared(float W, float H) {
   float lx = mr.x + mr.w + 14 * q.s;
   if (lx + 196 * q.s > qx + qw) lx = qx + qw - 196 * q.s - 8;
   float ty = qy + 14 * q.s;
-  if (q.S->amode == AM_CTF) {
-    /* the score over the table */
+  if (q.S->amode == AM_CTF || q.S->amode == AM_ASSAULT) {
+    /* the score over the table (an assault: each team's objectives as attackers) */
     char b[32];
-    snprintf(b, sizeof b, "%d", q.S->team_score[0]);
+    snprintf(b, sizeof b, "%d", q.S->amode == AM_ASSAULT ? q.S->as_res[0].done : q.S->team_score[0]);
     tx_o(U.f_title, b, lx + 50 * q.s, ty + 14 * q.s, 26 * q.s, team_col(0), (txopt){ .align = CW_ALIGN_CENTER, .outline = 2 * q.s });
     tx_o(U.f_title, "-", lx + 98 * q.s, ty + 14 * q.s, 22 * q.s, CREAM, (txopt){ .align = CW_ALIGN_CENTER, .outline = 2 * q.s });
-    snprintf(b, sizeof b, "%d", q.S->team_score[1]);
+    snprintf(b, sizeof b, "%d", q.S->amode == AM_ASSAULT ? q.S->as_res[1].done : q.S->team_score[1]);
     tx_o(U.f_title, b, lx + 146 * q.s, ty + 14 * q.s, 26 * q.s, team_col(1), (txopt){ .align = CW_ALIGN_CENTER, .outline = 2 * q.s });
     ty += 34 * q.s;
   }
@@ -782,6 +916,7 @@ static const char *const AM_BLURB[AM_KINDS] = {
   "Three balloons each. Pop everyone else's and be the last kart with any left.",
   "Two teams on long maps. Race to the far end, take their flag and bring it home.",
   "One hill that moves round the arena. Hold it alone to score; the most time wins.",
+  "One team attacks a fortress stage by stage, the other holds it. Then swap: the faster attack wins.",
 };
 
 typedef struct amlay {
@@ -794,11 +929,11 @@ static void arena_mode_layout(float W, float H, amlay *l) {
   l->s = s;
   float gx = W * 0.04f, gw = W * 0.92f, gap = 18 * s;
   if (!is_portrait(W, H)) {
-    float top = 110 * s, ch = fminf(H - top - 96 * s, 420 * s), cw = (gw - 2 * gap) / 3;
+    float top = 110 * s, ch = fminf(H - top - 96 * s, 420 * s), cw = (gw - (float)(AM_KINDS - 1) * gap) / (float)AM_KINDS;
     top += (H - top - 96 * s - ch) * 0.35f;
     for (int i = 0; i < AM_KINDS; i++) l->card[i] = cw_rect_make(gx + (float)i * (cw + gap), top, cw, ch);
   } else {
-    float top = 100 * s, ch = fminf((H - top - 110 * s - 2 * gap) / 3, 230 * s);
+    float top = 100 * s, ch = fminf((H - top - 110 * s - (float)(AM_KINDS - 1) * gap) / (float)AM_KINDS, 230 * s);
     for (int i = 0; i < AM_KINDS; i++) l->card[i] = cw_rect_make(gx, top + (float)i * (ch + gap), gw, ch);
   }
 }
@@ -824,6 +959,20 @@ static void arena_mode_icon(int mode, cw_rect r, float s) {
     }
     map_flag(cw_v2(a.x, a.y - 2 * s), u * 0.48f, team_col(0), 1);
     map_flag(cw_v2(b.x - u * 0.2f, b.y - 2 * s), u * 0.48f, team_col(1), 1);
+  } else if (mode == AM_ASSAULT) {
+    /* a fortress wall with a breach and a target over it, an arrow driving at it */
+    float wy = c.y + u * 0.05f, ww = u * 0.8f, wh = u * 0.22f;
+    cw_r2d_rect(cw_rect_make(c.x - ww * 0.5f, wy, ww * 0.38f, wh), rgba(0.55f, 0.53f, 0.5f, 1));
+    cw_r2d_rect(cw_rect_make(c.x + ww * 0.12f, wy, ww * 0.38f, wh), rgba(0.55f, 0.53f, 0.5f, 1));
+    for (int k = 0; k < 4; k++) cw_r2d_rect(cw_rect_make(c.x - ww * 0.5f + (float)k * ww * 0.33f, wy - wh * 0.3f, ww * 0.1f, wh * 0.3f), rgba(0.55f, 0.53f, 0.5f, 1));
+    cw_vec2 t = cw_v2(c.x, wy - u * 0.2f);
+    float pulse = 1 + 0.08f * cw_sin(U.time * 5);
+    cw_r2d_circle_lines(t, u * 0.12f * pulse, 3 * s, 20, MUSTARD);
+    cw_r2d_line(cw_v2(t.x - u * 0.17f, t.y), cw_v2(t.x + u * 0.17f, t.y), 2.5f * s, MUSTARD);
+    cw_r2d_line(cw_v2(t.x, t.y - u * 0.17f), cw_v2(t.x, t.y + u * 0.17f), 2.5f * s, MUSTARD);
+    cw_vec2 ar[3] = { cw_v2(c.x, wy + wh + u * 0.04f), cw_v2(c.x - u * 0.1f, wy + wh + u * 0.22f), cw_v2(c.x + u * 0.1f, wy + wh + u * 0.22f) };
+    cw_r2d_polygon(ar, 3, team_col(0));
+    cw_r2d_polygon_lines(ar, 3, 2 * s, INK);
   } else {
     /* the hill: its ring and wall of light, a crown over it */
     cw_vec2 h = cw_v2(c.x, c.y + u * 0.18f);
@@ -981,7 +1130,7 @@ static void bo_bump(int o, int dir) {
 
 static void start_battle_from_menu(void) {
   race_setup rs = { .map = U.bt.arena, .laps = 1, .humans = U.setup.humans, .cpu_skill = U.skill, .items = true, .mode = RM_BATTLE,
-                    .karts = U.bt.karts, .battle_secs = BATTLE_SECS[U.bt.secs_i], .arena_mode = U.bt.mode };
+                    .karts = U.bt.karts, .battle_secs = U.bt.mode == AM_ASSAULT ? 0 : BATTLE_SECS[U.bt.secs_i], .arena_mode = U.bt.mode }; /* (an assault: the map's own clock) */
   U.bt.pick[U.bt.mode % AM_KINDS] = U.bt.arena;
   U.cup.on = false;
   for (int i = 0; i < MAXV; i++) rs.vehicle[i] = U.veh[i], rs.colour[i] = U.col[i];
@@ -1093,6 +1242,7 @@ static void draw_arena(float W, float H, float s) {
     float dx = ad->base[0][0] - ad->base[1][0], dz = ad->base[0][1] - ad->base[1][1];
     snprintf(b, sizeof b, "Flags %.0f m apart   first to %d captures", sqrtf(dx * dx + dz * dz), CTF_WIN);
   } else if (U.bt.mode == AM_KOTM) snprintf(b, sizeof b, "%d spots the hill moves between", ad->nhills);
+  else if (U.bt.mode == AM_ASSAULT && ad->assault) snprintf(b, sizeof b, "%d stages   %d:%02d to break through   %.0f m deep", ad->assault->nstages, ad->assault->time_s / 60, ad->assault->time_s % 60, ad->half_z * 2);
   else snprintf(b, sizeof b, "%.0f x %.0f m    %d ramps%s    %d item boxes", ad->half_x * 2, ad->half_z * 2, ramps, mounds ? " and a mound" : "", ad->nboxes);
   if (d.y + 46 * s + bh + 14 * s < d.y + d.h) tx_fit(U.f_small, b, d.x + 16 * s, d.y + 46 * s + bh + 12 * s, 16 * s, d.w - 32 * s, DIM, CW_ALIGN_LEFT);
   for (int r = 0; r < BO_KINDS; r++) {
@@ -1165,7 +1315,15 @@ static void draw_battle_results(float W, float H, float s) {
   {
     cw_color band = kart_col(w->colour);
     const char *why = S->battle_end == BE_LAST ? "Last one standing" : S->battle_end == BE_TIME ? "Most pops when time ran out" : "Every player is out";
-    if (S->amode == AM_CTF) {
+    if (S->amode == AM_ASSAULT) {
+      char t0[16], t1[16];
+      fmt_clock(t0, sizeof t0, S->as_res[0].ticks), fmt_clock(t1, sizeof t1, S->as_res[1].ticks);
+      if (S->win_team < 0) snprintf(b, sizeof b, "A DRAW!"), band = MUSTARD;
+      else snprintf(b, sizeof b, "%s TEAM WINS THE ASSAULT", TEAM_NAME[S->win_team]), band = team_col(S->win_team);
+      static char whyb[96];
+      snprintf(whyb, sizeof whyb, "RED %d objectives in %s,  BLUE %d in %s", S->as_res[0].done, t0, S->as_res[1].done, t1);
+      why = whyb;
+    } else if (S->amode == AM_CTF) {
       if (S->win_team < 0) snprintf(b, sizeof b, "A DRAW!  %d - %d", S->team_score[0], S->team_score[1]), band = MUSTARD;
       else snprintf(b, sizeof b, "%s TEAM WINS  %d - %d", TEAM_NAME[S->win_team], S->team_score[S->win_team], S->team_score[S->win_team ^ 1]), band = team_col(S->win_team);
       why = S->battle_end == BE_SCORE ? "First to three captures" : S->win_team < 0 ? "Level when time ran out" : "Most captures when time ran out";
@@ -1178,7 +1336,7 @@ static void draw_battle_results(float W, float H, float s) {
     cw_rect r = cw_rect_make(W * 0.5f - bw * 0.5f, by, bw, 70 * s);
     slab(r, 18 * s, rgba(0.1f, 0.07f, 0.09f, 0.94f), s);
     para(cw_rect_make(r.x + 6 * s, r.y + r.h - 9 * s, r.w - 12 * s, 6 * s), 0, band);
-    tx_fit(U.f_title, b, r.x + r.w * 0.5f + 8 * s, r.y + 32 * s, 42 * s, r.w - 80 * s, S->amode == AM_CTF && S->win_team >= 0 ? band : PLACE_COL[0], CW_ALIGN_CENTER);
+    tx_fit(U.f_title, b, r.x + r.w * 0.5f + 8 * s, r.y + 32 * s, 42 * s, r.w - 80 * s, mode_teams(S) && S->win_team >= 0 ? band : PLACE_COL[0], CW_ALIGN_CENTER);
     tx(U.f_hud, why, W * 0.5f, r.y + r.h + 16 * s, 18 * s, alpha(CREAM, head), CW_ALIGN_CENTER);
   }
   if (panel <= 0) {
@@ -1193,8 +1351,8 @@ static void draw_battle_results(float W, float H, float s) {
   float rowh = por ? 32 * s : fminf(36 * s, (tab.h - 50 * s) / 8.0f);
   float cx_name = tab.x + 60 * s, cx_bal = tab.x + tab.w * 0.52f, cx_stat = tab.x + tab.w * 0.74f, cx_pts = tab.x + tab.w - 22 * s;
   float hy = tab.y + 20 * s, hsz = 15 * s;
-  static const char *const COL2[AM_KINDS] = { "BALLOONS", "TEAM", "ON THE HILL" }, *const COL3[AM_KINDS] = { "LASTED", "CAPTURES", "HITS" },
-                           *const COL4[AM_KINDS] = { "POPS", "POINTS", "SECS" };
+  static const char *const COL2[AM_KINDS] = { "BALLOONS", "TEAM", "ON THE HILL", "TEAM" }, *const COL3[AM_KINDS] = { "LASTED", "CAPTURES", "HITS", "OBJECTIVES" },
+                           *const COL4[AM_KINDS] = { "POPS", "POINTS", "SECS", "POINTS" };
   int am = S->amode % AM_KINDS;
   tx(U.f_small, "DRIVER", cx_name, hy, hsz, DIM, CW_ALIGN_LEFT);
   tx(U.f_small, COL2[am], cx_bal, hy, hsz, DIM, CW_ALIGN_CENTER);
@@ -1218,7 +1376,7 @@ static void draw_battle_results(float W, float H, float s) {
     kart_name(S, r->kart, nm, sizeof nm, true);
     tx_fit(U.f_hud, nm, cx_name, cy, rowh * 0.5f, cx_bal - cx_name - 60 * s, alpha(CREAM, ra), CW_ALIGN_LEFT);
     const kart *rk = &S->k[r->kart];
-    if (am == AM_CTF) {
+    if (am == AM_CTF || am == AM_ASSAULT) {
       int tm = rk->team & 1;
       cw_r2d_circle(cw_v2(cx_bal - 28 * s, cy), 6 * s, 12, alpha(team_col(tm), ra));
       tx(U.f_hud, TEAM_NAME[tm], cx_bal + 6 * s, cy, rowh * 0.42f, alpha(team_col(tm), ra), CW_ALIGN_CENTER);

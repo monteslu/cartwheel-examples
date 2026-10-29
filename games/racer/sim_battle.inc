@@ -191,10 +191,16 @@ static void flag_home(sim *s, int t) {
   s->flag[t].p = s->base[t];
 }
 
+static void as_half_start(sim *s);
+static void gates_set(sim *s);
+static const float *as_spawn(const sim *s, int team, int k);
+static int as_struck(const sim *s, t3_vec3 p, float pad);
+static bool as_damage(sim *s, int o, int dmg, int by);
 static void battle_place_all(sim *s) {
   const arena_rt *a = s->arena;
   const arena_def *d = a->def;
   int n = 0, nt[2] = { 0, 0 };
+  gates_set(s); /* every gate up (an assault puts its own back as its half starts) */
   if (s->amode == AM_CTF)
     for (int t = 0; t < 2; t++) s->base[t] = arena_spot(s, d->base[t][0], d->base[t][1]);
   for (int i = 0; i < MAXK; i++) {
@@ -231,6 +237,11 @@ static void battle_place_all(sim *s) {
   if (s->amode == AM_CTF)
     for (int t = 0; t < 2; t++) flag_home(s, t);
   if (s->amode == AM_KOTM) hill_put(s, 0);
+  if (s->amode == AM_ASSAULT && s->arena->def->assault) {
+    s->as_half = s->as_att = s->as_break = 0;
+    s->as_res[1] = (struct as_result){ 0, 0, false };
+    as_half_start(s);
+  }
 }
 
 void sim_set_arena_mode(sim *s, int mode) {
@@ -265,6 +276,7 @@ static void battle_boxes(sim *s) {
 void sim_set_battle_time(sim *s, int ticks) {
   if (!s->battle) return;
   s->battle_limit = ticks > 0 ? ticks : BATTLE_TICKS;
+  s->as_time = ticks;
   s->battle_left = s->battle_limit;
 }
 
@@ -299,9 +311,9 @@ static void battle_hit(sim *s, int i, int by) {
   }
   k->ram_cool = POP_GRACE;
   k->spin_ticks = (int)((float)k->spin_ticks * BATTLE_SPIN_K);
-  if (by >= 0 && by < MAXK && by != i && s->k[by].on) s->k[by].points += s->amode == AM_CTF ? 1 : 0;
+  if (by >= 0 && by < MAXK && by != i && s->k[by].on) s->k[by].points += mode_teams(s) ? 1 : 0;
   if (s->amode == AM_CTF) flag_drop(s, i, false);
-  else {
+  else if (s->amode == AM_KOTM) {
     t3_vec3 d = { k->p.x - s->hill.x, 0, k->p.z - s->hill.z };
     float l = v3len(d);
     if (l < HILL_R + 3.0f && l > 1e-3f) cw_body3d_apply_impulse(PH.body[i], v3mul(d, 9.0f * VEH[k->veh].mass / l), NULL);
@@ -348,6 +360,27 @@ static void battle_respawn(sim *s, int i) {
   const arena_rt *a = s->arena;
   const arena_def *d = a->def;
   flag_drop(s, i, true);
+  if (s->amode == AM_ASSAULT && d->assault) {
+    /* assault: one of its team's four for the stage the round is on, the one farthest from the other team */
+    int best = 0;
+    float bd = -1;
+    for (int sp = 0; sp < 4; sp++) {
+      const float *p = as_spawn(s, s->k[i].team, sp);
+      float dmin = 1e9f;
+      for (int j = 0; j < MAXK; j++) {
+        if (j == i || !s->k[j].on || !kart_foe(s, i, j)) continue;
+        float dx = s->k[j].p.x - p[0], dz = s->k[j].p.z - (p[1] + ARENA_CZ);
+        dmin = minf(dmin, dx * dx + dz * dz);
+      }
+      if (dmin > bd) bd = dmin, best = sp;
+    }
+    const float *p = as_spawn(s, s->k[i].team, best);
+    battle_place(s, i, p[0], p[1] + ARENA_CZ, p[2] * (CW_PI / 180.0f), 6.0f);
+    kart *k = &s->k[i];
+    k->respawn_ticks = 90, k->stall_ticks = 0, k->item_cool = 30, k->falls++;
+    event(s, EV_RESPAWN, i, 0, k->p, 0);
+    return;
+  }
   /* capture the flag: one of its own team's starts (the one farthest from the other team) */
   bool team = s->amode == AM_CTF && d->team_spawns;
   int best = 0, nsp = team ? 4 : a->nspawn;
@@ -479,6 +512,68 @@ static bool battle_use_item(sim *s, int i, int item) {
   }
 }
 
+/* the assault blaster: what a kart fires with nothing else to use. A fast bolt straight out along the floor, gone at the
+ * first wall; it chips BOLT_DMG off a target, and a kart it meets loses a quarter of its speed and gets a jolt (no spin:
+ * that is for the real weapons) */
+#define BOLT_SPEED 82.0f
+#define BOLT_LIFE 40
+#define BOLT_EVERY 20
+#define BOLT_DMG 4
+static void battle_bolt(sim *s, int i) {
+  kart *k = &s->k[i];
+  t3_vec3 f = flat_fwd(k);
+  k->blast_cool = BOLT_EVERY;
+  hazard *z = hz_add(s, HZ_BOLT, i, 0, 0, 0);
+  if (!z) return;
+  z->p = v3add(v3add(k->p, v3mul(f, 2.4f)), (t3_vec3){ 0, 0.35f, 0 });
+  z->f = f;
+  z->speed = BOLT_SPEED + maxf(k->speed, 0) * 0.5f;
+  z->life = BOLT_LIFE;
+  battle_hz_place(s, z);
+  event(s, EV_ITEM_USE, i, IT_NONE, z->p, 0);
+}
+
+static void bolt_step(sim *s, hazard *z) {
+  t3_vec3 step = v3mul(z->f, z->speed * DT);
+  int struck = as_struck(s, v3add(z->p, step), 0.3f);
+  if (struck >= 0) {
+    as_damage(s, struck, BOLT_DMG, z->owner);
+    event(s, EV_HIT, -1, z->owner, z->p, (float)HZ_BOLT);
+    z->kind = HZ_NONE;
+    return;
+  }
+  float fr = 0;
+  t3_vec3 n;
+  if (sim_ray(s, z->p, step, &fr, &n) && absf(n.y) < 0.6f) {
+    event(s, EV_HIT, -1, z->owner, v3add(z->p, v3mul(step, fr)), (float)HZ_BOLT);
+    z->kind = HZ_NONE;
+    return;
+  }
+  z->p = v3add(z->p, step);
+  float fl = battle_floor(s, z->p.x, z->p.y + 1.4f, z->p.z);
+  if (fl < -50) z->p.y -= 0.3f;
+  else z->p.y += (fl + 0.75f - z->p.y) * 0.45f;
+  if (z->p.y < -20) {
+    z->kind = HZ_NONE;
+    return;
+  }
+  battle_hz_place(s, z);
+  for (int j = 0; j < MAXK; j++) {
+    kart *o = &s->k[j];
+    if (j == z->owner || !o->on || o->out || o->parked || o->respawn_ticks > 0 || hz_spares(s, z, j)) continue;
+    t3_vec3 d = v3sub(o->p, z->p);
+    if (v3dot(d, d) > 1.7f * 1.7f) continue;
+    t3_vec3 v = cw_body3d_velocity(PH.body[j]);
+    float m = VEH[o->veh].mass;
+    cw_body3d_set_velocity(PH.body[j], v3add(v3mul(v, 0.75f), v3mul(z->f, 2.5f)));
+    cw_body3d_apply_angular_impulse(PH.body[j], (t3_vec3){ 0, ((s->tick + j) & 1 ? 1.0f : -1.0f) * 0.6f * m, 0 });
+    if (z->owner >= 0 && z->owner < MAXK) s->k[z->owner].hits_given++;
+    event(s, EV_HIT, j, z->owner, z->p, (float)HZ_BOLT);
+    z->kind = HZ_NONE;
+    return;
+  }
+}
+
 /* turns a horizontal unit heading by at most `max` radians towards want (about +y: x' = x cos + z sin, z' = -x sin + z cos) */
 static t3_vec3 turn_to(t3_vec3 f, t3_vec3 want, float max) {
   float cr = f.z * want.x - f.x * want.z, dt = f.x * want.x + f.z * want.z;
@@ -536,6 +631,13 @@ static void battle_thrown_step(sim *s, hazard *z) {
       z->kind = HZ_NONE;
       return;
     }
+    /* assault: it strikes a target once on its way, and turns for home */
+    int struck = as_struck(s, z->p, 0.4f);
+    if (struck >= 0 && !(z->hitmask & (1 << 30))) {
+      z->hitmask |= 1 << 30;
+      as_damage(s, struck, 8, z->owner);
+      z->state = 1;
+    }
   } else if (z->state == 0) {
     t3_vec3 step = v3mul(z->f, z->speed * DT);
     float fr = 0;
@@ -555,7 +657,7 @@ static void battle_thrown_step(sim *s, hazard *z) {
   for (int i = 0; i < MAXK; i++) {
     kart *k = &s->k[i];
     if (!k->on || k->out || k->parked || k->respawn_ticks > 0) continue;
-    if (i != z->owner && z->owner >= 0 && !kart_foe(s, i, z->owner)) continue;
+    if (hz_spares(s, z, i)) continue;
     t3_vec3 d = v3sub(k->p, z->p);
     if (z->kind == HZ_BOMB) {
       if (z->state == 1 && i != z->owner && v3dot(d, d) < 2.3f * 2.3f) {
@@ -591,6 +693,11 @@ static void battle_hazards_step(sim *s) {
       battle_thrown_step(s, z);
       continue;
     }
+    if (z->kind == HZ_BOLT) {
+      if (--z->life <= 0) z->kind = HZ_NONE;
+      else z->age++, bolt_step(s, z);
+      continue;
+    }
     z->age++;
     if (--z->life <= 0) {
       if (z->kind == HZ_MISSILE || z->kind == HZ_HOMING) event(s, EV_HIT, -1, z->owner, z->p, (float)z->kind);
@@ -605,6 +712,14 @@ static void battle_hazards_step(sim *s) {
         if (l > 0.5f) z->f = turn_to(z->f, v3mul(d, 1.0f / l), 2.7f * DT);
       }
       t3_vec3 step = v3mul(z->f, z->speed * DT);
+      /* assault: a target or a turret in the way: it bursts on it (an attacker's does damage) */
+      int struck = as_struck(s, v3add(z->p, step), 0.4f);
+      if (struck >= 0) {
+        as_damage(s, struck, 10, z->owner);
+        event(s, EV_HIT, -1, z->owner < -1 ? -1 : z->owner, z->p, (float)z->kind);
+        z->kind = HZ_NONE;
+        continue;
+      }
       float fr = 0;
       t3_vec3 n;
       if (sim_ray(s, z->p, v3mul(step, 1.6f), &fr, &n) && absf(n.y) < 0.6f && fr < 0.625f) {
@@ -634,7 +749,7 @@ static void battle_hazards_step(sim *s) {
     for (int i = 0; i < MAXK; i++) {
       kart *k = &s->k[i];
       if (!k->on || k->out || k->respawn_ticks > 0) continue;
-      if (i != z->owner && z->owner >= 0 && !kart_foe(s, i, z->owner)) continue; /* a teammate's: it passes through */
+      if (hz_spares(s, z, i)) continue; /* a teammate's: it passes through */
       bool missile = z->kind == HZ_MISSILE || z->kind == HZ_HOMING;
       if (z->owner == i && z->age < (missile ? 24 : 45)) continue;
       t3_vec3 d = v3sub(k->p, z->p);
@@ -647,7 +762,7 @@ static void battle_hazards_step(sim *s) {
         event(s, EV_HIT, i, z->owner, z->p, (float)HZ_MINE);
         spin_kart(s, i, SPIN_BOOM, z->owner);
         for (int j = 0; j < MAXK; j++) {
-          if (j == i || !s->k[j].on || s->k[j].out || (z->owner >= 0 && j != z->owner && !kart_foe(s, j, z->owner))) continue;
+          if (j == i || !s->k[j].on || s->k[j].out || hz_spares(s, z, j)) continue;
           t3_vec3 e = v3sub(s->k[j].p, z->p);
           if (v3dot(e, e) < 4.5f * 4.5f) spin_kart(s, j, SPIN_HIT, z->owner);
         }
@@ -686,7 +801,11 @@ static void battle_rank(sim *s) {
     while (b >= 0) {
       const kart *p = &s->k[idx[b]], *q = &s->k[x];
       bool better;
-      if (s->amode == AM_CTF) {
+      if (s->amode == AM_ASSAULT) {
+        /* the winning team first (level: neither), then the points (an objective 5, a turret 2, a hit on a target 1) */
+        int wp = s->win_team >= 0 && (p->team & 1) == s->win_team, wq = s->win_team >= 0 && (q->team & 1) == s->win_team;
+        better = wq != wp ? wq > wp : q->points > p->points;
+      } else if (s->amode == AM_CTF) {
         /* the leading team first, then the points (a capture 3, a flag taken or sent home 1, a hit 1) */
         int tp = s->team_score[p->team & 1] - s->team_score[(p->team & 1) ^ 1], tq = s->team_score[q->team & 1] - s->team_score[(q->team & 1) ^ 1];
         if (tq != tp) better = tq > tp;
@@ -792,17 +911,298 @@ static void kotm_step(sim *s) {
   }
 }
 
+/* ── assault ──────────────────────────────────────────────────────────────────────────────────────────
+ * Two halves: red attacks the first, blue the second (sim.as_att). Every tick of a half: the zones (reach, hold), the turrets,
+ * the stages; hits on targets come from the hazards (assault_hit, assault_blast) and turbo rams (assault_ram). A finished
+ * stage takes its gates away (gates_set) and moves both teams' spawns up. The second half's clock is the first half's time
+ * when the first attackers finished, and it ends as soon as the result is beaten. */
+#define AS_BREAK (6 * TICK_HZ)
+#define TURRET_EVERY (int)(2.6f * TICK_HZ)
+#define TURRET_FIRST (int)(1.2f * TICK_HZ)
+
+static const assault_def *as_def(const sim *s) { return s->battle && s->arena ? s->arena->def->assault : NULL; }
+static bool as_goal(const assault_obj *o) { return o->kind != AO_TURRET; }
+static t3_vec3 as_at(const assault_obj *o) { return (t3_vec3){ o->x, o->y, o->z + ARENA_CZ }; }
+
+/* gate g is out of the way: its objective done, or its stage passed (in an assault; every gate stands in the other rounds) */
+static bool gate_open(const sim *s, int g) {
+  if (s->amode != AM_ASSAULT || !as_def(s)) return false;
+  if (g > 0) return g - 1 < ASSAULT_MAXO && s->as_done[g - 1];
+  return s->as_stage > -1 - g;
+}
+
+/* every gate's body there or not, as the round stands */
+static void gates_set(sim *s) {
+  for (int k = 0; k < PH.ngate; k++) {
+    bool want = !gate_open(s, PH.gate[k]);
+    if (want == PH.gate_up[k]) continue;
+    if (want) {
+      cw_body3d_def bd = cw_body3d_default_def();
+      bd.type = CW_BODY_STATIC;
+      bd.name = "gate";
+      PH.gateb[k] = cw_body3d_create(PH.w, &bd);
+      arena_phys_build(s->arena, PH.gateb[k], L_TRACK, L_WALL, PH.gate[k]);
+    } else cw_body3d_destroy(PH.gateb[k]);
+    PH.gate_up[k] = want;
+  }
+}
+
+/* the turret's or target's team says nothing: a kart attacks in this half when it is on the attacking team */
+static bool as_attacker(const sim *s, int i) { return i >= 0 && i < MAXK && s->k[i].on && (s->k[i].team & 1) == s->as_att; }
+
+/* an objective that counts now: a goal of the stage the attackers are on (a turret: until its stage is passed) */
+static bool as_live(const sim *s, int o) {
+  const assault_def *d = as_def(s);
+  const assault_obj *b = &d->objs[o];
+  if (s->as_done[o] || s->as_break > 0 || s->phase != PH_RACE) return false;
+  return b->kind == AO_TURRET ? b->stage >= s->as_stage : b->stage == s->as_stage;
+}
+
+static void as_stage_check(sim *s);
+/* objective o is done (by kart i, -1 a team's hold) */
+static void as_finish(sim *s, int o, int i) {
+  const assault_def *d = as_def(s);
+  s->as_done[o] = true;
+  s->as_done_tick[o] = s->as_half_ticks;
+  if (getenv("RACER_ASLOG")) cw_info("assault: objective %d done by %d tick %d half %d", o, i, s->as_half_ticks, s->as_half);
+  if (i >= 0) s->k[i].points += d->objs[o].kind == AO_TURRET ? 2 : 5, s->k[i].caps++;
+  event(s, EV_OBJ, i, d->objs[o].kind == AO_TURRET ? OE_TURRET_DOWN : OE_DONE, as_at(&d->objs[o]), (float)o);
+  gates_set(s);
+  if (as_goal(&d->objs[o])) {
+    struct as_result *r = &s->as_res[s->as_half];
+    r->done++;
+    r->ticks = s->as_half_ticks;
+  }
+  as_stage_check(s);
+}
+
+/* dmg to objective o from kart by (an attacker's: the defenders' and the turrets' do nothing) */
+static bool as_damage(sim *s, int o, int dmg, int by) {
+  const assault_def *d = as_def(s);
+  const assault_obj *b = &d->objs[o];
+  if ((b->kind != AO_DESTROY && b->kind != AO_TURRET) || !as_live(s, o) || !as_attacker(s, by)) return false;
+  int was = s->as_hp[o];
+  s->as_hp[o] -= dmg;
+  if (getenv("RACER_ASLOG")) cw_info("assault: kart %d hits objective %d for %d (%d left) tick %d", by, o, dmg, s->as_hp[o], s->as_half_ticks);
+  s->k[by].points += 1;
+  event(s, EV_OBJ, by, OE_HIT, as_at(b), (float)o);
+  if (was * 2 > b->hp && s->as_hp[o] * 2 <= b->hp && s->as_hp[o] > 0) event(s, EV_OBJ, by, OE_HALFWAY, as_at(b), (float)o);
+  if (s->as_hp[o] <= 0) s->as_hp[o] = 0, as_finish(s, o, by);
+  return true;
+}
+
+/* p (a missile, a boomerang) is inside a target or a turret: the one it struck (-1 none); any team's shot bursts on it */
+static int as_struck(const sim *s, t3_vec3 p, float pad) {
+  const assault_def *d = as_def(s);
+  if (!d || s->amode != AM_ASSAULT) return -1;
+  for (int o = 0; o < d->nobjs; o++) {
+    const assault_obj *b = &d->objs[o];
+    if ((b->kind != AO_DESTROY && b->kind != AO_TURRET) || s->as_done[o]) continue;
+    float dx = p.x - b->x, dz = p.z - (b->z + ARENA_CZ);
+    if (dx * dx + dz * dz < (b->r + pad) * (b->r + pad) && p.y > b->y - 1.0f && p.y < b->y + b->h + 1.0f) return o;
+  }
+  return -1;
+}
+
+/* a blast at `at`: every target or turret within r of it takes dmg (from kart by) */
+static void assault_blast(sim *s, t3_vec3 at, float r, int dmg, int by) {
+  const assault_def *d = as_def(s);
+  if (!d || s->amode != AM_ASSAULT) return;
+  for (int o = 0; o < d->nobjs; o++) {
+    const assault_obj *b = &d->objs[o];
+    if (b->kind != AO_DESTROY && b->kind != AO_TURRET) continue;
+    float dx = at.x - b->x, dz = at.z - (b->z + ARENA_CZ);
+    if (dx * dx + dz * dz < (b->r + r) * (b->r + r) && at.y > b->y - r && at.y < b->y + b->h + r) as_damage(s, o, dmg, by);
+  }
+}
+
+/* a turbo ram into a target: kart i under a boost, its nose into it at speed */
+static void assault_ram(sim *s, int i) {
+  kart *k = &s->k[i];
+  if (k->flag_cool > 0) {
+    k->flag_cool--;
+    return;
+  }
+  if (k->boost_ticks <= 0 || k->speed < 10.0f || !as_attacker(s, i)) return;
+  int o = as_struck(s, v3add(k->p, v3mul(flat_fwd(k), 2.2f)), 0.6f);
+  if (o >= 0 && as_damage(s, o, 15, i)) {
+    k->flag_cool = 45;
+    event(s, EV_RAM, i, -1, k->p, k->speed);
+  }
+}
+
+static int as_goals_total(const assault_def *d) {
+  int n = 0;
+  for (int st = 0; st < d->nstages; st++) {
+    int c = 0;
+    for (int o = 0; o < d->nobjs; o++) c += d->objs[o].stage == st && as_goal(&d->objs[o]);
+    n += d->need[st] > 0 && d->need[st] < c ? d->need[st] : c;
+  }
+  return n;
+}
+
+/* the attackers' stage: done when enough of its goals are */
+static void as_stage_check(sim *s) {
+  const assault_def *d = as_def(s);
+  while (s->as_stage < d->nstages) {
+    int c = 0, done = 0;
+    for (int o = 0; o < d->nobjs; o++)
+      if (d->objs[o].stage == s->as_stage && as_goal(&d->objs[o])) c++, done += s->as_done[o];
+    int need = d->need[s->as_stage] > 0 && d->need[s->as_stage] < c ? d->need[s->as_stage] : c;
+    if (done < need) return;
+    event(s, EV_OBJ, -1, OE_STAGE, (t3_vec3){ 0, 0, ARENA_CZ }, (float)s->as_stage);
+    s->as_stage++;
+    gates_set(s);
+  }
+  s->as_res[s->as_half].all = true;
+}
+
+/* a team's spawn for the stage the round is on: the k-th of its four (x, z, yaw degrees) */
+static const float *as_spawn(const sim *s, int team, int k) {
+  const assault_def *d = as_def(s);
+  int st = s->as_stage < d->nstages ? s->as_stage : d->nstages - 1;
+  return ((team & 1) == s->as_att ? d->att_spawns : d->def_spawns)[st * 4 + (k & 3)];
+}
+
+/* a half begins: every objective back, the gates up, both teams at the first stage's spawns */
+static void as_half_start(sim *s) {
+  const assault_def *d = as_def(s);
+  s->as_stage = 0;
+  s->as_half_ticks = 0;
+  s->as_res[s->as_half] = (struct as_result){ 0, 0, false };
+  for (int o = 0; o < d->nobjs && o < ASSAULT_MAXO; o++) {
+    s->as_done[o] = false;
+    s->as_done_tick[o] = 0;
+    s->as_hp[o] = d->objs[o].kind == AO_HOLD || d->objs[o].kind == AO_REACH ? 0 : d->objs[o].hp;
+    s->as_holder[o] = -1;
+    s->as_fire[o] = TURRET_FIRST + o * 17;
+  }
+  gates_set(s);
+  for (int h = 0; h < MAXHZ; h++) s->hz[h].kind = HZ_NONE;
+  int nt[2] = { 0, 0 };
+  for (int i = 0; i < MAXK; i++) {
+    kart *k = &s->k[i];
+    if (!k->on) continue;
+    flag_drop(s, i, true);
+    const float *sp = as_spawn(s, k->team, nt[k->team & 1]++);
+    battle_place(s, i, sp[0], sp[1] + ARENA_CZ, sp[2] * (CW_PI / 180.0f), 0);
+    k->flag_cool = 0;
+  }
+  /* the second half's clock: the first half's time if its attackers finished, else the whole of it */
+  s->battle_limit = s->as_half == 1 && s->as_res[0].all ? s->as_res[0].ticks : s->as_time > 0 ? s->as_time : d->time_s * TICK_HZ;
+  s->battle_left = s->battle_limit;
+}
+
+/* the result of the match as it stands: the team ahead (-1 level). Half 1's attackers have it once they have done more
+ * objectives than the first half's, or as many sooner */
+static int as_leader(const sim *s) {
+  const struct as_result *a = &s->as_res[0], *b = &s->as_res[1];
+  if (s->as_half == 0) return -1;
+  if (b->done > a->done || (b->done == a->done && b->done > 0 && b->ticks < a->ticks)) return 1;
+  if (a->done == 0 && b->done == 0) return -1;
+  return 0;
+}
+
+/* every tick of an assault: BE_NONE, or the end of the match */
+static int assault_step(sim *s) {
+  const assault_def *d = as_def(s);
+  if (!d) return BE_NONE;
+  if (s->as_break > 0) {
+    if (--s->as_break == 0) {
+      s->as_half = 1;
+      s->as_att = 1;
+      as_half_start(s);
+      event(s, EV_OBJ, -1, OE_SWAP, (t3_vec3){ 0, 0, ARENA_CZ }, 1);
+    }
+    return BE_NONE;
+  }
+  s->as_half_ticks++;
+  if (s->battle_left > 0) s->battle_left--;
+  for (int o = 0; o < d->nobjs && o < ASSAULT_MAXO; o++) {
+    const assault_obj *b = &d->objs[o];
+    if (!as_live(s, o)) continue;
+    t3_vec3 at = as_at(b);
+    if (b->kind == AO_REACH || b->kind == AO_HOLD) {
+      int att = 0, def = 0, who = -1;
+      for (int i = 0; i < MAXK; i++) {
+        if (!battle_able(&s->k[i]) || !battle_near(s->k[i].p, at, b->r)) continue;
+        if (as_attacker(s, i)) att++, who = i;
+        else def++;
+      }
+      if (b->kind == AO_REACH && att > 0) as_finish(s, o, who);
+      else if (b->kind == AO_HOLD) {
+        int holder = att > 0 && def == 0 ? who : att > 0 ? -2 : -1;
+        if (holder >= 0 && ++s->as_hp[o] >= b->hp * TICK_HZ) as_finish(s, o, -1);
+        s->as_holder[o] = holder;
+      }
+    } else if (b->kind == AO_TURRET && --s->as_fire[o] <= 0) {
+      /* the turret: the nearest attacker in reach it can see, a homing missile at it from its foot */
+      s->as_fire[o] = TURRET_EVERY;
+      int best = -1;
+      float bd = b->range * b->range;
+      t3_vec3 eye = { at.x, at.y + b->h * 0.6f, at.z };
+      for (int i = 0; i < MAXK; i++) {
+        const kart *k = &s->k[i];
+        if (!battle_able(k) || !as_attacker(s, i)) continue;
+        t3_vec3 dv = v3sub(k->p, eye);
+        float dd = dv.x * dv.x + dv.z * dv.z;
+        if (dd > bd || dd < 4) continue;
+        /* its own shapes are in the way of the ray at the start: look from its rim */
+        float l = sqrtf(dd);
+        t3_vec3 from = { eye.x + dv.x / l * (b->r + 0.5f), eye.y, eye.z + dv.z / l * (b->r + 0.5f) };
+        float fr = 0;
+        if (sim_ray(s, from, v3sub(k->p, from), &fr, NULL) && fr < 0.97f) continue;
+        bd = dd, best = i;
+      }
+      if (best >= 0) {
+        t3_vec3 dv = v3sub(s->k[best].p, at);
+        dv.y = 0;
+        t3_vec3 f = v3norm(dv);
+        hazard *z = hz_add(s, HZ_HOMING, -2 - (s->as_att ^ 1), 0, 0, 0);
+        if (z) {
+          z->p = (t3_vec3){ at.x + f.x * (b->r + 1.6f), at.y + 0.8f, at.z + f.z * (b->r + 1.6f) };
+          z->f = f;
+          z->speed = B_MISSILE_SPEED * 0.72f;
+          z->life = B_HOMING_LIFE;
+          z->target = best;
+          z->age = 6;
+          battle_hz_place(s, z);
+          event(s, EV_OBJ, best, OE_FIRE, z->p, (float)o);
+        }
+      }
+    }
+  }
+  for (int i = 0; i < MAXK; i++)
+    if (battle_able(&s->k[i])) assault_ram(s, i);
+  /* the half's end: the attackers through every stage, the clock out, or (the second half) the result decided */
+  bool over = s->as_res[s->as_half].all || s->battle_left <= 0;
+  if (s->as_half == 1 && as_leader(s) == 1) over = true;
+  if (!over) return BE_NONE;
+  event(s, EV_OBJ, -1, OE_HALF, (t3_vec3){ 0, 0, ARENA_CZ }, (float)s->as_half);
+  if (s->as_half == 0) {
+    s->as_break = AS_BREAK;
+    return BE_NONE;
+  }
+  s->win_team = as_leader(s);
+  s->team_score[0] = s->as_res[0].done, s->team_score[1] = s->as_res[1].done;
+  return s->as_res[s->as_half].all || as_leader(s) == 1 ? BE_SCORE : BE_TIME;
+}
+
 /* PH_RACE in a battle: the clock and the end of the round */
 static void battle_phase(sim *s) {
-  if (s->battle_left > 0) s->battle_left--;
+  int as_end = BE_NONE;
+  if (s->amode == AM_ASSAULT) as_end = assault_step(s); /* (its own clock: it stands between the halves) */
+  else if (s->battle_left > 0) s->battle_left--;
   if (s->amode == AM_CTF) ctf_step(s);
   else if (s->amode == AM_KOTM) kotm_step(s);
   int humans = 0, humans_in = 0;
   for (int i = 0; i < MAXK; i++)
     if (s->k[i].on && s->k[i].human) humans++, humans_in += !s->k[i].out;
   if (humans > 0 && humans_in == 0 && s->humans_out_tick == 0) s->humans_out_tick = s->race_ticks;
-  int end = BE_NONE;
-  if (s->amode == AM_CTF && (s->team_score[0] >= CTF_WIN || s->team_score[1] >= CTF_WIN)) end = BE_SCORE;
+  int end = as_end;
+  if (s->amode == AM_ASSAULT) {
+    if (as_end == BE_NONE) return;
+  } else if (s->amode == AM_CTF && (s->team_score[0] >= CTF_WIN || s->team_score[1] >= CTF_WIN)) end = BE_SCORE;
   else if (s->nkarts > 1 && s->alive <= 1) end = BE_LAST;
   else if (s->battle_left <= 0) end = BE_TIME;
   else if (s->humans_out_tick > 0 && s->race_ticks - s->humans_out_tick > 150) end = BE_HUMANS;

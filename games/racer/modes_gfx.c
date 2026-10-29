@@ -37,10 +37,17 @@ static struct {
   t3_object *tele_beam[ARENA_MAXT], *tele_ring[ARENA_MAXT][2];
   t3_material *tele_beam_mat[ARENA_MAXT], *tele_ring_mat[ARENA_MAXT];
   float tele_kick[ARENA_MAXT];  /* 0..1: the flare after it took a kart */
+  /* assault: each objective's marker (a ring, a see-through wall round a zone, a beam over a target), and the gates */
+  t3_object *as_mark[ASSAULT_MAXO], *as_ring[ASSAULT_MAXO], *as_wall[ASSAULT_MAXO], *as_beam[ASSAULT_MAXO];
+  t3_material *as_ring_mat[ASSAULT_MAXO], *as_wall_mat[ASSAULT_MAXO], *as_beam_mat[ASSAULT_MAXO];
+  int ngate, gate[32];
+  float gate_t[32];             /* the time it went (0: standing) */
+  float as_hit[ASSAULT_MAXO];   /* 0..1: the flash after a hit */
+  int as_tick;
   int tele_tick;
   t3_geometry *geo[16];
   int ngeo;
-  t3_material *mats[40];
+  t3_material *mats[120];
   int nmat;
 } M;
 
@@ -49,7 +56,7 @@ static t3_geometry *keep(t3_geometry *g) {
   return g;
 }
 static t3_material *keepm(t3_material *m) {
-  if (m && M.nmat < 40) M.mats[M.nmat++] = m;
+  if (m && M.nmat < 120) M.mats[M.nmat++] = m;
   return m;
 }
 
@@ -125,7 +132,33 @@ void modes_gfx_build(cw_node scene, const sim *s) {
   t3_geometry_rotate_x(disc, -PI * 0.5f);
   t3_geometry *wall = keep(t3_cylinder_geometry_new(1.0f, 1.0f, 1.0f, 48, 1, true));
   t3_geometry_translate(wall, 0, 0.5f, 0);
-  if (s->amode == AM_CTF) {
+  if (s->amode == AM_ASSAULT && s->arena->def->assault) {
+    const assault_def *d = s->arena->def->assault;
+    static const float GOLD[3] = { 1.0f, 0.78f, 0.22f };
+    t3_geometry *bg = keep(t3_cylinder_geometry_new(0.5f, 0.9f, 1.0f, 16, 1, true));
+    t3_geometry_translate(bg, 0, 0.5f, 0);
+    for (int o = 0; o < d->nobjs && o < ASSAULT_MAXO; o++) {
+      const assault_obj *b = &d->objs[o];
+      if (b->kind == AO_TURRET) continue;
+      M.as_mark[o] = group_in(M.root);
+      t3_object_set_position(M.as_mark[o], b->x, b->y + 0.06f, b->z + ARENA_CZ);
+      M.as_ring_mat[o] = glow_mat(GOLD, 0.85f);
+      M.as_wall_mat[o] = glow_mat(GOLD, 0.15f);
+      M.as_beam_mat[o] = glow_mat(GOLD, 0.2f);
+      float r = b->kind == AO_DESTROY ? b->r + 2.5f : b->r;
+      M.as_ring[o] = mesh_in(M.as_mark[o], ring, M.as_ring_mat[o], false);
+      t3_object_set_scale(M.as_ring[o], r, 1, r);
+      if (b->kind != AO_DESTROY) {
+        M.as_wall[o] = mesh_in(M.as_mark[o], wall, M.as_wall_mat[o], false);
+        t3_object_set_scale(M.as_wall[o], r, 2.5f, r);
+      }
+      M.as_beam[o] = mesh_in(M.as_mark[o], bg, M.as_beam_mat[o], false);
+      t3_object_set_position(M.as_beam[o], 0, b->kind == AO_DESTROY ? b->h : 0, 0);
+      t3_object_set_scale(M.as_beam[o], 1, 40, 1);
+    }
+    M.ngate = arena_gates(s->arena, M.gate, 32);
+    (void)disc;
+  } else if (s->amode == AM_CTF) {
     /* the flag: a pole, a cloth off it, a ball on top (the cloth its own mesh, so it can wave) */
     mb pb = { 0 };
     float pole[3] = { 0.75f, 0.75f, 0.78f }, knob[3] = { 1.0f, 0.85f, 0.3f };
@@ -210,11 +243,69 @@ static void tele_frame(const sim *s, float t) {
   }
 }
 
+/* assault: the markers of the objectives that count now, flashing when hit; a hold's wall rising with the count; the gates
+ * that have gone sinking into the ground (and back up when the halves swap) */
+static void assault_frame(const sim *s, float t) {
+  const assault_def *d = s->arena ? s->arena->def->assault : NULL;
+  if (!d) return;
+  if (s->tick != M.as_tick) {
+    M.as_tick = s->tick;
+    for (int e = 0; e < s->ev_n; e++)
+      if (s->ev[e].kind == EV_OBJ && s->ev[e].b == OE_HIT) {
+        int o = (int)s->ev[e].k;
+        if (o >= 0 && o < ASSAULT_MAXO) M.as_hit[o] = 1.0f;
+      }
+  }
+  for (int o = 0; o < d->nobjs && o < ASSAULT_MAXO; o++) {
+    if (!M.as_mark[o]) continue;
+    const assault_obj *b = &d->objs[o];
+    bool live = b->stage == s->as_stage && !s->as_done[o] && s->as_break == 0;
+    M.as_mark[o]->visible = live;
+    if (!live) continue;
+    float hit = M.as_hit[o];
+    M.as_hit[o] = fmaxf(hit - 1.0f / 20.0f, 0);
+    float c[3] = { 1.0f, 0.78f, 0.22f };
+    if (b->kind == AO_HOLD && s->as_holder[o] == -2 && fmodf(t * 4.0f, 1.0f) < 0.5f) c[0] = 1.0f, c[1] = 0.15f, c[2] = 0.1f;
+    else if (b->kind == AO_HOLD && s->as_holder[o] >= 0) memcpy(c, TEAM_RGB[s->as_att & 1], sizeof c);
+    t3_color lc = lin(c[0] + hit, c[1] + hit, c[2] + hit);
+    M.as_ring_mat[o]->color = lc, M.as_wall_mat[o]->color = lc, M.as_beam_mat[o]->color = lc;
+    float frac = b->kind == AO_DESTROY && b->hp > 0 ? (float)s->as_hp[o] / (float)b->hp : 1.0f;
+    float rate = 2.0f + 6.0f * (1.0f - frac);
+    M.as_ring_mat[o]->opacity = 0.6f + 0.3f * sinf(t * rate) + 0.3f * hit;
+    M.as_beam_mat[o]->opacity = 0.12f + 0.06f * sinf(t * rate * 0.7f) + 0.3f * hit;
+    if (M.as_wall[o]) {
+      float held = b->kind == AO_HOLD && b->hp > 0 ? (float)s->as_hp[o] / (float)(b->hp * TICK_HZ) : 0;
+      float r = b->r * (1.0f + 0.03f * sinf(t * 2.5f));
+      t3_object_set_scale(M.as_wall[o], r, 1.5f + 6.0f * held + 0.3f * sinf(t * 2.0f), r);
+      M.as_wall_mat[o]->opacity = 0.12f + 0.2f * held;
+    }
+  }
+  for (int k = 0; k < M.ngate; k++) {
+    int g = M.gate[k];
+    bool open = g > 0 ? g - 1 < ASSAULT_MAXO && s->as_done[g - 1] : s->as_stage > -1 - g;
+    cw_node n = arena_gate_node(g);
+    if (!cw_node_valid(n)) continue;
+    if (!open) {
+      if (M.gate_t[k] != 0) M.gate_t[k] = 0, cw_node3d_set_position(n, (t3_vec3){ 0, 0, 0 });
+      continue;
+    }
+    /* down into the ground in a second and a half, a shudder first, then out of sight */
+    if (M.gate_t[k] == 0) M.gate_t[k] = t;
+    float u = t - M.gate_t[k], y = u < 0.25f ? 0.15f * sinf(u * 90.0f) : -(u - 0.25f) * (u - 0.25f) * 9.0f;
+    if (u > 2.5f) y = -400.0f;
+    cw_node3d_set_position(n, (t3_vec3){ 0.08f * sinf(u * 70.0f) * (u < 1.2f), y, 0 });
+  }
+}
+
 void modes_gfx_frame(const sim *s, float alpha) {
   if (!M.built || !s) return;
   float t = ((float)s->tick + alpha) / (float)TICK_HZ;
   if (M.ntele > 0 && s->arena) tele_frame(s, t);
   if (s->amode == AM_BALLOON) return;
+  if (s->amode == AM_ASSAULT) {
+    assault_frame(s, t);
+    return;
+  }
   if (s->amode == AM_CTF) {
     for (int tm = 0; tm < 2; tm++) {
       const struct ctf_flag *f = &s->flag[tm];

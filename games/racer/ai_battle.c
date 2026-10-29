@@ -170,21 +170,32 @@ static t3_vec3 pick_detour(const sim *s, const kart *k, t3_vec3 goal) {
   return at;
 }
 
-/* the route's shortest distances between its points (arena_def.route, links), worked out once per arena */
+/* the route's shortest distances between its points (arena_def.route, links), worked out once per arena, and again whenever
+ * an assault's gates change (a link a standing gate blocks is no way through) */
 static struct {
   const arena_def *def;
+  int sig;
   float d[ARENA_MAXR][ARENA_MAXR];
 } RT;
 
-static void route_prep(const arena_def *def) {
-  if (RT.def == def) return;
-  RT.def = def;
+static t3_vec3 route_pt(const sim *s, int i);
+static bool clear_line(const sim *s, t3_vec3 a, t3_vec3 b);
+static void route_prep(const sim *s) {
+  const arena_def *def = s->arena->def;
+  int sig = 0;
+  if (s->amode == AM_ASSAULT && def->assault) {
+    sig = 1 + s->as_stage * 4096;
+    for (int o = 0; o < def->assault->nobjs && o < 12; o++) sig += s->as_done[o] << o;
+  }
+  if (RT.def == def && RT.sig == sig) return;
+  RT.def = def, RT.sig = sig;
   int n = def->nroute > ARENA_MAXR ? ARENA_MAXR : def->nroute;
   for (int a = 0; a < n; a++)
     for (int b = 0; b < n; b++) RT.d[a][b] = a == b ? 0 : 1e9f;
   for (int l = 0; l < def->nlinks; l++) {
     int a = def->links[l][0], b = def->links[l][1];
     if (a >= n || b >= n) continue;
+    if (sig && !clear_line(s, route_pt(s, a), route_pt(s, b))) continue;
     float dx = def->route[a][0] - def->route[b][0], dz = def->route[a][1] - def->route[b][1];
     RT.d[a][b] = RT.d[b][a] = sqrtf(dx * dx + dz * dz);
   }
@@ -211,7 +222,7 @@ static t3_vec3 route_to(const sim *s, const kart *k, ai_mem *m, t3_vec3 goal) {
   const arena_def *d = s->arena->def;
   int n = d->nroute > ARENA_MAXR ? ARENA_MAXR : d->nroute;
   if (n <= 0) return goal;
-  route_prep(d);
+  route_prep(s);
   if (--m->b_node_t > 0) return m->b_node >= 0 ? route_pt(s, m->b_node) : goal;
   m->b_node_t = 8;
   int was = m->b_node;
@@ -268,11 +279,62 @@ static int foe_near(const sim *s, int me, t3_vec3 p, float r) {
   return best;
 }
 
+/* assault: the objectives that count now (the attackers' stage, not done), the one this driver works on (the team spread
+ * over them by kart order), -1 none */
+static int as_pick(const sim *s, int me) {
+  const assault_def *d = s->arena ? s->arena->def->assault : NULL;
+  if (!d || s->as_break > 0) return -1;
+  int live[ASSAULT_MAXO], n = 0;
+  for (int o = 0; o < d->nobjs && o < ASSAULT_MAXO; o++)
+    if (d->objs[o].kind != AO_TURRET && d->objs[o].stage == s->as_stage && !s->as_done[o]) live[n++] = o;
+  if (n == 0) return -1;
+  int before = 0;
+  for (int j = 0; j < me; j++) before += s->k[j].on && s->k[j].team == s->k[me].team;
+  return live[before % n];
+}
+static t3_vec3 as_obj_at(const sim *s, int o) {
+  const assault_obj *b = &s->arena->def->assault->objs[o];
+  return (t3_vec3){ b->x, b->y, b->z + ARENA_CZ };
+}
+
+/* assault: an attacker drives at its objective (a target to shoot or ram, a zone to get into and stay in), a defender
+ * guards one and goes for any attacker that comes near it */
+static t3_vec3 assault_goal(const sim *s, int me, int *chase, bool *busy, bool *hold) {
+  const kart *k = &s->k[me];
+  int o = as_pick(s, me);
+  if (o < 0) return k->p;
+  const assault_obj *b = &s->arena->def->assault->objs[o];
+  t3_vec3 at = as_obj_at(s, o);
+  float d = flat_dist(k->p, at);
+  if ((k->team & 1) == s->as_att) {
+    if (b->kind == AO_DESTROY) {
+      /* in at it, lined up to shoot (the blaster, a missile) or to ram with a turbo. The way is planned to a point just
+       * off it on this side: the target itself is solid, and nothing on the route ever has it in sight */
+      *busy = k->item != IT_NONE;
+      *chase = foe_near(s, me, k->p, 16.0f);
+      t3_vec3 to = { k->p.x - at.x, 0, k->p.z - at.z };
+      float l = sqrtf(to.x * to.x + to.z * to.z);
+      if (l < b->r + 3.0f) return at;
+      float off = b->r + 6.0f;
+      return (t3_vec3){ at.x + to.x / l * off, at.y, at.z + to.z / l * off };
+    }
+    *busy = d < b->r + 25.0f;
+    if (d < b->r + 8.0f) *chase = foe_near(s, me, at, b->r + 4.0f);
+    return d < b->r * 0.8f && b->kind == AO_HOLD ? orbit(s, me, at, b->r * 0.4f) : at;
+  }
+  /* a defender: after the attacker nearest the objective (within 45 m of it), else round it */
+  *chase = foe_near(s, me, at, 45.0f + b->r);
+  *busy = *chase >= 0;
+  *hold = *chase < 0;
+  return orbit(s, me, at, b->r + 9.0f);
+}
+
 /* capture the flag and king of the mountain: where this driver means to be, the kart to chase on the way (*chase, -1
  * none) and whether that is too urgent to turn aside for a box (*busy) */
 static t3_vec3 mode_goal(const sim *s, int me, int *chase, bool *busy, bool *hold) {
   const kart *k = &s->k[me];
   *chase = -1, *busy = false, *hold = false;
+  if (s->amode == AM_ASSAULT) return assault_goal(s, me, chase, busy, hold);
   if (s->amode == AM_KOTM) {
     float d = flat_dist(k->p, s->hill);
     *busy = d < HILL_R + 2.0f; /* off it, a box close by is worth the turn: an armed kart takes the hill back */
@@ -582,7 +644,7 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
       if (tgt >= 0 && flat_dist(s->k[tgt].p, k->p) < 26 && fabsf(bearing(k, s->k[tgt].p)) < 0.18f && clear_line(s, k->p, s->k[tgt].p)) use = true;
       if (m->b_hold > 8 * TICK_HZ && fc > 0.9f) use = true;
       /* capture the flag: on a long clear run at the goal, a turbo is speed (an attacker going for the flag, a carrier home) */
-      if (modes && s->amode == AM_CTF && fabsf(ang) < 0.22f && dist > 30.0f && fc > 0.98f && spd > 14.0f && m->b_hold > 20) use = true;
+      if (modes && mode_teams(s) && fabsf(ang) < 0.22f && dist > 30.0f && fc > 0.98f && spd > 14.0f && m->b_hold > 20) use = true;
       break;
     case IT_SHOCK:
       for (int j = 0; j < MAXK; j++) {
@@ -593,6 +655,23 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
       break;
     default: break;
     }
+    /* assault: an attacker's shot at its target (missiles, a boomerang, a bomb lobbed on it, a turbo to ram it) */
+    int ao = s->amode == AM_ASSAULT && (k->team & 1) == s->as_att ? as_pick(s, me) : -1;
+    if (ao >= 0 && s->arena->def->assault->objs[ao].kind == AO_DESTROY && !use) {
+      const assault_obj *b = &s->arena->def->assault->objs[ao];
+      t3_vec3 at = as_obj_at(s, ao);
+      float d = flat_dist(at, k->p), a = fabsf(bearing(k, at)), cone = cw_atan2(b->r * 0.8f, d);
+      switch (k->item) {
+      case IT_MISSILE:
+      case IT_MISSILE3:
+      case IT_HOMING:
+      case IT_BOOMERANG: use = d < 60.0f && a < cone; break;
+      case IT_BOMB: use = d > 9.0f && d < 30.0f && a < 0.3f; break;
+      case IT_TURBO:
+      case IT_TURBO3: use = d < 28.0f && a < cone * 0.8f && spd > 8.0f; break;
+      default: break;
+      }
+    }
     /* the rookies are slower on the trigger */
     int wait = m->skill == 2 ? 6 : m->skill == 1 ? 14 : 30;
     if (use && m->b_hold > wait && k->item_cool == 0 && k->spin_ticks == 0) {
@@ -602,5 +681,23 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
       m->b_think = 0;
     }
   } else m->b_hold = 0;
+  /* assault, nothing in hand: the blaster at a foe lined up in reach, or (an attacker) at its target */
+  if (s->amode == AM_ASSAULT && !armed && k->item_wait == 0 && k->spin_ticks == 0) {
+    bool fire = false;
+    for (int j = 0; j < MAXK && !fire; j++) {
+      const kart *o = &s->k[j];
+      if (j == me || !o->on || o->respawn_ticks > 0 || !kart_foe(s, me, j)) continue;
+      float d = flat_dist(o->p, k->p), a = bearing(k, v3add(o->p, v3mul(o->v, d / 85.0f)));
+      fire = d < 48.0f && fabsf(a) < 0.07f + 1.0f / (d + 8.0f) && fabsf(o->p.y - k->p.y) < 3.0f && clear_line(s, k->p, o->p);
+    }
+    int ao = (k->team & 1) == s->as_att ? as_pick(s, me) : -1;
+    if (!fire && ao >= 0 && s->arena->def->assault->objs[ao].kind == AO_DESTROY) {
+      t3_vec3 at = as_obj_at(s, ao);
+      float d = flat_dist(at, k->p);
+      fire = d < 55.0f && fabsf(bearing(k, at)) < cw_atan2(s->arena->def->assault->objs[ao].r * 0.8f, d) && fabsf(at.y - (k->p.y - 0.6f)) < 3.0f;
+    }
+    /* the rookies hold off a moment; nobody sprays it at nothing */
+    if (fire && (m->skill > 0 || (s->tick + me * 7) % 40 < 24)) in.btn |= KB_ITEM;
+  }
   return in;
 }
