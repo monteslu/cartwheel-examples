@@ -383,7 +383,7 @@ static kin human_in(int kart) {
       if (G.S.k[kart].air_ticks > 14 && G.S.k[kart].air_ticks < 18) b.btn |= KB_TRICK;
       if (G.bot == 2) {
         /* RACER_BOT=keys: a keyboard driver, steering all or nothing through the same easing as a held key */
-        float want = fabsf(b.steer) < 20 ? 0.0f : (b.steer > 0 ? 1.0f : -1.0f), *ss = &steer_smooth[G.human_of[kart]];
+        float want = abs(b.steer) < 20 ? 0.0f : (b.steer > 0 ? 1.0f : -1.0f), *ss = &steer_smooth[G.human_of[kart]];
         *ss += (want - *ss) * (fabsf(want) > fabsf(*ss) ? 0.13f : 0.24f);
         b.steer = q127(*ss);
         b.btn &= ~KB_DRIFT;

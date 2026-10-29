@@ -262,10 +262,13 @@ typedef struct sim {
   /* capture the flag: the score, each team's flag and base */
   int team_score[2];
   int win_team;            /* at the end: the team that won, -1 a draw */
+  /* own flag away this long: a carrier at its base scores anyway (no 0-0 standoff) */
+#define FLAG_AWAY_SCORE (20 * TICK_HZ)
   struct ctf_flag {
     int state;             /* FL_* */
     int carrier;           /* the kart carrying it (FL_CARRIED) */
     int timer;             /* FL_DROPPED: ticks until it goes home by itself */
+    int away;              /* ticks since it last left its base (0 at home) */
     t3_vec3 p;             /* where it is (home: on its base) */
   } flag[2];
   t3_vec3 base[2];

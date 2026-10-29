@@ -187,6 +187,7 @@ static void flag_home(sim *s, int t) {
   s->flag[t].state = FL_HOME;
   s->flag[t].carrier = -1;
   s->flag[t].timer = 0;
+  s->flag[t].away = 0;
   s->flag[t].p = s->base[t];
 }
 
@@ -724,6 +725,7 @@ static bool battle_near(t3_vec3 p, t3_vec3 at, float r) {
 static void ctf_step(sim *s) {
   for (int t = 0; t < 2; t++) {
     struct ctf_flag *f = &s->flag[t];
+    if (f->state != FL_HOME) f->away++;
     if (f->state == FL_CARRIED) f->p = s->k[f->carrier].p;
     else if (f->state == FL_DROPPED && --f->timer <= 0) {
       flag_home(s, t);
@@ -751,8 +753,9 @@ static void ctf_step(sim *s) {
       k->steals++, k->points++;
       event(s, EV_FLAG, i, FE_TAKEN, k->p, (float)other);
     }
-    /* home with it, its own flag at home: a capture */
-    if (k->carry >= 0 && mine->state == FL_HOME && battle_near(k->p, s->base[own], BASE_R)) {
+    /* home with it, its own flag at home (or away so long the round would stall: both teams holding the other's flag at
+     * their bases left whole rounds at 0-0): a capture */
+    if (k->carry >= 0 && (mine->state == FL_HOME || mine->away >= FLAG_AWAY_SCORE) && battle_near(k->p, s->base[own], BASE_R)) {
       int t = k->carry;
       k->carry = -1;
       flag_home(s, t);

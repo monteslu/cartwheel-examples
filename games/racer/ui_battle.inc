@@ -590,7 +590,10 @@ static void hud_mode_pointer(const hv *g) {
   } else {
     int mine = k->team & 1, other = mine ^ 1;
     const struct ctf_flag *own = &S->flag[mine], *theirs = &S->flag[other];
-    if (k->carry >= 0) at = S->base[mine], what = own->state == FL_HOME ? "TAKE IT HOME" : "HOME (GET YOUR FLAG BACK!)", c = team_col(mine);
+    static char wait[40];
+    if (k->carry >= 0 && own->state != FL_HOME && own->away < FLAG_AWAY_SCORE)
+      snprintf(wait, sizeof wait, "HOME (SCORES IN %ds)", (FLAG_AWAY_SCORE - own->away + TICK_HZ - 1) / TICK_HZ);
+    if (k->carry >= 0) at = S->base[mine], what = own->state == FL_HOME || own->away >= FLAG_AWAY_SCORE ? "TAKE IT HOME" : wait, c = team_col(mine);
     else if (own->state == FL_CARRIED) at = own->p, what = "GET YOUR FLAG BACK", c = team_col(mine);
     else if (own->state == FL_DROPPED) at = own->p, what = "SEND YOUR FLAG HOME", c = team_col(mine);
     else if (theirs->state == FL_CARRIED) at = S->base[mine], what = "ESCORT IT HOME", c = team_col(mine);
