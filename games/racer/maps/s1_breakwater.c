@@ -247,11 +247,14 @@ static void breakwater_scenery(cw_node scene, const track *t, uint32_t seed) {
     float x = 120.0f + (float)i * 9.0f, z = -hz - 30.0f - (float)i * 14.0f + cz;
     ps_add(ps, PK_BOULDERS, (t3_vec3){ x, -1.4f, z }, hf(2200u + (uint32_t)i) * 6.28f, 1.6f + 0.6f * hf(2210u + (uint32_t)i), 2220u + (uint32_t)i);
   }
-  ps_add(ps, PK_WRECK_TRUCK, (t3_vec3){ -40, -1.6f, -hz - 80 + cz }, 0.7f, 2.2f, 2301u);
-  ps_add(ps, PK_WRECK_TRUCK, (t3_vec3){ 70, -1.8f, -hz - 140 + cz }, 2.4f, 2.6f, 2302u);
+  ps_add(ps, PK_WRECK_TRUCK, (t3_vec3){ -40, coast_ground(-40, -hz - 80 + cz, NULL) - 0.3f, -hz - 80 + cz }, 0.7f, 2.2f, 2301u);
+  ps_add(ps, PK_WRECK_TRUCK, (t3_vec3){ 70, coast_ground(70, -hz - 140 + cz, NULL) - 0.3f, -hz - 140 + cz }, 2.4f, 2.6f, 2302u);
   /* the lighthouse and the radio masts on the plateau, pines along the headlands */
   ps_add(ps, PK_SILO, (t3_vec3){ -150, coast_ground(-150, cz - 260, NULL), cz - 260 }, 0.0f, 1.2f, 2310u);
-  for (int i = 0; i < 4; i++) ps_add(ps, PK_ANTENNA, (t3_vec3){ -60.0f + (float)i * 40.0f, 18.0f, hz + 30 + cz }, 0, 1.6f, 2320u + (uint32_t)i);
+  for (int i = 0; i < 4; i++) {
+    float x = -60.0f + (float)i * 40.0f, z = hz + 30 + cz;
+    ps_add(ps, PK_ANTENNA, (t3_vec3){ x, coast_ground(x, z, NULL) - 0.3f, z }, 0, 1.6f, 2320u + (uint32_t)i);
+  }
   for (int i = 0; i < (split ? 18 : 40); i++) {
     float side = i & 1 ? 1.0f : -1.0f, x = side * (hx + 30 + 140 * hf(2400u + (uint32_t)i)), z = (hf(2410u + (uint32_t)i) * 2 - 1) * hz * 0.9f + cz + 60;
     ps_add(ps, PK_PINE, (t3_vec3){ x, coast_ground(x, z, NULL) - 0.2f, z }, hf(2420u + (uint32_t)i) * 6.28f, 1.0f + 0.5f * hf(2430u + (uint32_t)i), 2440u + (uint32_t)i);

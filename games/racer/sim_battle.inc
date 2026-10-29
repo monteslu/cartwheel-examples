@@ -885,7 +885,7 @@ static void battle_thrown_step(sim *s, hazard *z) {
     if (sim_ray(s, z->p, step, &fr, &n) && absf(n.y) < 0.6f) z->speed = 0; /* it hit a wall: it drops there */
     else z->p = v3add(z->p, step);
     z->p.y += z->vy * DT;
-    z->vy -= GRAV * DT;
+    z->vy -= PH.grav * DT;
     float fl = battle_floor(s, z->p.x, z->p.y + 1.0f, z->p.z);
     if (z->vy < 0 && fl > -50 && z->p.y <= fl + 0.35f) z->p.y = fl + 0.35f, z->state = 1, z->life = BOMB_FUSE;
     if (z->p.y < -20) {

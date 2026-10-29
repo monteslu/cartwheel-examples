@@ -496,7 +496,7 @@ static void stars(cw_node parent, const char *name, int n, uint32_t seed, float 
   t3_release(me), t3_release(g), t3_release(m);
 }
 
-static void build_sky(cw_node scene) {
+void space_sky_build(cw_node scene) {
   cw_node root = cw_node_new("Node3D", "Sky");
   cw_node_add_child(scene, root);
   t3_texture *dome = make_dome();
@@ -632,7 +632,7 @@ static void spires_scenery(cw_node scene, const track *t, uint32_t seed) {
   bool split = game_planned_views() > 1;
   memset(&SKY, 0, sizeof SKY);
   arena_gfx_build(scene, a, seed);
-  build_sky(scene);
+  space_sky_build(scene);
   cw_node root = cw_node_new("Node3D", "SpiresDressing");
   cw_node_add_child(scene, root);
   float cz = ARENA_CZ;

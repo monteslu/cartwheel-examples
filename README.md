@@ -133,14 +133,18 @@ A wacky radio announcer calls the race, and pads rumble on hits and bumps.
 
 Modes: single races and cups over three speed classes, a time trial against
 your own ghost for medals, balloon battles in four arenas, capture the flag
-on two long maps (one a tower-to-tower asteroid in space, with teleports up
-the towers and a drive off the roof) with team-colour outlines, king of
+on four long maps (a tower-to-tower asteroid in space with teleports up the
+towers and a drive off the roof, a red canyon, two dams across a flooded
+canyon with a broken bridge to jump, and a low-gravity orbital foundry) with
+team-colour outlines, king of
 the mountain, and assault after UT99's: one team storms a fortress stage by
 stage (blow the gates, break the targets, hold the zones, get out) while the
 other holds it with gun nests, then they swap and the second attack has to
 beat the first one's time. Four assault maps: a beach landing up a sea cliff,
 a jungle temple keep, a prison breakout down a canyon and an oil rig over
-open sea. One player against seven CPU drivers, or two to four on a split
+open sea. The arenas add flak, shock orbs (set one off with a blaster bolt
+for the combo), rocket pods and a rail lance to the item boxes. One player
+against seven CPU drivers, or two to four on a split
 screen, one pad each. `games/racer/`
 
 ### spout

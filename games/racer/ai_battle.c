@@ -462,16 +462,20 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
     t3_vec3 pad;
     /* up a level at a time: the ramp to the goal's level, and if its foot is still above this kart, the ramp to that, and so
      * on (a pyramid's stair, then the ramp up its upper tier) */
+    bool on_ramp = false;
     for (int up = 0; up < 3 && goal_lv > my_lv + 1.5f; up++) {
       t3_vec3 g2 = via_ramp(s, k, goal, goal_lv, &ramp);
       if (!ramp) break;
       goal = g2;
       float foot_lv = arena_level(s->arena, goal.x, goal.z);
-      if (foot_lv >= goal_lv - 0.8f) break; /* on it (aiming off its top): no lower foot to go for */
+      if (foot_lv >= goal_lv - 0.8f) {
+        on_ramp = true; /* on it (aiming off its top): straight up it, no route (the route's points are all down here) */
+        break;
+      }
       goal_lv = foot_lv;
     }
     if (!ramp && fabsf(goal_lv - my_lv) > 3.0f && via_tele(s, k, my_lv, goal, goal_lv, &pad)) goal = pad;
-    goal = route_to(s, k, m, goal);
+    if (!on_ramp) goal = route_to(s, k, m, goal);
   }
   float ang = bearing(k, goal), dist = flat_dist(goal, k->p);
   if (flat_dist(goal, m->b_aim) > 8.0f) m->b_best_d = 0; /* a new goal (not one on the move): no nearer to it yet is not being stuck */

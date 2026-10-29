@@ -182,6 +182,8 @@ typedef struct arena_def {
   int modes;
   /* a rock to drive on as well as (or instead of) the decks, NULL none */
   const arena_terrain *terrain;
+  /* the pull down (1 or 0: Earth's; Spindle's low gravity is less) */
+  float gravity;
   /* an assault map's objectives and spawns (list it with modes = 1 << AM_ASSAULT) */
   const assault_def *assault;
 } arena_def;
@@ -226,6 +228,9 @@ void arena_phys_build(const arena_rt *rt, cw_body3d b, int track_layer, int wall
 int arena_gates(const arena_rt *rt, int *gates, int max);
 /* the drawn arena: floor, walls, cover, ramps, decks, markings (a map's scenery() calls it first) */
 void arena_gfx_build(cw_node scene, const arena_rt *rt, uint32_t seed);
+/* space as Twin Spires paints it (maps/a5_spires.c): the starry dome, a world and its moon, a galaxy, the sun. For any arena
+ * out in space */
+void space_sky_build(cw_node scene);
 /* a gate's drawn shapes (arena_prim.gate): the node they hang under (modes_gfx sinks it when the gate goes); invalid none */
 cw_node arena_gate_node(int gate);
 /* a point given in shape i's own frame (x across, y up from its base, z along) in the world, and back (x and z only) */

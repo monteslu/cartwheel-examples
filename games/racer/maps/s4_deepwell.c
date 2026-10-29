@@ -189,7 +189,7 @@ static void deepwell_scenery(cw_node scene, const track *t, uint32_t seed) {
   prop_set *ps = ps_new(scene, "RigProps");
   float cz = ARENA_CZ;
   /* the rig's tall gear: the flare stack, cranes on the pump decks, tanks, and other rigs far off */
-  ps_add(ps, PK_FLARE_STACK, (t3_vec3){ 60, 6, cz + 80 }, 0.0f, 1.6f, 5101u);
+  ps_add(ps, PK_FLARE_STACK, (t3_vec3){ 34, 6, cz + 34 }, 0.0f, 1.6f, 5101u);
   ps_add(ps, PK_CRANE, (t3_vec3){ 112, 6, cz + 14 }, 2.6f, 0.9f, 5102u);
   ps_add(ps, PK_CRANE, (t3_vec3){ -112, 6, cz - 14 }, -0.6f, 0.9f, 5103u);
   ps_add(ps, PK_TANK, (t3_vec3){ 14, 6, cz + 112 }, 0.0f, 0.7f, 5104u);

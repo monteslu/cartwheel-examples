@@ -86,6 +86,7 @@ static struct {
   int ngate, gate[32];
   cw_body3d gateb[32];
   bool gate_up[32];
+  float grav;           /* the world's pull (GRAV, or an arena's own) */
 } PH;
 
 /* battle mode (sim_battle.inc, included after spin_kart) */
@@ -210,7 +211,9 @@ static void car_make(int i, const vehicle_def *vd, bool arena) {
 static void world_make(sim *s, const map_def *map, const bool on[MAXK], const int veh[MAXK]) {
   phys_free();
   cw_world3d_def d = cw_world3d_default_def();
-  d.gravity = (t3_vec3){ 0, -GRAV, 0 };
+  /* an arena may pull less (arena_def.gravity: a station in space) */
+  PH.grav = GRAV * (s->battle && s->arena && s->arena->def->gravity > 0 ? s->arena->def->gravity : 1.0f);
+  d.gravity = (t3_vec3){ 0, -PH.grav, 0 };
   d.workers = 0;
   d.substeps = 4;
   d.hit_speed = 3.0f;
