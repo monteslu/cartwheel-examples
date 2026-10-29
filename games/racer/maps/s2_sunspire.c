@@ -157,10 +157,10 @@ static const arena_def ARENA = {
   .modes = 1 << AM_ASSAULT,
   .assault = &ASSAULT,
   .look = {
-    [AL_FLOOR] = { TEX_GROUND_GRASS, { 0.6f, 0.78f, 0.42f }, 1.2f, 9.0f, 0.95f, 0 },
-    [AL_WALL] = { TEX_WALL_STONE, { 0.74f, 0.7f, 0.58f }, 1.35f, 6.0f, 0.95f, 0 },
+    [AL_FLOOR] = { TEX_GROUND_MUD, { 0.56f, 0.6f, 0.38f }, 1.2f, 9.0f, 0.95f, 0 },
+    [AL_WALL] = { TEX_WALL_STONE, { 0.6f, 0.64f, 0.5f }, 1.3f, 6.0f, 0.95f, 0 },
     [AL_COVER] = { TEX_WALL_STONE, { 0.8f, 0.76f, 0.62f }, 1.35f, 4.0f, 0.95f, 0 },
-    [AL_DECK] = { TEX_ROAD_STONE, { 0.82f, 0.76f, 0.6f }, 1.35f, 8.0f, 0.95f, 0 },
+    [AL_DECK] = { TEX_ROAD_STONE, { 0.68f, 0.68f, 0.52f }, 1.3f, 8.0f, 0.95f, 0 },
     [AL_RAMP] = { TEX_ROAD_STONE, { 0.86f, 0.8f, 0.64f }, 1.35f, 6.0f, 0.95f, 0 },
     [AL_TRIM] = { TEX_WALL_STONE, { 0.66f, 0.62f, 0.5f }, 1.3f, 2.0f, 0.95f, 0 },
     [AL_FEATURE] = { TEX_GROUND_ROCK, { 0.66f, 0.66f, 0.56f }, 1.4f, 9.0f, 0.95f, 0 },
@@ -182,7 +182,8 @@ static float jungle_ground(float x, float z, void *ud) {
   float lz = z - ARENA_CZ, side = fmaxf(fabsf(x) - 93.0f, fabsf(lz) - 333.0f);
   if (side <= 0) return -0.05f;
   /* the valley's sides up to the keep's terrace and on into hills, the cliff band running out across them */
-  float h = fminf(side * 0.6f, 14.0f) + ground_noise(x, z, 90, 14, 3, 53) * fminf(side / 60.0f, 1.0f);
+  /* the valley's jungle slopes, steep from the walls' feet to well over them */
+  float h = fminf(4.0f + side * 1.1f, 30.0f) + ground_noise(x, z, 90, 14, 3, 53) * fminf(side / 60.0f, 1.0f);
   if (fabsf(lz + 185.0f) < 20.0f) h = fmaxf(h, 16.0f - fabsf(lz + 185.0f) * 0.3f);
   if (lz > 0) h = fmaxf(h, 8.0f + fminf(side * 0.4f, 10.0f));
   return h;
@@ -219,6 +220,13 @@ static void sunspire_scenery(cw_node scene, const track *t, uint32_t seed) {
   for (int i = 0; i < (split ? 20 : 50); i++) {
     float side = i & 1 ? 1.0f : -1.0f, z = (hf(3200u + (uint32_t)i) * 2 - 1) * hz, x = side * (hx + 4 + 6 * hf(3210u + (uint32_t)i));
     ps_add(ps, PK_FERN, (t3_vec3){ x, jungle_ground(x, z + cz, NULL), z + cz }, hf(3220u + (uint32_t)i) * 6.28f, 1.0f + 0.6f * hf(3230u + (uint32_t)i), 3240u + (uint32_t)i);
+  }
+  /* canopy giants just inside the valley's walls, leaning over the road (the jungle has the place back) */
+  for (int i = 0; i < (split ? 10 : 24); i++) {
+    float side = i & 1 ? 1.0f : -1.0f, z = -hz + 20 + (float)(i / 2) * (2 * hz / (float)((split ? 10 : 24) / 2)) + 10 * hf(3500u + (uint32_t)i);
+    float lz = z, y = lz > 0 ? 8.0f : 0.0f; /* (on the keep's terrace past the gate) */
+    if (lz > -200 && lz < -170) continue; /* (not in the cliff) */
+    ps_add(ps, PK_JUNGLE_TREE, (t3_vec3){ side * (hx - 3.0f), y, z + cz }, hf(3510u + (uint32_t)i) * 6.28f, 1.3f + 0.5f * hf(3520u + (uint32_t)i), 3530u + (uint32_t)i);
   }
   /* ruins in the valley and statues on the terrace's edge, torches along the battlements */
   ps_add(ps, PK_RUIN_ARCH, (t3_vec3){ -70, 0, -150 + cz }, 0.3f, 1.4f, 3301u);
