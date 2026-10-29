@@ -933,6 +933,21 @@ static bool crossing_below(const track *t, int i, float x, float z) {
   return false;
 }
 
+/* how far (on the ground plane) a pier under sample a stands from the nearest road edge of another, lower stretch */
+static float lower_road_dist(const track *t, const tsample *a) {
+  float best = 1e9f;
+  for (int j = 0; j < t->n; j++) {
+    const tsample *o = &t->s[j];
+    float ds = fabsf(o->s - a->s);
+    if (t->circuit) ds = fminf(ds, t->length - ds);
+    if (ds < 30 || o->p.y > a->p.y - 3.0f) continue;
+    float dx = o->p.x - a->p.x, dz = o->p.z - a->p.z, d = sqrtf(dx * dx + dz * dz);
+    if (d > 0.6f * ds) continue; /* the same stretch further down its own slope, not another road passing by */
+    best = fminf(best, d);
+  }
+  return best;
+}
+
 /* arches of mossy masonry under every raised stretch of road (not the bridge, loop or jump gap) */
 static void build_viaduct(cw_node parent, const track *t) {
   pmc *c = pmc_new(70, 51);
@@ -952,8 +967,19 @@ static void build_viaduct(cw_node parent, const track *t) {
     float g0 = gy(a->p.x, a->p.z), g1 = gy(e->p.x, e->p.z);
     if (a->p.y - g0 < 3.0f || e->p.y - g1 < 3.0f) continue;
     if (crossing_below(t, i, a->p.x, a->p.z)) continue;
+    /* a span right beside a lower road (the helix's last turn passes over the approach to it) was a solid carved wall
+     * 20 m high filling a third of that view: there it is an open span, a slim deck beam on slim columns */
+    bool open_span = fminf(lower_road_dist(t, a), lower_road_dist(t, e)) < a->hw + 30.0f;
     int strips = 10;
-    for (int si = 0; si < strips; si++) {
+    for (int si = 0; si < strips && open_span; si++) {
+      float f0 = (float)si / (float)strips, fm = f0 + 0.5f / (float)strips;
+      tsample m = track_at(t, a->s + (e->s - a->s) * fm);
+      pm *w = at(c, V(m.p.x, m.p.y - 0.7f - 1.1f, m.p.z));
+      pm_roty(w, yaw_of(V(m.f.x, 0, m.f.z)));
+      pm_box(w, 2 * m.hw * 0.5f, 1.1f, (e->s - a->s) / (float)strips * 1.04f, pc_mul(stone0, 0.9f), stone1);
+      pm_pop(w);
+    }
+    for (int si = 0; si < strips && !open_span; si++) {
       float f0 = (float)si / (float)strips, f1 = (float)(si + 1) / (float)strips, fm = (f0 + f1) * 0.5f;
       tsample m = track_at(t, a->s + (e->s - a->s) * fm);
       float g = gy(m.p.x, m.p.z), topy = m.p.y - 0.7f;
@@ -982,8 +1008,27 @@ static void build_viaduct(cw_node parent, const track *t) {
     for (int e2 = 0; e2 < 2; e2++) { /* the pier at each end */
       const tsample *pa = e2 ? e : a;
       float g = e2 ? g1 : g0;
+      /* a pier standing beside another, lower stretch of road (the helix's approach runs under the high road) filled
+       * a third of the view there: near a road below it is a slim column, and right beside one it is left out */
+      float room_m = lower_road_dist(t, pa);
+      if (room_m < pa->hw + 8.0f) continue;
+      bool slim = room_m < pa->hw + 30.0f;
       pm *w = at(c, V(pa->p.x, g, pa->p.z));
       pm_roty(w, yaw_of(V(pa->f.x, 0, pa->f.z)));
+      if (slim) {
+        pm_cyl(w, 1.5f, 1.25f, pa->p.y - 0.7f - g, 10, stone0, stone1);
+        pm_push(w);
+        pm_move(w, 0, pa->p.y - 0.7f - g - 1.4f, 0);
+        pm_cyl(w, 1.7f, 1.7f, 0.35f, 10, pc_mul(GOLD, 0.7f), GOLD);
+        pm_pop(w);
+        /* a corbel under the deck */
+        pm_push(w);
+        pm_move(w, 0, pa->p.y - 0.7f - g - 1.05f, 0);
+        pm_box(w, 2 * pa->hw * 0.5f, 1.05f, 2.2f, stone0, stone1);
+        pm_pop(w);
+        pm_pop(w);
+        continue;
+      }
       pm_box(w, 2 * pa->hw * 0.76f, pa->p.y - 0.7f - g, 3.6f, stone0, stone1);
       /* a gold collar and a cap where the arch springs */
       pm_push(w);
@@ -1104,16 +1149,33 @@ static void tunnel_mass(pmc *c, const track *t, float s0, float s1, bool to_grou
     float hw = a.hw, Wout = hw + 4.8f;
     float roadtop = fmaxf(lo.p.y, hi.p.y);
     float roof = roadtop + 8.5f;
-    float base = to_ground ? gy(a.p.x, a.p.z) - 3.0f : a.p.y - 1.4f;
+    /* the high tunnel's mass stood to the ground in tiers stepping 2.6 m out each (over 50 m wide at its foot) right
+     * beside the road that runs under it to the helix: a third of the view there. Near a road below, the tiers stand
+     * straight, and close to one the mass stops under the road on a pair of carved columns instead */
+    float room_m = to_ground ? lower_road_dist(t, &a) : 1e9f;
+    float step_out = 2.6f * clampf((room_m - 25.0f) / 45.0f, 0.0f, 1.0f);
+    bool columns = room_m < 45.0f;
+    float ground = to_ground ? gy(a.p.x, a.p.z) - 3.0f : a.p.y - 1.4f;
+    float base = columns ? a.p.y - 9.0f : ground;
     float yaw = yaw_of(V(a.f.x, 0, a.f.z));
     pm *b = at(c, V(a.p.x, base, a.p.z));
     pm_roty(b, yaw);
     pm_vary(b, 0.08f);
     pcol lo_c = (int)(s / seg) & 1 ? pc_mul(STONE_D, 0.85f) : STONE_D;
+    if (columns && ((int)(s / seg) % 3) == 0) {
+      for (int k = -1; k <= 1; k += 2) { /* round columns down to the ground under the block, with gold collars */
+        pm_push(b);
+        pm_move(b, (float)k * (hw + 1.0f), ground - base, 0);
+        pm_cyl(b, 1.5f, 1.3f, base - ground + 0.2f, 10, pc_mul(STONE_MOSS, 0.7f), STONE_D);
+        pm_move(b, 0, base - ground - 1.3f, 0);
+        pm_cyl(b, 1.75f, 1.75f, 0.4f, 10, pc_mul(GOLD, 0.7f), GOLD);
+        pm_pop(b);
+      }
+    }
     float H = roof - base;
     int K = to_ground ? (int)clampf(H / 9.0f, 1.0f, 7.0f) : 1;
     for (int tier = 0; tier < K; tier++) {
-      float y0 = H * (float)tier / (float)K, y1 = H * (float)(tier + 1) / (float)K, W = Wout + (float)(K - 1 - tier) * 2.6f;
+      float y0 = H * (float)tier / (float)K, y1 = H * (float)(tier + 1) / (float)K, W = Wout + (float)(K - 1 - tier) * step_out;
       float kk = (float)tier / (float)K;
       pcol c0 = pc_mix(pc_mul(STONE_MOSS, 0.7f), lo_c, clampf(kk * 2.0f, 0, 1)), c1 = pc_mix(STONE_L, STONE_MOSS, 0.3f * (1.0f - kk));
       for (int k = -1; k <= 1; k += 2) {
@@ -1619,6 +1681,182 @@ static void build_waterfall(cw_node scene, const track *t) {
   fx_ambient_at(scene, FXA_STEAM, base, V(7, 2.5f, 3), 1.6f, 190);
   fx_ambient_at(scene, FXA_MIST, V(base.x, 3.0f, base.z), V(14, 3.0f, 8), 0.45f, 200);
   
+}
+
+/* ── the jump's grounds: ruins under the flight ──────────────────────────────────────────────────────
+ * From the top of the jump ramp and in the air the kart looks down on the ground round it, and that was bare low-poly
+ * earth between the trees. Now it is a ruined court: broken walls along both sides with vines over them, a colonnade of
+ * column stumps (a few toppled), two giant guardians facing the landing and, off to one side, a spring that drops over a
+ * stepped outcrop into a pool. Everything stands on the ground (sunk into it a little) and well clear of the road's
+ * footprint, the gap's included. */
+static bool ruin_clear(const track *t, float x, float z, float need) {
+  float ry;
+  return road_gap(t, x, z, &ry) > need;
+}
+
+static void build_jump_ruins(cw_node scene, const track *t) {
+  if (C.gap1 <= C.gap0) return;
+  rng r = { 8181 };
+  pmc *c = pmc_new(70, 83);
+  pmc_texture_metres(c, 4.0f);
+  pcol moss = pc_mix(STONE_MOSS, STONE_D, 0.35f), top = pc_mix(STONE_L, STONE_MOSS, 0.45f);
+  int walls = 0, cols = 0;
+  /* broken walls both sides, from before the ramp to past the landing */
+  for (float s = C.gap0 - 70.0f; s < C.gap1 + 80.0f; s += 8.5f) {
+    for (int side = -1; side <= 1; side += 2) {
+      float keep = rnd(&r), latj = rnd(&r), hj = rnd(&r), hj2 = rnd(&r), lenj = rnd(&r);
+      if (keep < 0.35f) continue;
+      tsample a = track_at(t, s);
+      float hw = 6.5f, lat = (float)side * (hw + 7.0f + latj * 4.0f), len = 5.0f + lenj * 3.0f;
+      t3_vec3 p = track_point(t, s, lat, 0);
+      if (!ruin_clear(t, p.x, p.z, 6.5f)) continue;
+      float g = gy(p.x, p.z);
+      pm *b = at(c, V(p.x, g - 0.6f, p.z));
+      pm_roty(b, yaw_of(V(a.f.x, 0, a.f.z)));
+      pm_vary(b, 0.1f);
+      float h1 = 1.6f + 3.0f * hj, h2 = h1 * (0.35f + 0.5f * hj2);
+      /* two courses of different height: a broken top */
+      pm_push(b);
+      pm_move(b, 0, 0, -len * 0.22f);
+      pm_box(b, 1.3f, h1 + 0.6f, len * 0.56f, moss, top);
+      pm_pop(b);
+      pm_push(b);
+      pm_move(b, 0, 0, len * 0.28f);
+      pm_box(b, 1.3f, h2 + 0.6f, len * 0.44f, moss, top);
+      pm_pop(b);
+      /* a fallen block at its foot, on the far side */
+      pm_push(b);
+      pm_move(b, (float)side * 1.6f, 0.2f, len * 0.1f);
+      pm_roty(b, 0.5f);
+      pm_box(b, 1.0f, 0.8f, 1.4f, moss, top);
+      pm_pop(b);
+      pm_pop(b);
+      /* vines over its top, hanging on the road side */
+      t3_vec3 v = vadd(V(p.x, g - 0.6f + h1 + 0.55f, p.z), vmul(V(a.r.x, 0, a.r.z), -(float)side * 0.66f));
+      inst_add(&D.vines, v, yaw_of(V(a.f.x, 0, a.f.z)) + 1.5708f, 0.22f + 0.1f * hj2);
+      walls++;
+    }
+  }
+  /* the colonnade: stumps and whole columns farther out, a few lying where they fell */
+  for (float s = C.gap0 - 50.0f; s < C.gap1 + 70.0f; s += 11.0f) {
+    for (int side = -1; side <= 1; side += 2) {
+      float latj = rnd(&r), hj = rnd(&r), fall = rnd(&r), yawj = rnd(&r);
+      tsample a = track_at(t, s);
+      float lat = (float)side * (6.5f + 15.0f + latj * 5.0f);
+      t3_vec3 p = track_point(t, s, lat, 0);
+      if (!ruin_clear(t, p.x, p.z, 10.0f)) continue;
+      float g = gy(p.x, p.z);
+      pm *b = at(c, V(p.x, g - 0.3f, p.z));
+      pm_vary(b, 0.08f);
+      if (fall < 0.22f) {
+        /* toppled: lying on the ground in three drums */
+        pm_roty(b, yawj * 6.28f);
+        for (int k = 0; k < 3; k++) {
+          pm_push(b);
+          pm_move(b, 0, 0.75f, -3.0f + 2.3f * (float)k + 0.15f * (float)k);
+          pm_rotx(b, 1.5708f);
+          pm_cyl(b, 0.8f, 0.8f, 2.2f, 10, moss, top);
+          pm_pop(b);
+        }
+      } else {
+        float h = fall < 0.6f ? 1.5f + 3.0f * hj : 7.0f + 2.5f * hj;
+        pm_box(b, 2.2f, 0.7f, 2.2f, moss, top); /* the base */
+        pm_push(b);
+        pm_move(b, 0, 0.7f, 0);
+        pm_cyl(b, 0.85f, 0.75f, h, 12, moss, top);
+        if (h > 6.0f) { /* a whole one keeps its capital, gilt under the moss */
+          pm_move(b, 0, h, 0);
+          pm_box(b, 2.3f, 0.5f, 2.3f, pc_mul(GOLD, 0.6f), pc_mix(GOLD, STONE_MOSS, 0.4f));
+          pm_move(b, 0, 0.5f, 0);
+          pm_box(b, 2.6f, 0.6f, 2.6f, moss, top);
+        }
+        pm_pop(b);
+        if (h > 6.0f) inst_add(&D.vines, V(p.x, g + 0.4f + h + 1.1f, p.z), yawj * 6.28f, 0.3f + 0.1f * hj);
+      }
+      pm_pop(b);
+      (void)a;
+      cols++;
+    }
+  }
+  /* two giant guardians beside the landing, facing the karts as they come down */
+  {
+    tsample a = track_at(t, C.gap1 + 18.0f);
+    for (int k = -1; k <= 1; k += 2) {
+      t3_vec3 p = track_point(t, C.gap1 + 18.0f, (float)k * (a.hw + 12.0f), 0);
+      if (!ruin_clear(t, p.x, p.z, 8.0f)) continue;
+      p.y = gy(p.x, p.z) - 0.2f;
+      inst_add(&D.guards, p, yaw_of(V(-a.f.x, 0, -a.f.z)) + (float)k * 0.35f, 2.1f);
+    }
+  }
+  /* the spring: a stepped outcrop to one side of the flight, water over its lip into a pool, rocks round the pool */
+  {
+    float s = 0.5f * (C.gap0 + C.gap1) - 6.0f;
+    tsample a = track_at(t, s);
+    int side = -1;
+    float lat = (float)side * (a.hw + 30.0f);
+    t3_vec3 p = track_point(t, s, lat, 0), f = V(a.f.x, 0, a.f.z), rr = V(a.r.x, 0, a.r.z);
+    if (ruin_clear(t, p.x, p.z, 20.0f)) {
+      float g = gy(p.x, p.z);
+      float yaw = yaw_of(vmul(rr, -(float)side)); /* the outcrop's +z faces the road */
+      pm *b = at(c, V(p.x, g - 1.0f, p.z));
+      pm_roty(b, yaw);
+      pm_vary(b, 0.12f);
+      pcol rock0 = pc_mul(STONE_MOSS, 0.6f), rock1 = pc_mix(STONE_D, STONE_MOSS, 0.5f);
+      pm_push(b);
+      pm_move(b, 0, 0, -6.0f);
+      pm_box(b, 22.0f, 12.0f, 10.0f, rock0, rock1);
+      pm_move(b, 0, 12.0f, -1.0f);
+      pm_box(b, 16.0f, 3.0f, 7.0f, rock0, pc_mul(STONE_MOSS, 1.2f));
+      pm_pop(b);
+      for (int k = -1; k <= 1; k += 2) { /* shoulders either side of the falls */
+        pm_push(b);
+        pm_move(b, (float)k * 7.5f, 0, -0.5f);
+        pm_box(b, 6.0f, 8.0f + 1.5f * (float)k, 4.0f, rock0, rock1);
+        pm_pop(b);
+      }
+      /* a carved spout: a stone face over the lip the water leaves from */
+      pm_push(b);
+      pm_move(b, 0, 10.4f, -0.6f);
+      pm_box(b, 4.6f, 2.6f, 1.2f, pc_mul(STONE_D, 0.9f), STONE_L);
+      pm_move(b, 0, 2.6f, 0);
+      pm_box(b, 5.4f, 0.5f, 1.4f, pc_mul(GOLD, 0.6f), GOLD);
+      pm_pop(b);
+      pm_pop(b);
+      /* the pool's rim stones */
+      for (int k = 0; k < 11; k++) {
+        float an = 3.14159f * ((float)k / 10.0f), rx = 9.0f, rz = 6.0f;
+        t3_vec3 q = vadd(vadd(p, vmul(rr, -(float)side * (4.0f + sinf(an) * rz))), vmul(f, cosf(an) * rx));
+        if (!ruin_clear(t, q.x, q.z, 8.0f)) continue;
+        pm *rb = at(c, V(q.x, gy(q.x, q.z) - 0.3f, q.z));
+        pm_vary(rb, 0.12f);
+        pm_rock(rb, 1.0f + 0.5f * (float)(k % 3), 0.6f, 0.3f, pc_mul(STONE_MOSS, 0.55f), pc_mix(STONE_D, STONE_MOSS, 0.4f));
+        pm_pop(rb);
+      }
+      /* the falling sheet, in the waterfall's own scrolling material */
+      if (FX.fall[0]) {
+        t3_mesh *me = t3_mesh_new(t3_plane_geometry_new(4.2f, 10.6f, 1, 1), FX.fall[0]);
+        me->base.cast_shadow = false;
+        t3_object *grp = t3_group_new();
+        t3_object_add(grp, me);
+        t3_release(me);
+        t3_vec3 fp = vadd(p, vmul(rr, -(float)side * 0.4f));
+        t3_object_set_position(grp, fp.x, g + 5.6f, fp.z);
+        t3_object_set_rotation(grp, 0, yaw, 0);
+        hang(scene, "SpringFall", grp);
+        t3_release(grp);
+      }
+      /* the pool */
+      water_opts wo = water_defaults();
+      wo.color = rgb(0.08f, 0.5f, 0.46f);
+      wo.deep = rgb(0.04f, 0.42f, 0.4f);
+      wo.clarity = 0.3f, wo.wave_height = 0.08f, wo.foam = 0.4f, wo.reflect = 0.0f, wo.refract = false;
+      t3_vec3 pc = vadd(p, vmul(rr, -(float)side * 4.0f));
+      water_surface(scene, pc.x, pc.z, 16.0f, 11.0f, g + 0.25f, &wo);
+      if (NV == 1) fx_ambient_at(scene, FXA_MIST, V(pc.x, g + 1.0f, pc.z), V(6, 1.0f, 4), 0.5f, 150);
+    }
+  }
+  cw_info("temple jump ruins: %d walls, %d columns", walls, cols);
+  pmc_finish(c, scene, "JumpRuins", true, TEX_WALL_STONE);
 }
 
 /* ── set piece: the pyramid, stairs, shrine and the canopy ────────────────────────────────────────── */
@@ -2161,6 +2399,7 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
   if (!off("bridge")) build_bridge(scene, t);
   if (!off("ring")) build_ring(scene, t);
   if (!off("fall")) build_waterfall(scene, t);
+  if (!off("ruins")) build_jump_ruins(scene, t);
   if (!off("pyramid")) build_pyramid(scene, t);
   build_start(scene, t);
   if (!off("roadside")) build_roadside(scene, t);
