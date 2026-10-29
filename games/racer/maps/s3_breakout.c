@@ -58,6 +58,16 @@ enum { O_DOOR_W, O_DOOR_E, O_SWITCH, O_TOWER_W, O_TOWER_E, O_WINCH_W, O_WINCH_E,
 #define WIRE(x, z, y, w, d) DECO(AL_FEATURE, x, z, y, w, 0.25f, d, 0, 0x9aa0a8), DECO(AL_FEATURE, x, z, y + 0.5f, w, 0.25f, d, 0, 0x8a9098)
 
 static const arena_prim PRIMS[] = {
+  /* the yard's markings: the exercise court painted on the floor, the gate's no-go box, oil stains and puddles */
+  DECO(AL_PAINT, 0, -200, 0.02f, 60, 0.02f, 0.4f, 0, 0xd8d4c8), DECO(AL_PAINT, 0, -240, 0.02f, 60, 0.02f, 0.4f, 0, 0xd8d4c8),
+  DECO(AL_PAINT, -30, -220, 0.02f, 0.4f, 0.02f, 40, 0, 0xd8d4c8), DECO(AL_PAINT, 30, -220, 0.02f, 0.4f, 0.02f, 40, 0, 0xd8d4c8),
+  DECO(AL_PAINT, 0, -220, 0.02f, 0.4f, 0.02f, 40, 0, 0xd8d4c8),
+  DECO(AL_PAINT, 0, -96, 0.02f, 30, 0.02f, 10, 0, 0xe8c040), DECO(AL_PAINT, 0, -96, 0.025f, 27, 0.02f, 7, 0, 0x6a5a48),
+  DECO(AL_PAINT, -38, -150, 0.02f, 6, 0.02f, 4, 30, 0x2a2420), DECO(AL_PAINT, 24, -118, 0.02f, 5, 0.02f, 3, -20, 0x2a2420),
+  DECO(AL_PAINT, 52, -232, 0.02f, 7, 0.02f, 4, 60, 0x3a4a54), DECO(AL_PAINT, -14, -42, 0.02f, 9, 0.02f, 5, 10, 0x3a4a54),
+  DECO(AL_PAINT, 30, 20, 0.02f, 6, 0.02f, 4, -40, 0x2a2420), DECO(AL_PAINT, -40, 120, 0.02f, 8, 0.02f, 5, 25, 0x3a4a54),
+  /* tyre tracks worn down the canyon road */
+  DECO(AL_PAINT, 38, 230, 0.02f, 1.2f, 0.02f, 120, 8, 0x4a3024), DECO(AL_PAINT, -38, 260, 0.02f, 1.2f, 0.02f, 120, -8, 0x4a3024),
   /* the prison's dressing: guard towers at the corners of each stretch, razor wire along the walls' tops */
   TOWER(-84, -84), TOWER(84, -84), TOWER(-84, 80), TOWER(84, 80), TOWER(-84, 148), TOWER(84, 148), TOWER(-84, -325), TOWER(84, -325),
   WIRE(-51, -80, 8, 78, 0.6f), WIRE(51, -80, 8, 78, 0.6f), WIRE(-52, 85, 10, 76, 0.6f), WIRE(52, 85, 10, 76, 0.6f),

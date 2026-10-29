@@ -55,6 +55,13 @@ static const arena_prim PRIMS[] = {
   DECO(AL_PAINT, 0, -318, 0.01f, 200, 0.02f, 24, 0, 0x8a7c5e),
   DECO(AL_COVER, -40, -296, 0, 7, 0.5f, 0.6f, 25, 0x8a6a4a), DECO(AL_COVER, 22, -282, 0, 5, 0.4f, 0.5f, -40, 0x7a5a3a),
   DECO(AL_COVER, 72, -300, 0, 6, 0.45f, 0.55f, 70, 0x8a6a4a),
+  /* tide pools and lines of kelp left by the tide, dark damp patches up the beach */
+  DECO(AL_PAINT, -70, -312, 0.02f, 9, 0.02f, 5, 15, 0x4a6a70), DECO(AL_PAINT, 40, -306, 0.02f, 7, 0.02f, 4, -25, 0x4a6a70),
+  DECO(AL_PAINT, -10, -320, 0.02f, 12, 0.02f, 4, 5, 0x4a6a70),
+  DECO(AL_PAINT, -40, -288, 0.02f, 40, 0.02f, 0.8f, 3, 0x3a4a2a), DECO(AL_PAINT, 45, -292, 0.02f, 36, 0.02f, 0.7f, -4, 0x3a4a2a),
+  DECO(AL_PAINT, 0, -270, 0.02f, 50, 0.02f, 0.6f, 2, 0x4a5a34),
+  DECO(AL_PAINT, -60, -205, 0.02f, 18, 0.02f, 10, 20, 0xb8a882), DECO(AL_PAINT, 66, -180, 0.02f, 14, 0.02f, 9, -30, 0xb8a882),
+  DECO(AL_PAINT, 10, -140, 0.02f, 20, 0.02f, 8, 10, 0xb8a882),
   /* the surf line: foam on the wet sand */
   DECO(AL_PAINT, 0, -318, 0, 200, 0.03f, 4, 0, 0xd8e4e4), DECO(AL_PAINT, 0, -300, 0, 200, 0.03f, 2, 0, 0xc4d2d2),
   DECO(AL_PAINT, 0, -309, 0, 200, 0.02f, 14, 0, 0x6a7d7c),
@@ -204,7 +211,7 @@ static float coast_ground(float x, float z, void *ud) {
   /* the bay's floor, the headlands either side climbing to the cliff's height and beyond, the plateau behind it */
   float side = dx - 150.0f; /* (the land rises behind the cliffs' blocks, so its coarse slope never shows in front of them) */
   float h = -0.05f;
-  if (lz < -334.0f) h = -0.05f - fminf((-334.0f - lz) * 0.08f, 6.0f); /* the sand running into the sea */
+  if (lz < -326.0f) h = -1.5f - fminf((-326.0f - lz) * 0.08f, 6.0f); /* the sea bed past the beach (under the water from its edge) */
   if (side > -18.0f) {
     /* the headlands: level with the cliffs' tops (30) just behind them, rolling on, sinking to the sea round the bay */
     float sea = lz < -330.0f ? fmaxf(0.0f, 1.0f - (-330.0f - lz) / 160.0f) : 1.0f;
@@ -253,7 +260,7 @@ static void breakwater_scenery(cw_node scene, const track *t, uint32_t seed) {
   w.reflect = 0.6f;
   w.refract = !split;
   w.horizon = 2400.0f;
-  water_surface(scene, 0, ARENA_CZ - 900.0f, 2400.0f, 1100.0f, -0.6f, &w);
+  water_surface(scene, 0, ARENA_CZ - 950.0f, 2400.0f, 1300.0f, -0.6f, &w); /* (in over the shallows, under the beach) */
 
   prop_set *ps = ps_new(scene, "CoastProps");
   ps_style(ps, PK_BOULDERS, TEX_GROUND_ROCK, hex(0xa8a49a), 1.0f);
