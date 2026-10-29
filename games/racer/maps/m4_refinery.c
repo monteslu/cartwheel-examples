@@ -614,6 +614,68 @@ static float terrain(float x, float z, void *ud) {
   return h;
 }
 
+/* ── the ground's surface: the cracked mud laid unevenly, and the cutting's slopes in strata ──────────── */
+
+/* The cracked mud was the most repeated surface on the map: one 7 m tile on a regular grid everywhere. Its texture
+ * coordinates are bent through a slow two-level warp (the cracks crowd and spread, so the plates change size from
+ * place to place and the grid is gone) and its colours take a broad field of soot, rust and pale ash. Only the ground's
+ * own attributes change: no draws. (The cutting's banks are a cell or two of ground each, too coarse to paint: their
+ * strata are a skin of their own, see cutting().) */
+static void mud_warp(float x, float z, float *du, float *dv) {
+  *du = ground_noise(x, z, 70.0f, 14.0f, 2, 501) + ground_noise(x, z, 23.0f, 3.5f, 1, 502);
+  *dv = ground_noise(x, z, 70.0f, 14.0f, 2, 503) + ground_noise(x, z, 23.0f, 3.5f, 1, 504);
+}
+static pcol strata_col(float y, float x, float z) {
+  /* loud enough to read through the cutting's dusk haze */
+  static const pcol S[5] = { { 1.1f, 0.66f, 0.3f }, { 0.12f, 0.11f, 0.13f }, { 0.95f, 0.38f, 0.18f }, { 1.0f, 0.95f, 0.85f }, { 0.3f, 0.2f, 0.2f } };
+  float q = (y + 30.0f) / 3.0f + 0.7f * ground_noise(x, z, 60.0f, 1.0f, 2, 505);
+  int i0 = ((int)floorf(q) % 5 + 5) % 5, i1 = (i0 + 1) % 5;
+  float f = sst(0.75f, 1.0f, q - floorf(q));
+  return pc_mix(S[i0], S[i1], f);
+}
+typedef struct { t3_geometry *g[2048]; int n; } geoset;
+static void mud_geo(t3_geometry *g, float repeat) {
+  t3_attribute *pa = g->attributes[T3_ATTR_POSITION], *ua = g->attributes[T3_ATTR_UV], *ca = g->attributes[T3_ATTR_COLOR], *na = g->attributes[T3_ATTR_NORMAL];
+  if (!pa || !ua || pa->type != T3_FLOAT32 || ua->type != T3_FLOAT32) return;
+  (void)na;
+  const float *P = t3_attribute_f32(pa);
+  float *U = t3_attribute_f32(ua);
+  float *C = ca && ca->type == T3_FLOAT32 ? t3_attribute_f32(ca) : NULL;
+  int cs = C ? ca->item_size : 0;
+  for (int i = 0; i < pa->count; i++) {
+    float x = P[i * 3], y = P[i * 3 + 1], z = P[i * 3 + 2], du, dv;
+    mud_warp(x, z, &du, &dv);
+    U[i * 2] += du / repeat, U[i * 2 + 1] += dv / repeat;
+    if (!C) continue;
+    float *c = &C[i * cs];
+    float n1 = 0.5f + 0.5f * ground_noise(x, z, 85.0f, 1.0f, 2, 506), n2 = 0.5f + 0.5f * ground_noise(x, z, 210.0f, 1.0f, 2, 507);
+    float k = 0.8f + 0.4f * n1;
+    pcol col = { c[0] * k, c[1] * k, c[2] * k };
+    /* soot in broad drifts, rust stains, pale ash flats */
+    col = pc_mix(col, pc_mul(col, 0.45f), sst(0.62f, 0.85f, n2) * 0.8f);
+    col = pc_mix(col, (pcol){ col.g * 1.25f, col.g * 0.75f, col.b * 0.6f }, sst(0.35f, 0.1f, n2) * 0.6f);
+    col = pc_mix(col, (pcol){ 0.62f, 0.58f, 0.54f }, sst(0.7f, 0.95f, n1) * 0.35f);
+    (void)y;
+    c[0] = col.r, c[1] = col.g, c[2] = col.b;
+  }
+  ua->version++;
+  if (C) ca->version++;
+}
+static void mud_obj(t3_object *o, geoset *gs, float repeat) {
+  if (!o) return;
+  if (o->type == T3_MESH) {
+    t3_geometry *g = ((t3_mesh *)o)->geometry;
+    bool seen = false;
+    for (int i = 0; i < gs->n && !seen; i++) seen = gs->g[i] == g;
+    if (!seen && gs->n < 2048) gs->g[gs->n++] = g, mud_geo(g, repeat);
+  }
+  for (int i = 0; i < o->child_count; i++) mud_obj(o->children[i], gs, repeat);
+}
+static void mud_node(cw_node n, geoset *gs, float repeat) {
+  mud_obj(cw_node3d_object(n), gs, repeat);
+  for (int i = 0; i < cw_node_child_count(n); i++) mud_node(cw_node_child(n, i), gs, repeat);
+}
+
 /* ── the callbacks ───────────────────────────────────────────────────────────────────────────────── */
 
 static void scenery(cw_node scene, const track *t, uint32_t seed);
@@ -1210,6 +1272,76 @@ static void tunnel_lights(int ti, float spacing, float base, uint32_t colour) {
   (void)t;
 }
 
+/* Ring frames, cable trays and a painted band in a tunnel from sample a to b: the plain tube read as one smooth pipe.
+ * The frames stay over 2.4 m up the arch and the band lies flat on the wall, so nothing stands in a lane. */
+static void tunnel_ribs(pmc *c, int a, int b, pcol rib, pcol band0, pcol band1) {
+  const track *t = R.t;
+  const float hc = 1.6f, Rt = 8.0f - 1.6f;
+  int k = 0;
+  for (int i = a + 3; i + 6 < b; i += 6, k++) {
+    const tsample *s = &t->s[i], *n = &t->s[i + 6];
+    float Rr = s->hw;
+    pm *p = frame_pm(c, s, 0, 0);
+    pm_layer(p, PL_METAL);
+    float a0 = asinf((2.5f - hc) / Rt);
+    for (int j = 0; j < 12; j++) {
+      float u0 = a0 + (3.14159265f - 2 * a0) * (float)j / 12.0f, u1 = a0 + (3.14159265f - 2 * a0) * (float)(j + 1) / 12.0f;
+      pm_beam(p, V3(-(Rr - 0.2f) * cosf(u0), hc + (Rt - 0.2f) * sinf(u0), 0), V3(-(Rr - 0.2f) * cosf(u1), hc + (Rt - 0.2f) * sinf(u1), 0), 0.36f, rib);
+    }
+    /* bolts of light on every third frame's crown */
+    if (k % 3 == 0) {
+      pm_layer(p, PL_GLOW);
+      pm_push(p), pm_move(p, 0, hc + Rt - 0.5f, 0.3f), pm_box_c(p, 2.2f, 0.12f, 0.4f, glow(rgb(1, 0.6f, 0.25f), 2.4f)), pm_pop(p);
+    }
+    pm_pop(p);
+    /* the trays and the band run to the next frame, in world space */
+    pm *w = pmc_at(c, s->p);
+    pm_push(w);
+    float y = 4.4f, sa = (y - hc) / Rt, q = sqrtf(fmaxf(0.0f, 1.0f - sa * sa));
+    for (int e = -1; e <= 1; e += 2) {
+      /* not across a branch's mouth (the wall gives way there) or out of the tube */
+      uint32_t fk = e < 0 ? TF_FORK_L : TF_FORK_R;
+      if (((s->flags | n->flags) & fk) || !(s->flags & n->flags & TF_TUNNEL)) continue;
+      t3_vec3 w0 = v3add(v3add(s->p, v3mul(s->r, (float)e * (s->hw * q - 0.35f))), v3mul(s->u, y));
+      t3_vec3 w1 = v3add(v3add(n->p, v3mul(n->r, (float)e * (n->hw * q - 0.35f))), v3mul(n->u, y));
+      pm_layer(w, PL_METAL);
+      pm_rod(w, w0, w1, 0.2f, 6, STEEL);
+      pm_rod(w, v3add(w0, v3mul(s->u, -0.4f)), v3add(w1, v3mul(n->u, -0.4f)), 0.1f, 5, SOOT);
+      pm_layer(w, PL_MAIN);
+      t3_vec3 h0 = v3add(v3add(s->p, v3mul(s->r, (float)e * (s->hw - 0.06f))), v3mul(s->u, 0.75f));
+      t3_vec3 h1 = v3add(v3add(n->p, v3mul(n->r, (float)e * (n->hw - 0.06f))), v3mul(n->u, 0.75f));
+      t3_vec3 g0 = v3add(h0, v3mul(s->u, 0.5f)), g1 = v3add(h1, v3mul(n->u, 0.5f));
+      pcol bc = (k & 1) ? band0 : band1;
+      pm_quad(w, h0, h1, g1, g0, bc), pm_quad(w, h1, h0, g0, g1, bc);
+    }
+    pm_pop(w);
+  }
+}
+
+/* the tubes' own linings (the world's tunnel meshes) take a colour each: the tank tunnel blued steel plate, the pipe
+ * bridge's tunnel soot black with a red cast. Only the materials change. */
+static void restyle_tunnels(cw_node scene) {
+  cw_node world = cw_node_get(scene, "World");
+  const track_geo *geo = world_geo();
+  if (!cw_node_valid(world) || !geo) return;
+  for (int i = 0; i < geo->n; i++) {
+    const track_chunk *c = &geo->c[i];
+    if (c->kind != TM_TUNNEL) continue;
+    char name[24];
+    snprintf(name, sizeof name, "T%d_%d", c->kind, i);
+    cw_node n = cw_node_get(world, name);
+    if (!cw_node_valid(n)) continue;
+    t3_object *o = cw_node3d_object(n);
+    if (!o || o->child_count < 1 || o->children[0]->type != T3_MESH) continue;
+    t3_mesh *me = (t3_mesh *)o->children[0];
+    if (me->material_count < 1) continue;
+    t3_material *m = me->materials[0];
+    int which = R.ntun > 1 && c->first >= R.tun[1][0] - 2 ? 1 : 0;
+    if (which == 0) m->color = (t3_color){ 0.72f, 0.82f, 1.0f }, m->metalness = 0.35f, m->roughness = 0.4f;
+    else m->color = (t3_color){ 0.62f, 0.4f, 0.36f }, m->metalness = 0.2f, m->roughness = 0.55f;
+  }
+}
+
 /* ── the shortcut signposted inside the tunnel ─────────────────────────────────────────────────────────────
  * The run-in to the pipe-yard fork is all tunnel, so the motorway way: lit gantry boards hung from the roof over the
  * lane that leads to it (an arrow bending off toward its side and SHORTCUT in block letters), one well back and one at
@@ -1376,6 +1508,7 @@ static void tunnel_tanks(int ti) {
     }
     if (slits % 3 == 1) emit_new(REC_VENT, "TunnelVent", road_pt(s, ((slits / 3) & 1) ? 6.5f : -6.5f, 0.2f), 1, 150.0f, 3.8f, 0.42f, (float)slits * 0.7f);
   }
+  tunnel_ribs(c, a, b, STEEL_D, HAZARD, SOOT);
   pmc_finish(c, R.root, "TankBank", true, -1);
   cw_info("refinery: tank tunnel %d bays %d slits", ns, slits);
 }
@@ -1457,6 +1590,7 @@ static void tunnel_pipes(int ti) {
       pm_pop(fl);
     }
   }
+  tunnel_ribs(ic, a, b, RUST, rgb(0.85f, 0.12f, 0.08f), rgb(0.95f, 0.93f, 0.88f));
   pmc_finish(ic, R.root, "PipeSlits", false, -1);
 }
 
@@ -1941,6 +2075,42 @@ static void cutting(void) {
       pm_beam(m, D, C, 0.5f, conc_d);
       pm_pop(m);
       panels++;
+      /* The bank above the wall, up to the plain: the ground there is a cell or two of the cracked mud, plain and too
+       * coarse to paint. A skin of rock in strata lies over it (ochre, basalt, rust, ash, wavering along the cut), half
+       * a metre proud of the land, from the wall's cap to where the bank meets the plain. */
+      if (deep > 0.6f) {
+        t3_vec3 top[2] = { D, C };
+        tsample sa[2] = { a, b2 };
+        t3_vec3 row[2][9];
+        bool ok = true;
+        for (int e = 0; e < 2 && ok; e++) {
+          t3_vec3 rr = v3mul(v3norm(V3(sa[e].r.x, 0, sa[e].r.z)), (float)side);
+          float dT = -1;
+          for (float d = 0.5f; d < 60.0f; d += 1.0f) {
+            t3_vec3 q = v3add(top[e], v3mul(rr, d));
+            if (terrain(q.x, q.z, NULL) > -1.2f) { dT = d + 1.5f; break; }
+          }
+          if (dT < 0) { ok = false; break; }
+          for (int r = 0; r < 9; r++) {
+            float f = (float)r / 8.0f;
+            t3_vec3 q = v3add(top[e], v3mul(rr, dT * f));
+            float yl = top[e].y + 0.3f + (-0.6f - top[e].y) * f;
+            q.y = fmaxf(yl, terrain(q.x, q.z, NULL) + 0.5f);
+            row[e][r] = q;
+          }
+        }
+        if (ok) {
+          pm *sk = pmc_at(c, p0);
+          pm_push(sk);
+          pm_layer(sk, PL_MAIN);
+          for (int r = 0; r < 8; r++) {
+            t3_vec3 q00 = row[0][r], q10 = row[1][r], q11 = row[1][r + 1], q01 = row[0][r + 1];
+            pcol cl = pc_mul(strata_col(0.5f * (q00.y + q01.y), q00.x, q00.z), 0.85f);
+            pm_quad(sk, q00, q01, q11, q10, cl), pm_quad(sk, q00, q10, q11, q01, cl); /* both faces: no winding to get wrong */
+          }
+          pm_pop(sk);
+        }
+      }
       /* a buttress every 12 m, and a lamp on every other one */
       if (k % 3 == 0 && deep > 0.5f) {
         t3_vec3 rr = v3norm(V3(a.r.x, 0, a.r.z)), ff = v3norm(V3(a.f.x, 0, a.f.z));
@@ -2019,6 +2189,53 @@ static void cutting(void) {
     pm_pop(b);
     bridges++;
   }
+  /* the banks above the walls: ledges of dark basalt and ochre rock breaking out of the slope, each built in the
+   * slope's own frame (x along it, z down it) with its front foot sunk and its back running into the bank, and here and
+   * there a rusted drain pipe down the slope and a rock-bolt mesh panel */
+  int ledges = 0;
+  uint32_t hs = 961u;
+  for (float s = 0; s < t->length; s += 9.0f) {
+    tsample a = track_at(t, s);
+    if (a.flags & (TF_GAP | TF_TUNNEL) || a.p.y > -9.0f || near_gap(s, 30)) continue;
+    for (int side = -1; side <= 1; side += 2) {
+      hs = hs * 1664525u + 1013904223u;
+      float r1 = (float)(hs >> 8) / 16777216.0f;
+      hs = hs * 1664525u + 1013904223u;
+      float r2 = (float)(hs >> 8) / 16777216.0f;
+      if (r1 > 0.55f) continue;
+      float lat = (float)side * (a.hw + 8.0f + 18.0f * r2);
+      t3_vec3 p = road_pt(s, lat, 0);
+      float e = 3.0f;
+      float gx = (terrain(p.x + e, p.z, NULL) - terrain(p.x - e, p.z, NULL)) / (2 * e), gz = (terrain(p.x, p.z + e, NULL) - terrain(p.x, p.z - e, NULL)) / (2 * e);
+      float g = sqrtf(gx * gx + gz * gz);
+      p.y = terrain(p.x, p.z, NULL);
+      if (g < 0.22f || p.y - a.p.y < 3.5f || road_gap(t, p.x, p.z, NULL) < 6.0f) continue;
+      g = fminf(g, 1.5f);
+      float W = 5.0f + 7.0f * r1 * 2.0f, D = 3.0f + 2.0f * r2;
+      pm *b = pmc_at(c, p);
+      pm_push(b);
+      pm_move(b, p.x, p.y, p.z);
+      pm_roty(b, atan2f(-gx, -gz));
+      pm_layer(b, PL_MAIN);
+      float y = -g * D * 0.5f - 0.8f, z = 0, w = W;
+      int tiers = 1 + (int)(r2 * 2.4f);
+      for (int k = 0; k < tiers; k++) {
+        float h = g * D + 1.6f + 0.8f * r1;
+        pcol c0 = k & 1 ? rgb(0.5f, 0.32f, 0.2f) : rgb(0.16f, 0.15f, 0.17f), c1 = k & 1 ? rgb(0.78f, 0.55f, 0.32f) : rgb(0.3f, 0.28f, 0.3f);
+        pm_push(b), pm_move(b, 0, y, z), pm_rotz(b, (r2 - 0.5f) * 0.14f), pm_box(b, w, h, D, c0, c1), pm_pop(b);
+        y += g * D * 0.6f + 0.6f, z -= D * 0.6f, w *= 0.75f;
+      }
+      if (r2 > 0.7f) {
+        /* a rusted drain pipe down the bank from the ledge to the wall's foot */
+        pm_layer(b, PL_METAL);
+        float run = fabsf(lat) - a.hw - 4.0f; /* it stops short of the wall, never over the road */
+        pm_rod(b, V3(W * 0.6f, 0.4f, -1.0f), V3(W * 0.6f, -g * run + 0.3f, run), 0.35f, 8, RUST);
+      }
+      pm_pop(b);
+      ledges++;
+    }
+  }
+  cw_info("refinery: %d ledges on the cutting's banks", ledges);
   pmc_finish(c, R.root, "Cutting", true, TEX_WALL_CONCRETE);
   cw_info("refinery: cutting %d wall panels, %d lamps, %d pipe bridges", panels, lamps, bridges);
 }
@@ -2408,7 +2625,13 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
   go.darken_edge = 0.35f;
   go.lumpy = 0.55f; /* blotches of soot and dust, so the cracked mud does not read as one tiled floor */
   go.seed = 9;
-  if (!off("ground")) ground_plane(R.root, t, &go);
+  if (!off("ground")) {
+    cw_node gn = ground_plane(R.root, t, &go);
+    static geoset gs;
+    gs.n = 0;
+    if (!off("warp")) mud_node(gn, &gs, go.tex_repeat);
+  }
+  restyle_tunnels(scene);
 
   dress_style st = dress_defaults();
   st.main = rgb(0.5f, 0.52f, 0.56f);
