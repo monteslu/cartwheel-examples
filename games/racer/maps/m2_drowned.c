@@ -797,10 +797,12 @@ static void dress_walls(const track *t, uint32_t seed) {
       }
       /* the awning over the wall top, and the blade sign */
       if (!clear && frand(&rs) < 0.45f) {
-        pm *b = wall_frame(N.c[GR_STEADY], &a, side, 0.0f, 0.0f);
         pcol c1 = frand(&rs) < 0.5f ? hex(0xd02070) : hex(0x1aa6c0), c2 = frand(&rs) < 0.5f ? hex(0xe8e0f0) : hex(0x20204a);
-        awning(b, -3.2f, 6.4f, 1.15f, 3.55f, 0.55f, c1, c2, 8);
-        pm_pop(b);
+        if (!in_shops(s)) { /* (the shops carry their own) */
+          pm *b = wall_frame(N.c[GR_STEADY], &a, side, 0.0f, 0.0f);
+          awning(b, -3.2f, 6.4f, 1.15f, 3.55f, 0.55f, c1, c2, 8);
+          pm_pop(b);
+        }
       }
       if (!clear && frand(&rs) < 0.30f) {
         int g = frand(&rs) < 0.3f ? GR_FLICK : GR_BUZZ;
@@ -2127,6 +2129,44 @@ static void collapsed_overpass(const track *t, uint32_t seed) {
       pm_box_c(b, 0.35f, 0.35f, 0.35f, glow(RED, 6.0f));
       pm_pop(b);
     }
+    /* what makes it read from a long way off at speed: a lit amber edge line along both faces of the deck, a row of
+     * yellow and black hazard chevrons on the face toward the karts, the deck's own street lamps hanging under it
+     * (their light on the road below), and lit bands round the piers */
+    {
+      float xa = fminf(x0, x1), xb = fmaxf(x0, x1);
+      for (int f = -1; f <= 1; f += 2) {
+        float z = (float)f * (DW * 0.5f + 0.06f);
+        pm_layer(b, PL_GLOW);
+        pm_beam(b, V(xa, Y + 0.25f, z), V(xb, Y + 0.25f, z), 0.16f, glow(AMBER, 3.0f));
+      }
+      float zc = -DW * 0.5f - 0.08f;
+      for (float x = x1 - (float)sd * 1.2f; (float)sd * (x - x0) > 1.0f; x -= (float)sd * 2.4f) {
+        pm_layer(b, PL_GLOW); /* a chevron board: a yellow field with two black strokes */
+        pm_quad(b, V(x - 1.0f, Y + 0.55f, zc), V(x - 1.0f, Y + 1.45f, zc), V(x + 1.0f, Y + 1.45f, zc), V(x + 1.0f, Y + 0.55f, zc), glow(rgb(1.0f, 0.78f, 0.1f), 1.5f));
+        pm_layer(b, PL_MAIN);
+        for (int k = 0; k < 2; k++) {
+          float cx = x + (float)sd * (-0.35f + 0.6f * (float)k);
+          pm_beam(b, V(cx - (float)sd * 0.25f, Y + 0.65f, zc - 0.02f), V(cx + (float)sd * 0.2f, Y + 1.0f, zc - 0.02f), 0.14f, rgb(0.02f, 0.02f, 0.02f));
+          pm_beam(b, V(cx + (float)sd * 0.2f, Y + 1.0f, zc - 0.02f), V(cx - (float)sd * 0.25f, Y + 1.35f, zc - 0.02f), 0.14f, rgb(0.02f, 0.02f, 0.02f));
+        }
+      }
+      pm_layer(b, PL_GLOW);
+      for (float x = xa + 2.0f; x < xb - 1.0f; x += 4.5f) {
+        pm_push(b);
+        pm_move(b, x, Y - 0.12f, 0);
+        pm_box_c(b, 0.7f, 0.18f, DW * 0.5f, glow(WARM, 3.4f));
+        pm_pop(b);
+      }
+      for (int k = 0; k < 2; k++) {
+        float x = (float)-sd * (k ? far - 4.0f : a.hw + 5.0f);
+        for (int j = 0; j < 3; j++) {
+          pm_push(b);
+          pm_move(b, x, Y - 1.6f - 2.6f * (float)j, 0);
+          pm_box_c(b, 2.7f, 0.22f, DW * 0.7f + 0.1f, glow(j == 0 ? RED : AMBER, 2.4f));
+          pm_pop(b);
+        }
+      }
+    }
     /* the car stuck on the edge, nose over the drop */
     pm_layer(b, PL_MAIN);
     pm_push(b);
@@ -2174,8 +2214,9 @@ static void collapsed_overpass(const track *t, uint32_t seed) {
     pm_pop(b);
   }
   pm_pop(b);
-  /* the hanging lamp's light on the road */
+  /* the hanging lamp's light on the road, and the deck lamps' light under the span */
   pool_add(GR_STEADY, &a, sd, 4.0f, a.hw * 0.6f, 12.0f, WARM, 0.3f);
+  pool_add(GR_STEADY, &a, -sd, 0.0f, a.hw * 0.8f, 14.0f, WARM, 0.35f);
 }
 
 /* the clock tower and the statue of the flooded plaza */
@@ -2201,7 +2242,7 @@ static void clock_tower(pm *b, float h) {
     pm_layer(b, PL_GLOW);
     pm_push(b);
     pm_rotx(b, 1.5707963f);
-    pm_cyl(b, 2.0f, 2.0f, 0.06f, 20, glow(WARM, 1.6f), glow(WARM, 1.6f));
+    pm_cyl(b, 2.0f, 2.0f, 0.06f, 20, glow(WARM, 2.8f), glow(WARM, 2.8f));
     pm_pop(b);
     pm_ring(b, 2.05f, 0.12f, 24, 4, glow(PINK, 3.0f));
     pm_layer(b, PL_METAL);
@@ -2219,6 +2260,18 @@ static void clock_tower(pm *b, float h) {
       pm_box_c(b, 0.8f, 1.5f, 0.05f, glow(((int)y + f) % 3 ? WARM : CYAN, 1.4f));
       pm_pop(b);
     }
+  /* neon up the four corners and round the belfry, so the tower stands out as a shape over the wall at speed */
+  for (int f = 0; f < 4; f++) {
+    float cx = (f & 1) ? 3.06f : -3.06f, cz = (f & 2) ? 3.06f : -3.06f;
+    pm_beam(b, V(cx, 4.0f, cz), V(cx, h, cz), 0.16f, glow(PINK, 2.6f));
+  }
+  for (int f = 0; f < 4; f++) {
+    pm_push(b);
+    pm_roty(b, 1.5707963f * (float)f);
+    pm_beam(b, V(-3.15f, h + 0.85f, 3.15f), V(3.15f, h + 0.85f, 3.15f), 0.14f, glow(CYAN, 2.6f));
+    pm_beam(b, V(-3.15f, h + 7.45f, 3.15f), V(3.15f, h + 7.45f, 3.15f), 0.14f, glow(CYAN, 2.6f));
+    pm_pop(b);
+  }
   pm_layer(b, PL_MAIN);
 }
 
@@ -2226,9 +2279,9 @@ static void clock_tower(pm *b, float h) {
 static void statue(pm *b) {
   pcol v0 = rgb(0.18f, 0.38f, 0.34f), v1 = rgb(0.32f, 0.6f, 0.52f), st0 = rgb(0.2f, 0.19f, 0.24f), st1 = rgb(0.38f, 0.35f, 0.42f);
   pm_layer(b, PL_MAIN);
-  pm_box(b, 5.0f, 8.0f, 5.0f, st0, st1);
+  pm_box(b, 5.0f, 12.0f, 5.0f, st0, st1);
   pm_push(b);
-  pm_move(b, 0, 8.0f, 0);
+  pm_move(b, 0, 12.0f, 0);
   pm_box(b, 5.8f, 0.6f, 5.8f, st0, st1);
   pm_move(b, 0, 0.6f, 0);
   pm_smooth(b, true);
@@ -2273,7 +2326,7 @@ static void flooded_plaza(const track *t, uint32_t seed) {
   {
     t3_vec3 p = vadd(vadd(c, vmul(a.r, (float)side * 18.0f)), vmul(a.f, 22.0f));
     pm *b = upright_frame(N.c[GR_STEADY], V(p.x, SEA_Y - 4.0f, p.z), &a);
-    clock_tower(b, 30.0f);
+    clock_tower(b, 36.0f);
     pm_pop(b);
   }
   {
@@ -2303,15 +2356,26 @@ static void flooded_plaza(const track *t, uint32_t seed) {
       float dx = cosf(an), dz = sinf(an);
       t3_vec3 prev = V(dx * 1.0f, 11.8f, dz * 1.0f);
       for (int j = 1; j <= 6; j++) {
-        float u = (float)j / 6.0f, r = 1.0f + 6.0f * u, y = 11.8f + 3.5f * u - 9.0f * u * u;
+        float u = (float)j / 6.0f, r = 1.0f + 8.0f * u, y = 11.8f + 9.0f * u - 15.0f * u * u;
         t3_vec3 q = V(dx * r, y, dz * r);
-        pm_beam(b, prev, q, 0.16f * (1.2f - 0.6f * u), glow(k & 1 ? CYAN : rgb(0.6f, 0.9f, 1.0f), 2.6f));
+        pm_beam(b, prev, q, 0.3f * (1.2f - 0.6f * u), glow(k & 1 ? CYAN : rgb(0.6f, 0.9f, 1.0f), 2.6f));
         prev = q;
       }
     }
     pm_push(b);
     pm_move(b, 0, 11.8f, 0);
-    pm_beam(b, V(0, 0, 0), V(0, 4.5f, 0), 0.35f, glow(rgb(0.7f, 0.95f, 1.0f), 3.0f));
+    /* the middle jet thrown high, so the fountain shows over the wall: a column and a crown falling away from it */
+    pm_beam(b, V(0, 0, 0), V(0, 11.0f, 0), 0.55f, glow(rgb(0.7f, 0.95f, 1.0f), 3.0f));
+    for (int k = 0; k < 8; k++) {
+      float an = 6.2831853f * ((float)k + 0.25f) / 8.0f, dx = cosf(an), dz = sinf(an);
+      t3_vec3 prev = V(0, 11.0f, 0);
+      for (int j = 1; j <= 4; j++) {
+        float u = (float)j / 4.0f;
+        t3_vec3 q = V(dx * 3.2f * u, 11.0f + 1.4f * u - 5.0f * u * u, dz * 3.2f * u);
+        pm_beam(b, prev, q, 0.22f * (1.1f - 0.6f * u), glow(rgb(0.7f, 0.95f, 1.0f), 2.8f));
+        prev = q;
+      }
+    }
     pm_pop(b);
     pm_pop(b);
   }
@@ -2327,14 +2391,14 @@ static void flooded_plaza(const track *t, uint32_t seed) {
     pm *b = pmc_at(N.c[GR_STEADY], p);
     pm_push(b);
     pm_layer(b, PL_METAL);
-    float top = 12.0f + 2.0f * frand(&rs);
+    float top = 15.0f + 2.0f * frand(&rs);
     pm_rod(b, p, vadd(p, V(0, top, 0)), 0.16f, 6, steel);
     pm_rod(b, vadd(p, V(-0.9f, top - 0.6f, 0)), vadd(p, V(0.9f, top - 0.6f, 0)), 0.07f, 4, steel);
     pm_layer(b, PL_GLOW);
     for (int g = -1; g <= 1; g++) {
       pm_push(b);
       pm_move(b, p.x + (float)g * 0.9f, p.y + top - 0.2f + (g ? -0.5f : 0.4f), p.z);
-      pm_ball(b, 0.42f, 0.42f, 0.42f, 1, 0, glow(WARM, 3.6f), glow(WARM, 4.4f));
+      pm_ball(b, 0.6f, 0.6f, 0.6f, 1, 0, glow(WARM, 3.6f), glow(WARM, 4.4f));
       pm_pop(b);
     }
     pm_pop(b);
@@ -2374,8 +2438,25 @@ static void flooded_plaza(const track *t, uint32_t seed) {
   pool_add(GR_STEADY, &a, side, 0.0f, a.hw * 0.7f, 18.0f, WARM, 0.3f);
 }
 
-/* straight 4, the run to the line: both walls become shop fronts, big lit windows with their goods in silhouette, a
- * door, a neon name over each, and their light in long streaks on the wet road */
+/* a quad in the local x-y plane at depth z facing +z, its colour graded from the bottom (cb) to the top (ct) */
+static void grad_quad(pm *b, float x0, float y0, float x1, float y1, float z, pcol cb, pcol ct) {
+  t3_vec3 n = V(0, 0, 1);
+  pm_tri_n(b, V(x0, y0, z), n, cb, V(x1, y0, z), n, cb, V(x1, y1, z), n, ct);
+  pm_tri_n(b, V(x0, y0, z), n, cb, V(x1, y1, z), n, ct, V(x0, y1, z), n, ct);
+}
+/* the four sides of an opening (x0..x1, y0..y1) from the glass at zg out to the frame's face at zf: the soffit darker,
+ * the sill and the jambs lit from inside */
+static void reveal(pm *b, float x0, float y0, float x1, float y1, float zg, float zf, pcol dark, pcol lit) {
+  pm_layer(b, PL_MAIN);
+  pm_quad(b, V(x0, y1, zg), V(x1, y1, zg), V(x1, y1, zf), V(x0, y1, zf), pc_mul(dark, 0.6f));
+  pm_quad(b, V(x0, y0, zf), V(x1, y0, zf), V(x1, y0, zg), V(x0, y0, zg), lit);
+  pm_quad(b, V(x0, y0, zf), V(x0, y0, zg), V(x0, y1, zg), V(x0, y1, zf), pc_mix(dark, lit, 0.5f));
+  pm_quad(b, V(x1, y0, zg), V(x1, y0, zf), V(x1, y1, zf), V(x1, y1, zg), pc_mix(dark, lit, 0.5f));
+}
+
+/* straight 4, the run to the line: both walls become shop fronts, big lit windows set back in deep frames with their
+ * goods in silhouette, rain running down the glass, a door, a neon name standing off each fascia, an awning or a steel
+ * canopy over it, and their light in long streaks on the wet road */
 static void shop_fronts(const track *t, uint32_t seed) {
   uint32_t rs = seed ^ 0x5409;
   static const uint32_t win[6] = { 0xffa850, 0x50d8ff, 0xff60b8, 0x98ff60, 0xffc870, 0x9878ff };
@@ -2391,47 +2472,121 @@ static void shop_fronts(const track *t, uint32_t seed) {
       pcol wc = hex(win[(int)(frand(&rs) * 5.99f)]);
       int g = frand(&rs) < 0.15f ? GR_BUZZ : GR_STEADY;
       pm *b = wall_frame(N.c[g], &a, side, 0.0f, 0.03f);
-      /* the frame: dark piers at both ends and a fascia over the window */
+      /* the frame stands out of the wall so the glass sits back in it: deep piers at both ends, a stall riser under the
+       * window, a deep fascia over it. Low parts stand out only 0.24 m (a kart scraping the wall must not sink into
+       * them); the fascia, well over the karts, stands out 0.5 m */
       pm_layer(b, PL_MAIN);
       pcol fr = frand(&rs) < 0.5f ? rgb(0.05f, 0.05f, 0.08f) : rgb(0.12f, 0.04f, 0.1f);
+      pcol fr_hi = pc_mix(fr, rgb(0.3f, 0.28f, 0.36f), 0.45f);
+      const float ZG = 0.06f, ZF = 0.27f; /* the glass, the frame's face */
       for (int k = -1; k <= 1; k += 2) {
         pm_push(b);
-        pm_move(b, (float)k * (w * 0.5f - 0.25f), 0, 0.05f);
-        pm_box(b, 0.5f, 3.2f, 0.1f, fr, fr);
+        pm_move(b, (float)k * (w * 0.5f - 0.25f), 0, 0.03f + 0.12f);
+        pm_box(b, 0.5f, 2.45f, 0.24f, fr, fr_hi);
         pm_pop(b);
       }
+      float x0 = -w * 0.5f + 0.5f, x1 = w * 0.5f - 1.9f, wy0 = 0.5f, wy1 = 2.4f;
       pm_push(b);
-      pm_move(b, 0, 2.55f, 0.05f);
-      pm_box(b, w, 0.65f, 0.1f, fr, fr);
+      pm_move(b, 0.5f * (x0 + x1), 0, 0.15f);
+      pm_box(b, x1 - x0, wy0 - 0.08f, 0.24f, dk(fr, 0.8f), fr_hi); /* the stall riser */
+      pm_move(b, 0, wy0 - 0.08f, 0.04f);
+      pm_box(b, x1 - x0 + 0.1f, 0.08f, 0.34f, fr_hi, fr_hi); /* the sill, a lip catching the light */
       pm_pop(b);
-      /* the window, lit from inside, with the goods and the mullions in silhouette before it */
+      pm_push(b);
+      pm_move(b, 0, 2.4f, 0.03f + 0.25f);
+      pm_box(b, w, 0.78f, 0.5f, dk(fr, 0.9f), fr_hi);
+      pm_pop(b);
+      /* the reveals: the sides of the opening between the frame's face and the glass, lit by the shop */
+      reveal(b, x0, wy0, x1, wy1, ZG, ZF, pc_mul(fr_hi, 0.8f), pc_mix(fr_hi, wc, 0.25f));
+      float dx0 = x1 + 0.3f, dx1 = w * 0.5f - 0.55f;
+      reveal(b, dx0, 0.04f, dx1, 2.3f, ZG, ZF, pc_mul(fr_hi, 0.8f), pc_mix(fr_hi, WARM, 0.2f));
+      pm_push(b); /* the door's lintel and the frame between it and the window */
+      pm_move(b, 0.5f * (dx0 + dx1), 2.3f, 0.15f);
+      pm_box(b, dx1 - dx0 + 0.1f, 0.12f, 0.24f, fr, fr_hi);
+      pm_pop(b);
+      pm_push(b);
+      pm_move(b, 0.5f * (x1 + dx0), 0, 0.15f);
+      pm_box(b, dx0 - x1, 2.42f, 0.24f, fr, fr_hi);
+      pm_pop(b);
+      /* the window, lit from inside: brighter under the shop light at the top, darker at the floor */
       pm_layer(b, PL_GLOW);
-      float x0 = -w * 0.5f + 0.5f, x1 = w * 0.5f - 1.9f;
-      pm_quad(b, V(x0, 0.45f, 0.06f), V(x1, 0.45f, 0.06f), V(x1, 2.45f, 0.06f), V(x0, 2.45f, 0.06f), glow(wc, 0.42f));
-      pm_beam(b, V(x0 + 0.1f, 2.3f, 0.08f), V(x1 - 0.1f, 2.3f, 0.08f), 0.1f, glow(WARM, 2.6f)); /* the shop light */
-      /* the door, warmer */
-      pm_quad(b, V(x1 + 0.3f, 0.05f, 0.06f), V(w * 0.5f - 0.55f, 0.05f, 0.06f), V(w * 0.5f - 0.55f, 2.3f, 0.06f), V(x1 + 0.3f, 2.3f, 0.06f), glow(WARM, 1.1f));
+      grad_quad(b, x0, wy0, x1, wy1, ZG, glow(wc, 0.2f), glow(wc, 0.6f));
+      pm_beam(b, V(x0 + 0.1f, wy1 - 0.15f, ZG + 0.1f), V(x1 - 0.1f, wy1 - 0.15f, ZG + 0.1f), 0.08f, glow(WARM, 2.6f)); /* the shop light */
+      /* pendant lamps hanging in the shop */
+      for (int k = 0, np = 1 + (int)((x1 - x0) / 2.5f); k < np; k++) {
+        float px = x0 + (x1 - x0) * ((float)k + 0.5f) / (float)np, py = wy1 - 0.55f - 0.25f * frand(&rs);
+        pm_layer(b, PL_MAIN);
+        pm_beam(b, V(px, py, ZG + 0.02f), V(px, wy1, ZG + 0.02f), 0.03f, rgb(0.02f, 0.02f, 0.03f));
+        pm_layer(b, PL_GLOW);
+        pm_push(b);
+        pm_move(b, px, py, ZG + 0.03f);
+        pm_box_c(b, 0.26f, 0.12f, 0.02f, glow(WARM, 3.2f));
+        pm_pop(b);
+      }
+      /* the door, warmer, with a lit transom */
+      grad_quad(b, dx0, 0.04f, dx1, 1.9f, ZG, glow(WARM, 0.55f), glow(WARM, 1.0f));
+      grad_quad(b, dx0, 1.98f, dx1, 2.3f, ZG, glow(wc, 0.9f), glow(wc, 1.2f));
+      /* rain on the glass: wandering runs of water catching the shop light, and the street's reflection as a pale
+       * slanting band */
+      {
+        pcol rain = glow(pc_mix(wc, rgb(0.85f, 0.95f, 1.0f), 0.6f), 0.95f);
+        int nr = (int)((x1 - x0) * 2.2f);
+        for (int k = 0; k < nr; k++) {
+          float rx = x0 + 0.08f + (x1 - x0 - 0.16f) * frand(&rs), ry = wy0 + 0.1f + (wy1 - wy0 - 0.2f) * frand(&rs);
+          float len = 0.25f + 0.9f * frand(&rs), y_end = fmaxf(wy0 + 0.04f, ry - len);
+          float mx = rx + (frand(&rs) - 0.5f) * 0.08f, my = 0.5f * (ry + y_end);
+          pm_beam(b, V(rx, ry, ZG + 0.012f), V(mx, my, ZG + 0.012f), 0.022f, rain);
+          pm_beam(b, V(mx, my, ZG + 0.012f), V(mx + (frand(&rs) - 0.5f) * 0.06f, y_end, ZG + 0.012f), 0.026f, rain);
+        }
+        float bx = x0 + 0.3f + (x1 - x0) * 0.5f * frand(&rs), bw = 0.35f + 0.3f * frand(&rs), sl = 0.55f;
+        pcol band = glow(pc_mix(wc, rgb(0.8f, 0.85f, 1.0f), 0.7f), 0.8f);
+        pm_quad(b, V(bx, wy0 + 0.05f, ZG + 0.008f), V(bx + bw, wy0 + 0.05f, ZG + 0.008f), V(fminf(bx + bw + sl, x1 - 0.05f), wy1 - 0.05f, ZG + 0.008f),
+                V(fminf(bx + sl, x1 - 0.1f), wy1 - 0.05f, ZG + 0.008f), band);
+      }
       pm_layer(b, PL_MAIN);
       for (float x = x0 + 1.4f; x < x1 - 0.3f; x += 1.4f) {
         pm_push(b);
-        pm_move(b, x, 0.45f, 0.09f);
-        pm_box(b, 0.1f, 2.0f, 0.04f, fr, fr);
+        pm_move(b, x, wy0, ZG + 0.03f);
+        pm_box(b, 0.1f, wy1 - wy0, 0.05f, fr, fr_hi);
         pm_pop(b);
       }
+      pm_push(b); /* the transom bar across the window */
+      pm_move(b, 0.5f * (x0 + x1), 1.95f, ZG + 0.03f);
+      pm_box(b, x1 - x0, 0.08f, 0.05f, fr, fr_hi);
+      pm_pop(b);
       int nshelf = 2 + (int)(frand(&rs) * 2.0f);
       for (int k = 0; k < nshelf; k++) { /* goods: boxes of different sizes on the sill */
         float gx = x0 + 0.5f + (x1 - x0 - 1.0f) * frand(&rs), gw = 0.4f + 0.7f * frand(&rs), gh = 0.3f + 0.9f * frand(&rs);
         pm_push(b);
-        pm_move(b, gx, 0.45f, 0.1f);
+        pm_move(b, gx, wy0, ZG + 0.04f);
         pm_box(b, gw, gh, 0.05f, rgb(0.03f, 0.03f, 0.05f), rgb(0.05f, 0.05f, 0.08f));
         pm_pop(b);
       }
-      /* the name on the fascia */
+      /* the name: a lit sign standing off the fascia on two arms, so it shows its edge and throws a shadow line */
+      float sw = fminf(w - 2.4f, 6.0f);
+      pm_layer(b, PL_METAL);
+      for (int k = -1; k <= 1; k += 2)
+        pm_beam(b, V(-0.6f + (float)k * sw * 0.35f, 2.75f, 0.5f), V(-0.6f + (float)k * sw * 0.35f, 2.75f, 0.86f), 0.06f, rgb(0.1f, 0.1f, 0.14f));
       pm_push(b);
-      pm_move(b, -0.6f, 2.6f, 0.1f);
+      pm_move(b, -0.6f, 2.42f, 0.86f);
       pcol c1 = neon_pick(&rs), c2 = neon_pick(&rs);
-      neon_sign(b, fminf(w - 2.4f, 6.0f), 0.48f, (int)(frand(&rs) * 4.99f), c1, c2, (uint32_t)(s * 7.0f) + 3u);
+      neon_sign(b, sw, 0.48f, (int)(frand(&rs) * 4.99f), c1, c2, (uint32_t)(s * 7.0f) + 3u);
       pm_pop(b);
+      /* over it, its own awning: striped cloth or a steel canopy with a lit edge */
+      if (frand(&rs) < 0.6f) {
+        pcol ac = frand(&rs) < 0.5f ? hex(0xd02070) : hex(0x1aa6c0), ab = frand(&rs) < 0.5f ? hex(0xe8e0f0) : hex(0x20204a);
+        awning(b, -w * 0.5f + 0.1f, w - 0.2f, 1.45f, 3.85f, 0.5f, ac, ab, (int)(w / 0.8f));
+      } else {
+        pm_layer(b, PL_METAL);
+        pm_push(b);
+        pm_move(b, 0, 3.32f, 0.03f + 0.65f);
+        pm_box(b, w - 0.3f, 0.14f, 1.3f, rgb(0.14f, 0.14f, 0.18f), rgb(0.22f, 0.22f, 0.28f));
+        pm_pop(b);
+        pm_beam(b, V(-w * 0.35f, 3.4f, 1.25f), V(-w * 0.35f, 4.6f, 0.0f), 0.05f, rgb(0.12f, 0.12f, 0.16f));
+        pm_beam(b, V(w * 0.35f, 3.4f, 1.25f), V(w * 0.35f, 4.6f, 0.0f), 0.05f, rgb(0.12f, 0.12f, 0.16f));
+        pm_layer(b, PL_GLOW);
+        pm_beam(b, V(-w * 0.5f + 0.2f, 3.3f, 1.34f), V(w * 0.5f - 0.2f, 3.3f, 1.34f), 0.07f, glow(c1, 2.6f));
+      }
       pm_pop(b);
       pool_add(g, &a, side, 0, 2.6f, 9.0f + 3.0f * frand(&rs), wc, 0.42f);
       s += w + 0.4f;
