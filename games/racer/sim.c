@@ -1092,18 +1092,31 @@ static void kart_control(sim *s, int i, kin in) {
   bool gap = (ts->flags & TF_GAP) != 0 || (t->s[track_next(t, k->loc.i)].flags & TF_GAP) != 0;
   /* the ramp carries you: on the last stretch before a jump's lip a kart heading over it slower than the jump was built
    * for is brought up to that speed, so the landing is always reached (a short one met the far deck's underside) */
-  if (grounded && k->loc.br < 0 && (ts->flags & TF_RAMP) && !(ts->flags & TF_LOOP) && !s->battle && k->speed > 6.0f &&
-      v3dot(kart_fwd(k), ts->f) > 0.9f)
+  /* (whichever way the kart faces: one spun round just before the lip arrived at 1 m/s and dropped into the pit; the push is
+   * along the road, so it crosses either way) */
+  if (grounded && k->loc.br < 0 && (ts->flags & TF_RAMP) && !(ts->flags & TF_LOOP) && !s->battle)
     for (int g = 0; g < t->ngaps; g++) {
       float ahead = t->s[t->gap_from[g]].s - ts->s;
       if (t->circuit && ahead < 0) ahead += t->length;
-      if (ahead > 0 && ahead < 14.0f && k->speed < t->gap_v[g]) {
-        float need = fminf(t->gap_v[g] - k->speed, 1.5f); /* a firm push each tick, not a teleport of speed */
+      float along = v3dot(k->v, ts->f);
+      if (ahead > 0 && ahead < 14.0f && along < t->gap_v[g]) {
+        float need = fminf(t->gap_v[g] - along, 2.5f); /* a firm push each tick, not a teleport of speed */
         cw_body3d_set_velocity(b, v3add(k->v, v3mul(ts->f, need)));
         k->v = v3add(k->v, v3mul(ts->f, need));
         break;
       }
     }
+  /* on an unwalled edge (a rope bridge) the tyres bite hard against a sideways slide: a kart clipped in a pass slid off the
+   * temple's bridge sideways at 13 m/s with its nose still straight down the road. Pointed off the edge, it still drives off */
+  if (touching && (ts->flags & TF_OPEN) && !s->battle && k->spin_ticks == 0 && !k->drifting) {
+    t3_vec3 rt = kart_right(k);
+    float slip = v3dot(k->v, rt);
+    if (absf(slip) > 1.0f) {
+      t3_vec3 dv = v3mul(rt, -slip * 0.25f);
+      cw_body3d_set_velocity(b, v3add(k->v, dv));
+      k->v = v3add(k->v, dv);
+    }
+  }
   /* and through a loop or corkscrew it keeps a kart rolling: one slowed by a bump in the tube used to stall there until the
    * stuck timer put it back (3.5 s gone) */
   if (touching && (ts->flags & TF_LOOP) && !s->battle && k->spin_ticks == 0) {
@@ -1541,6 +1554,12 @@ static void contacts(sim *s) {
       t3_vec3 ua = kart_up(&s->k[a]);
       n = v3norm(v3sub(n, v3mul(ua, v3dot(n, ua))));
       float shove = clampf(h->speed * 0.08f, 0, 2.5f);
+      /* on an unwalled edge (a rope bridge) a bump only nudges: a pass there shoved karts off the temple's bridge into the
+       * gorge. Driving off it is still the driver's own doing */
+      for (int q = 0; q < 2; q++) {
+        const kart *kq = &s->k[q ? b : a];
+        if (!s->battle && kq->loc.i >= 0 && (s->track->s[kq->loc.i].flags & TF_OPEN)) shove *= 0.25f;
+      }
       cw_body3d_apply_impulse(PH.body[b], v3mul(n, shove * ma * (ma / (ma + mb))), NULL);
       cw_body3d_apply_impulse(PH.body[a], v3mul(n, -shove * mb * (mb / (ma + mb))), NULL);
       /* and the contact itself never throws a kart up off the road, nor sets it tumbling end over end (two karts
