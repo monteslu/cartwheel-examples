@@ -321,6 +321,36 @@ static void item_icon(int kind, cw_vec2 c, float r, float t) {
     cw_r2d_circle(cw_v2(b.x + r * 0.66f, b.y - r * 1.0f), r * sp, 10, (int)(t * 12) & 1 ? MUSTARD : RED);
     break;
   }
+  case IT_FLAK: {
+    /* a stubby barrel and a spray of pellets out of it */
+    static const float barrel[] = { -0.85f, -0.22f, 0.1f, -0.3f, 0.1f, 0.3f, -0.85f, 0.22f };
+    poly_rot(c, barrel, 4, -0.5f, r, rgba(0.45f, 0.47f, 0.5f, 1), INK, 2.5f);
+    for (int i = 0; i < 6; i++) {
+      float a = -0.5f + ((float)i - 2.5f) * 0.2f, d = 0.45f + 0.18f * (float)(i & 1) + 0.12f * cw_sin(t * 9 + (float)i);
+      cw_r2d_circle(rot2(c, 0.25f + d, 0, a, r), r * 0.12f, 8, (i & 1) ? MUSTARD : rgba(1, 0.55f, 0.15f, 1));
+    }
+    break;
+  }
+  case IT_ORB:
+  case IT_DETONATE: {
+    /* a ball of blue light (the detonator: the same, ringed and flashing, PRESS to set it off) */
+    float p = 1 + 0.08f * cw_sin(t * 7);
+    cw_r2d_circle(c, r * 0.8f * p, 24, rgba(0.3f, 0.6f, 1, 0.3f));
+    cw_r2d_circle(c, r * 0.55f, 24, rgba(0.45f, 0.75f, 1, 1));
+    cw_r2d_circle(c, r * 0.3f, 18, rgba(0.9f, 0.97f, 1, 1));
+    cw_r2d_circle_lines(c, r * 0.55f, 2, 24, INK);
+    if (kind == IT_DETONATE) cw_r2d_circle_lines(c, r * (0.9f + 0.15f * cw_sin(t * 14)), r * 0.12f + 1, 24, (int)(t * 8) & 1 ? RED : MUSTARD);
+    break;
+  }
+  case IT_ROCKETS: missiles_icon(c, r, 4); break;
+  case IT_RAIL: {
+    /* a long thin lance and its sight line */
+    static const float lance[] = { -0.95f, -0.12f, 0.6f, -0.12f, 0.95f, 0, 0.6f, 0.12f, -0.95f, 0.12f };
+    poly_rot(c, lance, 5, -0.6f, r, rgba(0.6f, 0.65f, 0.75f, 1), INK, 2.5f);
+    cw_r2d_line(rot2(c, 0.95f, 0, -0.6f, r), rot2(c, 1.6f, 0, -0.6f, r), r * 0.08f + 1, alpha(RED, 0.5f + 0.5f * cw_sin(t * 10)));
+    cw_r2d_circle(rot2(c, -0.2f, 0, -0.6f, r), r * 0.18f, 12, LIME);
+    break;
+  }
   default: break;
   }
 }
@@ -417,7 +447,8 @@ static void hud_item(const hv *g) {
   cw_r2d_round_rect_lines(cw_rect_make(r.x + 3 * s, r.y + 3 * s, r.w - 6 * s, r.h - 6 * s), 11 * s, 3 * s, 6, edge);
   cw_vec2 c = cw_v2(r.x + r.w * 0.5f, r.y + r.h * 0.5f + wob * sz);
   if (roll) {
-    int idx = 1 + (g->S->tick / 3) % (IT_KINDS - 1);
+    int nk = g->S->battle ? IT_KINDS : IT_RACE_KINDS, idx = 1 + (g->S->tick / 3) % (nk - 1);
+    if (idx == IT_DETONATE) idx = IT_ORB;
     float spin = (float)((g->S->tick) % 3) / 3.0f;
     cw_r2d_push_clip(r);
     item_icon(idx, cw_v2(c.x, c.y + (spin - 0.5f) * 8 * s), sz * 0.3f, g->S->tick / 60.0f);

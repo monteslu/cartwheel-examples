@@ -42,7 +42,8 @@ const vehicle_def VEH[NVEH] = {
   { "Pogo", "Springy and quick off the line. Boosts hit hardest.", 37.0f, 12.0f, 1.05f, 0.98f, 170, 1.05f, 1.25f, 1.10f, 0.68f, 0.36f },
 };
 
-const char *const ITEM_NAME[IT_KINDS] = { "-", "Turbo", "Triple Turbo", "Missile", "Homing Missile", "Oil Slick", "Mine", "Shield", "Shockwave", "Triple Missile", "Boomerang", "Bomb" };
+const char *const ITEM_NAME[IT_KINDS] = { "-", "Turbo", "Triple Turbo", "Missile", "Homing Missile", "Oil Slick", "Mine", "Shield", "Shockwave", "Triple Missile", "Boomerang", "Bomb",
+                                          "Flak Burst", "Shock Orb", "Detonate", "Rocket Pod", "Rail Lance" };
 
 /* ── tuning ─────────────────────────────────────────────────────────── */
 
@@ -848,6 +849,10 @@ static void use_item(sim *s, int i) {
   k->item_cool = 18;
   if (s->battle && battle_use_item(s, i, item)) {
     if (k->item == IT_MISSILE3 && --k->item_count > 0) return;
+    if (item == IT_ORB) { /* the orb is out: the button is its detonator now */
+      k->item = IT_DETONATE, k->item_count = 1, k->item_cool = 10;
+      return;
+    }
     k->item = IT_NONE;
     k->item_count = 0;
     return;

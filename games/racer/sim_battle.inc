@@ -57,6 +57,10 @@ static const uint8_t BATTLE_W[IT_KINDS][BALLOONS] = {
   [IT_MISSILE3] = { 8, 7, 6 },
   [IT_BOOMERANG] = { 10, 10, 10 },
   [IT_BOMB] = { 10, 9, 8 },
+  [IT_FLAK] = { 12, 11, 10 },
+  [IT_ORB] = { 8, 8, 8 },
+  [IT_ROCKETS] = { 9, 7, 5 },
+  [IT_RAIL] = { 7, 7, 6 },
 };
 
 static int roll_battle_item(sim *s, int i) {
@@ -196,6 +200,8 @@ static void as_half_start(sim *s);
 static void gates_set(sim *s);
 static const float *as_spawn(const sim *s, int team, int k);
 static int as_struck(const sim *s, t3_vec3 p, float pad);
+static const assault_def *as_def(const sim *s);
+static t3_vec3 as_at(const assault_obj *o);
 static bool as_damage(sim *s, int o, int dmg, int by);
 static void battle_place_all(sim *s) {
   const arena_rt *a = s->arena;
@@ -443,11 +449,201 @@ static int battle_mark(const sim *s, int i) {
 
 static void battle_hz_place(sim *s, hazard *z) { battle_locate(s, z->p, &z->s, &z->lat, &z->h); }
 
+/* ── the arena weapons ────────────────────────────────────────────────────────────────────────────────
+ *   flak burst   a cone of pellets (FLAK_LEN long, opening FLAK_SPREAD per metre): close in (under FLAK_CLOSE) a kart
+ *                spins, farther a jolt; a target in the cone takes FLAK_DMG (half far off). Worked out when fired; the
+ *                pellets are drawn only
+ *   shock orb    a slow glowing ball straight out along the floor; the button again (the detonator) or a foe running
+ *                into it sets it off (ORB_R: foes spin, targets ORB_DMG). A blaster bolt that hits it sets off the shock
+ *                combo, half as wide again and stronger: the skill shot
+ *   rocket pod   four missiles at once in a fan
+ *   rail lance   RAIL_CHARGE ticks of charge with its aiming line drawn (the target can see it coming), then an instant
+ *                shot straight on up to RAIL_LEN: the first foe on the line spins (and in an assault loses RAIL_HARM), a
+ *                target takes RAIL_DMG */
+#define FLAK_LEN 26.0f
+#define FLAK_SPREAD 0.36f
+#define FLAK_CLOSE 12.0f
+#define FLAK_DMG 20
+#define ORB_SPEED 20.0f
+#define ORB_LIFE (int)(3.5f * TICK_HZ)
+#define ORB_R 8.0f
+#define ORB_DMG 30
+#define RAIL_CHARGE 36
+#define RAIL_LEN 140.0f
+#define RAIL_DMG 30
+#define RAIL_HARM 60
+
+/* a jolt (flak far off): a quarter of its speed and a twist, and in an assault some armour */
+static void battle_jolt(sim *s, int j, t3_vec3 dir, int harm, int by) {
+  t3_vec3 v = cw_body3d_velocity(PH.body[j]);
+  cw_body3d_set_velocity(PH.body[j], v3add(v3mul(v, 0.75f), v3mul(dir, 3.0f)));
+  cw_body3d_apply_angular_impulse(PH.body[j], (t3_vec3){ 0, ((s->tick + j) & 1 ? 1.0f : -1.0f) * 0.8f * VEH[s->k[j].veh].mass, 0 });
+  if (s->amode == AM_ASSAULT) as_harm(s, j, harm, by);
+}
+
+static void flak_burst(sim *s, int i, t3_vec3 f) {
+  kart *k = &s->k[i];
+  t3_vec3 r = { f.z, 0, -f.x };
+  for (int j = 0; j < MAXK; j++) {
+    kart *o = &s->k[j];
+    if (j == i || !o->on || o->out || o->parked || o->respawn_ticks > 0 || !kart_foe(s, i, j)) continue;
+    t3_vec3 d = v3sub(o->p, k->p);
+    float along = v3dot(d, f), side = absf(v3dot(d, r));
+    if (along < 1.0f || along > FLAK_LEN || side > along * FLAK_SPREAD + 1.2f || absf(d.y) > 3.0f) continue;
+    float fr = 1;
+    if (sim_ray(s, v3add(k->p, (t3_vec3){ 0, 0.4f, 0 }), d, &fr, NULL) && fr < 0.95f) continue;
+    event(s, EV_HIT, j, i, o->p, (float)HZ_PELLET);
+    if (along < FLAK_CLOSE) spin_kart(s, j, SPIN_HIT, i);
+    else battle_jolt(s, j, f, 20, i);
+  }
+  /* the targets: their middle in the cone */
+  const assault_def *d = as_def(s);
+  for (int o = 0; d && s->amode == AM_ASSAULT && o < d->nobjs; o++) {
+    const assault_obj *b = &d->objs[o];
+    if (b->kind != AO_DESTROY && b->kind != AO_TURRET) continue;
+    t3_vec3 dv = v3sub(as_at(b), k->p);
+    float along = v3dot(dv, f), side = absf(v3dot(dv, r));
+    if (along > 0 && along < FLAK_LEN + b->r && side < along * FLAK_SPREAD + b->r && absf(dv.y + 1.0f) < b->h + 3.0f)
+      as_damage(s, o, along < FLAK_CLOSE + b->r ? FLAK_DMG : FLAK_DMG / 2, i);
+  }
+  /* the pellets, to be seen */
+  for (int p = 0; p < 7; p++) {
+    hazard *z = hz_add(s, HZ_PELLET, i, 0, 0, 0);
+    if (!z) break;
+    float a = ((float)p - 3.0f) * 0.11f + 0.03f * (float)((s->tick * 7 + p * 13) % 5 - 2), sn, cs;
+    cw_sincos(a, &sn, &cs);
+    z->f = (t3_vec3){ f.x * cs + r.x * sn, 0, f.z * cs + r.z * sn };
+    z->p = v3add(v3add(k->p, v3mul(f, 2.2f)), (t3_vec3){ 0, 0.45f, 0 });
+    z->speed = 95.0f;
+    z->life = 17;
+    battle_hz_place(s, z);
+  }
+}
+
+static void orb_blast(sim *s, hazard *z, bool combo) {
+  float r = combo ? ORB_R * 1.5f : ORB_R;
+  event(s, EV_HIT, -1, z->owner, z->p, combo ? (float)HZ_BOMB : (float)HZ_ORB);
+  for (int j = 0; j < MAXK; j++) {
+    kart *o = &s->k[j];
+    if (j == z->owner || !o->on || o->out || o->parked || o->respawn_ticks > 0 || hz_spares(s, z, j)) continue;
+    t3_vec3 d = v3sub(o->p, z->p);
+    if (v3dot(d, d) > r * r) continue;
+    event(s, EV_HIT, j, z->owner, o->p, (float)HZ_ORB);
+    spin_kart(s, j, v3dot(d, d) < r * r * 0.25f ? SPIN_BOOM : SPIN_HIT, z->owner);
+  }
+  assault_blast(s, z->p, r, combo ? ORB_DMG * 3 / 2 : ORB_DMG, z->owner);
+  /* its owner's detonator goes with it */
+  if (z->owner >= 0 && z->owner < MAXK && s->k[z->owner].item == IT_DETONATE) s->k[z->owner].item = IT_NONE, s->k[z->owner].item_count = 0;
+  z->kind = HZ_NONE;
+}
+
+/* a shock orb's tick: straight on along the floor, glancing off nothing (a wall sets it off), a foe close sets it off */
+static void orb_step(sim *s, hazard *z) {
+  z->age++;
+  if (--z->life <= 0) {
+    orb_blast(s, z, false);
+    return;
+  }
+  t3_vec3 step = v3mul(z->f, z->speed * DT);
+  float fr = 0;
+  t3_vec3 n;
+  if (sim_ray(s, z->p, v3mul(step, 1.5f), &fr, &n) && absf(n.y) < 0.6f) {
+    orb_blast(s, z, false);
+    return;
+  }
+  z->p = v3add(z->p, step);
+  float fl = battle_floor(s, z->p.x, z->p.y + 1.4f, z->p.z);
+  if (fl < -50) z->p.y -= 0.3f;
+  else z->p.y += (fl + 1.1f - z->p.y) * 0.3f;
+  battle_hz_place(s, z);
+  for (int j = 0; j < MAXK; j++) {
+    kart *o = &s->k[j];
+    if (j == z->owner || !o->on || o->out || o->respawn_ticks > 0 || hz_spares(s, z, j)) continue;
+    t3_vec3 d = v3sub(o->p, z->p);
+    if (v3dot(d, d) < 2.4f * 2.4f) {
+      orb_blast(s, z, false);
+      return;
+    }
+  }
+  if (as_struck(s, z->p, 0.5f) >= 0) orb_blast(s, z, false);
+}
+
+/* the rail lance fires (its charge done): along the kart's heading as it is now */
+static void rail_fire(sim *s, int i) {
+  kart *k = &s->k[i];
+  t3_vec3 f = flat_fwd(k), r = { f.z, 0, -f.x }, from = v3add(k->p, (t3_vec3){ 0, 0.5f, 0 });
+  float len = RAIL_LEN, fr = 1;
+  if (sim_ray(s, from, v3mul(f, RAIL_LEN), &fr, NULL)) len = RAIL_LEN * fr;
+  /* the first foe on the line, or the first target */
+  int hit = -1, obj = -1;
+  float best = len;
+  for (int j = 0; j < MAXK; j++) {
+    kart *o = &s->k[j];
+    if (j == i || !o->on || o->out || o->parked || o->respawn_ticks > 0 || !kart_foe(s, i, j)) continue;
+    t3_vec3 d = v3sub(o->p, k->p);
+    float along = v3dot(d, f);
+    if (along > 1.0f && along < best && absf(v3dot(d, r)) < 1.7f && absf(d.y) < 2.5f) best = along, hit = j;
+  }
+  const assault_def *d = as_def(s);
+  for (int o = 0; d && s->amode == AM_ASSAULT && o < d->nobjs; o++) {
+    const assault_obj *b = &d->objs[o];
+    if ((b->kind != AO_DESTROY && b->kind != AO_TURRET) || s->as_done[o]) continue;
+    t3_vec3 dv = v3sub(as_at(b), k->p);
+    float along = v3dot(dv, f) - b->r;
+    if (along > 0 && along < best + 1.0f && absf(v3dot(dv, r)) < b->r + 0.5f && from.y > b->y - 1.0f && from.y < b->y + b->h + 1.0f) best = along, hit = -1, obj = o;
+  }
+  if (hit >= 0) {
+    event(s, EV_HIT, hit, i, s->k[hit].p, (float)HZ_BEAM);
+    spin_kart(s, hit, SPIN_HIT, i);
+    if (s->amode == AM_ASSAULT) as_harm(s, hit, RAIL_HARM - 40, i); /* (the spin's 40 already taken) */
+  }
+  if (obj >= 0) as_damage(s, obj, RAIL_DMG, i);
+  hazard *z = hz_add(s, HZ_BEAM, i, 0, 0, 0);
+  if (z) {
+    z->p = from, z->f = f, z->dist = hit >= 0 || obj >= 0 ? best : len, z->life = 20;
+    battle_hz_place(s, z);
+  }
+}
+
 /* the battle's items that leave something in the world; turbos and the shield work as in a race */
 static bool battle_use_item(sim *s, int i, int item) {
   kart *k = &s->k[i];
   t3_vec3 f = flat_fwd(k);
+  if (getenv("RACER_ITEMLOG")) cw_info("item: kart %d uses %s tick %d", i, ITEM_NAME[item], s->tick); /* dev aid */
   switch (item) {
+  case IT_FLAK:
+    flak_burst(s, i, f);
+    return true;
+  case IT_ORB: {
+    hazard *z = hz_add(s, HZ_ORB, i, 0, 0, 0);
+    if (!z) return true;
+    z->p = v3add(v3add(k->p, v3mul(f, 3.0f)), (t3_vec3){ 0, 0.6f, 0 });
+    z->f = f;
+    z->speed = ORB_SPEED + maxf(k->speed, 0) * 0.4f;
+    z->life = ORB_LIFE;
+    battle_hz_place(s, z);
+    return true;
+  }
+  case IT_DETONATE:
+    for (int h = 0; h < MAXHZ; h++)
+      if (s->hz[h].kind == HZ_ORB && s->hz[h].owner == i) orb_blast(s, &s->hz[h], false);
+    return true;
+  case IT_ROCKETS:
+    for (int m = 0; m < 4; m++) {
+      hazard *z = hz_add(s, HZ_MISSILE, i, 0, 0, 0);
+      if (!z) break;
+      float a = ((float)m - 1.5f) * 0.12f, sn, cs;
+      cw_sincos(a, &sn, &cs);
+      z->f = (t3_vec3){ f.x * cs + f.z * sn, 0, f.z * cs - f.x * sn };
+      z->p = v3add(v3add(k->p, v3mul(z->f, 2.6f)), (t3_vec3){ 0, 0.25f, 0 });
+      z->speed = B_MISSILE_SPEED + maxf(k->speed, 0) * 0.45f;
+      z->life = B_MISSILE_LIFE;
+      battle_hz_place(s, z);
+    }
+    return true;
+  case IT_RAIL:
+    k->rail_charge = RAIL_CHARGE;
+    return true;
   case IT_MISSILE:
   case IT_HOMING: {
     hazard *z = hz_add(s, item == IT_HOMING ? HZ_HOMING : HZ_MISSILE, i, 0, 0, 0);
@@ -590,6 +786,17 @@ static void bolt_step(sim *s, hazard *z) {
     return;
   }
   battle_hz_place(s, z);
+  /* a shock orb on its way (anyone's): the shock combo */
+  for (int h = 0; h < MAXHZ; h++) {
+    hazard *o = &s->hz[h];
+    if (o->kind != HZ_ORB) continue;
+    t3_vec3 d = v3sub(o->p, z->p);
+    if (v3dot(d, d) > 1.8f * 1.8f) continue;
+    if (o->owner >= 0 && z->owner >= 0 && kart_foe(s, o->owner, z->owner)) o->owner = z->owner; /* (a foe's orb: the combo is the shooter's) */
+    orb_blast(s, o, true);
+    z->kind = HZ_NONE;
+    return;
+  }
   for (int j = 0; j < MAXK; j++) {
     kart *o = &s->k[j];
     if (j == z->owner || !o->on || o->out || o->parked || o->respawn_ticks > 0 || hz_spares(s, z, j)) continue;
@@ -729,6 +936,22 @@ static void battle_hazards_step(sim *s) {
     if (z->kind == HZ_BOLT) {
       if (--z->life <= 0) z->kind = HZ_NONE;
       else z->age++, bolt_step(s, z);
+      continue;
+    }
+    if (z->kind == HZ_ORB) {
+      orb_step(s, z);
+      continue;
+    }
+    if (z->kind == HZ_PELLET || z->kind == HZ_BEAM) {
+      /* drawn only: a pellet flies on (gone at a wall), a beam stays where it was fired */
+      z->age++;
+      if (--z->life <= 0) z->kind = HZ_NONE;
+      else if (z->kind == HZ_PELLET) {
+        t3_vec3 step = v3mul(z->f, z->speed * DT);
+        float fr = 0;
+        if (sim_ray(s, z->p, step, &fr, NULL)) z->kind = HZ_NONE;
+        else z->p = v3add(z->p, step);
+      }
       continue;
     }
     z->age++;
@@ -1279,6 +1502,7 @@ static void battle_kart_after(sim *s, int i) {
     return;
   }
   battle_teleports(s, i);
+  if (k->rail_charge > 0 && --k->rail_charge == 0) rail_fire(s, i);
   bool lost = k->p.y < -14.0f;
   bool flipped = !k->grounded && kart_up(k).y < -0.3f && k->air_ticks > 30;
   if (s->phase == PH_RACE && k->respawn_ticks <= 0 && k->spin_ticks <= 0 && absf(k->speed) < 1.5f) k->stall_ticks++;

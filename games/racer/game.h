@@ -65,13 +65,19 @@ enum { KB_DRIFT = 1, KB_ITEM = 2, KB_TRICK = 4, KB_RESET = 8, KB_BACK = 16 /* lo
 
 /* ── items ──────────────────────────────────────────────────────────── */
 
-enum { IT_NONE, IT_TURBO, IT_TURBO3, IT_MISSILE, IT_HOMING, IT_OIL, IT_MINE, IT_SHIELD, IT_SHOCK, IT_MISSILE3, IT_BOOMERANG, IT_BOMB, IT_KINDS };
+/* the arena weapons after IT_BOMB come out of arena boxes only (IT_RACE_KINDS: the ones a race rolls and shows): a flak burst,
+ * a shock orb (and its detonator, held while the orb flies), a rocket pod, a rail lance */
+enum { IT_NONE, IT_TURBO, IT_TURBO3, IT_MISSILE, IT_HOMING, IT_OIL, IT_MINE, IT_SHIELD, IT_SHOCK, IT_MISSILE3, IT_BOOMERANG, IT_BOMB,
+       IT_FLAK, IT_ORB, IT_DETONATE, IT_ROCKETS, IT_RAIL, IT_KINDS };
+#define IT_RACE_KINDS (IT_BOMB + 1)
 extern const char *const ITEM_NAME[IT_KINDS];
 
 /* something in the race that is not a kart: a missile in flight, an oil slick, a mine */
 /* HZ_BOOMERANG flies out and comes back to its thrower (two hits at most); HZ_BOMB is lobbed, lands, and goes off a second
  * later with a wide blast (sim.c bomb_blast); HZ_BOLT is the assault blaster's shot (sim_battle.inc battle_bolt) */
-enum { HZ_NONE, HZ_MISSILE, HZ_HOMING, HZ_OIL, HZ_MINE, HZ_SHOCK, HZ_BOOMERANG, HZ_BOMB, HZ_BOLT, HZ_KINDS };
+/* HZ_PELLET a flak pellet (drawn only: the burst is worked out when fired), HZ_ORB a shock orb, HZ_BEAM a rail lance's shot
+ * (drawn only, for a moment) */
+enum { HZ_NONE, HZ_MISSILE, HZ_HOMING, HZ_OIL, HZ_MINE, HZ_SHOCK, HZ_BOOMERANG, HZ_BOMB, HZ_BOLT, HZ_PELLET, HZ_ORB, HZ_BEAM, HZ_KINDS };
 typedef struct hazard {
   int kind;
   int owner;      /* the kart that set it down (immune for a moment) */
@@ -184,6 +190,7 @@ typedef struct kart {
   int tele_cool;        /* an arena's teleport pads: ticks before one takes this kart again */
   int blast_cool;       /* assault: ticks before its blaster fires again */
   int hp, hp_quiet;     /* assault: hit points (wrecked at none: back to its spawn), ticks since the last hit */
+  int rail_charge;      /* a rail lance charging: ticks until it fires (its aiming line is drawn meanwhile) */
 } kart;
 
 /* ── the race ───────────────────────────────────────────────────────── */

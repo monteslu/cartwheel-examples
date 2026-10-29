@@ -407,7 +407,8 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
   }
   bool armed = k->item != IT_NONE && k->item_wait == 0;
   bool offensive = armed && (k->item == IT_MISSILE || k->item == IT_HOMING || k->item == IT_TURBO || k->item == IT_TURBO3 || k->item == IT_SHOCK ||
-                             k->item == IT_MISSILE3 || k->item == IT_BOOMERANG || k->item == IT_BOMB);
+                             k->item == IT_MISSILE3 || k->item == IT_BOOMERANG || k->item == IT_BOMB || k->item == IT_FLAK || k->item == IT_ORB ||
+                             k->item == IT_DETONATE || k->item == IT_ROCKETS || k->item == IT_RAIL);
   bool modes = s->amode != AM_BALLOON && s->arena;
   int chase = -1;
   bool busy = false, hold = false;
@@ -675,6 +676,37 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
         if (flat_dist(o->p, k->p) < 24) use = true;
       }
       break;
+    case IT_FLAK:
+    case IT_ROCKETS:
+    case IT_ORB:
+    case IT_RAIL: {
+      /* flak: someone close in front; rockets: someone in the fan; an orb: someone at a middling range ahead (set off by
+       * hand later); the lance: someone dead ahead at any range (it fires straight on after its charge) */
+      for (int j = 0; j < MAXK && !use; j++) {
+        const kart *o = &s->k[j];
+        if (j == me || !o->on || o->out || o->respawn_ticks > 0 || !kart_foe(s, me, j) || fabsf(o->p.y - k->p.y) > 3.0f) continue;
+        float d = flat_dist(o->p, k->p), a = fabsf(bearing(k, v3add(o->p, v3mul(o->v, k->item == IT_RAIL ? 0.6f : d / 50.0f))));
+        if (k->item == IT_FLAK) use = d < 15.0f && a < 0.35f;
+        else if (k->item == IT_ROCKETS) use = d < 55.0f && a < 0.25f;
+        else if (k->item == IT_ORB) use = d > 10.0f && d < 45.0f && a < 0.15f;
+        else use = d < 120.0f && a < 0.02f + 1.4f / (d + 5.0f);
+        use = use && clear_line(s, k->p, o->p);
+      }
+      if (m->b_hold > 10 * TICK_HZ && k->item != IT_RAIL) use = true;
+      break;
+    }
+    case IT_DETONATE:
+      /* the orb near a foe (or near the target it was sent at): now */
+      for (int h = 0; h < MAXHZ && !use; h++) {
+        const hazard *z = &s->hz[h];
+        if (z->kind != HZ_ORB || z->owner != me) continue;
+        for (int j = 0; j < MAXK && !use; j++) {
+          const kart *o = &s->k[j];
+          if (j != me && o->on && !o->out && kart_foe(s, me, j) && flat_dist(o->p, z->p) < 6.0f) use = true;
+        }
+        if (z->life < 20) use = true;
+      }
+      break;
     default: break;
     }
     /* assault: an attacker's shot at its target (missiles, a boomerang, a bomb lobbed on it, a turbo to ram it) */
@@ -689,6 +721,10 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
       case IT_HOMING:
       case IT_BOOMERANG: use = d < 60.0f && a < cone; break;
       case IT_BOMB: use = d > 9.0f && d < 30.0f && a < 0.3f; break;
+      case IT_FLAK: use = d < 14.0f + b->r && a < 0.4f; break;
+      case IT_ROCKETS: use = d < 55.0f && a < cone + 0.2f; break;
+      case IT_RAIL: use = d < 110.0f && a < cone * 0.7f; break;
+      case IT_ORB: use = d > 8.0f && d < 40.0f && a < cone; break;
       case IT_TURBO:
       case IT_TURBO3: use = d < 28.0f && a < cone * 0.8f && spd > 8.0f; break;
       default: break;

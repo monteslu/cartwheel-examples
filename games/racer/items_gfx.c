@@ -34,13 +34,16 @@ static struct {
   t3_object *held_mine[MAXK], *held_oil[MAXK]; /* an item held out behind a kart */
   t3_object *boom[MAXHZ], *bomb[MAXHZ], *bomb_spark[MAXHZ];
   t3_object *bolt[MAXHZ], *bolt_halo[MAXHZ][2]; /* the assault blaster: a hot core, a halo in the firer's team colour */
+  t3_object *orb[MAXHZ], *orb_halo[MAXHZ], *pellet[MAXHZ], *beam[MAXHZ]; /* shock orbs, flak pellets, rail lance shots */
+  t3_material *beam_mat[MAXHZ];
+  t3_object *aim[MAXK];       /* a rail lance charging: its sight line out ahead of the kart */
   t3_object *held_miss[MAXK][3], *held_boom[MAXK], *held_bomb[MAXK]; /* ready to use: circling the kart, over its back */
   t3_material *reticle_mat;
   fxrec fx[NFX];
   t3_object *fx_obj[NFX], *fx_ball[NFX], *fx_ring[NFX], *fx_ring2[NFX];
   t3_material *fx_mat[NFX][3];
   t3_material *flame_mat[2], *light_mat;
-  t3_geometry *geo[24];
+  t3_geometry *geo[40];
   int ngeo;
   const sim *sim;
   int last_tick;
@@ -50,13 +53,14 @@ void item_icon_color(int item, float rgb[3]) {
   static const float C[IT_KINDS][3] = {
     { 0.5f, 0.5f, 0.5f }, { 0.3f, 0.65f, 1.0f }, { 0.55f, 0.4f, 1.0f }, { 1.0f, 0.3f, 0.2f },  { 1.0f, 0.3f, 0.7f },
     { 0.55f, 0.35f, 0.8f }, { 1.0f, 0.6f, 0.15f }, { 0.3f, 0.95f, 0.9f }, { 1.0f, 0.9f, 0.25f },  { 1.0f, 0.45f, 0.2f },
-    { 0.45f, 0.9f, 0.3f },  { 0.35f, 0.35f, 0.42f },
+    { 0.45f, 0.9f, 0.3f },  { 0.35f, 0.35f, 0.42f }, { 1.0f, 0.6f, 0.2f }, { 0.4f, 0.7f, 1.0f }, { 0.4f, 0.7f, 1.0f },
+    { 1.0f, 0.35f, 0.25f }, { 0.75f, 0.85f, 1.0f },
   };
   memcpy(rgb, C[item < 0 || item >= IT_KINDS ? 0 : item], sizeof(float) * 3);
 }
 
 static t3_geometry *keep(t3_geometry *g) {
-  if (g && I.ngeo < 24) I.geo[I.ngeo++] = g;
+  if (g && I.ngeo < 40) I.geo[I.ngeo++] = g;
   return g;
 }
 
@@ -344,6 +348,30 @@ void items_build(cw_node scene, const sim *s) {
       }
       if (h == MAXHZ - 1)
         for (int t = 0; t < 3; t++) t3_release(bm[t]); /* the meshes hold them now */
+      /* the arena weapons' shots: an orb (a white core in a blue halo), a pellet (a hot streak), a beam (a long glowing bar
+       * from the muzzle, its own material so it can fade) */
+      static t3_geometry *og, *bx;
+      static t3_material *om[3];
+      if (!h || !og) {
+        og = keep(t3_sphere_geometry_new(1, 16, 12));
+        bx = keep(t3_box_geometry_new(1, 1, 1, 1, 1, 1));
+        t3_geometry_translate(bx, 0, 0, 0.5f);
+        om[0] = additive(0.55f, 0.85f, 1.0f, 0.95f), om[1] = additive(0.12f, 0.35f, 1.0f, 0.6f), om[2] = additive(1.0f, 0.6f, 0.2f, 0.9f);
+      }
+      I.orb[h] = group_in(I.root);
+      t3_mesh *oc = add_geo(I.orb[h], og, om[0], false);
+      t3_object_set_scale(&oc->base, 0.55f, 0.55f, 0.55f);
+      t3_mesh *oh = add_geo(I.orb[h], og, om[1], false);
+      I.orb_halo[h] = &oh->base;
+      I.pellet[h] = group_in(I.root);
+      t3_mesh *pm2 = add_geo(I.pellet[h], og, om[2], false);
+      t3_object_set_scale(&pm2->base, 0.09f, 0.09f, 0.6f);
+      I.beam_mat[h] = additive(0.7f, 0.9f, 1.0f, 0.9f);
+      I.beam[h] = group_in(I.root);
+      add_geo(I.beam[h], bx, I.beam_mat[h], false);
+      t3_release(I.beam_mat[h]); /* (the mesh holds it; the pointer stays good while it does) */
+      if (h == MAXHZ - 1)
+        for (int t = 0; t < 3; t++) t3_release(om[t]);
     }
     I.bomb[h] = group_in(I.root);
     add_geo(I.bomb[h], bgeo, mm, true);
@@ -351,6 +379,17 @@ void items_build(cw_node scene, const sim *s) {
     t3_object_set_position(&sp->base, 0.2f, 0.88f, 0.04f);
     t3_object_set_scale(&sp->base, 1.8f, 1.8f, 1.8f);
     I.bomb_spark[h] = &sp->base;
+  }
+  {
+    t3_geometry *ag = keep(t3_box_geometry_new(1, 1, 1, 1, 1, 1));
+    t3_geometry_translate(ag, 0, 0, 0.5f);
+    t3_material *am = additive(1.0f, 0.15f, 0.1f, 0.6f);
+    for (int k = 0; k < MAXK; k++) {
+      I.aim[k] = group_in(I.root);
+      add_geo(I.aim[k], ag, am, false);
+      I.aim[k]->visible = false;
+    }
+    t3_release(am);
   }
   for (int k = 0; k < MAXK; k++) {
     for (int j = 0; j < 3; j++) {
@@ -503,6 +542,21 @@ void items_frame(const sim *s, float alpha) {
   /* new matrices only reach the GPU when the buffer's version moves (three.js's instanceMatrix.needsUpdate): without
    * this every box stayed where it was first uploaded, at the world's origin under the road, and no box was ever seen */
   if (I.nbox > 0) I.shell->instance_matrix->version++, I.glyph->instance_matrix->version++, I.halo->instance_matrix->version++;
+  /* a rail lance charging: its sight line straight out ahead, flickering faster as it is about to fire */
+  for (int k = 0; k < MAXK; k++) {
+    const kart *kk = &s->k[k];
+    bool on = kk->on && kk->rail_charge > 0;
+    I.aim[k]->visible = on && (kk->rail_charge > 14 || fmodf(t * 30.0f, 1.0f) < 0.6f);
+    if (!on) continue;
+    t3_vec3 f = kart_fwd(kk);
+    f.y = 0;
+    float l = v3len(f);
+    f = l > 1e-3f ? v3mul(f, 1.0f / l) : v3(0, 0, 1);
+    t3_vec3 p = v3add(v3sub(kk->p, v3mul(kk->v, (1.0f - alpha) / (float)TICK_HZ)), v3(0, 0.5f, 0));
+    t3_object_set_position(I.aim[k], p.x, p.y, p.z);
+    t3_object_set_quaternion(I.aim[k], from_to(v3(0, 0, 1), f));
+    t3_object_set_scale(I.aim[k], 0.07f, 0.07f, 140.0f);
+  }
   /* hazards */
   bool marked[MAXK] = { false };
   float near_d[MAXK];
@@ -517,6 +571,26 @@ void items_frame(const sim *s, float alpha) {
     I.boom[h]->visible = z->kind == HZ_BOOMERANG;
     I.bomb[h]->visible = z->kind == HZ_BOMB;
     I.bolt[h]->visible = z->kind == HZ_BOLT;
+    I.orb[h]->visible = z->kind == HZ_ORB;
+    I.pellet[h]->visible = z->kind == HZ_PELLET;
+    I.beam[h]->visible = z->kind == HZ_BEAM;
+    if (z->kind == HZ_ORB) {
+      t3_vec3 p = v3sub(z->p, v3mul(z->f, z->speed / (float)TICK_HZ * (1.0f - alpha)));
+      t3_object_set_position(I.orb[h], p.x, p.y, p.z);
+      float pulse = 1.1f + 0.18f * sinf(t * 18.0f + (float)h), late = z->life < 40 ? 0.3f * sinf(t * 40.0f) : 0;
+      t3_object_set_scale(I.orb_halo[h], pulse + late, pulse + late, pulse + late);
+      t3_object_set_rotation(I.orb[h], t * 3.0f, t * 4.0f, 0);
+    } else if (z->kind == HZ_PELLET) {
+      t3_vec3 p = v3sub(z->p, v3mul(z->f, z->speed / (float)TICK_HZ * (1.0f - alpha)));
+      t3_object_set_position(I.pellet[h], p.x, p.y, p.z);
+      t3_object_set_quaternion(I.pellet[h], from_to(v3(0, 0, 1), z->f));
+    } else if (z->kind == HZ_BEAM) {
+      float u = (float)z->life / 20.0f;
+      t3_object_set_position(I.beam[h], z->p.x, z->p.y, z->p.z);
+      t3_object_set_quaternion(I.beam[h], from_to(v3(0, 0, 1), z->f));
+      t3_object_set_scale(I.beam[h], 0.25f + 0.35f * u, 0.25f + 0.35f * u, fmaxf(z->dist, 1.0f));
+      I.beam_mat[h]->opacity = 0.95f * u;
+    }
     if (z->kind == HZ_BOLT) {
       t3_vec3 p = v3sub(z->p, v3mul(z->f, z->speed / (float)TICK_HZ * (1.0f - alpha)));
       t3_object_set_position(I.bolt[h], p.x, p.y, p.z);
