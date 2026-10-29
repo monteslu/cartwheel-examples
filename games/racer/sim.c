@@ -421,6 +421,17 @@ void sim_restart(sim *s, uint32_t seed, int skip_ticks) {
 /* dev aid: stand kart i on the road at s metres, lat to the right, already moving at speed */
 void sim_put(sim *s, int i, float sd, float lat, float speed) {
   kart_place(s, i, sd, lat, speed);
+  /* RACER_TEST_YAW=degrees: turned that far off the road's heading (+ = to the right), moving the way it faces */
+  if (getenv("RACER_TEST_YAW")) {
+    float a = (float)atof(getenv("RACER_TEST_YAW")) * 0.01745329f;
+    tsample m = track_at(s->track, sd);
+    t3_vec3 f = v3add(v3mul(m.f, cw_cos(a)), v3mul(m.r, cw_sin(a))), r = v3sub(v3mul(m.r, cw_cos(a)), v3mul(m.f, cw_sin(a)));
+    kart *k = &s->k[i];
+    k->q = q_from_frame(r, m.u, f);
+    cw_vehicle3d_teleport(&PH.car[i], (cw_xform3){ k->p, k->q });
+    cw_body3d_set_velocity(PH.body[i], v3mul(f, speed));
+    k->v = v3mul(f, speed);
+  }
   s->k[i].prog = sd;
   s->k[i].last_safe_s = sd;
 }

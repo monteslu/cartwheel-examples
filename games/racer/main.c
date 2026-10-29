@@ -18,6 +18,7 @@
  *                        accelerate (2) assists for the humans
  *   RACER_TEST_AT=s:speed  kart 0 (RACER_TEST_KART=n another) on the road at s metres when the lights go out; L<n>:speed
  *                        30 m before the n-th loop; B<n>:metres:speed on branch n (a shortcut), that far from its mouth
+ *   RACER_TEST_YAW=deg   with RACER_TEST_AT=s:speed[:lat]: turned that far off the road's heading (180: the wrong way)
  *   RACER_BATTLE_AT=x,z,yaw,speed[,y]  kart 0 at that point of an arena (its own frame; on what is under y, default 30) when the lights go out
  *   RACER_EYE=x,y,z,tx,ty,tz  a fixed camera there looking at the target, no HUD (a still of any part of a map)
  *   RACER_JITLOG=1       log each frame the drawn distance from view 0's camera to its kart (with CW_FRAME_HZ: is it steady);

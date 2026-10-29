@@ -185,8 +185,17 @@ kin ai_think(const sim *s, int me, ai_mem *m) {
       float cv = fabsf(wrap_pi(heading_of(b.f) - heading_of(a.f))) / 14.0f;
       bool br = ((a.flags | b.flags) & TF_BRANCH) != 0;
       if (!br && cv > curv) curv = cv;
-      float g = !br ? 32.0f : ((a.flags | b.flags) & TF_DRIFTY) ? 14.0f : 26.0f; /* bare ice: far less */
+      /* bare ice: far less; an open edge (no wall to lean on, a gantry over space): less again */
+      float g = !br ? 32.0f : ((a.flags | b.flags) & TF_DRIFTY) ? 14.0f : (a.walls == 0 || b.walls == 0) ? 18.0f : 26.0f;
       if (cv > 1e-4f) vroute = fminf(vroute, sqrtf(g / cv));
+      /* and no faster than the wheels can turn it: the yaw rate the steering gives falls with speed (sim.c: 2.35 rad/s
+       * per unit of turn slowing to 1.0 at 40 m/s), so a tight branch bend wants less than grip alone allows. A driver
+       * at 41 m/s into the spacewalk's 40 m bend held full lock and still ran off its open edge. */
+      if (br && cv > 1e-4f) {
+        float yr = 0.85f * VEH[k->veh].turn, vy = yr / cv;
+        if (vy < 40.0f) vy = yr * 2.35f / (cv + yr * 1.35f / 40.0f);
+        vroute = fminf(vroute, vy);
+      }
     }
   }
   float vmax = routed ? vroute : fminf(curv > 1e-4f ? sqrtf(32.0f / curv) : 99, vbrake);
@@ -198,7 +207,7 @@ kin ai_think(const sim *s, int me, ai_mem *m) {
     int when = m->skill == 2 ? 163 : m->skill == 1 ? 168 : 150 + (int)(m->rng % 40u);
     in.thr = s->phase_ticks >= when ? 127 : 0;
   }
-  if (spd > vmax + 2) in.thr = (int8_t)(spd > vmax * 1.2f ? -127 : 0);
+  if (spd > vmax + 2) in.thr = (int8_t)(spd > vmax * (routed ? 1.06f : 1.2f) ? -127 : 0);
   /* a gap ahead: all the speed it can have */
   for (int c = 0; c < 6; c++) {
     uint32_t fl = routed ? route_at(s, k, rb, rbs, (float)c * 6.0f).flags : t->s[(k->loc.i + c * 6) % t->n].flags;
@@ -213,14 +222,22 @@ kin ai_think(const sim *s, int me, ai_mem *m) {
   if (m->skill >= 1 && k->drifting && !on_branch && spd > 16 && m->steer_smooth * (float)k->drift_dir > 0.22f && !(here.flags & (TF_LOOP | TF_GAP | TF_RAMP))) in.btn |= KB_DRIFT;
   /* a Shockwave is coming: the skilled hop it */
   if (m->skill >= 1 && k->shock_warn > 0 && k->shock_warn <= 9 + 2 * (2 - m->skill)) in.btn |= KB_DRIFT;
-  /* stuck: back out */
+  /* facing the wrong way (a spin left it there): back round toward the line, nose swinging to it, instead of a slow
+   * forward U-turn whose arc ran it off an open edge (a Temple ledge took a spun CPU at 10 m/s) */
+  if (fabsf(ang) > 1.7f && k->grounded && k->spin_ticks <= 0 && s->phase == PH_RACE && !(here.flags & TF_LOOP)) in.thr = -127;
+  /* stuck: the other way out. Driving forward got nowhere: back out, wheels turned the other way. Backing round got
+   * nowhere (something right behind it, a Frost kart sat 3.5 s against one): forward, a slow U-turn to the line, held
+   * until it faces the line (unstick < 0 counts that up) */
   if (fabsf(spd) < 1.5f && s->phase == PH_RACE) m->stuck++;
   else m->stuck = 0;
-  if (m->stuck > 90) m->unstick = 60, m->stuck = 0;
+  if (m->stuck > 90) m->unstick = in.thr < 0 ? -150 : 60, m->stuck = 0;
   if (m->unstick > 0) {
     m->unstick--;
     in.thr = -127;
     in.steer = (int8_t)(-in.steer);
+  } else if (m->unstick < 0) {
+    m->unstick = fabsf(ang) < 1.2f ? 0 : m->unstick + 1;
+    in.thr = spd < 10 ? 127 : 0;
   }
   /* an Ace holds an oil can or a mine out behind as a shield, and lets it go when a kart closes in behind (only the
    * Ace: a whole field of them dropping traps in front of the player was no fun) */
