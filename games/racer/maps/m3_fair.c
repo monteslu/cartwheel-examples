@@ -1407,9 +1407,20 @@ static void balloons(pmc *c, t3_vec3 at, int n, uint32_t seed) {
 /* what the midway put down, so the scatter keeps its bushes and trees out of the stalls */
 static struct { float x, z, r; } MID[96];
 static int nmid;
+/* the park's big pieces (the halls, the big tops, the wheel, the haunted house, the needle): the midway keeps off them */
+static const struct busy { float x, z, r; } BUSY[] = {
+  { -20, 212, 52 }, { 0, 38, 30 }, { -62, 78, 26 }, { 66, 88, 24 }, { 112, -150, 34 }, { 120, -50, 28 }, { 164, -120, 30 }, { 252, -120, 30 },
+  { 70, -215, 28 }, { 130, 10, 28 }, { 36, 560, 46 }, { -5, 650, 26 }, { 96, 650, 26 }, { 60, -300, 30 }, { 120, -330, 26 }, { 41, 735, 36 }, { 97, -395, 38 },
+};
+#define NBUSY ((int)(sizeof BUSY / sizeof BUSY[0]))
+/* the high run's rides (placed before the midway, which keeps off them) */
+static struct { float x, z, r; } HR[8];
+static int nhr;
 static bool mid_clear(float x, float z, float r) {
   for (int i = 0; i < nmid; i++)
     if (hypotf(x - MID[i].x, z - MID[i].z) < r + MID[i].r) return false;
+  for (int i = 0; i < nhr; i++)
+    if (hypotf(x - HR[i].x, z - HR[i].z) < r + HR[i].r) return false;
   return true;
 }
 
@@ -1417,10 +1428,7 @@ static bool mid_clear(float x, float z, float r) {
  * the road, so it gets the park's leftovers in clusters a few steps back from the walls: game stalls facing the road,
  * striped tents, a little carousel, and the junk an abandoned park collects (dead dodgem cars, tyre piles, hay) */
 static void build_midway(prop_set *ps, pmc *st, pmc *wood, gcells *steady, const track *t) {
-  static const struct { float x, z, r; } busy[] = {
-    { -20, 212, 52 }, { 0, 38, 30 }, { -62, 78, 26 }, { 66, 88, 24 }, { 112, -150, 34 }, { 120, -50, 28 }, { 164, -120, 30 }, { 252, -120, 30 },
-    { 70, -215, 28 }, { 130, 10, 28 }, { 36, 560, 46 }, { -5, 650, 26 }, { 96, 650, 26 }, { 60, -300, 30 }, { 120, -330, 26 }, { 41, 735, 36 }, { 97, -395, 38 },
-  };
+  const struct busy *busy = BUSY;
   RS = 5150;
   nmid = 0;
   int nb = 0, nt = 0, nj = 0;
@@ -1434,7 +1442,7 @@ static void build_midway(prop_set *ps, pmc *st, pmc *wood, gcells *steady, const
     t3_vec3 p = track_point(t, s + jit * 10.0f, lat, 0);
     if (!room(t, p.x, p.z, 9.0f)) continue;
     bool ok = hypotf(p.x - P.helix_c.x, p.z - P.helix_c.z) > P.helix_r + 40.0f;
-    for (int i = 0; ok && i < (int)(sizeof busy / sizeof busy[0]); i++)
+    for (int i = 0; ok && i < NBUSY; i++)
       if (hypotf(p.x - busy[i].x, p.z - busy[i].z) < busy[i].r + 8.0f) ok = false;
     if (!ok || !mid_clear(p.x, p.z, 9.0f) || nmid >= 90) continue;
     float gy = fair_ground(p.x, p.z, NULL);
@@ -1849,6 +1857,291 @@ static void dress_jump(const track *t, pmc *st, pmc *wire, gcells *chase[3]) {
   bulb_string(wire, chase, V3(m[0].x, m[0].y - 6.0f, m[0].z), V3(m[1].x, m[1].y - 6.0f, m[1].z), 3.0f, 2.2f, 1);
 }
 
+/* ── the high run home ────────────────────────────────────────────────────────────────────────────────
+ * Off the helix the road runs some 16 m up between tall walls, so the midway on the grass below is out of sight and the
+ * stretch showed sky and far hills. What shows over the walls from up there is what stands tall: a drop tower, a
+ * second big wheel, a swing ride, big tents on tall poles flying flags, and strings of bulbs at the karts' eye level
+ * on masts along the wall tops. All of it goes into the structure cells and the bulb cells the park already draws. */
+
+/* like fb, but every part of one ride goes into the cell of the ride's middle (a tall ride standing on ground just
+ * under zero would otherwise straddle two cells of height, a draw more for each of its layers) */
+static pm *fb1(pmc *c, const frame *f, float x, float y, float z, prop_layer l) {
+  t3_vec3 w = fw(f, x, y, z);
+  pm *b = pmc_at(c, V3(f->o.x, fmaxf(f->o.y, 0.0f) + 10.0f, f->o.z));
+  pm_layer(b, l);
+  pm_push(b);
+  pm_move(b, w.x, w.y, w.z);
+  pm_roty(b, f->yaw);
+  return b;
+}
+
+/* a pennant on a pole top: a long double-sided triangle streaming downwind (world +x, the evening breeze) */
+static void pennant(pmc *c, t3_vec3 top, float len, pcol col) {
+  pm *b = pmc_at(c, top);
+  pm_layer(b, PL_MAIN);
+  t3_vec3 a = top, d = V3(top.x, top.y - len * 0.38f, top.z), tip = V3(top.x + len, top.y - len * 0.24f, top.z + len * 0.12f);
+  pm_tri(b, a, d, tip, col);
+  pm_tri(b, d, a, tip, pc_mix(col, BLACK, 0.25f));
+}
+
+/* a lattice drop tower: four legs braced in bays, chase bulbs up its corners, the seat ring parked part way up, a
+ * crown, a beacon and a flag */
+static void drop_tower(pmc *st, gcells *chase[3], gcells *steady, t3_vec3 at, float H, float yaw) {
+  frame f = fr(at.x, at.y, at.z, yaw);
+  const float hw = 1.8f;
+  int bay = 0;
+  for (float y = 0; y < H - 0.1f; y += 6.0f, bay++) {
+    float h = fminf(6.0f, H - y);
+    pm *b = fb1(st, &f, 0, y, 0, PL_METAL);
+    for (int k = 0; k < 4; k++) {
+      float cx = (k & 1) ? hw : -hw, cz = (k & 2) ? hw : -hw;
+      pm_beam(b, V3(cx, 0, cz), V3(cx, h, cz), 0.34f, (bay & 1) ? RED : CREAM);
+    }
+    for (int s = -1; s <= 1; s += 2) {
+      float e = (float)s * hw;
+      pm_beam(b, V3(-hw, 0, e), V3(hw, h, e), 0.12f, hex(0xb0a890));
+      pm_beam(b, V3(hw, 0, e), V3(-hw, h, e), 0.12f, hex(0xb0a890));
+      pm_beam(b, V3(e, 0, -hw), V3(e, h, hw), 0.12f, hex(0xb0a890));
+      pm_beam(b, V3(e, 0, hw), V3(e, h, -hw), 0.12f, hex(0xb0a890));
+    }
+    pm_pop(b);
+  }
+  /* the seat ring, parked part way up, and its bulbs */
+  pm *b = fb1(st, &f, 0, H * 0.58f, 0, PL_MAIN);
+  pm_cyl_ex(b, 4.4f, 4.4f, 1.3f, 18, RED, pc_mix(RED, CREAM, 0.35f), true, true);
+  pm_move(b, 0, 1.3f, 0);
+  pm_cyl_ex(b, 4.6f, 3.0f, 0.5f, 18, MUSTARD, MUSTARD, false, true);
+  pm_pop(b);
+  for (int i = 0; i < 18; i++) {
+    float an = CW_TAU * (float)i / 18.0f;
+    bulb(chase[i % 3], fw(&f, cosf(an) * 4.6f, H * 0.58f + 0.65f, sinf(an) * 4.6f), 0.3f, bulb_col(i), 4.0f);
+  }
+  /* the crown */
+  b = fb1(st, &f, 0, H, 0, PL_MAIN);
+  pm_box(b, 5.6f, 2.2f, 5.6f, CREAM, RED);
+  pm_move(b, 0, 2.2f, 0);
+  pm_cyl(b, 4.2f, 0.0f, 4.0f, 4, MUSTARD, CREAM);
+  pm_pop(b);
+  b = fb1(st, &f, 0, H + 6.0f, 0, PL_METAL);
+  pm_rod(b, V3(0, -0.5f, 0), V3(0, 5.0f, 0), 0.12f, 5, hex(0xd8c8a8));
+  pm_pop(b);
+  pennant(st, fw(&f, 0, H + 11.0f, 0), 5.0f, RED);
+  bulb(steady, fw(&f, 0, H + 6.4f, 0), 0.9f, hex(0xff5040), 4.6f);
+  float step = THIN ? 3.0f : 1.6f;
+  int i = 0;
+  for (float y = 1.0f; y < H; y += step, i++)
+    for (int k = 0; k < 4; k++) {
+      float cx = (k & 1) ? hw + 0.25f : -hw - 0.25f, cz = (k & 2) ? hw + 0.25f : -hw - 0.25f;
+      bulb(chase[(i + k) % 3], fw(&f, cx, y, cz), 0.26f, bulb_col(i), 4.0f);
+    }
+  /* the crown's lit band */
+  for (int k = 0; k < 16; k++) {
+    float u = (float)(k % 4) / 4.0f - 0.375f;
+    int face = k / 4;
+    float x = face < 2 ? u * 5.6f : (face == 2 ? 2.9f : -2.9f), z = face < 2 ? (face ? 2.9f : -2.9f) : u * 5.6f;
+    bulb(steady, fw(&f, x, H + 1.1f, z), 0.32f, bulb_col(k), 4.2f);
+  }
+}
+
+/* a big wheel standing still (the ride is long dead): A-frame legs, a double rim on spokes, gondolas, bulbs round the rim.
+ * The wheel's plane is the frame's x-y (it faces +z) */
+static void still_wheel(pmc *st, gcells *chase[3], gcells *steady, t3_vec3 at, float R, float hubY, float yaw) {
+  frame f = fr(at.x, at.y, at.z, yaw);
+  pm *b = fb1(st, &f, 0, 0, 0, PL_METAL);
+  for (int z = -1; z <= 1; z += 2)
+    for (int x = -1; x <= 1; x += 2) pm_beam(b, V3((float)x * R * 0.6f, 0, (float)z * 3.0f), V3(0, hubY, (float)z * 1.4f), 0.55f, hex(0xb0a890));
+  pm_pop(b);
+  b = fb1(st, &f, 0, hubY, 0, PL_METAL);
+  pm_rod(b, V3(0, 0, -1.8f), V3(0, 0, 1.8f), 0.9f, 10, hex(0x8a7a62));
+  const int N = 28;
+  static const uint32_t gpal[5] = { 0xc2453b, 0x3a9a93, 0xe2b13e, 0x4f86b8, 0xd9809b };
+  for (int i = 0; i < N; i++) {
+    float a0 = CW_TAU * (float)i / (float)N + 0.05f, a1 = CW_TAU * (float)(i + 1) / (float)N + 0.05f;
+    t3_vec3 p0 = V3(cosf(a0) * R, sinf(a0) * R, 0), p1 = V3(cosf(a1) * R, sinf(a1) * R, 0);
+    for (int z = -1; z <= 1; z += 2) {
+      float zz = (float)z * 1.1f;
+      pm_layer(b, PL_METAL);
+      pm_beam(b, V3(p0.x, p0.y, zz), V3(p1.x, p1.y, zz), 0.36f, (i & 1) ? RED : CREAM);
+      if ((i & 1) == 0) pm_beam(b, V3(0, 0, zz * 0.8f), V3(p0.x, p0.y, zz), 0.14f, hex(0xd8c8a8));
+      bulb(z < 0 ? steady : chase[i % 3], fw(&f, p0.x, hubY + p0.y, zz + (float)z * 0.3f), 0.28f, bulb_col(i), 4.2f);
+    }
+    if ((i % 2) == 1) { /* a gondola hanging under the rim */
+      pm_layer(b, PL_MAIN);
+      pm_push(b);
+      pm_move(b, p0.x, p0.y - 2.6f, 0);
+      pm_box(b, 1.9f, 1.7f, 1.7f, pc_mix(hex(gpal[i % 5]), BLACK, 0.3f), hex(gpal[i % 5]));
+      pm_move(b, 0, 1.7f, 0);
+      pm_cyl(b, 1.4f, 0.2f, 0.7f, 6, CREAM, CREAM);
+      pm_pop(b);
+      pm_layer(b, PL_METAL);
+      pm_rod(b, V3(p0.x, p0.y - 0.2f, 0), V3(p0.x, p0.y - 0.9f, 0), 0.06f, 4, hex(0x4a3a2a));
+    }
+  }
+  pm_pop(b);
+}
+
+/* a swing ride frozen mid-swing: a striped pole, a striped canopy, the seats flown out on their chains */
+static void swing_ride(pmc *st, gcells *chase[3], gcells *steady, t3_vec3 at, float Hp, float yaw) {
+  frame f = fr(at.x, at.y, at.z, yaw);
+  pm *b = fb1(st, &f, 0, 0, 0, PL_MAIN);
+  pm_cyl_ex(b, 9.0f, 9.0f, 0.8f, 20, hex(0x5a554c), hex(0x8a8474), false, true);
+  pm_pop(b);
+  for (int k = 0; k < 4; k++) { /* the pole in four painted bands */
+    b = fb1(st, &f, 0, Hp * (float)k / 4.0f, 0, PL_MAIN);
+    pm_cyl_ex(b, 1.0f - 0.08f * (float)k, 0.92f - 0.08f * (float)k, Hp / 4.0f, 10, (k & 1) ? CREAM : TEAL, (k & 1) ? CREAM : TEAL, false, false);
+    pm_pop(b);
+  }
+  const int N = 16;
+  const float RC = 8.0f, rise = 4.0f, skirt = 1.3f;
+  b = fb1(st, &f, 0, Hp, 0, PL_MAIN);
+  for (int i = 0; i < N; i++) {
+    float a0 = CW_TAU * (float)i / (float)N, a1 = CW_TAU * (float)(i + 1) / (float)N;
+    t3_vec3 r0 = V3(cosf(a0) * RC, 0, -sinf(a0) * RC), r1 = V3(cosf(a1) * RC, 0, -sinf(a1) * RC), apex = V3(0, rise, 0);
+    pcol col = (i & 1) ? CREAM : RED;
+    pm_tri(b, r0, r1, apex, col);
+    pm_tri(b, r1, r0, apex, pc_mix(col, BLACK, 0.45f)); /* seen from under */
+    pm_quad(b, r0, V3(r0.x, -skirt, r0.z), V3(r1.x, -skirt, r1.z), r1, col);
+    pm_quad(b, r1, V3(r1.x, -skirt, r1.z), V3(r0.x, -skirt, r0.z), r0, pc_mix(col, BLACK, 0.3f));
+  }
+  pm_move(b, 0, rise, 0);
+  pm_cyl(b, 1.2f, 0.0f, 2.4f, 8, MUSTARD, CREAM);
+  pm_pop(b);
+  pennant(st, fw(&f, 0, Hp + rise + 5.6f, 0), 4.0f, TEAL);
+  b = fb1(st, &f, 0, Hp + rise + 2.4f, 0, PL_METAL);
+  pm_rod(b, V3(0, 0, 0), V3(0, 3.4f, 0), 0.1f, 5, hex(0xd8c8a8));
+  pm_pop(b);
+  for (int i = 0; i < N; i++) { /* chains and seats, flown out */
+    float an = CW_TAU * ((float)i + 0.5f) / (float)N;
+    t3_vec3 top = V3(cosf(an) * (RC - 1.0f), Hp - skirt, -sinf(an) * (RC - 1.0f)), seat = V3(cosf(an) * (RC + 3.6f), Hp - skirt - 6.2f, -sinf(an) * (RC + 3.6f));
+    b = fb1(st, &f, 0, 0, 0, PL_METAL);
+    pm_rod(b, top, seat, 0.05f, 3, hex(0x3a3028));
+    pm_layer(b, PL_MAIN);
+    pm_push(b);
+    pm_move(b, seat.x, seat.y - 0.4f, seat.z);
+    pm_roty(b, an);
+    pm_box(b, 0.8f, 0.5f, 0.7f, pc_mix(bulb_col(i), BLACK, 0.4f), bulb_col(i));
+    pm_pop(b);
+    pm_pop(b);
+  }
+  for (int i = 0; i < N * 2; i++) {
+    float an = CW_TAU * (float)i / (float)(N * 2);
+    bulb(i & 1 ? steady : chase[(i / 2) % 3], fw(&f, cosf(an) * (RC + 0.15f), Hp - skirt + 0.2f, -sinf(an) * (RC + 0.15f)), 0.3f, bulb_col(i), 4.2f);
+  }
+}
+
+/* a tent on tall poles: a striped wall and roof low down (out of sight from the high road), its king pole and two side
+ * poles standing well over the walls with long flags, ropes of bunting from the king pole to the eaves */
+static void pole_tent(pmc *st, gcells *steady, t3_vec3 at, float R, float Hpole, float yaw, int pal) {
+  static const uint32_t cols[3][2] = { { 0xc2453b, 0xeadfc4 }, { 0x3a9a93, 0xeadfc4 }, { 0x7a4a9a, 0xe2b13e } };
+  pcol ca = hex(cols[pal % 3][0]), cb = hex(cols[pal % 3][1]);
+  frame f = fr(at.x, at.y, at.z, yaw);
+  const int N = 14;
+  const float wall = 4.0f, apex = wall + R * 0.85f;
+  for (int i = 0; i < N; i++) {
+    float a0 = CW_TAU * (float)i / (float)N, a1 = CW_TAU * (float)(i + 1) / (float)N, am = 0.5f * (a0 + a1);
+    pm *b = fb1(st, &f, cosf(am) * R, 0, -sinf(am) * R, PL_MAIN);
+    t3_vec3 o = V3(cosf(am) * R, 0, -sinf(am) * R);
+    t3_vec3 p0 = V3(cosf(a0) * R - o.x, 0, -sinf(a0) * R - o.z), p1 = V3(cosf(a1) * R - o.x, 0, -sinf(a1) * R - o.z);
+    pcol col = (i & 1) ? cb : ca;
+    pm_quad(b, p0, p1, V3(p1.x, wall, p1.z), V3(p0.x, wall, p0.z), col);
+    pm_tri(b, V3(p0.x, wall, p0.z), V3(p1.x, wall, p1.z), V3(-o.x, apex, -o.z), col);
+    pm_pop(b);
+  }
+  t3_vec3 poles[3] = { V3(0, Hpole, 0), V3(R * 0.55f, Hpole * 0.8f, 0), V3(-R * 0.55f, Hpole * 0.8f, 0) };
+  for (int k = 0; k < 3; k++) {
+    pm *b = fb1(st, &f, poles[k].x, 0, poles[k].z, PL_MAIN);
+    pm_cyl(b, k ? 0.32f : 0.45f, k ? 0.22f : 0.3f, poles[k].y, 7, WOODC, pc_mix(WOODC, CREAM, 0.35f));
+    pm_pop(b);
+    t3_vec3 top = fw(&f, poles[k].x, poles[k].y, poles[k].z);
+    b = pmc_at(st, top);
+    pm_layer(b, PL_METAL);
+    pm_push(b);
+    pm_move(b, top.x, top.y + 0.3f, top.z);
+    pm_ball(b, 0.5f, 0.5f, 0.5f, 0, 0, hex(0xd8b050), hex(0xf6e090));
+    pm_pop(b);
+    pennant(st, V3(top.x, top.y - 0.2f, top.z), k ? 3.5f : 5.5f, k == 1 ? MUSTARD : k ? TEAL : ca);
+    bulb(steady, V3(top.x, top.y - 1.2f, top.z), 0.34f, bulb_col(k + pal), 4.2f);
+  }
+  /* bunting from the king pole down to the eaves */
+  t3_vec3 kp = fw(&f, 0, Hpole - 1.0f, 0);
+  for (int i = 0; i < 4; i++) {
+    float an = CW_TAU * ((float)i + 0.5f) / 4.0f;
+    bunting(st, kp, fw(&f, cosf(an) * R, wall + 0.5f, -sinf(an) * R), 0.8f, (uint32_t)(i + pal));
+  }
+}
+
+/* the tall things along the high run, and the bulbs along its walls */
+static void dress_high_run(const track *t, pmc *st, gcells *chase[3], gcells *steady) {
+  /* the stretch: from the helix to where the tall walls end before the jump */
+  float s0 = P.helix_s1 + 10.0f, s1 = s0;
+  for (int i = 0; i < t->n; i++)
+    if (t->s[i].s > s0 && t->s[i].s < P.jump_s0 && t->s[i].walls >= 3) s1 = t->s[i].s;
+  if (s1 - s0 < 60.0f) return;
+  /* the rides: tall enough that their tops stand 15..45 m over the road, and set back only so far that they stay in
+   * a kart's view ahead for a long way */
+  RS = 9191;
+  int kinds[] = { 0, 3, 1, 3, 2, 3, 0 };
+  int placed = 0, nk = (int)(sizeof kinds / sizeof kinds[0]);
+  float spacing = (s1 - s0) / (float)nk;
+  for (int k = 0; k < nk; k++) {
+    float s = s0 + spacing * ((float)k + 0.5f);
+    tsample a = track_at(t, s);
+    float need = kinds[k] == 1 ? 29.0f : kinds[k] == 2 ? 14.0f : kinds[k] == 3 ? 12.0f : 6.0f;
+    bool ok = false;
+    t3_vec3 p = { 0 };
+    for (int tries = 0; tries < 6 && !ok; tries++) {
+      int side = ((k + tries) & 1) ? 1 : -1;
+      float lat = (float)side * (a.hw + need * 0.6f + 14.0f + 10.0f * (float)(tries / 2) + rr(0, 10));
+      p = track_point(t, s + rr(-8, 8), lat, 0);
+      ok = room(t, p.x, p.z, need) && hypotf(p.x - P.helix_c.x, p.z - P.helix_c.z) > P.helix_r + need + 8.0f;
+      for (int i = 0; ok && i < NBUSY; i++)
+        if (hypotf(p.x - BUSY[i].x, p.z - BUSY[i].z) < BUSY[i].r + need) ok = false;
+      for (int i = 0; ok && i < nhr; i++)
+        if (hypotf(p.x - HR[i].x, p.z - HR[i].z) < HR[i].r + need + 4.0f) ok = false;
+    }
+    if (!ok) continue;
+    float gy = fair_ground(p.x, p.z, NULL);
+    t3_vec3 at = V3(p.x, gy - 0.1f, p.z);
+    float over = a.p.y - gy; /* how far the road is above this ground */
+    float face = yaw_to(p, track_point(t, s, 0, 0));
+    switch (kinds[k]) {
+    case 0: drop_tower(st, chase, steady, at, over + 40.0f + rr(0, 8), face); break;
+    case 1: still_wheel(st, chase, steady, at, 24.0f, over + 22.0f, yaw_to(p, track_point(t, s - 90.0f, 0, 0))); break; /* face-on to the karts coming */
+    case 2: swing_ride(st, chase, steady, at, over + 20.0f, face); break;
+    default: pole_tent(st, steady, at, 11.0f, over + 22.0f + rr(0, 6), face, placed); break;
+    }
+    if (nhr < 8) HR[nhr].x = p.x, HR[nhr].z = p.z, HR[nhr].r = need, nhr++;
+    placed++;
+  }
+  /* masts on the wall tops with strings of bulbs between them at the karts' eye level, and a flag on every other mast */
+  int nm = 0;
+  for (int side = -1; side <= 1; side += 2) {
+    t3_vec3 last = { 0 };
+    bool have = false;
+    for (float s = s0 + 6.0f; s < s1 - 4.0f; s += THIN ? 26.0f : 18.0f) {
+      tsample a = track_at(t, s);
+      if (a.walls < 3 || (a.flags & (TF_GAP | TF_LOOP))) {
+        have = false;
+        continue;
+      }
+      t3_vec3 base = track_point(t, s, (float)side * (a.hw + 0.3f), 3.4f), top = track_point(t, s, (float)side * (a.hw + 0.3f), 8.0f);
+      pm *b = pmc_at(st, base);
+      pm_layer(b, PL_METAL);
+      pm_rod(b, base, top, 0.11f, 5, hex(0xd8c8a8));
+      pm_push(b);
+      pm_move(b, top.x, top.y, top.z);
+      pm_ball(b, 0.26f, 0.26f, 0.26f, 0, 0, hex(0xd8b050), hex(0xf6e090));
+      pm_pop(b);
+      if (nm & 1) pennant(st, V3(top.x, top.y - 0.1f, top.z), 2.2f, (nm & 2) ? RED : TEAL);
+      t3_vec3 hook = track_point(t, s, (float)side * (a.hw + 0.3f), 6.6f);
+      if (have) bulb_string(st, chase, last, hook, 0.8f, 1.5f, (uint32_t)nm);
+      last = hook, have = true;
+      nm++;
+    }
+  }
+  cw_info("fair: high run s %.0f..%.0f: %d rides, %d wall masts", s0, s1, placed, nm);
+}
+
 
 /* low picket fences a few steps back from the road on the stretches that run at ground level: a rhythm that makes speed
  * readable, in the park's candy colours */
@@ -2015,6 +2308,8 @@ static void fair_scenery(cw_node scene, const track *t, uint32_t seed) {
   build_tower(root, str, chase, steady, V3(P.helix_c.x, fair_ground(P.helix_c.x, P.helix_c.z, NULL), P.helix_c.z));
   pmc *wood = pmc_new(90, 12);
   gcells *flick[2] = { gc_new(150, 25), gc_new(150, 26) };
+  nhr = 0;
+  dress_high_run(t, str, chase, steady); /* before the midway, which keeps off its rides */
   build_park(root, str, wood, chase, steady, flick, t);
   dress_loop(str, chase, t, 0);
   dress_loop(str, chase, t, 1);
