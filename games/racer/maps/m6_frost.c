@@ -1256,6 +1256,13 @@ static float rock_mask(float x, float z, void *ud) {
   if (in_lake(x, z, 1.02f) || in_gorge(x, z, 6.0f)) return 0;
   return 1.0f;
 }
+/* Loose rocks only where the snow is near level (under about 20 degrees). On a steeper face a rock set in the snow kept
+ * a pale rim standing proud of the slope with no contact line and no shadow under it: a white blob that floated, from
+ * the road and from close by. The steep faces show their rock as ledges shaped out of the slope (build_ledges). */
+static float rock_flat_mask(float x, float z, void *ud) {
+  if (rock_mask(x, z, ud) <= 0) return 0;
+  return slope_at(x, z) < 0.36f ? 1.0f : 0.0f;
+}
 static float shore_mask(float x, float z, void *ud) {
   (void)ud;
   float lx = (x - F.lake_cx) / F.lake_rx, lz = (z - F.lake_cz) / F.lake_rz, d = sqrtf(lx * lx + lz * lz);
@@ -1363,7 +1370,7 @@ static void build_forest(cw_node root, const track *t) {
   o.align_slope = true;
   static const float ROCK_SLOPE_SINK = 2.0f;
   o.ground = rock_ground_cb, o.ground_ud = (void *)&ROCK_SLOPE_SINK;
-  o.mask = rock_mask;
+  o.mask = rock_flat_mask;
   o.kinds[0] = PK_ROCK, o.weight[0] = 4;
   o.kinds[1] = PK_BOULDERS, o.weight[1] = 1.2f;
   o.nkinds = 2;
@@ -1382,7 +1389,7 @@ static void build_forest(cw_node root, const track *t) {
   prop_set *pi = ps_new(root, "Ice");
   o = scatter_defaults();
   o.ground = ground_cb;
-  o.mask = rock_mask;
+  o.mask = rock_flat_mask; /* ice lumps too: none sits on a steep face */
   o.kinds[0] = PK_ICE_SPIKES, o.weight[0] = 3;
   o.kinds[1] = PK_ICE_BOULDER, o.weight[1] = 2;
   o.kinds[2] = PK_CRYSTAL, o.weight[2] = 1.6f;
@@ -1411,12 +1418,6 @@ static void build_forest(cw_node root, const track *t) {
   ps_finish(pi);
 }
 
-static float crag_mask(float x, float z, void *ud) {
-  (void)ud;
-  if (in_lake(x, z, 1.05f) || in_gorge(x, z, 10.0f)) return 0;
-  float sl = slope_at(x, z);
-  return cw_smoothstep(0.38f, 0.7f, sl);
-}
 static float peak_mask(float x, float z, void *ud) {
   (void)ud;
   if (in_gorge(x, z, 10.0f)) return 0;
@@ -1435,27 +1436,10 @@ static void build_outcrops(cw_node root, const track *t) {
   ps_style(ps, PK_ROCK, TEX_GROUND_ROCK, rgb(0.85f, 1.0f, 1.5f), 1.0f);
   ps_style(ps, PK_SPIRE, -1, rgb(0.55f, 0.75f, 1.6f), 1.0f);
   ps_style(ps, PK_CANYON_WALL, TEX_GROUND_ROCK, rgb(0.85f, 1.0f, 1.5f), 1.0f);
-  scatter_opts o = scatter_defaults();
-  static const float CRAG_SLOPE_SINK = 4.5f;
-  o.ground = rock_ground_cb, o.ground_ud = (void *)&CRAG_SLOPE_SINK;
-  o.mask = crag_mask;
-  o.kinds[0] = PK_BOULDERS, o.weight[0] = 3;
-  o.kinds[1] = PK_ROCK, o.weight[1] = 3;
-  o.nkinds = 2;
-  o.scale_min = 2.6f, o.scale_max = 6.5f;
-  o.cx = 330, o.cz = -100, o.half_x = 900, o.half_z = 1000;
-  o.density = 0.5f * THIN;
-  o.margin = 9.0f;
-  o.sink = 1.1f;
-  o.lod_dist = 90.0f, o.far_thin = 0.45f;
-  o.seed = 51;
-  o.align_slope = true;
-  prop_set *pr = ps_new(root, "CragRocks");
-  ps_style(pr, PK_BOULDERS, TEX_GROUND_ROCK, rgb(0.85f, 1.0f, 1.5f), 1.0f);
-  ps_style(pr, PK_ROCK, TEX_GROUND_ROCK, rgb(0.85f, 1.0f, 1.5f), 1.0f);
-  int n = scatter_area(pr, t, &o);
-  ps_finish(pr);
-  snow_dress_set(root, "CragRocks");
+  /* (boulders scattered over the steep faces are gone: set into a slope they showed a pale rim with no contact line and
+   * read as floating; the steep faces' rock is now the ledges shaped out of the slope itself, build_ledges) */
+  scatter_opts o;
+  int n = 0;
   /* needles and cliff faces on the ridges, in the cool variant of their palettes: placed by hand so every one is that variant */
   {
     uint32_t hr = 91;
@@ -2704,7 +2688,7 @@ static void ledge(pm *b, float x, float z, float ux, float uz, float W, float D,
       if (j > 0 && j < NV - 1 && i > 0 && i < NU - 1) px += 0.4f * (hashf2((int)seed, i, j * 3 + 33) - 0.5f), pz += 0.4f * (hashf2((int)seed, j, i * 3 + 34) - 0.5f);
       P[j][i] = V3(px, terrain(px, pz, NULL) + h - (edge < 0.05f ? 0.4f : 0.0f), pz);
     }
-  pcol rockA = rgb(0.16f, 0.18f, 0.25f), rockB = rgb(0.3f, 0.33f, 0.44f), snow = rgb(0.66f, 0.76f, 1.0f), icec = rgb(0.4f, 0.78f, 1.15f);
+  pcol rockA = rgb(0.26f, 0.25f, 0.29f), rockB = rgb(0.46f, 0.44f, 0.5f) /* grey slate, lighter than the blue shade so a face reads as rock, not a hole */, snow = rgb(0.66f, 0.76f, 1.0f), icec = rgb(0.4f, 0.78f, 1.15f);
   pm_layer(b, PL_MAIN);
   for (int j = 0; j + 1 < NV; j++)
     for (int i = 0; i + 1 < NU; i++) {
@@ -2744,7 +2728,7 @@ static void build_ledges(cw_node root, const track *t) {
       float gx = (terrain(x + e, z, NULL) - terrain(x - e, z, NULL)) / (2 * e), gz = (terrain(x, z + e, NULL) - terrain(x, z - e, NULL)) / (2 * e);
       float g = sqrtf(gx * gx + gz * gz);
       /* the steep faces only, and mostly the steepest: rock shows where snow cannot lie */
-      if (g < 0.4f || r1 > cw_smoothstep(0.4f, 0.9f, g) * 0.9f) continue;
+      if (g < 0.3f || r1 > cw_smoothstep(0.3f, 0.75f, g) * 0.95f) continue;
       g = fminf(g, 1.1f);
       float W = 10.0f + 12.0f * r2, D = 3.0f + 2.0f * r3;
       if (road_gap(t, x, z, NULL) < W * 0.65f + D * 1.6f + 4.0f) continue;
@@ -2754,7 +2738,7 @@ static void build_ledges(cw_node root, const track *t) {
       /* the slope must carry on uphill behind it and downhill in front of it: on a ridge's lip the land flattens behind
        * and the ledge stood proud of it, a black block against the sky */
       float gl = sqrtf(gx * gx + gz * gz), ux = gx / gl, uz = gz / gl, back = D * 2.2f;
-      if (terrain(x + ux * back, z + uz * back, NULL) - p.y < 0.8f * g * back) continue;
+      if (terrain(x + ux * back, z + uz * back, NULL) - p.y < 0.6f * g * back) continue;
       if (p.y - terrain(x - ux * D, z - uz * D, NULL) < 0.6f * g * D) continue;
       (void)yaw;
       pm *b = pmc_at(c, p);
@@ -2763,6 +2747,39 @@ static void build_ledges(cw_node root, const track *t) {
       pm_pop(b);
       n++;
     }
+  /* The banks graded between the climb's switchbacks are steep but hemmed in by road above and below, so the open
+   * search above passes them by: walk the road and set ledges along its banks, lying with the contour (parallel to the
+   * road), each one's whole footprint clear of every lane. */
+  int nb = 0;
+  for (float s = 0; s < t->length; s += 16.0f) {
+    tsample a = track_at(t, s);
+    if (a.flags & (TF_GAP | TF_TUNNEL | TF_LOOP)) continue;
+    for (int side = -1; side <= 1; side += 2) {
+      float r1 = rnd1(&hs), r2 = rnd1(&hs), r3 = rnd1(&hs);
+      float D = (3.0f + 2.0f * r3) * 1.6f, W = (10.0f + 10.0f * r2) * 1.3f;
+      t3_vec3 q = track_point(t, s, (float)side * (a.hw + 4.0f + D + 16.0f * r1), 0);
+      float x = q.x, z = q.z;
+      if (in_lake(x, z, 1.08f) || in_gorge(x, z, 16.0f)) continue;
+      const float e = 4.0f;
+      float gx = (terrain(x + e, z, NULL) - terrain(x - e, z, NULL)) / (2 * e), gz = (terrain(x, z + e, NULL) - terrain(x, z - e, NULL)) / (2 * e);
+      float g = sqrtf(gx * gx + gz * gz);
+      if (g < 0.32f || r1 > 0.85f) continue;
+      float ux = gx / g, uz = gz / g;
+      /* the footprint's corners and edge middles, all off the roads with room to spare */
+      bool ok = true;
+      for (int k = 0; k < 8 && ok; k++) {
+        float cu = (k & 1 ? 0.5f : -0.5f) * (k < 4 ? W : 0.0f), cv = (k & 2 ? 1.0f : -1.0f) * D;
+        ok = road_gap(t, x - uz * cu - ux * cv, z + ux * cu - uz * cv, NULL) > 2.5f;
+      }
+      if (!ok) continue;
+      pm *b = pmc_at(c, V3(x, 0, z));
+      pm_push(b);
+      ledge(b, x, z, ux, uz, W, D, 3.0f + 2.5f * r3 + 2.0f * fminf(g, 1.1f), r3 > 0.85f, 50000u + (uint32_t)nb * 7u);
+      pm_pop(b);
+      nb++;
+    }
+  }
+  cw_info("frost: %d ledges along the road's banks", nb);
   pmc_finish(c, root, "Ledges", true, -1);
   cw_info("frost: %d rock ledges on the steep faces", n);
 }
