@@ -44,7 +44,7 @@ static const piece SPEC[] = {
   ITEMS(),
   /* the helix comes straight off the big drop at up to 74 m/s: banked into the turn so that speed holds the deck (flat,
    * karts flew off its outside) */
-  MOVE(24, 0, KEEP, 24, KEEP),
+  MOVE(60, 0, KEEP, 24, KEEP), /* (rolled in over 60 m: over 24 at 46 m/s the roll threw karts into the air and off the helix) */
   HILL(320, 360, 8),
   MOVE(20, 0, KEEP, 0, KEEP),
   /* and on down the high run off the helix to the jump ramp: karts knocked about by items there went over the low

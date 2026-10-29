@@ -1133,6 +1133,25 @@ static void kart_control(sim *s, int i, kin in) {
     float sp = absf(k->speed);
     float press = STICK * clampf(sp / 14.0f, 0, 1) * GRAV * mass;
     if (grounded || touching) cw_body3d_apply_force(b, v3mul(m.u, -press * attach), NULL);
+    /* over a crest the road falls away faster than gravity can follow at speed (v^2 x its downward curve beyond 0.85 g):
+     * the road holds the kart down the rest of the way, up to 2 g, so a crest is a lift, not a launch. A fast kart was
+     * thrown off the top of the fairground's lift hill into the drop. A jump's lip (TF_RAMP before a gap) still throws */
+    if (!(ts->flags & (TF_LOOP | TF_GAP)) && !s->battle && k->loc.br < 0 && sp > 15.0f) {
+      const tsample *nx = &t->s[(k->loc.i + 6) % t->n];
+      float ds = nx->s - ts->s;
+      if (ds < 0) ds += t->length;
+      bool lip = false;
+      for (int g = 0; g < t->ngaps && !lip; g++) {
+        float ahead = t->s[t->gap_from[g]].s - ts->s;
+        if (t->circuit && ahead < 0) ahead += t->length;
+        lip = ahead > -2.0f && ahead < 30.0f;
+      }
+      if (ds > 1.0f && !lip && !grounded) { /* (only as it lifts: pressed down on every crest it was dragged, 6 s a lap on the refinery) */
+        float kappa = -v3dot(v3sub(nx->f, ts->f), ts->u) / ds; /* > 0: the road bends down ahead */
+        float need = sp * sp * kappa - 0.85f * GRAV;
+        if (need > 0) cw_body3d_apply_force(b, v3mul(m.u, -fminf(need, 2.0f * GRAV) * mass * attach), NULL);
+      }
+    }
   }
   if (s->battle && (grounded || touching) && up.y > 0.7f) {
     /* an arena has no track gravity: the same downforce, along the kart's own down (ramps and decks); never while it leans on
