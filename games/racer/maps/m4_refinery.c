@@ -625,12 +625,15 @@ static void mud_warp(float x, float z, float *du, float *dv) {
   *du = ground_noise(x, z, 70.0f, 14.0f, 2, 501) + ground_noise(x, z, 23.0f, 3.5f, 1, 502);
   *dv = ground_noise(x, z, 70.0f, 14.0f, 2, 503) + ground_noise(x, z, 23.0f, 3.5f, 1, 504);
 }
+/* the band a height on the cutting's bank falls in (fractional: the part past the integer is how far up it) */
+static float strata_q(float y, float x, float z) { return (y + 30.0f) / 3.0f + 1.1f * ground_noise(x, z, 45.0f, 1.0f, 2, 505); }
 static pcol strata_col(float y, float x, float z) {
-  /* loud enough to read through the cutting's dusk haze */
-  static const pcol S[5] = { { 1.1f, 0.66f, 0.3f }, { 0.12f, 0.11f, 0.13f }, { 0.95f, 0.38f, 0.18f }, { 1.0f, 0.95f, 0.85f }, { 0.3f, 0.2f, 0.2f } };
-  float q = (y + 30.0f) / 3.0f + 0.7f * ground_noise(x, z, 60.0f, 1.0f, 2, 505);
+  /* loud enough to read through the cutting's dusk haze: pale ash and ochre beds between near-black basalt, so every
+   * other band is a dark one and the light ones carry the eye along the cut */
+  static const pcol S[5] = { { 1.35f, 0.78f, 0.32f }, { 0.05f, 0.045f, 0.06f }, { 1.2f, 0.42f, 0.16f }, { 1.4f, 1.28f, 1.05f }, { 0.07f, 0.05f, 0.05f } };
+  float q = strata_q(y, x, z);
   int i0 = ((int)floorf(q) % 5 + 5) % 5, i1 = (i0 + 1) % 5;
-  float f = sst(0.75f, 1.0f, q - floorf(q));
+  float f = sst(0.85f, 1.0f, q - floorf(q));
   return pc_mix(S[i0], S[i1], f);
 }
 typedef struct { t3_geometry *g[2048]; int n; } geoset;
@@ -2044,9 +2047,11 @@ static void landing_targets(void) {
 static void cutting(void) {
   const track *t = R.t;
   pmc *c = pmc_new(200, 951u); /* big cells: the walls are cheap in triangles, it is draws that cost */
+  pmc *rock = pmc_new(200, 953u); /* the strata faces above the walls: rock, not shotcrete */
+  pmc_texture_metres(rock, 5.0f);
   const pcol conc = rgb(0.56f, 0.52f, 0.48f), conc_d = rgb(0.34f, 0.31f, 0.3f);
   const pcol sodium = glow(rgb(1, 0.58f, 0.2f), 6.0f);
-  int panels = 0, lamps = 0, bridges = 0;
+  int panels = 0, lamps = 0, bridges = 0, skins = 0, noskin = 0;
   const float step = 4.0f;
   for (int side = -1; side <= 1; side += 2) {
     int k = 0;
@@ -2075,40 +2080,101 @@ static void cutting(void) {
       pm_beam(m, D, C, 0.5f, conc_d);
       pm_pop(m);
       panels++;
-      /* The bank above the wall, up to the plain: the ground there is a cell or two of the cracked mud, plain and too
-       * coarse to paint. A skin of rock in strata lies over it (ochre, basalt, rust, ash, wavering along the cut), half
-       * a metre proud of the land, from the wall's cap to where the bank meets the plain. */
+      /* The bank above the wall, up to the plain. The cut in the land is a cliff right behind the wall (terrain() is at
+       * the plain a metre past the cap), and the ground drawn over it is a cell or two of plain cracked mud: the skin
+       * that followed terrain() lay flat at the plain's height and floated over the cutting as thin ribbons, while the
+       * bank itself stayed bare. Now the strata are a rock face of their own: it rises from the wall's cap to the
+       * plain, leaning back a little (the top 0.15 m back per metre up), in front of whatever ground is drawn there. */
       if (deep > 0.6f) {
+        enum { NR = 16 };
         t3_vec3 top[2] = { D, C };
         tsample sa[2] = { a, b2 };
-        t3_vec3 row[2][9];
+        t3_vec3 row[2][NR + 1], rout[2];
         bool ok = true;
         for (int e = 0; e < 2 && ok; e++) {
           t3_vec3 rr = v3mul(v3norm(V3(sa[e].r.x, 0, sa[e].r.z)), (float)side);
-          float dT = -1;
-          for (float d = 0.5f; d < 60.0f; d += 1.0f) {
-            t3_vec3 q = v3add(top[e], v3mul(rr, d));
-            if (terrain(q.x, q.z, NULL) > -1.2f) { dT = d + 1.5f; break; }
-          }
-          if (dT < 0) { ok = false; break; }
-          for (int r = 0; r < 9; r++) {
-            float f = (float)r / 8.0f;
-            t3_vec3 q = v3add(top[e], v3mul(rr, dT * f));
-            float yl = top[e].y + 0.3f + (-0.6f - top[e].y) * f;
-            q.y = fmaxf(yl, terrain(q.x, q.z, NULL) + 0.5f);
+          /* the plain's height a few metres behind the cap: where the face ends */
+          t3_vec3 back = v3add(top[e], v3mul(rr, 6.0f));
+          float yt = terrain(back.x, back.z, NULL) + 0.3f, H = yt - top[e].y;
+          if (H < 2.0f) { ok = false, noskin++; break; }
+          rout[e] = rr;
+          for (int r = 0; r <= NR; r++) {
+            float h = H * (float)r / (float)NR;
+            /* a slight bulge in the middle of the face so it is not one flat plane */
+            float lean = 0.15f * h + 0.6f * sinf(3.14159f * (float)r / (float)NR) * (0.5f + 0.5f * ground_noise(top[e].x, top[e].z, 18.0f, 1.0f, 1, 508));
+            t3_vec3 q = v3add(top[e], v3mul(rr, lean - 0.1f));
+            q.y = top[e].y + 0.25f + h;
             row[e][r] = q;
           }
         }
         if (ok) {
-          pm *sk = pmc_at(c, p0);
+          pm *sk = pmc_at(rock, p0);
           pm_push(sk);
           pm_layer(sk, PL_MAIN);
-          for (int r = 0; r < 8; r++) {
+          /* the sodium lamps on the buttresses (every 24 m along the wall) throw a warm pool up the foot of the bank */
+          float pool[2];
+          for (int e = 0; e < 2; e++) {
+            float ds = fmodf(s + (float)e * step, 24.0f);
+            ds = fminf(ds, 24.0f - ds);
+            pool[e] = expf(-(ds * ds) / 60.0f);
+          }
+          const pcol warm = { 1.9f, 1.05f, 0.42f };
+          pcol vc[2][NR + 1];
+          float vlit[2][NR + 1];
+          for (int e = 0; e < 2; e++)
+            for (int r = 0; r <= NR; r++) {
+              t3_vec3 q = row[e][r];
+              pcol cl = strata_col(q.y, q.x, q.z);
+              float lit = pool[e] * fmaxf(0.0f, 1.0f - (q.y - top[e].y) / 9.0f);
+              vc[e][r] = pc_mix(cl, (pcol){ cl.r * warm.r + 0.25f * lit, cl.g * warm.g + 0.12f * lit, cl.b * warm.b }, lit);
+              vlit[e][r] = lit;
+            }
+          for (int r = 0; r < NR; r++) {
             t3_vec3 q00 = row[0][r], q10 = row[1][r], q11 = row[1][r + 1], q01 = row[0][r + 1];
-            pcol cl = pc_mul(strata_col(0.5f * (q00.y + q01.y), q00.x, q00.z), 0.85f);
-            pm_quad(sk, q00, q01, q11, q10, cl), pm_quad(sk, q00, q10, q11, q01, cl); /* both faces: no winding to get wrong */
+            float lit = 0.5f * (vlit[0][r] + vlit[1][r]);
+            /* colour per corner, so a bed's edge runs straight across the panels instead of in steps; both faces */
+            t3_vec3 n = v3norm(v3cross(v3sub(q01, q00), v3sub(q10, q00))), nn = v3mul(n, -1.0f);
+            pm_tri_n(sk, q00, n, vc[0][r], q01, n, vc[0][r + 1], q11, n, vc[1][r + 1]);
+            pm_tri_n(sk, q00, n, vc[0][r], q11, n, vc[1][r + 1], q10, n, vc[1][r]);
+            pm_tri_n(sk, q00, nn, vc[0][r], q11, nn, vc[1][r + 1], q01, nn, vc[0][r + 1]);
+            pm_tri_n(sk, q00, nn, vc[0][r], q10, nn, vc[1][r], q11, nn, vc[1][r + 1]);
+            (void)lit;
+          }
+          /* where one bed gives way to the next the harder one stands out as a lip: a bright edge catching the dusk
+           * sky (and the lamps low down) over a strip of black shadow under it, a little proud of the face. Each
+           * bed's edge is found at both ends of the panel on its own (the height where that bed starts there), so the
+           * lips run on unbroken from panel to panel. */
+          float q0b[2];
+          for (int e = 0; e < 2; e++) q0b[e] = strata_q(0, row[e][0].x, row[e][0].z); /* the band index at y = 0 */
+          for (int nb = (int)ceilf(strata_q(row[0][0].y, row[0][0].x, row[0][0].z)); nb <= (int)floorf(strata_q(row[0][NR].y, row[0][NR].x, row[0][NR].z)); nb++) {
+            t3_vec3 m[2];
+            bool both = true;
+            for (int e = 0; e < 2 && both; e++) {
+              float yb = 3.0f * ((float)nb - q0b[e]);
+              both = yb > row[e][0].y + 0.8f && yb < row[e][NR].y - 0.4f;
+              if (!both) break;
+              int r = 0;
+              while (r + 1 < NR && row[e][r + 1].y < yb) r++;
+              float f = (yb - row[e][r].y) / fmaxf(row[e][r + 1].y - row[e][r].y, 0.001f);
+              m[e] = v3add(row[e][r], v3mul(v3sub(row[e][r + 1], row[e][r]), f));
+            }
+            if (!both) continue;
+            float lit = 0.5f * (pool[0] + pool[1]) * fmaxf(0.0f, 1.0f - (m[0].y - top[0].y) / 9.0f);
+            {
+              t3_vec3 m0 = m[0], m1 = m[1];
+              t3_vec3 o0 = v3add(V3(0, 0.35f, 0), v3mul(rout[0], -0.3f)), o1 = v3add(V3(0, 0.35f, 0), v3mul(rout[1], -0.3f));
+              t3_vec3 l0 = v3add(m0, o0), l1 = v3add(m1, o1);                      /* the lip's front edge */
+              t3_vec3 t0 = v3add(l0, v3add(V3(0, 0.25f, 0), v3mul(rout[0], 0.6f))); /* its top, running back into the bank */
+              t3_vec3 t1 = v3add(l1, v3add(V3(0, 0.25f, 0), v3mul(rout[1], 0.6f)));
+              t3_vec3 d0 = v3add(m0, V3(0, -0.7f, 0)), d1 = v3add(m1, V3(0, -0.7f, 0));
+              pcol edge = pc_mix((pcol){ 1.5f, 1.2f, 0.95f }, (pcol){ 2.2f, 1.25f, 0.5f }, lit);
+              pcol shade = { 0.03f, 0.025f, 0.03f };
+              pm_quad(sk, l0, l1, t1, t0, edge), pm_quad(sk, l0, t0, t1, l1, edge);
+              pm_quad(sk, d0, d1, l1, l0, shade), pm_quad(sk, d0, l0, l1, d1, shade);
+            }
           }
           pm_pop(sk);
+          skins++;
         }
       }
       /* a buttress every 12 m, and a lamp on every other one */
@@ -2237,7 +2303,8 @@ static void cutting(void) {
   }
   cw_info("refinery: %d ledges on the cutting's banks", ledges);
   pmc_finish(c, R.root, "Cutting", true, TEX_WALL_CONCRETE);
-  cw_info("refinery: cutting %d wall panels, %d lamps, %d pipe bridges", panels, lamps, bridges);
+  pmc_finish(rock, R.root, "CuttingStrata", false, TEX_GROUND_STREAK);
+  cw_info("refinery: cutting %d wall panels (%d with the strata skin over the bank, %d where no bank top was found), %d lamps, %d pipe bridges", panels, skins, noskin, lamps, bridges);
 }
 
 static void floodlights(void) {
