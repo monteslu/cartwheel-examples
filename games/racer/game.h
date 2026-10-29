@@ -32,7 +32,7 @@
 #define NMAPS 8
 #define NVEH 6
 #define MAX_LAPS 5
-#define NARENAS 7  /* arena maps (ARENAS[]; separate from the race maps): the battle arenas, the capture the flag maps, the assault maps */
+#define NARENAS 8  /* arena maps (ARENAS[]; separate from the race maps): the battle arenas, the capture the flag maps, the assault maps */
 #define BALLOONS 3 /* a battle kart's balloons at the start */
 #define BATTLE_SPIN_K 0.45f /* a battle spin lasts this share of a race spin (the pop is the cost; sim_battle.inc, kartgfx.c) */
 
@@ -183,6 +183,7 @@ typedef struct kart {
   int hill_ticks;       /* king of the mountain: ticks it has held the hill alone */
   int tele_cool;        /* an arena's teleport pads: ticks before one takes this kart again */
   int blast_cool;       /* assault: ticks before its blaster fires again */
+  int hp, hp_quiet;     /* assault: hit points (wrecked at none: back to its spawn), ticks since the last hit */
 } kart;
 
 /* ── the race ───────────────────────────────────────────────────────── */
@@ -225,11 +226,12 @@ enum { HE_SOON /* it moves in five seconds */, HE_MOVED, HE_TAKEN /* a = the kar
 /* assault events (EV_OBJ b): an objective hit (a the attacker), at half its hit points, done (a the kart that did it, -1 a
  * team's hold); a stage done (k its number: the gates open, the spawns move up); the half over (k: 0 or 1, the attackers
  * finished or the clock ran out is in sim.as_res); the sides swapped (the second half starts) */
-enum { OE_HIT, OE_HALFWAY, OE_DONE, OE_STAGE, OE_HALF, OE_SWAP, OE_TURRET_DOWN, OE_FIRE /* a turret fired (a: the kart it aims at) */ };
+enum { OE_HIT, OE_HALFWAY, OE_DONE, OE_STAGE, OE_HALF, OE_SWAP, OE_TURRET_DOWN, OE_FIRE /* a turret fired (a: the kart it aims at) */, OE_TURRET_UP };
 
 /* what an arena round is played for (sim.amode): balloons (battle), capture the flag, king of the mountain */
 enum { AM_BALLOON, AM_CTF, AM_KOTM, AM_ASSAULT, AM_KINDS };
 #define ASSAULT_MAXO 24  /* objectives and turrets on an assault map */
+#define KART_HP 100      /* assault: a kart's hit points (sim_battle.inc as_harm: wrecked at none) */
 #define CTF_WIN 3        /* captures that win a capture the flag round */
 #define HILL_R 9.0f      /* king of the mountain: the hill's radius */
 enum { FL_HOME, FL_CARRIED, FL_DROPPED };

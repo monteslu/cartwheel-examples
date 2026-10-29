@@ -28,6 +28,7 @@
  *                        the clock runs out wins. */
 
 #define BATTLE_TICKS (180 * TICK_HZ)
+#define TURRET_BACK (15 * TICK_HZ) /* assault: a gun nest knocked out is back this long after (UT's cannons smoke, then wake) */
 #define POP_GRACE 100   /* ticks after a pop before the same kart can lose another */
 #define OUT_LINGER 80   /* ticks an eliminated kart stays (its spin plays out) before it is parked */
 #define RAM_SPEED 6.0f  /* m/s closing speed of a turbo ram */
@@ -226,6 +227,7 @@ static void battle_place_all(sim *s) {
     k->caps = k->steals = k->returns = k->flag_cool = 0;
     k->hill_ticks = 0;
     k->tele_cool = 0;
+    k->hp = KART_HP, k->hp_quiet = 0, k->blast_cool = 0;
     n++;
   }
   s->alive = n;
@@ -301,9 +303,11 @@ static void flag_drop(sim *s, int i, bool home) {
 }
 
 static void battle_pop(sim *s, int i, int by);
+static void as_harm(sim *s, int i, int dmg, int by);
 /* a hit that spun kart i (spin_kart): in a battle a balloon; capture the flag drops the flag it carries; king of the
- * mountain shoves it off the hill. Every round: a shorter spin and a moment's grace after it */
-static void battle_hit(sim *s, int i, int by) {
+ * mountain shoves it off the hill; an assault takes hit points (by the kind of hit). Every round: a shorter spin and a
+ * moment's grace after it */
+static void battle_hit(sim *s, int i, int by, int kind) {
   kart *k = &s->k[i];
   if (s->amode == AM_BALLOON) {
     battle_pop(s, i, by);
@@ -313,6 +317,7 @@ static void battle_hit(sim *s, int i, int by) {
   k->spin_ticks = (int)((float)k->spin_ticks * BATTLE_SPIN_K);
   if (by >= 0 && by < MAXK && by != i && s->k[by].on) s->k[by].points += mode_teams(s) ? 1 : 0;
   if (s->amode == AM_CTF) flag_drop(s, i, false);
+  else if (s->amode == AM_ASSAULT) as_harm(s, i, kind == SPIN_BOOM ? 55 : kind == SPIN_OIL ? 15 : kind == SPIN_SHOCK ? 35 : 40, by);
   else if (s->amode == AM_KOTM) {
     t3_vec3 d = { k->p.x - s->hill.x, 0, k->p.z - s->hill.z };
     float l = v3len(d);
@@ -512,6 +517,32 @@ static bool battle_use_item(sim *s, int i, int item) {
   }
 }
 
+/* assault: kart i takes dmg hit points (from kart by, -1 a turret or nobody). At none it is wrecked: a blast where it was,
+ * the one who did it scores, and it is back at its team's spawn for the stage whole again (UT's respawn: the attrition
+ * that is the defenders' whole job). Hit points come back by themselves a while after the last hit */
+#define HP_REGEN_AFTER (5 * TICK_HZ)
+static void as_harm(sim *s, int i, int dmg, int by) {
+  kart *k = &s->k[i];
+  if (k->respawn_ticks > 0) return;
+  k->hp -= dmg;
+  k->hp_quiet = 0;
+  if (k->hp > 0) return;
+  if (by < 0) by = -1;
+  event(s, EV_HIT, -1, by, k->p, (float)HZ_BOMB);
+  event(s, EV_OUT, i, by == i ? -1 : by, k->p, 0);
+  if (by >= 0 && by < MAXK && by != i && s->k[by].on) s->k[by].points += 2;
+  k->pops_taken++;
+  battle_respawn(s, i);
+  k->falls--; /* (a wreck, not a fall) */
+  k->hp = KART_HP;
+}
+
+static void as_regen(sim *s, int i) {
+  kart *k = &s->k[i];
+  if (k->hp >= KART_HP) return;
+  if (++k->hp_quiet > HP_REGEN_AFTER && (k->hp_quiet & 7) == 0) k->hp++;
+}
+
 /* the assault blaster: what a kart fires with nothing else to use. A fast bolt straight out along the floor, gone at the
  * first wall; it chips BOLT_DMG off a target, and a kart it meets loses a quarter of its speed and gets a jolt (no spin:
  * that is for the real weapons) */
@@ -519,6 +550,7 @@ static bool battle_use_item(sim *s, int i, int item) {
 #define BOLT_LIFE 40
 #define BOLT_EVERY 20
 #define BOLT_DMG 4
+#define BOLT_HARM 9   /* hit points off a kart */
 static void battle_bolt(sim *s, int i) {
   kart *k = &s->k[i];
   t3_vec3 f = flat_fwd(k);
@@ -570,6 +602,7 @@ static void bolt_step(sim *s, hazard *z) {
     if (z->owner >= 0 && z->owner < MAXK) s->k[z->owner].hits_given++;
     event(s, EV_HIT, j, z->owner, z->p, (float)HZ_BOLT);
     z->kind = HZ_NONE;
+    as_harm(s, j, BOLT_HARM, z->owner < -1 ? -1 : z->owner);
     return;
   }
 }
@@ -964,8 +997,10 @@ static void as_finish(sim *s, int o, int i) {
   const assault_def *d = as_def(s);
   s->as_done[o] = true;
   s->as_done_tick[o] = s->as_half_ticks;
+  if (d->objs[o].kind == AO_TURRET) s->as_fire[o] = 0; /* (counting to its wake) */
   if (getenv("RACER_ASLOG")) cw_info("assault: objective %d done by %d tick %d half %d", o, i, s->as_half_ticks, s->as_half);
-  if (i >= 0) s->k[i].points += d->objs[o].kind == AO_TURRET ? 2 : 5, s->k[i].caps++;
+  bool last = as_goal(&d->objs[o]) && d->objs[o].stage == d->nstages - 1;
+  if (i >= 0) s->k[i].points += d->objs[o].kind == AO_TURRET ? 3 : last ? 25 : 10, s->k[i].caps += d->objs[o].kind != AO_TURRET;
   event(s, EV_OBJ, i, d->objs[o].kind == AO_TURRET ? OE_TURRET_DOWN : OE_DONE, as_at(&d->objs[o]), (float)o);
   gates_set(s);
   if (as_goal(&d->objs[o])) {
@@ -1087,20 +1122,19 @@ static void as_half_start(sim *s) {
     const float *sp = as_spawn(s, k->team, nt[k->team & 1]++);
     battle_place(s, i, sp[0], sp[1] + ARENA_CZ, sp[2] * (CW_PI / 180.0f), 0);
     k->flag_cool = 0;
+    k->hp = KART_HP, k->hp_quiet = 0;
   }
   /* the second half's clock: the first half's time if its attackers finished, else the whole of it */
   s->battle_limit = s->as_half == 1 && s->as_res[0].all ? s->as_res[0].ticks : s->as_time > 0 ? s->as_time : d->time_s * TICK_HZ;
   s->battle_left = s->battle_limit;
 }
 
-/* the result of the match as it stands: the team ahead (-1 level). Half 1's attackers have it once they have done more
- * objectives than the first half's, or as many sooner */
-static int as_leader(const sim *s) {
-  const struct as_result *a = &s->as_res[0], *b = &s->as_res[1];
-  if (s->as_half == 0) return -1;
-  if (b->done > a->done || (b->done == a->done && b->done > 0 && b->ticks < a->ticks)) return 1;
-  if (a->done == 0 && b->done == 0) return -1;
-  return 0;
+/* the match's winner once the second half is over (UT99's rule: only breaking through counts, never the objectives short
+ * of it). The second attackers through in their time (which is the first's): theirs. Not through: the first attackers' if
+ * they were, a draw if neither was */
+static int as_winner(const sim *s) {
+  if (s->as_res[1].all) return 1;
+  return s->as_res[0].all ? 0 : -1;
 }
 
 /* every tick of an assault: BE_NONE, or the end of the match */
@@ -1118,6 +1152,21 @@ static int assault_step(sim *s) {
   }
   s->as_half_ticks++;
   if (s->battle_left > 0) s->battle_left--;
+  for (int i = 0; i < MAXK; i++)
+    if (battle_able(&s->k[i])) as_regen(s, i);
+  /* a gun nest knocked out wakes again (while its stage is still to pass), once nobody is parked where it stands */
+  for (int o = 0; o < d->nobjs && o < ASSAULT_MAXO; o++) {
+    const assault_obj *b = &d->objs[o];
+    if (b->kind != AO_TURRET || !s->as_done[o] || b->stage < s->as_stage || ++s->as_fire[o] < TURRET_BACK) continue;
+    bool clear = true;
+    for (int i = 0; i < MAXK && clear; i++) clear = !s->k[i].on || !battle_near(s->k[i].p, as_at(b), b->r + 2.0f);
+    if (!clear) continue;
+    s->as_done[o] = false;
+    s->as_hp[o] = b->hp;
+    s->as_fire[o] = TURRET_FIRST;
+    gates_set(s);
+    event(s, EV_OBJ, -1, OE_TURRET_UP, as_at(b), (float)o);
+  }
   for (int o = 0; o < d->nobjs && o < ASSAULT_MAXO; o++) {
     const assault_obj *b = &d->objs[o];
     if (!as_live(s, o)) continue;
@@ -1131,8 +1180,10 @@ static int assault_step(sim *s) {
       }
       if (b->kind == AO_REACH && att > 0) as_finish(s, o, who);
       else if (b->kind == AO_HOLD) {
+        /* (UT2004's timed hold: the count runs while an attacker is in it, whoever else is; it stops when the last one
+         * leaves or is wrecked, and never runs back. -2: defenders in it too, fighting for it) */
         int holder = att > 0 && def == 0 ? who : att > 0 ? -2 : -1;
-        if (holder >= 0 && ++s->as_hp[o] >= b->hp * TICK_HZ) as_finish(s, o, -1);
+        if (att > 0 && ++s->as_hp[o] >= b->hp * TICK_HZ) as_finish(s, o, -1);
         s->as_holder[o] = holder;
       }
     } else if (b->kind == AO_TURRET && --s->as_fire[o] <= 0) {
@@ -1174,18 +1225,17 @@ static int assault_step(sim *s) {
   }
   for (int i = 0; i < MAXK; i++)
     if (battle_able(&s->k[i])) assault_ram(s, i);
-  /* the half's end: the attackers through every stage, the clock out, or (the second half) the result decided */
+  /* the half's end: the attackers through every stage, or the clock out (the defenders held) */
   bool over = s->as_res[s->as_half].all || s->battle_left <= 0;
-  if (s->as_half == 1 && as_leader(s) == 1) over = true;
   if (!over) return BE_NONE;
   event(s, EV_OBJ, -1, OE_HALF, (t3_vec3){ 0, 0, ARENA_CZ }, (float)s->as_half);
   if (s->as_half == 0) {
     s->as_break = AS_BREAK;
     return BE_NONE;
   }
-  s->win_team = as_leader(s);
+  s->win_team = as_winner(s);
   s->team_score[0] = s->as_res[0].done, s->team_score[1] = s->as_res[1].done;
-  return s->as_res[s->as_half].all || as_leader(s) == 1 ? BE_SCORE : BE_TIME;
+  return s->as_res[1].all ? BE_SCORE : BE_TIME;
 }
 
 /* PH_RACE in a battle: the clock and the end of the round */

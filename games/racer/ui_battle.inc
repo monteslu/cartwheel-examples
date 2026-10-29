@@ -346,6 +346,7 @@ static void battle_hud_tick(void) {
           else if (o >= 0 && o < as->nobjs && as->objs[o].kind == AO_HOLD) snprintf(b, sizeof b, "%s held %s", TEAM_NAME[tm], on);
           else snprintf(b, sizeof b, "%s reached %s", e->a >= 0 ? nm : TEAM_NAME[tm], on);
         } else if (e->b == OE_TURRET_DOWN) snprintf(b, sizeof b, "%s knocked out %s", e->a >= 0 ? nm : TEAM_NAME[tm], on);
+        else if (e->b == OE_TURRET_UP) snprintf(b, sizeof b, "%s is firing again", on);
         else if (e->b == OE_HALFWAY) snprintf(b, sizeof b, "%s is half gone!", on);
         else if (e->b == OE_STAGE && (int)e->k + 1 < as->nstages) snprintf(b, sizeof b, "Next: %s", as->stage_name[(int)e->k + 1] ? as->stage_name[(int)e->k + 1] : "");
         else if (e->b == OE_HALF) {
@@ -357,6 +358,14 @@ static void battle_hud_tick(void) {
         if (b[0]) battle_news(e->b == OE_HALFWAY ? -1 : tm, b);
       } else if (e->kind == EV_HILL && (e->b == HE_MOVED || e->b == HE_SOON)) {
         battle_news(-1, e->b == HE_MOVED ? "The hill moved!" : "The hill moves in 5 seconds");
+      }
+      if (e->kind == EV_OUT && S->amode == AM_ASSAULT) {
+        char vn[24];
+        kart_name(S, e->a, vn, sizeof vn, false);
+        if (e->b >= 0) snprintf(b, sizeof b, "%s wrecked %s", kart_name(S, e->b, nm, sizeof nm, false), vn);
+        else snprintf(b, sizeof b, "%s was wrecked", vn);
+        battle_news(e->b >= 0 ? S->k[e->b].team & 1 : -1, b);
+        continue;
       }
       if (e->kind != EV_OUT) continue;
       memmove(&BF.feed[1], &BF.feed[0], sizeof BF.feed[0] * (FEED - 1));
@@ -419,12 +428,8 @@ static void hud_b_clock(const hv *g) {
   if (g->compact) return;
   if (S->amode == AM_ASSAULT) {
     if (S->as_break > 0) snprintf(b, sizeof b, "SWITCHING SIDES");
-    else if (S->as_half == 1 && S->as_res[0].done > 0) {
-      char tmb[16];
-      fmt_clock(tmb, sizeof tmb, S->as_res[0].ticks);
-      if (S->as_res[0].all) snprintf(b, sizeof b, "BEAT %s", tmb);
-      else snprintf(b, sizeof b, "BEAT %d BY %s", S->as_res[0].done, tmb);
-    } else snprintf(b, sizeof b, "HALF %d OF 2", S->as_half + 1);
+    else if (S->as_half == 1) snprintf(b, sizeof b, S->as_res[0].all ? "BEAT THEIR TIME" : "BREAK THROUGH TO WIN");
+    else snprintf(b, sizeof b, "HALF 1 OF 2");
   } else if (S->amode == AM_CTF) snprintf(b, sizeof b, "FIRST TO %d", CTF_WIN);
   else if (S->amode == AM_KOTM) {
     int hs = (S->hill_left + TICK_HZ - 1) / TICK_HZ;
@@ -655,6 +660,12 @@ static void hud_assault_score(const hv *g, const bhud *h) {
     cw_r2d_circle(c, 7 * s, 14, INK);
     cw_r2d_circle(c, 5.5f * s, 14, col);
   }
+  /* your kart's hit points: wrecked at none, back at your spawn */
+  float frac = clamp01((float)k->hp / (float)KART_HP), bw = 150 * s, bh = 10 * s, by = y + 104 * s;
+  cw_r2d_rect(cw_rect_make(x - 2 * s, by - 2 * s, bw + 4 * s, bh + 4 * s), alpha(INK, 0.85f));
+  cw_color hc = frac < 0.3f && ((S->tick / 8) & 1) ? RED : frac < 0.3f ? RUST : LIME;
+  cw_r2d_rect(cw_rect_make(x, by, bw * frac, bh), hc);
+  tx_o(U.f_small, "ARMOUR", x + bw + 10 * s, by + bh * 0.5f, hpx(13, s, 9), CREAM, (txopt){ .align = CW_ALIGN_LEFT, .outline = 1.4f * s });
 }
 
 /* where to go, at the bottom of the view: an arrow turned to it (straight up: dead ahead), what it is and how far */
@@ -1320,8 +1331,11 @@ static void draw_battle_results(float W, float H, float s) {
       fmt_clock(t0, sizeof t0, S->as_res[0].ticks), fmt_clock(t1, sizeof t1, S->as_res[1].ticks);
       if (S->win_team < 0) snprintf(b, sizeof b, "A DRAW!"), band = MUSTARD;
       else snprintf(b, sizeof b, "%s TEAM WINS THE ASSAULT", TEAM_NAME[S->win_team]), band = team_col(S->win_team);
-      static char whyb[96];
-      snprintf(whyb, sizeof whyb, "RED %d objectives in %s,  BLUE %d in %s", S->as_res[0].done, t0, S->as_res[1].done, t1);
+      static char whyb[128];
+      if (S->as_res[1].all && S->as_res[0].all) snprintf(whyb, sizeof whyb, "BLUE broke through in %s, beating RED's %s", t1, t0);
+      else if (S->as_res[1].all) snprintf(whyb, sizeof whyb, "BLUE broke through in %s; RED never did", t1);
+      else if (S->as_res[0].all) snprintf(whyb, sizeof whyb, "RED broke through in %s; BLUE could not beat it", t0);
+      else snprintf(whyb, sizeof whyb, "Neither team broke through (RED %d objectives, BLUE %d)", S->as_res[0].done, S->as_res[1].done);
       why = whyb;
     } else if (S->amode == AM_CTF) {
       if (S->win_team < 0) snprintf(b, sizeof b, "A DRAW!  %d - %d", S->team_score[0], S->team_score[1]), band = MUSTARD;

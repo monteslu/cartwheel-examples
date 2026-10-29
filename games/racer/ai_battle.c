@@ -51,6 +51,17 @@ static bool clear_line(const sim *s, t3_vec3 a, t3_vec3 b) {
   return !sim_ray(s, from, v3sub(to, from), &fr, &n) || fabsf(n.y) > 0.6f;
 }
 
+/* the goal b in sight from a: clear, or only something within a few metres of b in the way (the goal's own solid: a target,
+ * an altar in the middle of its zone, which otherwise no point of the route ever has in sight) */
+static bool sees_goal(const sim *s, t3_vec3 a, t3_vec3 b) {
+  t3_vec3 from = v3add(a, (t3_vec3){ 0, 0.5f, 0 }), to = v3add(b, (t3_vec3){ 0, 0.5f, 0 }), d = v3sub(to, from);
+  float fr = 1;
+  t3_vec3 n;
+  if (!sim_ray(s, from, d, &fr, &n) || fabsf(n.y) > 0.6f) return true;
+  /* (only on the goal's own level: a wall just short of a ramp's foot a level up is a wall in the way) */
+  return fabsf(a.y - b.y) < 2.0f && (1.0f - fr) * v3len(d) < 4.0f;
+}
+
 /* the box to go for (no farther than max_d), -1 none */
 static int pick_box(const sim *s, int me, const ai_mem *m, float max_d) {
   const kart *k = &s->k[me];
@@ -227,12 +238,12 @@ static t3_vec3 route_to(const sim *s, const kart *k, ai_mem *m, t3_vec3 goal) {
   m->b_node_t = 8;
   int was = m->b_node;
   m->b_node = -1;
-  if ((fabsf(goal.y - k->p.y) < 3.0f || same_level(s, goal, k->p)) && clear_line(s, k->p, goal)) return goal;
+  if ((fabsf(goal.y - k->p.y) < 3.0f || same_level(s, goal, k->p)) && sees_goal(s, k->p, goal)) return goal;
   /* the points the goal can be reached from (in sight of it), with the last stretch */
   float tail[ARENA_MAXR];
   for (int i = 0; i < n; i++) {
     t3_vec3 p = route_pt(s, i);
-    tail[i] = clear_line(s, p, goal) ? flat_dist(p, goal) : 1e9f;
+    tail[i] = sees_goal(s, p, goal) ? flat_dist(p, goal) : 1e9f;
   }
   float best = 1e9f;
   for (int i = 0; i < n; i++) {
@@ -310,8 +321,10 @@ static t3_vec3 assault_goal(const sim *s, int me, int *chase, bool *busy, bool *
     if (b->kind == AO_DESTROY) {
       /* in at it, lined up to shoot (the blaster, a missile) or to ram with a turbo. The way is planned to a point just
        * off it on this side: the target itself is solid, and nothing on the route ever has it in sight */
+      /* (a foe right on it only: the blaster takes the ones lined up on the way, and an attacker that stops to brawl never
+       * gets there) */
       *busy = k->item != IT_NONE;
-      *chase = foe_near(s, me, k->p, 16.0f);
+      *chase = foe_near(s, me, k->p, 7.0f);
       t3_vec3 to = { k->p.x - at.x, 0, k->p.z - at.z };
       float l = sqrtf(to.x * to.x + to.z * to.z);
       if (l < b->r + 3.0f) return at;
@@ -446,7 +459,16 @@ kin ai_battle_think(const sim *s, int me, ai_mem *m) {
     float my_lv = arena_level_below(s->arena, k->p.x, k->p.y, k->p.z), goal_lv = arena_level(s->arena, goal.x, goal.z);
     bool ramp = false;
     t3_vec3 pad;
-    if (goal_lv > my_lv + 1.5f) goal = via_ramp(s, k, goal, goal_lv, &ramp);
+    /* up a level at a time: the ramp to the goal's level, and if its foot is still above this kart, the ramp to that, and so
+     * on (a pyramid's stair, then the ramp up its upper tier) */
+    for (int up = 0; up < 3 && goal_lv > my_lv + 1.5f; up++) {
+      t3_vec3 g2 = via_ramp(s, k, goal, goal_lv, &ramp);
+      if (!ramp) break;
+      goal = g2;
+      float foot_lv = arena_level(s->arena, goal.x, goal.z);
+      if (foot_lv >= goal_lv - 0.8f) break; /* on it (aiming off its top): no lower foot to go for */
+      goal_lv = foot_lv;
+    }
     if (!ramp && fabsf(goal_lv - my_lv) > 3.0f && via_tele(s, k, my_lv, goal, goal_lv, &pad)) goal = pad;
     goal = route_to(s, k, m, goal);
   }

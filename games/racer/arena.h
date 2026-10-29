@@ -72,7 +72,8 @@ typedef struct arena_prim {
  *   AO_DESTROY  a target (x, z, its base y, radius r, height h) with hit points: the attackers' weapons and turbo rams wear
  *               it down (the defenders' do nothing). Its shapes are the prims with gate GATE_OBJ(o)
  *   AO_REACH    an attacker on its wheels inside the zone (r) does it
- *   AO_HOLD     the attackers alone in the zone for `hp` seconds (a defender in it stops the count; it never runs back)
+ *   AO_HOLD     an attacker in the zone for `hp` seconds all told (the count runs while one is in it, defenders or not; it
+ *               stops when the last leaves or is wrecked, and never runs back: the defenders' job is to clear them out)
  *   AO_TURRET   a defenders' gun: fires a missile at the nearest attacker in range it can see every few seconds. Not a goal:
  *               the attackers may knock it out (hp) to make a way; it stops firing once its stage is passed */
 enum { AO_DESTROY, AO_REACH, AO_HOLD, AO_TURRET };

@@ -90,7 +90,7 @@ static struct {
 /* battle mode (sim_battle.inc, included after spin_kart) */
 static void battle_place_all(sim *s);
 static void battle_boxes(sim *s);
-static void battle_hit(sim *s, int i, int by);
+static void battle_hit(sim *s, int i, int by, int kind);
 static void battle_bolt(sim *s, int i);
 
 /* ── small maths ─────────────────────────────────────────────────────── */
@@ -535,7 +535,7 @@ static void spin_kart(sim *s, int i, int kind, int by) {
     bool looped = k->loc.i >= 0 && (s->track->s[k->loc.i].flags & TF_LOOP);
     cw_body3d_apply_impulse(PH.body[i], v3mul(kart_up(k), (looped ? 2.0f : 9.0f) * VEH[k->veh].mass), NULL);
   }
-  if (s->battle) battle_hit(s, i, by);
+  if (s->battle) battle_hit(s, i, by, kind);
 }
 
 /* a hazard that passes kart j by: a teammate's in a team round (a turret's, owner -2 - its team: its own team's karts) */
