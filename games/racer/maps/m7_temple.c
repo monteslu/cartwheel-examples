@@ -124,6 +124,8 @@ static bool off(const char *name) {
 static const track *T;
 static int NV = 1; /* views planned for this race: more than one thins the scenery */
 static float thin(float one, float many) { return NV > 1 ? many : one; }
+/* three or four views: thinner again (the tiered canopy trees cost 0.6 ms of CPU in four views) */
+static float thin4(float one, float two, float four) { return NV > 2 ? four : NV > 1 ? two : one; }
 static ground_opts G;
 static rng R;
 
@@ -1037,7 +1039,7 @@ static void build_jungle(cw_node scene, const track *t) {
   rng r = { 4242 };
   nfm = 0;
   /* big trees: jungle giants and round broadleaf */
-  planting trees = { .n = 0, .spacing = thin(9.5f, 17.0f), .lat_min = 2.5f, .lat_max = 85, .curve = 1.5f, .smin = 1.0f, .smax = 1.9f, .far_dist = 38, .far_keep = thin(0.5f, 0.3f) };
+  planting trees = { .n = 0, .spacing = thin4(9.5f, 17.0f, 22.0f), .lat_min = 2.5f, .lat_max = 85, .curve = 1.5f, .smin = 1.0f, .smax = 1.9f, .far_dist = 38, .far_keep = thin(0.5f, 0.3f) };
   trees.models[trees.n++] = fm_make_giant(PK_JUNGLE_TREE, 0, 20.0f, rgb(0.7f, 1.0f, 0.55f), 11);
   trees.models[trees.n++] = fm_make_giant(PK_JUNGLE_TREE, 1, 20.0f, rgb(0.62f, 1.0f, 0.5f), 12);
   trees.models[trees.n++] = fm_make_giant(PK_JUNGLE_TREE, 2, 20.0f, rgb(0.66f, 0.98f, 0.5f), 14);
@@ -1045,7 +1047,7 @@ static void build_jungle(cw_node scene, const track *t) {
   int a = plant_along(t, &trees, &r, mask_jungle);
   /* the canopy sea round the pyramid: giants whose crowns reach the helix's upper turns */
   int canopy = 0;
-  for (int i = 0; i < (int)thin(260.0f, 110.0f); i++) {
+  for (int i = 0; i < (int)thin4(260.0f, 110.0f, 70.0f); i++) {
     float ang = rnd(&r) * 6.2832f, dist = PYR.base + 8.0f + 190.0f * sqrtf(rnd(&r));
     t3_vec3 q = V(PYR.c.x + cosf(ang) * dist, 0, PYR.c.z + sinf(ang) * dist);
     float ry, gap = road_gap(t, q.x, q.z, &ry);
