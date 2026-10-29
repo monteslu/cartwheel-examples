@@ -165,10 +165,12 @@ kin ai_think(const sim *s, int me, ai_mem *m) {
   float st = clampf(ang * 2.2f, -1, 1);
   m->steer_smooth += (st - m->steer_smooth) * 0.35f;
   in.steer = (int8_t)(clampf(m->steer_smooth, -1, 1) * 127);
+  /* in the air the stick only turns the nose off the flight path (the sim lines it up with the path): hands off */
+  if (k->air_ticks > 5) in.steer = 0;
   /* corners: the speed the road ahead allows */
   float curv = 0, vroute = 99, vbrake = 99;
   bool routed = on_branch || mouth >= 0;
-  for (int c = 1; c <= (routed ? 4 : 9); c++) {
+  for (int c = routed ? 0 : 1; c <= (routed ? 4 : 9); c++) { /* (on its own way from where it is: still in a bend is a bend) */
     /* loops, corkscrews and jumps have no plan-view bend worth braking for */
     if (!routed) {
       const tsample *ahead = &t->s[(k->loc.i + c * 14) % t->n];
@@ -186,7 +188,7 @@ kin ai_think(const sim *s, int me, ai_mem *m) {
       bool br = ((a.flags | b.flags) & TF_BRANCH) != 0;
       if (!br && cv > curv) curv = cv;
       /* bare ice: far less; an open edge (no wall to lean on, a gantry over space): less again */
-      float g = !br ? 32.0f : ((a.flags | b.flags) & TF_DRIFTY) ? 14.0f : (a.walls == 0 || b.walls == 0) ? 18.0f : 26.0f;
+      float g = !br ? 32.0f : ((a.flags | b.flags) & TF_DRIFTY) ? 14.0f : (a.walls == 0 || b.walls == 0) ? 18.0f : 22.0f;
       if (cv > 1e-4f) vroute = fminf(vroute, sqrtf(g / cv));
       /* and no faster than the wheels can turn it: the yaw rate the steering gives falls with speed (sim.c: 2.35 rad/s
        * per unit of turn slowing to 1.0 at 40 m/s), so a tight branch bend wants less than grip alone allows. A driver

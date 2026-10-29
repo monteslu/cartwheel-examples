@@ -1415,6 +1415,10 @@ static void kart_control(sim *s, int i, kin in) {
         t3_vec3 ay = v3cross(f, want_f);
         float sb = v3len(ay);
         if (sb > 1e-5f) w = v3add(w, v3mul(ay, cw_atan2(sb, v3dot(f, want_f)) * (pitch == 0 ? 1.1f : 0.2f) * DT / sb));
+        /* and the yaw nobody asks for dies away: the pull to the path alone swung the nose from side to side over a long
+         * flight (the Dam jump: 20 degrees off at the landing, 50 m/s sideways into the bounce and over the wall) */
+        float wy = v3dot(w, up);
+        w = v3sub(w, v3mul(up, wy * 2.4f * DT * (1 - absf(steer))));
       }
     }
     w = v3mul(w, 1 - 0.6f * DT);
