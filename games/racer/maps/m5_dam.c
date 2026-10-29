@@ -2148,27 +2148,33 @@ static void build_crest(cw_node parent, const track *t) {
       pm_pop(q);
     }
   }
-  /* the hoist towers of the spillway gates on the downstream side, a walkway between them */
+  /* the hoist towers of the spillway gates on the downstream side, a walkway between them. They stood 4 m off the
+   * road with their roofs 17 m up, so from a kart the top of the view cut them off as they came alongside and they
+   * read as bare stumps. Now the hoist house sits on the pier 8 m up and the tower stands 7.5 m off the road (its pier
+   * reaching further down the dam's face): the red roof at 13 m stays in the view the whole time a tower is in it. */
   t3_vec3 last = { 0 };
   bool have = false;
+  const float HH = 8.0f; /* the hoist house's floor above the deck */
   for (float s = s0 + 30.0f; s < s1 - 30.0f; s += 64.0f) {
     tsample a = track_at(t, s);
-    t3_vec3 base = track_point(t, s, -side * (a.hw + 4.2f), 0);
+    t3_vec3 base = track_point(t, s, -side * (a.hw + 7.5f), 0);
     pm *b = frame_world(c, base, a.f);
     pm_layer(b, PL_MAIN);
-    pm_push(b), pm_move(b, 0, -9.0f, 0), pm_box(b, 3.2f, 21.0f, 6.0f, conc_d, conc), pm_pop(b);     /* the pier */
-    pm_push(b), pm_move(b, 0, 12.0f, 0), pm_box(b, 4.6f, 3.4f, 7.0f, rgb(0.92f, 0.9f, 0.84f), rgb(0.98f, 0.97f, 0.92f)); /* the hoist house */
-    pm_move(b, 0, 3.4f, 0), pm_prism(b, 5.2f, 1.3f, 7.6f, rgb(0.6f, 0.2f, 0.12f), rgb(0.84f, 0.3f, 0.18f)), pm_pop(b);
+    pm_push(b), pm_move(b, 0, -16.0f, 0), pm_box(b, 3.4f, 16.0f + HH, 6.0f, conc_d, conc), pm_pop(b);     /* the pier */
+    /* the pier's head flares out to carry the house */
+    pm_push(b), pm_move(b, 0, HH - 0.9f, 0), pm_box(b, 4.4f, 0.9f, 6.8f, conc_d, conc), pm_pop(b);
+    pm_push(b), pm_move(b, 0, HH, 0), pm_box(b, 5.0f, 3.6f, 7.4f, rgb(0.92f, 0.9f, 0.84f), rgb(0.98f, 0.97f, 0.92f)); /* the hoist house */
+    pm_move(b, 0, 3.6f, 0), pm_prism(b, 5.8f, 1.5f, 8.2f, rgb(0.6f, 0.2f, 0.12f), rgb(0.84f, 0.3f, 0.18f)), pm_pop(b);
     pm_layer(b, PL_METAL);
     /* the gate's lifting chains down the pier's face, and its hazard band */
-    for (int e = -1; e <= 1; e += 2) pm_rod(b, v3((float)e * 1.2f, 12.0f, 3.1f), v3((float)e * 1.2f, -2.0f, 3.1f), 0.12f, 5, steel);
+    for (int e = -1; e <= 1; e += 2) pm_rod(b, v3((float)e * 1.2f, HH - 0.9f, 3.1f), v3((float)e * 1.2f, -6.0f, 3.1f), 0.12f, 5, steel);
     pm_layer(b, PL_MAIN);
-    pm_push(b), pm_move(b, 0, 8.0f, 0), pm_box(b, 3.3f, 0.8f, 6.1f, rgb(0.98f, 0.76f, 0.08f), rgb(0.98f, 0.76f, 0.08f)), pm_pop(b);
+    pm_push(b), pm_move(b, 0, 2.2f, 0), pm_box(b, 3.5f, 0.8f, 6.1f, rgb(0.98f, 0.76f, 0.08f), rgb(0.98f, 0.76f, 0.08f)), pm_pop(b);
     pm_layer(b, PL_GLOW);
-    pm_push(b), pm_move(b, 2.32f, 13.6f, 0), pm_box_c(b, 0.1f, 1.0f, 3.0f, glow(rgb(1.0f, 0.82f, 0.5f), 2.4f)), pm_pop(b);
-    pm_push(b), pm_move(b, 0, 17.5f, 0), pm_box_c(b, 0.4f, 0.4f, 0.4f, glow(rgb(1.0f, 0.15f, 0.1f), 5.0f)), pm_pop(b);
+    for (int e = -1; e <= 1; e += 2) pm_push(b), pm_move(b, (float)e * 2.52f, HH + 1.8f, 0), pm_box_c(b, 0.1f, 1.1f, 3.2f, glow(rgb(1.0f, 0.82f, 0.5f), 2.4f)), pm_pop(b);
+    pm_push(b), pm_move(b, 0, HH + 5.4f, 0), pm_box_c(b, 0.45f, 0.45f, 0.45f, glow(rgb(1.0f, 0.15f, 0.1f), 5.0f)), pm_pop(b);
     pm_pop(b);
-    t3_vec3 top = v3add(base, v3(0, 11.0f, 0));
+    t3_vec3 top = v3add(base, v3(0, HH - 0.9f, 0));
     if (have) {
       pm *w = pmc_at(c, top);
       pm_push(w);
