@@ -2666,53 +2666,59 @@ static void rework_node(cw_node n, geoset *gs, float repeat) {
 /* ── rock ledges and frozen seeps on the steep faces ────────────────────────────────────────────── */
 
 /* The steep slopes were bare once the boulders that stood on them were sunk into the snow (set level on a slope, they
- * hung in the air). Rock shows on a real face as ledges: a band of strata along the contour with a sheer front, snow
- * on its tread and icicles under its lip. Each ledge here is a patch of the slope itself lifted into that shape: its
- * rim is the ground's own height (so it cannot float or hang), it rises over a cliff of rock at its front and runs
- * back into the hill; faces that look up wear snow, the rest is cold slate (or blue ice for a frozen seep). Built in
- * world space straight into one chunked builder: a few draws for all of them. */
+ * hung in the air). Rock shows on a real face where the slope steepens into an outcrop. Each outcrop here is a patch of
+ * the slope itself swelled into that shape: its whole border ring is sunk just under the ground (so it cannot float,
+ * hang or show a seam), it rises gently from the hill behind (the snow drifted over its top), drops steeply at its
+ * front and runs out into a bank of snow at its foot; its height rolls along its length (no uniform band, no clipped
+ * ends), and it fades into the slope over its last third. Colour follows the surface: what looks up is snow, what is
+ * steep is cold slate in strata by height (blue ice for a frozen seep), dusted between the two. Built in world space
+ * straight into one chunked builder: a few draws for all of them. (A sheer cliff band over a flat tread read, from the
+ * road below, as a grey fence hovering on the snow.) */
 static t3_vec3 vcross_(t3_vec3 a, t3_vec3 b) { return V3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x); }
 static void ledge(pm *b, float x, float z, float ux, float uz, float W, float D, float A, bool ice, uint32_t seed) {
-  enum { NU = 9, NV = 7 };
-  /* across the slope (cx) and down it (dx); v runs from the back (-D) to the foot (+D) */
+  enum { NU = 11, NV = 10 };
+  /* across the slope (cx) and down it (dx); v runs from the back (-D, uphill) to the foot (+D) */
   float cxx = -uz, czz = ux, dxx = -ux, dzz = -uz;
-  static const float VS[NV] = { -1.0f, -0.55f, -0.1f, 0.22f, 0.3f, 0.65f, 1.0f };
-  static const float HS[NV] = { 0.0f, 0.55f, 0.9f, 1.0f, 0.35f, 0.08f, 0.0f }; /* back slope, tread, the cliff, a scree foot */
+  /* the profile down the slope: a long rise from the hill behind, the crest, a steep drop, a bank of snow at the foot */
+  static const float VS[NV] = { -1.0f, -0.6f, -0.2f, 0.08f, 0.25f, 0.36f, 0.48f, 0.62f, 0.8f, 1.0f };
+  static const float HS[NV] = { 0.0f, 0.3f, 0.72f, 0.95f, 1.0f, 0.82f, 0.48f, 0.2f, 0.07f, 0.0f };
+  /* the height rolls along the length: two swells at the outcrop's own frequencies and phases */
+  float ph1 = 6.2832f * hashf2((int)seed, 1, 41), ph2 = 6.2832f * hashf2((int)seed, 2, 41), k1 = 0.9f + 0.8f * hashf2((int)seed, 3, 41);
   t3_vec3 P[NV][NU];
+  float H[NV][NU];
   for (int j = 0; j < NV; j++)
     for (int i = 0; i < NU; i++) {
       float u = -0.5f + (float)i / (float)(NU - 1), v = VS[j];
-      float edge = 1.0f - cw_smoothstep(0.4f, 0.5f, fabsf(u) + 0.08f * (hashf2((int)seed, i * 7 + j, 31) - 0.5f));
-      float h = A * HS[j] * edge * (0.8f + 0.4f * hashf2((int)seed, i, 32));
-      float px = x + cxx * u * W + dxx * v * D, pz = z + czz * u * W + dzz * v * D;
-      if (j > 0 && j < NV - 1 && i > 0 && i < NU - 1) px += 0.4f * (hashf2((int)seed, i, j * 3 + 33) - 0.5f), pz += 0.4f * (hashf2((int)seed, j, i * 3 + 34) - 0.5f);
-      P[j][i] = V3(px, terrain(px, pz, NULL) + h - (edge < 0.05f ? 0.4f : 0.0f), pz);
+      float s = fabsf(u) / 0.5f, win = 1.0f - s * s;
+      win = win * win * (3.0f - 2.0f * win); /* fades into the slope over its ends, no clipped edge */
+      float roll = 0.58f + 0.26f * sinf(6.2832f * k1 * u + ph1) + 0.16f * sinf(6.2832f * 2.3f * u + ph2);
+      float h = A * HS[j] * win * fmaxf(roll, 0.22f) * (0.92f + 0.16f * hashf2((int)seed, i * 7 + j, 32));
+      bool rim = i == 0 || i == NU - 1 || j == 0 || j == NV - 1;
+      /* jitter along the contour only, so the steep front never folds over itself */
+      float jt = rim ? 0.0f : 0.5f * (hashf2((int)seed, i, j * 3 + 33) - 0.5f);
+      float px = x + cxx * (u * W + jt) + dxx * v * D, pz = z + czz * (u * W + jt) + dzz * v * D;
+      H[j][i] = rim ? 0.0f : h;
+      P[j][i] = V3(px, terrain(px, pz, NULL) + (rim ? -0.35f : h), pz);
     }
-  pcol rockA = rgb(0.26f, 0.25f, 0.29f), rockB = rgb(0.46f, 0.44f, 0.5f) /* grey slate, lighter than the blue shade so a face reads as rock, not a hole */, snow = rgb(0.66f, 0.76f, 1.0f), icec = rgb(0.4f, 0.78f, 1.15f);
+  pcol rockA = rgb(0.34f, 0.34f, 0.42f), rockB = rgb(0.46f, 0.46f, 0.55f), icec = rgb(0.4f, 0.78f, 1.15f);
   pm_layer(b, PL_MAIN);
   for (int j = 0; j + 1 < NV; j++)
     for (int i = 0; i + 1 < NU; i++) {
       t3_vec3 a = P[j][i], bq = P[j][i + 1], c = P[j + 1][i + 1], d = P[j + 1][i];
+      /* i runs across, j downhill: (a, d, c, bq) faces up and out of the hill on every quad of the patch */
       t3_vec3 n = vnorm3(vcross_(vsub3(c, a), vsub3(bq, d)));
-      if (n.y < 0) n = vmul3(n, -1.0f);
-      pcol col = n.y > 0.86f ? snow : pc_mix(rockA, rockB, hashf2((int)seed, i + j * 13, 35));
-      if (ice && j >= 3 && j <= 4 && n.y <= 0.86f) col = icec;
-      /* wound so the face looks up and out of the hill */
-      t3_vec3 wn = vcross_(vsub3(bq, a), vsub3(d, a));
-      if (wn.y >= 0) pm_quad(b, a, d, c, bq, col);
-      else pm_quad(b, a, bq, c, d, col);
+      float hc = 0.25f * (H[j][i] + H[j][i + 1] + H[j + 1][i] + H[j + 1][i + 1]);
+      pcol rock = ((int)(hc / 0.9f) & 1) ? rockB : rockA; /* strata by height */
+      rock = pc_mul(rock, 0.9f + 0.2f * hashf2((int)seed, i + j * 13, 35));
+      if (ice && n.y < 0.6f && j >= 4 && j <= 6) rock = icec;
+      /* its snow is the ground's own colour at that steepness (ground.c's mix: the steeper, the darker), so the outcrop's
+       * snowy faces and the slope it rises from are one surface, with no bright rim where they meet */
+      float sl = sqrtf(fmaxf(1.0f - n.y * n.y, 0.0f)) / fmaxf(n.y, 0.05f);
+      pcol mid = pc_mix(F.g.tint, F.g.tint2, 0.5f);
+      pcol sn = pc_mix(mid, pc_mul(mid, 0.55f), cw_clampf((sl - 0.35f) * 1.4f, 0, 0.7f));
+      pcol col = n.y > 0.8f ? sn : n.y > 0.62f ? pc_mix(rock, sn, 0.6f) : rock;
+      pm_quad(b, a, d, c, bq, col);
     }
-  /* icicles under the lip of the cliff */
-  for (int i = 1; i + 1 < NU; i++) {
-    if (hashf2((int)seed, i, 36) < 0.4f) continue;
-    t3_vec3 lip = P[3][i];
-    float len = 0.5f + 1.6f * hashf2((int)seed, i, 37);
-    pm_push(b);
-    pm_move(b, lip.x + dxx * 0.35f * D * 0.1f, lip.y - 0.1f, lip.z + dzz * 0.35f * D * 0.1f);
-    pm_rotx(b, 3.14159f);
-    pm_cyl(b, 0.14f + 0.08f * hashf2((int)seed, i, 38), 0.0f, len, 4, icec, icec);
-    pm_pop(b);
-  }
 }
 
 static void build_ledges(cw_node root, const track *t) {
