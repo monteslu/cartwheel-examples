@@ -1736,6 +1736,58 @@ static void arch(pmc *st, gcells *chase[3], const track *t, float s, float rise,
   (void)seed;
 }
 
+/* where the tall walls (the drop and the helix) start and stop, the wall stood up from 1.6 m to 4.4 m in one sample:
+ * a hard step on the skyline at the top of the drop. A swept fairing on the low wall's top rises along the last metres
+ * into the tall wall (and falls away again at the other end), in the wall's own planks. Up to the low wall's collision
+ * height (1.2 m over its 1.6) it is backed by the wall a kart hits; the slim top above that is out of a kart's reach. */
+static void wall_tapers(cw_node root, const track *t) {
+  const float LOW = 1.6f, HIGH = 4.4f, LEN = 22.0f, WT = 0.55f; /* the wall heights, the fairing's length, the wall's thickness */
+  pmc *c = pmc_new(90, 17);
+  pmc_texture_metres(c, 4.0f);
+  pcol face = rgb(0.6f, 0.56f, 0.49f), top = rgb(0.5f, 0.46f, 0.39f); /* matched by eye to the lit wall */
+  pcol trim = hex(0xc8352a);
+  int made = 0;
+  for (int i = 1; i < t->n; i++) {
+    const tsample *p = &t->s[i - 1], *q = &t->s[i];
+    if ((p->flags | q->flags) & (TF_LOOP | TF_TUNNEL | TF_GAP | TF_BRANCH)) continue;
+    int up = p->walls < 3 && q->walls >= 3, down = p->walls >= 3 && q->walls < 3;
+    if (!up && !down) continue;
+    /* up: the fairing lies on the low wall before the step and rises toward it; down: after it, falling away */
+    float s_step = up ? q->s : p->s, dir = up ? -1.0f : 1.0f;
+    const int N = 16;
+    for (int side = -1; side <= 1; side += 2) {
+      uint32_t bit = side < 0 ? TF_WALL_L : TF_WALL_R;
+      if (!(p->flags & bit) || !(q->flags & bit)) continue;
+      for (int k = 0; k < N; k++) {
+        /* u = 1 at the step, 0 where the fairing has sunk into the low wall's top */
+        float u0 = 1.0f - (float)k / (float)N, u1 = 1.0f - (float)(k + 1) / (float)N;
+        float s0 = s_step + dir * LEN * (1.0f - u0), s1 = s_step + dir * LEN * (1.0f - u1);
+        /* a swept curve: steep by the tall wall, easing out flat along the low one */
+        float h0 = LOW + (HIGH - LOW) * u0 * u0 * (3.0f - 2.0f * u0), h1 = LOW + (HIGH - LOW) * u1 * u1 * (3.0f - 2.0f * u1);
+        tsample a = track_at(t, s0), e = track_at(t, s1);
+        if (!(a.flags & bit) || !(e.flags & bit)) continue;
+        float li0 = side * a.hw, li1 = side * e.hw, lo0 = side * (a.hw + WT), lo1 = side * (e.hw + WT);
+        t3_vec3 iA = track_point(t, s0, li0, LOW - 0.05f), iB = track_point(t, s0, li0, h0), iC = track_point(t, s1, li1, h1), iD = track_point(t, s1, li1, LOW - 0.05f);
+        t3_vec3 oA = track_point(t, s0, lo0, LOW - 0.05f), oB = track_point(t, s0, lo0, h0), oC = track_point(t, s1, lo1, h1), oD = track_point(t, s1, lo1, LOW - 0.05f);
+        pm *b = pmc_at(c, iB);
+        pm_push(b);
+        pm_layer(b, PL_MAIN);
+        /* both windings: the faces are seen from the road and from the park */
+        pm_quad(b, iA, iB, iC, iD, face), pm_quad(b, iD, iC, iB, iA, face);
+        pm_quad(b, oA, oB, oC, oD, face), pm_quad(b, oD, oC, oB, oA, face);
+        pm_quad(b, iB, oB, oC, iC, top), pm_quad(b, iC, oC, oB, iB, top);
+        /* a red coping strip along the sweep, the colour of the coaster's trim */
+        t3_vec3 tB = track_point(t, s0, side * (a.hw + WT * 0.5f), h0 + 0.02f), tC = track_point(t, s1, side * (e.hw + WT * 0.5f), h1 + 0.02f);
+        pm_beam(b, tB, tC, 0.3f, trim);
+        pm_pop(b);
+      }
+      made++;
+    }
+  }
+  cw_info("fair: %d wall tapers", made);
+  pmc_finish(c, root, "WallTapers", true, TEX_WALL_WOOD);
+}
+
 static void dress_climb(const track *t, pmc *st, gcells *chase[3]) {
   /* the chain: links down the middle of the lift hill */
   float s0 = 0, s1 = 0;
@@ -1969,6 +2021,7 @@ static void fair_scenery(cw_node scene, const track *t, uint32_t seed) {
   dress_corkscrew(str, chase, t);
   dress_climb(t, str, chase);
   dress_helix(t, chase);
+  wall_tapers(root, t);
   /* the boardwalk: trestles under its raised middle, runway bulbs down both edges, hay bales on the island noses and
    * the sign at its mouth */
   for (int b = 0; b < t->nbranch; b++) {

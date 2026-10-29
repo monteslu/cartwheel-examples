@@ -70,10 +70,14 @@ static const piece SPACEWALK[] = {
   SURFACE(SURF_METAL),
   MOVE(8, 6, KEEP, 0, KEEP),
   ATURN(80, 56),
+  /* a knee-high rail down the long straight between the bends (it bounces a kart back, like every wall): the two bends
+   * stay open to space, and they are where the risk is */
+  WALLS(1, 1),
   ASTRAIGHT(20),
   BOOST(20),
   STRAIGHT(20),
   ASTRAIGHT(70),
+  WALLS(0, 0),
   ATURN(80, 56),
   ASTRAIGHT(8),
   END(),
@@ -2157,8 +2161,19 @@ static void holo_at(cw_node root, const track *t, float s, int side, int kind, p
   holo_sign(root, p, yaw, w, h, lift, kind, col, 2.4f, true);
 }
 
-/* the spacewalk (the track's branch): a bare gantry, so it gets the keel lattice the main deck has under it and a
- * glowing strip along each edge, magenta on the left and cyan on the right, that says where the drop is */
+/* a flat painted strip on a deck from p to q, w wide, facing up (both windings: no face to get wrong) */
+static void deck_strip(pm *b, t3_vec3 p, t3_vec3 q, float w, t3_vec3 up, pcol col) {
+  t3_vec3 s = vmul(vnorm(vcross(up, vsub(q, p))), w * 0.5f);
+  t3_vec3 A = vadd(p, s), Bq = vsub(p, s), C = vsub(q, s), D = vadd(q, s);
+  pm_quad(b, A, Bq, C, D, col);
+  pm_quad(b, D, C, Bq, A, col);
+}
+
+/* the spacewalk (the track's branch): a walkway out over the void. The keel lattice the main deck has under it, a
+ * continuous light strip down both edges of the deck (magenta left, cyan right) and another along the slab's side
+ * face, a dashed yellow line down the middle, and on the straight between the bends a knee-high rail (a real wall, the
+ * track's) with a lit handrail and a lamp every few posts. The two bends have no rail: their edge lights run on with
+ * chevrons painted across them, so the open edge reads as the drop it is. */
 static void build_spacewalk(cw_node root, const track *t) {
   pmc *c = pmc_new(120, 31);
   for (int b = 0; b < t->nbranch; b++) {
@@ -2168,18 +2183,55 @@ static void build_spacewalk(cw_node root, const track *t) {
       if ((a->flags | e->flags) & TF_GAP) continue;
       pm *pb = pmc_at(c, a->p);
       pm_push(pb);
-      /* the edge strips: dashes, two on and one off */
-      if ((i / 3) % 3 != 2)
-        for (int side = -1; side <= 1; side += 2) {
-          if ((a->flags | e->flags) & (side < 0 ? TF_FORK_L : TF_FORK_R)) continue;
-          /* on the slab's side face, under the kerb: seen from the road ahead and from across the void */
+      int k3 = (i - B->first) / 3;
+      for (int side = -1; side <= 1; side += 2) {
+        if ((a->flags | e->flags) & (side < 0 ? TF_FORK_L : TF_FORK_R)) continue;
+        uint32_t wb = side < 0 ? TF_WALL_L : TF_WALL_R;
+        bool railed = (a->flags & wb) && (e->flags & wb);
+        pcol gc = side > 0 ? K.cyan : K.magenta;
+        pm_layer(pb, PL_GLOW);
+        /* on the slab's side face, under the kerb: seen from across the void */
+        float l = side * (a->hw + 0.03f), le = side * (e->hw + 0.03f);
+        t3_vec3 A = tp(a, l, -0.18f), Bq = tp(a, l, -0.5f), C = tp(e, le, -0.5f), D = tp(e, le, -0.18f);
+        pm_quad(pb, A, Bq, C, D, glow(gc, 4.5f));
+        pm_quad(pb, D, C, Bq, A, glow(gc, 4.5f));
+        if (!railed) {
+          /* the open edge: a strip of light on the deck just inside the drop, unbroken, so the line to hold is plain */
+          deck_strip(pb, tp(a, side * (a->hw - 1.15f), 0.03f), tp(e, side * (e->hw - 1.15f), 0.03f), 0.3f, a->u, glow(gc, 3.6f)); /* inside the kerb */
+          /* chevrons on the deck by the open edge, every other bay, pointing along the bend */
+          if ((k3 & 1) == 0 && !(a->flags & TF_JOIN)) {
+            pm_layer(pb, PL_MAIN);
+            t3_vec3 tip = tp(e, side * (e->hw - 2.15f), 0.025f);
+            deck_strip(pb, tp(a, side * (a->hw - 1.5f), 0.025f), tip, 0.32f, a->u, K.yellow);
+            deck_strip(pb, tp(a, side * (a->hw - 2.8f), 0.025f), tip, 0.32f, a->u, K.yellow);
+          }
+        } else {
+          /* the rail: a lit handrail along the wall's top, and a post with a lamp every fourth bay */
+          float H = 0.9f;
+          t3_vec3 r0 = tp(a, side * (a->hw + 0.28f), H + 0.32f), r1 = tp(e, side * (e->hw + 0.28f), H + 0.32f);
+          pm_layer(pb, PL_METAL);
+          pm_beam(pb, r0, r1, 0.12f, K.hull2);
+          pm_beam(pb, tp(a, side * (a->hw + 0.28f), H), r0, 0.1f, dk(K.hull2, 0.7f));
           pm_layer(pb, PL_GLOW);
-          float l = side * (a->hw + 0.03f), le = side * (e->hw + 0.03f);
-          t3_vec3 A = tp(a, l, -0.18f), Bq = tp(a, l, -0.5f), C = tp(e, le, -0.5f), D = tp(e, le, -0.18f);
-          pcol gc = side > 0 ? K.cyan : K.magenta;
-          pm_quad(pb, A, Bq, C, D, glow(gc, 4.5f));
-          pm_quad(pb, D, C, Bq, A, glow(gc, 4.5f));
+          pm_beam(pb, vadd(r0, vmul(a->u, -0.1f)), vadd(r1, vmul(e->u, -0.1f)), 0.05f, glow(gc, 4.0f));
+          if (k3 % 4 == 0) {
+            pm_layer(pb, PL_METAL);
+            t3_vec3 p0 = tp(a, side * (a->hw + 0.28f), H), p1 = tp(a, side * (a->hw + 0.28f), H + 1.9f);
+            pm_beam(pb, p0, p1, 0.12f, dk(K.hull2, 0.7f));
+            pm_layer(pb, PL_GLOW);
+            pm_push(pb);
+            t3_vec3 lp = tp(a, side * (a->hw + 0.05f), H + 1.85f);
+            pm_move(pb, lp.x, lp.y, lp.z);
+            pm_ball(pb, 0.16f, 0.16f, 0.16f, 0, 0, glow(K.white, 5.0f), glow(gc, 4.0f));
+            pm_pop(pb);
+          }
         }
+      }
+      /* the middle line: yellow dashes, every other bay */
+      if ((k3 % 4) < 2 && !(a->flags & TF_JOIN)) {
+        pm_layer(pb, PL_MAIN);
+        deck_strip(pb, tp(a, 0, 0.025f), tp(e, 0, 0.025f), 0.24f, a->u, K.yellow);
+      }
       /* the keel: a beam under the middle and struts up to both edges */
       if ((i / 3) % 2 == 0 && !(a->flags & TF_JOIN)) {
         pm_layer(pb, PL_METAL);
