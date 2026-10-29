@@ -1883,6 +1883,166 @@ static void debris_frame(double time) {
   }
 }
 
+/* ── the loops' hoops: a ring of chaser lights either side of each loop ────────────────────────────── */
+
+/* Inside a loop the view was the road curling up into a black void: the reactor sits at the loop's middle, above the
+ * top of the frame while a kart climbs, and nothing stood at the sides. Now each loop runs between two great hoops, one
+ * either side clear of the road, tied to the reactor by spokes, and a ring of lamps round each hoop chases round in the
+ * way the karts go: the sides of the view fill with structure that wheels past, and with running light. The lamps are
+ * four meshes in all (one per step of the chase, every hoop in each) whose brightness the frame steps round. */
+#define CHASE 4
+static t3_material *CHASE_M[CHASE];
+static t3_color CHASE_C[CHASE];
+
+static void build_hoops(cw_node root, const track *t) {
+  pm *ch[CHASE];
+  for (int g = 0; g < CHASE; g++) ch[g] = pm_new(8100u + (uint32_t)g);
+  int lamps = 0;
+  for (int L = 0; L < nreact; L++) {
+    reactor r = REACT[L];
+    int li = L == 0 ? 0 : 3; /* the loops the reactors were built for */
+    if (li >= t->nloops) continue;
+    int i0 = t->loop_from[li], i1 = t->loop_to[li];
+    if (i1 >= t->n) i1 = t->n - 1;
+    /* how far the road strays to either side of the middle while it loops (the teardrop drifts sideways) */
+    float lo = 1e9f, hi = -1e9f, hw = 0;
+    for (int i = i0; i <= i1; i++) {
+      float v = vdot(vsub(t->s[i].p, r.c), r.axis);
+      lo = fminf(lo, v), hi = fmaxf(hi, v), hw = fmaxf(hw, t->s[i].hw);
+    }
+    /* fw: the way the karts enter the loop, flat (at right angles to the axis) */
+    t3_vec3 up = V3(0, 1, 0), fw = vnorm(V3(t->s[i0].f.x, 0, t->s[i0].f.z));
+    float Rh = r.R * 1.12f;
+    pcol cA = L == 0 ? K.cyan : K.magenta, cB = L == 0 ? K.magenta : K.orange;
+    /* runway lights flush on both kerbs, all the way round the loop, in the same chase: from inside the loop, where the
+     * road fills the view, a pulse of light runs up the edges ahead of the kart */
+    for (int i = i0, k = 0; i <= i1; i += 3, k++) {
+      const tsample *a = &t->s[i];
+      for (int e = -1; e <= 1; e += 2) {
+        pm *q = ch[k % CHASE];
+        pm_push(q);
+        pm_basis(q, tp(a, (float)e * (a->hw - 0.45f), 0.12f), a->r, a->u, vcross(a->r, a->u));
+        pm_layer(q, PL_GLOW);
+        pm_box_c(q, 0.5f, 0.06f, 1.3f, glow((k / CHASE) & 1 ? cA : cB, 1.0f));
+        pm_pop(q);
+        lamps++;
+      }
+    }
+    for (int side = -1; side <= 1; side += 2) {
+      float off = side < 0 ? lo - hw - 7.0f : hi + hw + 7.0f;
+      t3_vec3 c = vadd(r.c, vmul(r.axis, off));
+      /* the hoop in the loop's own plane: local x along or against the road's way (whichever makes the frame right-handed), y up, z across */
+      t3_vec3 zz = vmul(r.axis, (float)side), xx = vdot(vcross(fw, up), zz) > 0 ? fw : vmul(fw, -1.0f);
+      pm *b = pose(PLAIN, c, xx, up, zz);
+      pm_layer(b, PL_METAL);
+      pm_ring(b, Rh, 1.0f, 72, 6, K.hull2);
+      pm_ring(b, Rh + 1.6f, 0.35f, 72, 4, dk(K.hull2, 0.7f));
+      for (int k = 0; k < 12; k++) { /* clamps, and every third a fin standing out from the hoop */
+        float an = CW_TAU * (float)k / 12.0f;
+        pm_push(b);
+        pm_move(b, cosf(an) * Rh, sinf(an) * Rh, 0);
+        pm_rotz(b, an);
+        pm_box_c(b, k % 3 == 0 ? 5.0f : 2.4f, 1.6f, 2.6f, k % 3 == 0 ? K.orange : dk(K.hull2, 0.8f));
+        pm_pop(b);
+      }
+      /* spokes in to the reactor, so the hoop belongs to it */
+      for (int k = 0; k < 6; k++) {
+        float an = CW_TAU * (float)k / 6.0f + 0.26f;
+        t3_vec3 rim = V3(cosf(an) * (Rh - 0.8f), sinf(an) * (Rh - 0.8f), 0);
+        t3_vec3 hub = V3(cosf(an) * r.R * 0.3f, sinf(an) * r.R * 0.3f, -(fabsf(off) - 2.0f));
+        pm_beam(b, rim, hub, 0.45f, dk(K.hull2, 0.75f));
+      }
+      pm_layer(b, PL_GLOW);
+      pm_ring(b, Rh - 1.05f, 0.16f, 72, 4, glow(cA, 2.2f));
+      pm_pop(b);
+      /* the chaser lamps on the hoop's inner face: lamp k belongs to step k % CHASE, numbered the way the road climbs
+       * (the road runs along +fw at the bottom, so the angle runs from the bottom toward +fw and up) */
+      const int N = 40;
+      for (int k = 0; k < N; k++) {
+        float an = -1.5708f + CW_TAU * (float)k / (float)N;
+        t3_vec3 p = vadd(c, vadd(vmul(fw, cosf(an) * (Rh - 1.1f)), vmul(up, sinf(an) * (Rh - 1.1f))));
+        pm *q = ch[k % CHASE];
+        pm_push(q);
+        pm_basis(q, p, fw, up, vcross(fw, up)); /* a right-handed frame */
+        pm_rotz(q, an);
+        pm_layer(q, PL_GLOW);
+        pm_box_c(q, 0.8f, 1.1f, 1.1f, glow((k / CHASE) & 1 ? cA : cB, 1.0f));
+        pm_pop(q);
+        lamps++;
+      }
+    }
+  }
+  for (int g = 0; g < CHASE; g++) {
+    prop_model m = pm_finish(ch[g]);
+    if (m.g[PL_GLOW]) {
+      t3_material *mat = t3_mesh_basic_material_new(0xffffff);
+      mat->vertex_colors = true;
+      CHASE_C[g] = (t3_color){ 6.0f, 6.0f, 6.0f };
+      mat->color = CHASE_C[g];
+      t3_mesh *me = t3_mesh_new(m.g[PL_GLOW], mat);
+      me->base.cast_shadow = false;
+      char nm[16];
+      snprintf(nm, sizeof nm, "Chase%d", g);
+      hang(root, nm, &me->base);
+      CHASE_M[g] = mat;
+      t3_release(me);
+      m.g[PL_GLOW] = NULL;
+    }
+    prop_model_free(&m);
+  }
+  cw_info("orbit: %d chaser lamps on the loops' hoops", lamps);
+}
+
+/* a pulse runs round each hoop the way the karts go, ten steps a second, the lamps behind it dimming down */
+static void chase_frame(float tf) {
+  int step = (int)(tf * 10.0f);
+  for (int g = 0; g < CHASE; g++) {
+    if (!CHASE_M[g]) continue;
+    int behind = ((step - g) % CHASE + CHASE) % CHASE; /* 0: this step is lit now, 1: it was a tenth of a second ago */
+    float k = behind == 0 ? 1.0f : behind == 1 ? 0.35f : 0.08f;
+    CHASE_M[g]->color = (t3_color){ CHASE_C[g].r * k, CHASE_C[g].g * k, CHASE_C[g].b * k };
+  }
+}
+
+/* ── the belt: a far ring of rocks that wheels slowly round the whole course ──────────────────────────── */
+
+/* The stars, the nebula, the planet and the giant are all painted on things that ride with the camera: nothing in
+ * the backdrop moved against anything else. A belt of rocks hundreds of metres out, turning slowly about the course's
+ * middle, slides across the sky as the karts run: real parallax between the station and the stars. One instanced
+ * mesh per layer. */
+static t3_object *BELT;
+static void build_belt(cw_node root) {
+  const int N = 120;
+  prop_model m = prop_make(PK_ROCK, 10.0f, 9100u, 2, 1);
+  BELT = t3_group_new();
+  t3_object_set_position(BELT, SKY_C.x, SKY_C.y, SKY_C.z);
+  for (int l = 0; l < PL_COUNT; l++) {
+    if (!m.g[l]) continue;
+    t3_instanced_mesh *im = t3_instanced_mesh_new(m.g[l], prop_material(l, -1, rgb(0.62f, 0.56f, 0.52f), 1), N); /* the drifting debris's material state */
+    im->mesh.base.cast_shadow = false;
+    im->mesh.base.receive_shadow = true;
+    for (int i = 0; i < N; i++) {
+      uint32_t h = hsh(9200u + (uint32_t)i * 2654435761u);
+      float a = CW_TAU * ((float)i + 0.6f * hf(h)) / (float)N;
+      float R = 620.0f + 420.0f * hf(h ^ 3u), y = -170.0f + 330.0f * hf(h ^ 5u);
+      /* clumps: a third of the rocks gather near another */
+      float sc = 0.5f + 3.2f * powf(hf(h ^ 7u), 2.2f);
+      t3_quat q = t3_quat_from_axis_angle(vnorm(V3(hf(h ^ 11u) - 0.5f, hf(h ^ 13u) - 0.5f, hf(h ^ 17u) - 0.5f)), hf(h ^ 19u) * 6.28f);
+      t3_mat4 mm;
+      t3_mat4_compose(&mm, V3(cosf(a) * R, y, sinf(a) * R), q, V3(sc, sc * (0.6f + 0.6f * hf(h ^ 23u)), sc));
+      t3_instanced_mesh_set_matrix_at(im, i, &mm);
+    }
+    im->instance_matrix->version++;
+    t3_sphere sph = { { 0, 0, 0 }, 1200.0f };
+    t3_instanced_mesh_set_bounding_sphere(im, &sph);
+    t3_object_add(BELT, im);
+    t3_release(im);
+  }
+  prop_model_free(&m);
+  hang(root, "Belt", BELT);
+  t3_release(BELT);
+}
+
 /* ── ships and satellites that pass ─────────────────────────────────────────────────────────────────── */
 
 #define MAXPASS 4
@@ -2274,6 +2434,8 @@ static void orbit_scenery(cw_node scene, const track *t, uint32_t seed) {
   if (!off("wheel")) build_wheel(root, V3(75, 22, 337), 64, 8);
   if (!off("reactor")) build_reactor(root, t, 0, K.cyan, K.magenta);
   if (!off("reactor")) build_reactor(root, t, 3, K.magenta, K.orange);
+  if (!off("hoops")) build_hoops(root, t);
+  if (!off("belt")) build_belt(root);
   if (t->nloops > 2 && !off("cage")) {
     build_cage(root, t, t->loop_from[1], t->loop_to[1], K.cyan, K.magenta);
     build_cage(root, t, t->loop_from[2], t->loop_to[2], K.magenta, K.cyan);
@@ -2350,6 +2512,8 @@ static void orbit_frame(float alpha, double time) {
   if (SKY.giant) t3_object_set_rotation(SKY.giant, 0, tf * 0.006f, 0);
   for (int i = 0; i < nspin; i++) t3_object_set_quaternion(SPIN[i].o, t3_quat_from_axis_angle(SPIN[i].axis, SPIN[i].phase + SPIN[i].rate * tf));
   debris_frame(time);
+  chase_frame(tf);
+  if (BELT) t3_object_set_rotation(BELT, 0, tf * 0.012f, 0); /* about 8 m a second at the belt: it slides past the stars */
   passers_frame(time);
   satellite_frame(time);
   /* holograms breathe, glitch now and then, and their scan lines roll */
