@@ -12,6 +12,9 @@
 
 #include "cartwheel/base.h"
 #include "cartwheel/math.h"
+#include "cartwheel/debug.h"
+#include "cartwheel/resource.h"
+#include "cartwheel/terrain.h"
 #include "../game.h"
 #include "../props.h"
 
@@ -342,7 +345,7 @@ static float land0(float x, float z) {
   float floor_n = yf + ground_noise(x, z, 41, 1.3f, 2, 15);
   float h = lerpf(p, floor_n, v);
   /* terraces: the walls and mesas step in ledges, as layered red rock does (treads stay flat, risers are steep) */
-  if (h > yf + 1.5f) {
+  if (h > yf + 1.5f && getenv("RACER_TERRACE")) { /* (off on the Terrain3D land: sampled every 2 m the ledges read as dune ripples) */
     float S = 7.5f + 2.0f * ground_noise(x, z, 130, 1.0f, 1, 17), off = ground_noise(x, z, 55, 0.9f, 2, 18);
     float q = (h - yf) / S + off;
     float fl = floorf(q), fr = q - fl;
@@ -580,32 +583,184 @@ static void terrain_chunk(cw_node group, t3_material *mat, float x0, float z0, f
 }
 
 static t3_material *TMAT;
+static void pset(cw_node n, const char *key, const char *val);
+
+/* ── the land: the engine's Terrain3D ────────────────────────────────────────────────────────────────────
+ * One heightmap over the whole valley, 2 m between samples, its heights from dam_land (so everything built on that
+ * function stands on it), painted from eight photo-sourced layers (assets/terrain/dam, tools/terrain-layers.sh):
+ * red sandstone on the steep ground in two strata, cracked red earth and dusty dirt on the floor, scrub where brush
+ * grows, sand on the river banks and the lake bed, gravel on the road's verges, concrete on the dam. Trees and grass
+ * grow on it as scatter layers (TerrainScatter3D: the EZ-Tree conifers and Yughues grass cards, assets/models). */
+enum { LY_CLIFF, LY_BAND, LY_FLOOR, LY_DIRT, LY_SCRUB, LY_SAND, LY_GRAVEL, LY_CONCRETE };
+#define TER_X0 (-1280.0f)
+#define TER_Z0 (-1152.0f)
+#define TER_SP 2.0f
+#define TER_NX 1344 /* quads: multiples of the 32-quad patch */
+#define TER_NZ 1152
+static cw_node TER_NODE;
+static int TER_STAT[4]; /* debug fields dam.patches, dam.scatter (instances drawn), dam.scatter_cells, dam.scatter_draws */
+
+/* what a terrain sample is painted with: base layer, overlay layer and the overlay's share (0..255) */
+static uint32_t land_paint(float x, float y, float z, float slope, int kind, float road_g) {
+  if (kind == KIND_CONCRETE) return cw_terrain_control(LY_CONCRETE, LY_CONCRETE, 0, 0, 0, false);
+  if (kind == KIND_BED || (lake_mask(x, z, 28) > 0.5f && y < LAKE_Y + 1.5f)) return cw_terrain_control(LY_SAND, LY_DIRT, (int)(60 * sm(LAKE_Y - 6, LAKE_Y, y)), 0, 0, false);
+  if (kind == KIND_VERGE || road_g < 4.0f) return cw_terrain_control(LY_GRAVEL, LY_DIRT, (int)(255 * sm(1.5f, 4.0f, road_g)), 0, 0, false);
+  /* the rock: strata by height (warped, so the bands wander), one of two reds a band */
+  float warp = ground_noise(x, z, 38, 3.2f, 2, 21);
+  int band = (int)floorf((y + warp) / 5.2f);
+  int rock = hash32((uint32_t)(band + 400) * 2654435761u) % 3 == 0 ? LY_BAND : LY_CLIFF;
+  float steep = sm(0.45f, 1.05f, slope);
+  /* the flat: cracked earth and dusty dirt by noise, brush in patches, sand down the washes near the river */
+  float n = ground_noise(x, z, 46, 1.0f, 2, 24);
+  float patch = sm(0.1f, 0.5f, ground_noise(x, z, 24, 1.0f, 2, 25));
+  int flat = n > 0 ? LY_FLOOR : LY_DIRT;
+  int over = patch > 0.5f ? LY_SCRUB : (flat == LY_FLOOR ? LY_DIRT : LY_FLOOR);
+  int fb = patch > 0.5f ? (int)(255 * sm(0.5f, 1.0f, patch) * 0.85f) : (int)(255 * (0.5f - 0.5f * fabsf(n)) * 0.6f);
+  if (kind == KIND_CUT) steep = fmaxf(steep, 0.6f);
+  if (steep > 0.5f) return cw_terrain_control(rock, flat, (int)(255 * (1 - steep) * 1.4f > 255 ? 255 : 255 * (1 - steep) * 1.4f), 0, 0, false);
+  return cw_terrain_control(flat, steep > 0.2f ? rock : over, steep > 0.2f ? (int)(255 * steep * 1.6f) : fb, 0, 0, false);
+}
+
+static void scatter(cw_node terr, const char *name, const char *mesh, float density, uint32_t layers, float slope, float smin,
+                    float smax, bool align, float range, float fade, float lod, bool shadow, const char *knob, int seed) {
+  cw_node s = cw_node_new("TerrainScatter3D", name);
+  cw_node_set(s, "mesh", cw_val_string(mesh));
+  cw_node_set(s, "density", cw_val_float(density));
+  cw_node_set(s, "layers", cw_val_int((int)layers));
+  cw_node_set(s, "min_slope", cw_val_float(slope));
+  cw_node_set(s, "scale_min", cw_val_float(smin));
+  cw_node_set(s, "scale_max", cw_val_float(smax));
+  cw_node_set(s, "align", cw_val_bool(align));
+  cw_node_set(s, "visible_range", cw_val_float(range));
+  cw_node_set(s, "fade", cw_val_float(fade));
+  cw_node_set(s, "lod_distance", cw_val_float(lod));
+  cw_node_set(s, "cast_shadow", cw_val_bool(shadow));
+  pset(s, "knob", knob);
+  cw_node_set(s, "seed", cw_val_int(seed));
+  cw_node_add_child(terr, s);
+}
+
 static void build_terrain(cw_node parent) {
   const track *t = A.t;
-  cw_node group = cw_node_new("Node3D", "Terrain");
-  cw_node_add_child(parent, group);
+  /* the tunnel hill's rock still takes this material */
   t3_material *mat = phys((t3_color){ 1, 1, 1 }, 0.95f, 0);
   mat->vertex_colors = true;
   tex_apply(mat, TEX_NOISE, 1, 1, 0.35f, 0.6f);
-  TMAT = t3_retain(mat);
-  /* the texture multiplies the vertex colours (strata, dust) and lends the relief; its albedo is dark, so lift it */
   if (mat->map) mat->color = (t3_color){ 1.0f, 0.9f, 0.85f };
-  const float CH = 128;
-  float X0 = -1280, X1 = 1408, Z0 = -1152, Z1 = 1152;
-  int chunks = 0;
-  for (float z = Z0; z < Z1; z += CH)
-    for (float x = X0; x < X1; x += CH) {
-      float dist;
-      road_nearest(t, x + CH * 0.5f, z + CH * 0.5f, &dist);
-      dist -= CH * 0.71f;
-      int n = dist < 90 ? 32 : dist < 330 ? 16 : 8;
-      terrain_chunk(group, mat, x, z, CH, n);
-      chunks++;
-    }
-  t3_release(mat);
-  cw_info("dam: terrain %d chunks", chunks);
-}
+  TMAT = mat;
 
+  const int sx = TER_NX + 1, sz = TER_NZ + 1;
+  float *h = malloc(sizeof(float) * (size_t)sx * (size_t)sz);
+  uint8_t *kd = malloc((size_t)sx * (size_t)sz);
+  float *rg = malloc(sizeof(float) * (size_t)sx * (size_t)sz);
+  float lo = 1e9f, hi = -1e9f;
+  for (int j = 0; j < sz; j++)
+    for (int i = 0; i < sx; i++) {
+      float x = TER_X0 + (float)i * TER_SP, z = TER_Z0 + (float)j * TER_SP;
+      int k = 0;
+      float y = dam_land(x, z, &k);
+      size_t o = (size_t)j * (size_t)sx + (size_t)i;
+      h[o] = y, kd[o] = (uint8_t)k;
+      float ry;
+      int idx;
+      rg[o] = road_gap_idx(t, x, z, &ry, &idx);
+      lo = fminf(lo, y), hi = fmaxf(hi, y);
+    }
+  lo -= 1.0f, hi += 1.0f;
+  cw_node n = cw_node_new("Terrain3D", "Land");
+  cw_node_set(n, "size_x", cw_val_int(TER_NX));
+  cw_node_set(n, "size_z", cw_val_int(TER_NZ));
+  cw_node_set(n, "vertex_spacing", cw_val_float(TER_SP));
+  cw_node_set(n, "region_size", cw_val_int(64));
+  cw_node_set(n, "min_height", cw_val_float(lo));
+  cw_node_set(n, "max_height", cw_val_float(hi));
+  cw_node_set(n, "far_distance", cw_val_float(PV > 1 ? 350.0f : 600.0f));
+  cw_node_set(n, "physics", cw_val_bool(false));
+  cw_node_set(n, "quality", cw_val_int(getenv("RACER_TERQ") ? atoi(getenv("RACER_TERQ")) : 2));
+  static const char *const LN[8] = { "0_cliff", "1_band", "2_floor", "3_dirt", "4_scrub", "5_sand", "6_gravel", "7_concrete" };
+  static const float UV[8] = { 0.06f, 0.06f, 0.16f, 0.16f, 0.14f, 0.2f, 0.3f, 0.12f };
+  for (int i = 0; i < 8; i++) {
+    char key[32], path[64];
+    snprintf(key, sizeof key, "layer%d_albedo", i), snprintf(path, sizeof path, "terrain/dam/%s_albedo.png", LN[i]);
+    cw_node_set(n, key, cw_val_string(path));
+    snprintf(key, sizeof key, "layer%d_normal", i), snprintf(path, sizeof path, "terrain/dam/%s_normal.png", LN[i]);
+    cw_node_set(n, key, cw_val_string(path));
+    snprintf(key, sizeof key, "layer%d_uv_scale", i);
+    cw_node_set(n, key, cw_val_float(UV[i]));
+  }
+  /* the node is centred on its position */
+  cw_node3d_set_position(n, v3(TER_X0 + TER_NX * TER_SP * 0.5f, 0, TER_Z0 + TER_NZ * TER_SP * 0.5f));
+  /* trees: pinyon and juniper the most, ponderosas in the cooler side draws, scrub oak in the brush, a dead snag here
+   * and there; never on the verges, the sand or the concrete, nor on steep rock */
+  const uint32_t TREE_L = 1u << LY_SCRUB; /* in groves: the brush patches */
+  float tr = PV > 1 ? 260.0f : 480.0f;
+  scatter(n, "Pinyon", "models/trees/pinyon.glb", 0.004f, TREE_L, 28, 1.0f, 1.6f, false, tr, 40, 60, true, "SCATTER", 11);
+  scatter(n, "Juniper", "models/trees/juniper.glb", 0.004f, TREE_L, 30, 0.9f, 1.4f, false, tr, 40, 60, true, "SCATTER", 12);
+  scatter(n, "Ponderosa", "models/trees/ponderosa.glb", 0.0006f, (1u << LY_SCRUB) | (1u << LY_DIRT), 22, 1.3f, 2.0f, false, tr, 40, 70, true, "SCATTER", 13);
+  scatter(n, "Ponderosa2", "models/trees/ponderosa-2.glb", 0.0006f, (1u << LY_SCRUB) | (1u << LY_FLOOR), 22, 1.2f, 1.8f, false, tr, 40, 70, true, "SCATTER", 14);
+  scatter(n, "ScrubOak", "models/trees/scruboak.glb", 0.0025f, 1u << LY_SCRUB, 30, 0.8f, 1.3f, false, tr * 0.7f, 30, 45, true, "SCATTER", 15);
+  scatter(n, "Snag", "models/trees/snag.glb", 0.0002f, (1u << LY_FLOOR) | (1u << LY_DIRT), 25, 0.8f, 1.2f, false, tr, 40, 70, true, "SCATTER", 16);
+  /* grass: dry tufts over the earth, green and tall in the brush and down by the water */
+  scatter(n, "DryGrass", "models/grass/dry.glb", 0.25f, (1u << LY_FLOOR) | (1u << LY_DIRT), 30, 0.5f, 1.0f, true, PV > 1 ? 45.0f : 70.0f, 15, 30, false, "GRASS", 21);
+  scatter(n, "Grass", "models/grass/green.glb", 0.6f, (1u << LY_SCRUB) | (1u << LY_SAND), 30, 0.5f, 1.0f, true, PV > 1 ? 45.0f : 70.0f, 15, 30, false, "GRASS", 22);
+  scatter(n, "TallGrass", "models/grass/tall.glb", 0.15f, 1u << LY_SCRUB, 25, 0.8f, 1.4f, true, PV > 1 ? 40.0f : 60.0f, 12, 30, false, "GRASS", 23);
+  cw_node_add_child(parent, n);
+  TER_NODE = n;
+  cw_terrain *ter = cw_terrain_of(n);
+  if (!ter) {
+    cw_error("dam: no terrain from the Land node");
+    free(h), free(kd), free(rg);
+    return;
+  }
+  cw_terrain_set_heights_m(ter, 0, 0, sx, sz, h);
+  uint32_t *ctl = malloc(sizeof(uint32_t) * (size_t)sx * (size_t)sz);
+  for (int j = 0; j < sz; j++)
+    for (int i = 0; i < sx; i++) {
+      size_t o = (size_t)j * (size_t)sx + (size_t)i;
+      int i0 = i > 0 ? i - 1 : i, i1 = i < sx - 1 ? i + 1 : i, j0 = j > 0 ? j - 1 : j, j1 = j < sz - 1 ? j + 1 : j;
+      float gx = (h[(size_t)j * sx + i1] - h[(size_t)j * sx + i0]) / ((float)(i1 - i0) * TER_SP);
+      float gz = (h[(size_t)j1 * sx + i] - h[(size_t)j0 * sx + i]) / ((float)(j1 - j0) * TER_SP);
+      ctl[o] = land_paint(TER_X0 + (float)i * TER_SP, h[o], TER_Z0 + (float)j * TER_SP, sqrtf(gx * gx + gz * gz), kd[o], rg[o]);
+    }
+  cw_terrain_set_control(ter, 0, 0, sx, sz, ctl);
+  cw_terrain_scatter_invalidate(ter);
+  if (getenv("RACER_TREETEST")) { /* dev aid: one tree placed directly (not scattered), x, z */
+    float tx = -200, tz = 20;
+    sscanf(getenv("RACER_TREETEST"), "%f,%f", &tx, &tz);
+    cw_res r = cw_res_load("models/trees/pinyon.glb", CW_RES_GLTF);
+    const cw_gltf *gl = cw_res_gltf(r);
+    cw_info("treetest: gltf %s meshes %d tris %d lods %d", gl ? "ok" : "MISSING", gl ? gl->mesh_count : -1, gl ? gl->triangles : -1, gl ? gl->lod_levels : -1);
+    for (int pp = 0; pp < 2; pp++) {
+      char path[64];
+      snprintf(path, sizeof path, "models/trees/pinyon.glb#mesh/0/%d", pp);
+      cw_res mr = cw_res_load(path, CW_RES_MESH);
+      const cw_mesh *m = cw_res_mesh(mr);
+      if (m) cw_info("treetest: part %d lods %d tris %d %d mat atest %.2f side %d transparent %d map %p opacity %.2f", pp, m->lod_count, m->lod_triangles[0], m->lod_count > 1 ? m->lod_triangles[1] : -1,
+                     m->material ? m->material->alpha_test : -1.0f, m->material ? (int)m->material->side : -1, m->material ? (int)m->material->transparent : -1, m->material ? (void *)m->material->map : NULL, m->material ? m->material->opacity : -1.0f);
+      else cw_info("treetest: part %d MISSING", pp);
+      cw_res_release(mr);
+    }
+    t3_object *o = cw_gltf_instantiate(r);
+    cw_res_release(r);
+    if (o) {
+      o->position = v3(tx, dam_land(tx, tz, NULL), tz);
+      o->scale = v3(2, 2, 2);
+      t3_object_update_matrix(o);
+      t3_object_add(cw_node3d_object(parent), o);
+      t3_release(o);
+    }
+  }
+  free(ctl), free(h), free(kd), free(rg);
+  cw_info("dam: terrain %d x %d samples, %.1f .. %.1f m", sx, sz, lo, hi);
+  static bool fields;
+  if (!fields) {
+    fields = true;
+    cw_debug_i32("dam.patches", &TER_STAT[0]);
+    cw_debug_i32("dam.scatter", &TER_STAT[1]);
+    cw_debug_i32("dam.scatter_cells", &TER_STAT[2]);
+    cw_debug_i32("dam.scatter_draws", &TER_STAT[3]);
+  }
+}
 
 /* ── white water: a ribbon along the river, a scrolling foam texture, standing waves ─────────────────── */
 
@@ -808,6 +963,12 @@ static cw_node add_emitter(cw_node parent, const char *name, const char *const *
 
 /* world_tick does not call a map's scenery_tick, so the karts are found through their scene nodes instead */
 static void emitters_frame(void) {
+  cw_terrain *ter = cw_node_valid(TER_NODE) ? cw_terrain_of(TER_NODE) : NULL;
+  if (ter) {
+    cw_terrain_stats st;
+    cw_terrain_get_stats(ter, &st);
+    TER_STAT[0] = st.patches + st.patches_far, TER_STAT[1] = st.scatter_instances, TER_STAT[2] = st.scatter_cells, TER_STAT[3] = st.scatter_draws;
+  }
   t3_vec3 kp[MAXK];
   int nk = 0;
   for (int k = 0; k < MAXK; k++) {

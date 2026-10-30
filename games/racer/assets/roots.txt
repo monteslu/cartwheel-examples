@@ -238,3 +238,33 @@ audio/voice/bomb_hit_2.ogg
 audio/voice/boomerang_hit_1.ogg
 audio/voice/boomerang_hit_2.ogg
 # end voice
+
+# the Dam's land (tools/terrain-layers.sh: ambientCG, CC0) and its trees and grass (tools/foliage-art.mjs: EZ-Tree
+# conifers, MIT, with CC0 textures; Yughues grass, CC0). Licences: models/*/licenses/, CREDITS.
+set mesh.lods 0.35 0.1
+terrain/dam/0_cliff_albedo.png
+terrain/dam/0_cliff_normal.png
+terrain/dam/1_band_albedo.png
+terrain/dam/1_band_normal.png
+terrain/dam/2_floor_albedo.png
+terrain/dam/2_floor_normal.png
+terrain/dam/3_dirt_albedo.png
+terrain/dam/3_dirt_normal.png
+terrain/dam/4_scrub_albedo.png
+terrain/dam/4_scrub_normal.png
+terrain/dam/5_sand_albedo.png
+terrain/dam/5_sand_normal.png
+terrain/dam/6_gravel_albedo.png
+terrain/dam/6_gravel_normal.png
+terrain/dam/7_concrete_albedo.png
+terrain/dam/7_concrete_normal.png
+models/trees/fir.glb
+models/trees/juniper.glb
+models/trees/pinyon.glb
+models/trees/ponderosa-2.glb
+models/trees/ponderosa.glb
+models/trees/scruboak.glb
+models/trees/snag.glb
+models/grass/dry.glb
+models/grass/green.glb
+models/grass/tall.glb

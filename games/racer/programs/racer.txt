@@ -149,3 +149,12 @@ physical+vcol+shadow+senv+cc+l1001+xcluster_rim
 physical+vcol+shadow+senv+l1001+xcluster_rim
 physical+vcol+instbig+shadow+senv+l3001+s100+xcluster
 physical+vcol+trans+instbig+senv+l1001+xcluster
+depth+instbig+xterrain_cluster
+standard+instbig+shadow+senv+l1001+xterrain_cluster
+standard+instbig+shadow+senv+l1001+xterrainfar_cluster
+standard+map+instbig+shadow+senv+atest+ds+l1001
+standard+map+rep+instbig+shadow+senv+l1001
+standard+map+instbig+shadow+senv+atest+ds+l1001+xcluster
+standard+map+rep+instbig+shadow+senv+l1001+xcluster
+standard+map+rep+instbig+shadow+senv+atest+ds+l1001+xcluster
+standard+map+rep+instbig+shadow+senv+atest+ds+l1001
