@@ -715,21 +715,22 @@ static void build_terrain(cw_node parent) {
   cw_node3d_set_position(n, v3(TER_X0 + TER_NX * TER_SP * 0.5f, 0, TER_Z0 + TER_NZ * TER_SP * 0.5f));
   /* trees: pinyon and juniper the most, ponderosas in the cooler side draws, scrub oak in the brush, a dead snag here
    * and there; never on the verges, the sand or the concrete, nor on steep rock */
+  /* (in split screen no tree or rock shadows: four views of them cost the frame its 8 ms) */
   const uint32_t TREE_L = 1u << LY_SCRUB; /* in groves: the brush patches */
   float tr = PV > 1 ? 260.0f : 480.0f;
-  scatter(n, "Pinyon", "models/trees/pinyon.glb", 0.004f, TREE_L, 28, 1.0f, 1.6f, false, tr, 40, 60, true, "SCATTER", 11);
-  scatter(n, "Juniper", "models/trees/juniper.glb", 0.004f, TREE_L, 30, 0.9f, 1.4f, false, tr, 40, 60, true, "SCATTER", 12);
-  scatter(n, "Ponderosa", "models/trees/ponderosa.glb", 0.0006f, (1u << LY_SCRUB) | (1u << LY_DIRT), 22, 1.3f, 2.0f, false, tr, 40, 70, true, "SCATTER", 13);
-  scatter(n, "Ponderosa2", "models/trees/ponderosa-2.glb", 0.0006f, (1u << LY_SCRUB) | (1u << LY_FLOOR), 22, 1.2f, 1.8f, false, tr, 40, 70, true, "SCATTER", 14);
-  scatter(n, "ScrubOak", "models/trees/scruboak.glb", 0.0025f, 1u << LY_SCRUB, 30, 0.8f, 1.3f, false, tr * 0.7f, 30, 45, true, "SCATTER", 15);
-  scatter(n, "Snag", "models/trees/snag.glb", 0.0002f, (1u << LY_FLOOR) | (1u << LY_DIRT), 25, 0.8f, 1.2f, false, tr, 40, 70, true, "SCATTER", 16);
+  scatter(n, "Pinyon", "models/trees/pinyon.glb", 0.004f, TREE_L, 28, 1.0f, 1.6f, false, tr, 40, 60, PV == 1, "SCATTER", 11);
+  scatter(n, "Juniper", "models/trees/juniper.glb", 0.004f, TREE_L, 30, 0.9f, 1.4f, false, tr, 40, 60, PV == 1, "SCATTER", 12);
+  scatter(n, "Ponderosa", "models/trees/ponderosa.glb", 0.0006f, (1u << LY_SCRUB) | (1u << LY_DIRT), 22, 1.3f, 2.0f, false, tr, 40, 70, PV == 1, "SCATTER", 13);
+  scatter(n, "Ponderosa2", "models/trees/ponderosa-2.glb", 0.0006f, (1u << LY_SCRUB) | (1u << LY_FLOOR), 22, 1.2f, 1.8f, false, tr, 40, 70, PV == 1, "SCATTER", 14);
+  scatter(n, "ScrubOak", "models/trees/scruboak.glb", 0.0025f, 1u << LY_SCRUB, 30, 0.8f, 1.3f, false, tr * 0.7f, 30, 45, PV == 1, "SCATTER", 15);
+  scatter(n, "Snag", "models/trees/snag.glb", 0.0002f, (1u << LY_FLOOR) | (1u << LY_DIRT), 25, 0.8f, 1.2f, false, tr, 40, 70, PV == 1, "SCATTER", 16);
   /* rocks: scanned desert boulders (Poly Haven, CC0) over the floor and up the slopes, outcrops on the steep rock */
   const uint32_t ROCK_L = (1u << LY_FLOOR) | (1u << LY_DIRT) | (1u << LY_SCRUB) | (1u << LY_CLIFF) | (1u << LY_BAND) | (1u << LY_SAND);
-  cw_node_set(scatter(n, "BoulderA", "models/rocks/boulder_a.glb", 0.0018f, ROCK_L, 40, 0.8f, 2.4f, true, tr, 40, 80, true, "SCATTER", 31), "sink", cw_val_float(0.3f));
-  cw_node_set(scatter(n, "BoulderB", "models/rocks/boulder_b.glb", 0.0010f, ROCK_L, 40, 0.7f, 2.0f, true, tr, 40, 80, true, "SCATTER", 32), "sink", cw_val_float(0.35f));
-  cw_node_set(scatter(n, "BoulderC", "models/rocks/boulder_c.glb", 0.0040f, ROCK_L, 45, 0.6f, 1.6f, true, tr * 0.5f, 20, 50, true, "SCATTER", 33), "sink", cw_val_float(0.25f));
+  cw_node_set(scatter(n, "BoulderA", "models/rocks/boulder_a.glb", 0.0018f, ROCK_L, 40, 0.8f, 2.4f, true, tr, 40, 80, PV == 1, "SCATTER", 31), "sink", cw_val_float(0.3f));
+  cw_node_set(scatter(n, "BoulderB", "models/rocks/boulder_b.glb", 0.0010f, ROCK_L, 40, 0.7f, 2.0f, true, tr, 40, 80, PV == 1, "SCATTER", 32), "sink", cw_val_float(0.35f));
+  cw_node_set(scatter(n, "BoulderC", "models/rocks/boulder_c.glb", 0.0040f, ROCK_L, 45, 0.6f, 1.6f, true, tr * 0.5f, 20, 50, PV == 1, "SCATTER", 33), "sink", cw_val_float(0.25f));
   cw_node_set(scatter(n, "Stones", "models/rocks/boulders.glb", 0.02f, ROCK_L, 40, 0.8f, 1.8f, true, PV > 1 ? 50.0f : 90.0f, 15, 40, false, "SCATTER", 34), "sink", cw_val_float(0.1f));
-  cw_node_set(scatter(n, "Outcrop", "models/rocks/outcrop.glb", 0.0006f, (1u << LY_CLIFF) | (1u << LY_BAND), 55, 1.5f, 4.0f, true, tr * 1.3f, 60, 120, true, "SCATTER", 35), "sink", cw_val_float(1.6f)); /* (to 80 degrees and sunk 0.6 they hung off the cliffs) */
+  cw_node_set(scatter(n, "Outcrop", "models/rocks/outcrop.glb", 0.0006f, (1u << LY_CLIFF) | (1u << LY_BAND), 55, 1.5f, 4.0f, true, tr * 1.3f, 60, 120, PV == 1, "SCATTER", 35), "sink", cw_val_float(1.6f)); /* (to 80 degrees and sunk 0.6 they hung off the cliffs) */
   /* grass: dry tufts over the earth, green and tall in the brush and down by the water */
   scatter(n, "DryGrass", "models/grass/dry.glb", 0.25f, (1u << LY_FLOOR) | (1u << LY_DIRT), 30, 0.5f, 1.0f, true, PV > 1 ? 45.0f : 70.0f, 15, 30, false, "GRASS", 21);
   scatter(n, "Grass", "models/grass/green.glb", 0.6f, (1u << LY_SCRUB) | (1u << LY_SAND), 30, 0.5f, 1.0f, true, PV > 1 ? 45.0f : 70.0f, 15, 30, false, "GRASS", 22);

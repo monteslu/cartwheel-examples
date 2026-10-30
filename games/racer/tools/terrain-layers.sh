@@ -10,15 +10,25 @@
 #   polyhaven-tex/<id>/{diff,disp,nor_gl,rough}.jpg                            (CC0, https://polyhaven.com/license)
 #     the 1k jpg files the API lists for the texture (https://api.polyhaven.com/files/<id>)
 set -euo pipefail
-MAP="${1:?map (dam, salt, roads)}"
+MAP="${1:?map (dam, salt, frost)
+  layer 0_snow Snow010A ""                                    # clean snow
+  layer 1_drift Snow008A ""                                   # wind-drifted snow
+  layer 2_packed Snow006 "-modulate 98,70,100"                # packed snow: the verges
+  layer 3_rock Rock051 "-modulate 82,18,104"                  # grey rock
+  layer 4_cliff Rock007 "-modulate 80,40,100"                 # dark cliff rock
+  layer 5_snowfield snow_02 "-modulate 102,60,100"            # powder over the snowfields
+  layer 6_ice Ice002 "-modulate 100,60,100" glossy            # the frozen lake and the falls
+  layer 7_scree rocks_ground_04 "-modulate 88,30,100"         # scree below the cliffs
+  ;;
+roads)}"
 SRC="${2:?art dir}"
 D="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$D/assets/terrain/$MAP"
 mkdir -p "$OUT"
 
-# layer <out name> <set> <grade: ImageMagick options for the albedo, or "">
+# layer <out name> <set> <grade: ImageMagick options for the albedo, or ""> [glossy: keep the scanned roughness]
 layer() {
-  local name="$1" set="$2" grade="$3" col disp nrm rgh p
+  local name="$1" set="$2" grade="$3" gloss="${4:-}" col disp nrm rgh p lift
   if [ -d "$SRC/polyhaven-tex/$set" ]; then
     p="$SRC/polyhaven-tex/$set"
     col="$p/diff.jpg" disp="$p/disp.jpg" nrm="$p/nor_gl.jpg" rgh="$p/rough.jpg"
@@ -29,8 +39,11 @@ layer() {
   # shellcheck disable=SC2086
   convert "$col" -resize 512x512! $grade \( "$disp" -resize 512x512! -colorspace gray \) \
     -alpha off -compose CopyOpacity -composite -define png:color-type=6 "$OUT/${name}_albedo.png"
-  # roughness lifted into 0.8..1 (dry ground is matte: as scanned, 0.46..0.55 turned a sunlit slope into a white sheen)
-  convert "$nrm" -resize 512x512! \( "$rgh" -resize 512x512! -colorspace gray -fx '0.8+0.2*u' \) \
+  # roughness lifted into 0.8..1 (dry ground is matte: as scanned, 0.46..0.55 turned a sunlit slope into a white sheen),
+  # unless the layer is glossy (ice)
+  lift='0.8+0.2*u'
+  [ -n "$gloss" ] && lift='u'
+  convert "$nrm" -resize 512x512! \( "$rgh" -resize 512x512! -colorspace gray -fx "$lift" \) \
     -alpha off -compose CopyOpacity -composite -define png:color-type=6 "$OUT/${name}_normal.png"
   echo "$MAP $name <- $set"
 }
@@ -55,6 +68,16 @@ salt)
   layer 5_rock2 Rock052 "-modulate 96,70,100"                 # buff rock, the lower slopes
   layer 6_scarp Rock029 "-modulate 96,85,100"                 # the escarpment's rust rock
   layer 7_gravel Ground110 "-modulate 108,50,100"             # the road's verges
+  ;;
+frost)
+  layer 0_snow Snow010A ""                                    # clean snow
+  layer 1_drift Snow008A ""                                   # wind-drifted snow
+  layer 2_packed Snow006 "-modulate 98,70,100"                # packed snow: the verges
+  layer 3_rock Rock051 "-modulate 82,18,104"                  # grey rock
+  layer 4_cliff Rock007 "-modulate 80,40,100"                 # dark cliff rock
+  layer 5_snowfield snow_02 "-modulate 102,60,100"            # powder over the snowfields
+  layer 6_ice Ice002 "-modulate 100,60,100" glossy            # the frozen lake and the falls
+  layer 7_scree rocks_ground_04 "-modulate 88,30,100"         # scree below the cliffs
   ;;
 roads)
   # photo bases for the road textures (textures.c photo_get): the surface under each generator's own paint

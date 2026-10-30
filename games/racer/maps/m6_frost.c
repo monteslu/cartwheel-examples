@@ -11,6 +11,7 @@
 
 #include "cartwheel/math.h"
 #include "../game.h"
+#include "../land.h"
 #include "../props.h"
 #include "../textures.h"
 
@@ -270,7 +271,9 @@ static float terrain(float x, float z, void *ud) {
       float plane = s->p.y - ((x - s->p.x) * s->u.x + (z - s->p.z) * s->u.z) / s->u.y;
       rb = ry + (plane - ry) * (1.0f - cw_smoothstep(0.0f, 18.0f, gap));
     }
-    float hc = cw_clampf(H, rb - lim, rb + lim);
+    /* the land held within lim of the road, smoothly (tanh): a hard clamp left a crease along every cut bank that a
+     * height grid draws as a sawtooth */
+    float hc = rb + lim * tanhf((H - rb) / lim);
     float w = cw_smoothstep(1.5f, 44.0f, gap);
     g = (rb - 0.3f) * (1 - w) + hc * w;
     /* a bank of snow ploughed against the walls */
@@ -1477,6 +1480,58 @@ static void build_outcrops(cw_node root, const track *t) {
 }
 
 /* the road's own dressing: arches at the checkpoints, marks on the jump, signs for the hairpins, posts of light */
+/* ── the realistic land (land.h): one Terrain3D over the pass, painted snow, rock, scree and ice ─────────── */
+enum { FL_SNOW, FL_DRIFT, FL_PACKED, FL_ROCK, FL_CLIFF, FL_FIELD, FL_ICE, FL_SCREE };
+static bool REAL; /* the realistic pass (RACER_CARTOON=1: the stylised one) */
+static cw_node LAND;
+static float land_h(float x, float z, void *ud) { return terrain(x, z, ud); }
+static land_paint land_pt(float x, float y, float z, float slope, void *ud) {
+  (void)ud;
+  if (in_lake(x, z, 1.0f)) return (land_paint){ FL_ICE, FL_SNOW, in_lake(x, z, 0.92f) ? 0 : 160 };
+  float gap = road_gap(F.t, x, z, NULL);
+  if (gap < 5.0f) return (land_paint){ FL_PACKED, FL_SNOW, (int)(255 * cw_smoothstep(2.0f, 5.0f, gap)) };
+  float n = ground_noise(x, z, 80.0f, 1.0f, 2, 61), m = ground_noise(x, z, 23.0f, 1.0f, 2, 62);
+  /* snow holds to about 45 degrees; past that the face is rock, a short change between (half snow half striated rock
+   * height-blended into diagonal bands down every cut bank) */
+  float steep = cw_smoothstep(0.95f, 1.25f, slope);
+  int rock = y > 60.0f + 40.0f * n ? FL_CLIFF : FL_ROCK;
+  /* steep faces bare rock, snow clinging where they ease; scree fans at the foot of steep ground */
+  if (steep > 0.5f) return (land_paint){ rock, FL_SNOW, (int)(255 * (1 - steep) * 1.6f) };
+  if (steep > 0.05f) return (land_paint){ FL_SCREE, rock, (int)(255 * steep * 1.5f) };
+  /* snow thinning into scree as the slope steepens toward the rock: neighbours always share a layer (a base that flipped
+   * from one sample to the next height-blended into a band of diamonds) */
+  if (slope > 0.6f) return (land_paint){ FL_SNOW, FL_SCREE, (int)(255 * cw_smoothstep(0.6f, 1.0f, slope)) };
+  /* the snowfields: clean snow, wind drifts and powder in broad patches */
+  int base = n > 0.15f ? FL_DRIFT : FL_SNOW;
+  return (land_paint){ base, FL_FIELD, (int)(255 * cw_smoothstep(0.0f, 0.6f, m) * 0.7f) };
+}
+static void build_land(cw_node root, const track *t) {
+  float x0 = 1e9f, x1 = -1e9f, z0 = 1e9f, z1 = -1e9f;
+  for (int i = 0; i < t->n; i++) x0 = fminf(x0, t->s[i].p.x), x1 = fmaxf(x1, t->s[i].p.x), z0 = fminf(z0, t->s[i].p.z), z1 = fmaxf(z1, t->s[i].p.z);
+  land_def d = land_defaults();
+  d.spacing = 2.0f, d.nx = d.nz = 1536; /* 3 km square, as the old ground (at 3 m the cut banks' creases zigzagged) */
+  d.x0 = (x0 + x1) * 0.5f - d.spacing * (float)d.nx * 0.5f, d.z0 = (z0 + z1) * 0.5f - d.spacing * (float)d.nz * 0.5f;
+  d.height = land_h, d.paint = land_pt, d.dir = "terrain/frost";
+  static const char *const NM[8] = { "0_snow", "1_drift", "2_packed", "3_rock", "4_cliff", "5_snowfield", "6_ice", "7_scree" };
+  static const float UV[8] = { 0.1f, 0.06f, 0.2f, 0.04f, 0.04f, 0.08f, 0.05f, 0.12f };
+  for (int i = 0; i < 8; i++) d.names[i] = NM[i], d.uv[i] = UV[i];
+  bool split = game_planned_views() > 1;
+  d.quality = getenv("RACER_TERQ") ? atoi(getenv("RACER_TERQ")) : split ? 1 : 2;
+  d.far = split ? 600.0f : 1000.0f;
+  LAND = land_build(root, &d);
+  float tr = split ? 260.0f : 480.0f;
+  const uint32_t SNOWY = (1u << FL_SNOW) | (1u << FL_DRIFT) | (1u << FL_FIELD);
+  /* (firs are the dearest layer: alpha-tested needles in dense stands; at 0.003 out to 480 m they cost 7.7 ms) */
+  land_scatter(LAND, &(land_layer){ "Fir", "models/trees/fir.glb", split ? 0.0012f : 0.002f, SNOWY | (1u << FL_SCREE), 32, 1.0f, 1.9f, false, 0, split ? 160.0f : 300.0f, 40, 40, !split, false, 41 }); /* (no tree shadows in split screen) */
+  land_scatter(LAND, &(land_layer){ "Ponderosa", "models/trees/ponderosa-2.glb", 0.0009f, SNOWY, 28, 1.1f, 1.7f, false, 0, split ? 200.0f : tr, 40, 70, !split, false, 42 });
+  land_scatter(LAND, &(land_layer){ "Snag", "models/trees/snag.glb", 0.0002f, SNOWY, 30, 0.9f, 1.3f, false, 0, tr, 40, 70, true, false, 43 });
+  land_scatter(LAND, &(land_layer){ "BoulderA", "models/rocks/boulder_a.glb", 0.001f, (1u << FL_SCREE) | (1u << FL_ROCK) | SNOWY, 45, 0.8f, 2.4f, true, 0.45f, tr, 40, 80, true, false, 44 });
+  land_scatter(LAND, &(land_layer){ "BoulderB", "models/rocks/boulder_b.glb", 0.0008f, (1u << FL_SCREE) | (1u << FL_ROCK), 45, 0.7f, 2.0f, true, 0.45f, tr, 40, 80, true, false, 45 });
+  land_scatter(LAND, &(land_layer){ "Stones", "models/rocks/boulders.glb", 0.01f, 1u << FL_SCREE, 45, 0.8f, 1.8f, true, 0.15f, split ? 50.0f : 90.0f, 15, 40, false, false, 46 });
+  land_scatter(LAND, &(land_layer){ "Outcrop", "models/rocks/outcrop.glb", 0.0006f, (1u << FL_ROCK) | (1u << FL_CLIFF) | (1u << FL_SCREE), 55, 1.5f, 4.0f, true, 1.6f, tr * 1.3f, 60, 120, true, false, 47 });
+  land_stats_fields(LAND, "frost");
+}
+
 static void build_dressing(cw_node root, const track *t) {
   dress_style st = dress_defaults();
   st.main = rgb(0.55f, 0.72f, 0.92f);
@@ -1499,8 +1554,8 @@ static void build_dressing(cw_node root, const track *t) {
   warn.accent = rgb(1.0f, 0.85f, 0.3f);
   warn.lamp = rgb(1.0f, 0.65f, 0.2f);
   deco_banners(root, t, (float)F.lm.ramp0 - 230.0f, (float)F.lm.ramp0 - 10.0f, 55.0f, &warn);
-  /* big crystals standing along the ice slide, tall enough to see from far up the road */
-  {
+  /* big crystals standing along the ice slide, tall enough to see from far up the road (not on the realistic pass) */
+  if (!REAL) {
     prop_set *pc = ps_new(root, "SlideCrystals");
     for (float s2 = (float)F.lm.slide0 + 20.0f; s2 < (float)F.lm.gap0 - 100.0f; s2 += 55.0f) {
       int side = ((int)(s2 / 55.0f)) & 1 ? 1 : -1;
@@ -2842,6 +2897,7 @@ static void frost_scenery(cw_node scene, const track *t, uint32_t seed) {
   cw_node root = cw_node_new("Node3D", "Frost");
   cw_node_add_child(scene, root);
 
+  REAL = !getenv("RACER_CARTOON");
   /* the ground */
   F.g = ground_defaults();
   F.g.half = 1500;
@@ -2857,7 +2913,8 @@ static void frost_scenery(cw_node scene, const track *t, uint32_t seed) {
   F.g.darken_edge = 0.12f;
   F.g.lumpy = 0.22f;
   F.g.rough = 0.8f;
-  {
+  if (REAL) build_land(root, t);
+  else {
     cw_node gn = ground_plane(root, t, &F.g);
     static geoset gs;
     gs.n = 0;
@@ -2885,7 +2942,7 @@ static void frost_scenery(cw_node scene, const track *t, uint32_t seed) {
       t3_release(o);
     }
   }
-  if (!skip("peaks")) {
+  if (!skip("peaks") && !REAL) { /* (the realistic pass: the land's own peaks) */
   build_peaks(root);
   }
   restyle_world(scene);
@@ -2894,13 +2951,13 @@ static void frost_scenery(cw_node scene, const track *t, uint32_t seed) {
   if (!skip("dress")) {
   build_dressing(root, t);
   }
-  if (!skip("forest")) {
+  if (!skip("forest") && !REAL) { /* (the realistic pass: firs and ponderosas as the land's scatter) */
   build_forest(root, t);
   }
-  if (!skip("crags")) {
+  if (!skip("crags") && !REAL) {
   build_outcrops(root, t);
   }
-  if (!skip("ledges")) build_ledges(root, t);
+  if (!skip("ledges") && !REAL) build_ledges(root, t);
   if (!skip("lake")) {
   build_lake(root);
   }
@@ -2936,6 +2993,7 @@ static void frost_scenery(cw_node scene, const track *t, uint32_t seed) {
 
 static void frost_frame(float alpha, double time) {
   (void)alpha;
+  land_frame();
   float t = (float)time;
   /* a development aid: FROST_CAM=x,y,z,tx,ty,tz puts the first view's camera there looking at the target */
   static float dcam[6];

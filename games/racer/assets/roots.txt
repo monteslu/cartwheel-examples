@@ -299,3 +299,21 @@ terrain/roads/asphalt_old_albedo.png
 terrain/roads/asphalt_old_normal.png
 terrain/roads/concrete_albedo.png
 terrain/roads/concrete_normal.png
+
+# Frostbite Pass's land (tools/terrain-layers.sh frost: ambientCG and Poly Haven, CC0)
+terrain/frost/0_snow_albedo.png
+terrain/frost/0_snow_normal.png
+terrain/frost/1_drift_albedo.png
+terrain/frost/1_drift_normal.png
+terrain/frost/2_packed_albedo.png
+terrain/frost/2_packed_normal.png
+terrain/frost/3_rock_albedo.png
+terrain/frost/3_rock_normal.png
+terrain/frost/4_cliff_albedo.png
+terrain/frost/4_cliff_normal.png
+terrain/frost/5_snowfield_albedo.png
+terrain/frost/5_snowfield_normal.png
+terrain/frost/6_ice_albedo.png
+terrain/frost/6_ice_normal.png
+terrain/frost/7_scree_albedo.png
+terrain/frost/7_scree_normal.png

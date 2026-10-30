@@ -4,8 +4,8 @@ Everything in this game was made for it: code, the karts, the props and eight
 worlds, the procedural textures, the colour grades and the synthesized sound
 and music (tools/make-audio.mjs, tools/make-music.mjs, and battle mode's pop and
 knockout from tools/make-battle-audio.mjs). The exceptions are the fonts, the
-announcer's voice and the Dam's and Salt Flats' ground textures, trees, grass and
-rocks below.
+announcer's voice and the realistic maps' ground textures, trees, grass and rocks
+below.
 
 Fonts (from github.com/google/fonts; each licence ships beside its font in
 assets/fonts/):
@@ -44,7 +44,7 @@ filters, compressor, limiter, echoes and reverb). Nothing was recorded.
   --asr transcribes every file back to check that it says its words. A check
   only; nothing of it ships.
 
-The Dam's and the Salt Flats' land (open licences only; each file's licence sits beside it):
+The realistic maps' land (open licences only; each file's licence sits beside it):
 
   Ground textures (assets/terrain/dam/, packed and graded by tools/terrain-layers.sh):
     ambientCG Rock029, Ground031, Ground105, Ground037, Ground080, Ground110,
@@ -53,6 +53,9 @@ The Dam's and the Salt Flats' land (open licences only; each file's licence sits
     dry_ground_01, dry_ground_rocks and gravelly_sand (CC0 1.0,
     https://polyhaven.com/license); ambientCG Gravel023, Rock051, Rock052,
     Rock029 and Ground110 (CC0 1.0).
+  Frostbite Pass ground textures (assets/terrain/frost/, the same tool):
+    ambientCG Snow010A, Snow008A, Snow006, Rock051, Rock007, Ice002 (CC0 1.0);
+    Poly Haven snow_02 and rocks_ground_04 (CC0 1.0).
   Road photo bases (assets/terrain/roads/, the same tool; textures.c paints the
     lane lines over them): Poly Haven concrete_floor_worn_001, asphalt_track and
     asphalt_02, CC0 1.0.
