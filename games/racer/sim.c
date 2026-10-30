@@ -1657,6 +1657,24 @@ static void contacts(sim *s) {
       n = nl > 0.2f ? v3mul(n, 1.0f / nl) : n;
       t3_vec3 v = cw_body3d_velocity(PH.body[ki]);
       float vn = v3dot(v, n);
+      /* a square hit in a race turns the kart's speed along the wall, the way the road goes, keeping some of it: driven
+       * straight into a bend's wall at 41 m/s a kart was thrown back at 11 and crawled for 2.5 s (the keyboard-driven bot,
+       * every lap of the Refinery's last bend) */
+      float vlen = v3len(v);
+      if (!s->battle && vn > 0 && nl > 0.2f && vlen > 8.0f && vn > 0.55f * vlen && k->loc.i >= 0 && k->loc.br < 0) {
+        t3_vec3 rf = s->track->s[k->loc.i].f;
+        t3_vec3 t = v3sub(rf, v3mul(n, v3dot(rf, n)));
+        t = v3sub(t, v3mul(up0, v3dot(t, up0)));
+        float tl = v3len(t);
+        if (tl > 0.2f) {
+          t = v3mul(t, 1.0f / tl);
+          float vt = v3dot(v, t);
+          float keep = fmaxf(vt, 0.0f) + 0.45f * vn; /* what it had along the wall, and a share of the hit turned with it */
+          v = v3add(v3mul(t, keep), v3mul(up0, v3dot(v, up0)));
+          v = v3sub(v, v3mul(n, clampf(vn * 0.1f, 0, 2.0f))); /* and eased off the wall */
+          vn = 0;
+        }
+      }
       if (vn > 0 && nl > 0.2f) v = v3sub(v, v3mul(n, vn * 1.0f + clampf(vn * 0.35f, 0, 4.0f)));
       float vu = v3dot(v, up0);
       if (vu > 1.0f) v = v3sub(v, v3mul(up0, vu - 1.0f));

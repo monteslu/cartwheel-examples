@@ -54,8 +54,18 @@ void stats_events(const sim *s) {
     T.prev_item[i] = it;
   }
   if (s->race_ticks > 60 && s->order[0] != T.leader) T.lead_changes += T.leader >= 0, T.leader = s->order[0];
-  for (int i = 0; i < s->nkarts; i++)
-    if (s->k[i].human && s->race_ticks > 300 && !s->k[i].finished && v3len(s->k[i].v) < 0.5f * VEH[s->k[i].veh].top) T.h_slow++;
+  static int slow_run[MAXK];
+  for (int i = 0; i < s->nkarts; i++) {
+    bool slow = s->k[i].human && s->race_ticks > 300 && !s->k[i].finished && v3len(s->k[i].v) < 0.5f * VEH[s->k[i].veh].top;
+    T.h_slow += slow;
+    /* RACER_SLOWLOG=1: each stretch the human crawled for over a second, where it started and what it ended on */
+    if (slow) slow_run[i]++;
+    else {
+      if (slow_run[i] > TICK_HZ && getenv("RACER_SLOWLOG"))
+        fprintf(stderr, "[slow] kart %d %.1f s ending at s=%.0f (tick %d)\n", i, slow_run[i] / (float)TICK_HZ, s->k[i].loc.s, s->race_ticks);
+      slow_run[i] = 0;
+    }
+  }
   for (int i = 0; i < s->nkarts; i++)
     if (s->k[i].human && s->race_ticks > 300 && !s->k[i].finished) {
       if (s->k[i].place < T.human_best) T.human_best = s->k[i].place;
