@@ -12,6 +12,7 @@
 #include <string.h>
 
 #include "../game.h"
+#include "../land.h"
 #include "../props.h"
 
 static const piece SPEC[] = {
@@ -156,6 +157,14 @@ static float base_height(float x, float z) {
   float r = sqrtf((x - CX) * (x - CX) + (z - CZ) * (z - CZ));
   float far = sstep(900.0f, 2000.0f, r);
   h += far * (14.0f + 36.0f * ground_noise(x, z, 520.0f, 1.0f, 3, 5));
+  /* the range: ridged peaks rising out of the foothills past 1.3 km (the land's own mountains; the props all stand
+   * nearer, so their heights are the same as ever) */
+  float m = sstep(1300.0f, 2150.0f, r);
+  if (m > 0) {
+    float n1 = ground_noise(x, z, 640.0f, 1.0f, 4, 91), n2 = ground_noise(x, z, 210.0f, 1.0f, 3, 92);
+    float ridge = 1.0f - fabsf(2.0f * n1 - 1.0f);
+    h += m * (40.0f + 330.0f * ridge * ridge * (0.65f + 0.35f * n2) + 60.0f * n2);
+  }
   return h;
 }
 static float height_fn(float x, float z, void *ud) {
@@ -1450,6 +1459,61 @@ static void far_ground(cw_node root) {
   t3_release(m);
 }
 
+/* ── the realistic land (land.h): the pan, plateau, escarpment and the range on one Terrain3D ── */
+enum { SL_CRUST, SL_SALT, SL_PLATEAU, SL_FAN, SL_ROCK, SL_ROCK2, SL_SCARP, SL_GRAVEL };
+static cw_node LAND;
+static float land_h(float x, float z, void *ud) {
+  (void)ud;
+  return height_fn(x, z, NULL);
+}
+static land_paint land_pt(float x, float y, float z, float slope, void *ud) {
+  (void)ud;
+  float gap = road_gap(TR, x, z, NULL);
+  float d = x * 0.649f - (z + 50.0f) * 0.760f; /* the escarpment line: positive on the pan side */
+  float basin = sstep(-40.0f, 95.0f, d);
+  /* the verges: packed bright salt on the pan, gravel on the plateau */
+  if (gap < 4.0f) return (land_paint){ basin > 0.5f ? SL_SALT : SL_GRAVEL, SL_CRUST, (int)(255 * sstep(1.5f, 4.0f, gap)) };
+  float r = sqrtf((x - CX) * (x - CX) + (z - CZ) * (z - CZ));
+  float hills = sstep(950.0f, 1500.0f, r);
+  float steep = sstep(0.35f, 0.9f, slope);
+  float n = ground_noise(x, z, 60.0f, 1.0f, 2, 33);
+  if (hills > 0.05f) {
+    /* the range: fans of gravel at its foot, rock up its slopes (grey-violet above, buff below) */
+    int rock = y > 120.0f + 60.0f * n ? SL_ROCK : SL_ROCK2;
+    if (steep > 0.4f) return (land_paint){ rock, SL_FAN, (int)(255 * (1 - steep) * 1.2f) };
+    int under = basin > 0.5f ? SL_CRUST : SL_PLATEAU;
+    return (land_paint){ SL_FAN, steep > 0.15f ? rock : under, (int)(steep > 0.15f ? 255 * steep * 1.6f : 255 * (1 - hills) * 0.8f) };
+  }
+  if (basin > 0.5f) /* the pan: the crust's polygons, brighter salt in drifts */
+    return (land_paint){ SL_CRUST, SL_SALT, (int)(255 * sstep(0.45f, 0.8f, n) * 0.85f) };
+  if (steep > 0.3f || (basin > 0.08f && basin <= 0.5f)) /* the escarpment's face */
+    return (land_paint){ SL_SCARP, SL_PLATEAU, (int)(255 * (1 - sstep(0.3f, 0.7f, steep)) * 0.7f) };
+  return (land_paint){ SL_PLATEAU, SL_FAN, (int)(255 * sstep(0.5f, 0.9f, n) * 0.6f) };
+}
+static void build_land(cw_node root) {
+  land_def d = land_defaults();
+  d.spacing = 4.0f, d.nx = d.nz = 1216; /* 4.9 km square: the course and the range round it */
+  d.x0 = CX - d.spacing * (float)d.nx * 0.5f, d.z0 = CZ - d.spacing * (float)d.nz * 0.5f;
+  d.height = land_h, d.paint = land_pt, d.dir = "terrain/salt";
+  static const char *const NM[8] = { "0_crust", "1_salt", "2_plateau", "3_fan", "4_rock", "5_rock2", "6_scarp", "7_gravel" };
+  static const float UV[8] = { 0.07f, 0.12f, 0.14f, 0.12f, 0.03f, 0.04f, 0.05f, 0.3f };
+  for (int i = 0; i < 8; i++) d.names[i] = NM[i], d.uv[i] = UV[i];
+  d.quality = getenv("RACER_TERQ") ? atoi(getenv("RACER_TERQ")) : SPLIT ? 1 : 2;
+  d.far = SPLIT ? 600.0f : 1100.0f;
+  LAND = land_build(root, &d);
+  float tr = SPLIT ? 260.0f : 480.0f;
+  const uint32_t DRY = (1u << SL_PLATEAU) | (1u << SL_FAN);
+  land_scatter(LAND, &(land_layer){ "BoulderA", "models/rocks/boulder_a.glb", 0.0008f, DRY | (1u << SL_SCARP), 40, 0.8f, 2.2f, true, 0.3f, tr, 40, 80, true, false, 31 });
+  land_scatter(LAND, &(land_layer){ "BoulderB", "models/rocks/boulder_b.glb", 0.0005f, DRY | (1u << SL_SCARP) | (1u << SL_ROCK2), 40, 0.7f, 2.0f, true, 0.35f, tr, 40, 80, true, false, 32 });
+  land_scatter(LAND, &(land_layer){ "BoulderC", "models/rocks/boulder_c.glb", 0.002f, DRY, 40, 0.6f, 1.5f, true, 0.25f, tr * 0.5f, 20, 50, true, false, 33 });
+  land_scatter(LAND, &(land_layer){ "Stones", "models/rocks/boulders.glb", 0.008f, DRY | (1u << SL_SCARP), 40, 0.8f, 1.6f, true, 0.1f, SPLIT ? 50.0f : 90.0f, 15, 40, false, false, 34 });
+  land_scatter(LAND, &(land_layer){ "Outcrop", "models/rocks/outcrop.glb", 0.0005f, (1u << SL_SCARP) | (1u << SL_ROCK) | (1u << SL_ROCK2), 55, 1.5f, 4.0f, true, 1.6f, tr * 1.3f, 60, 120, true, false, 35 });
+  land_scatter(LAND, &(land_layer){ "Juniper", "models/trees/juniper.glb", 0.0012f, (1u << SL_FAN) | (1u << SL_ROCK2), 30, 0.6f, 1.1f, false, 0, tr, 40, 60, true, false, 12 });
+  land_scatter(LAND, &(land_layer){ "Pinyon", "models/trees/pinyon.glb", 0.0006f, 1u << SL_ROCK2, 30, 0.7f, 1.2f, false, 0, tr, 40, 60, true, false, 11 });
+  land_scatter(LAND, &(land_layer){ "DryGrass", "models/grass/dry.glb", 0.18f, DRY, 30, 0.5f, 1.0f, true, 0, SPLIT ? 45.0f : 70.0f, 15, 30, false, true, 21 });
+  land_stats_fields(LAND, "salt");
+}
+
 static void build_ground(cw_node root, const track *t) {
   GO = ground_defaults();
   GO.cx = CX, GO.cz = CZ;
@@ -1467,8 +1531,11 @@ static void build_ground(cw_node root, const track *t) {
   GO.darken_edge = 0.22f;
   GO.lumpy = 0.18f;
   GO.seed = 21;
-  ground_plane(root, t, &GO);
-  far_ground(root);
+  /* (GO stays: the props ask it for the ground's height, the land's own function) */
+  if (getenv("RACER_CARTOON")) {
+    ground_plane(root, t, &GO);
+    far_ground(root);
+  } else build_land(root);
 }
 
 static void salt_start(cw_node root, const track *t, prop_set *ps);
@@ -1509,10 +1576,11 @@ static void salt_scenery(cw_node scene, const track *t, uint32_t seed) {
   deco_supports(root, t, SUP_TRESTLE, ground_cb, NULL, -PAN_DROP, 2.5f, &ds);
 
   /* the horizon */
-  if (!off('h')) ridge_ring(root, "RidgesFar", 2150.0f, 300.0f, 70.0f, 600.0f, hex(0xb98fb8), hex(0x6e4f94), 3, 0.6f);
-  if (!off('h')) ridge_ring(root, "RidgesMid", 1650.0f, 120.0f, 34.0f, 330.0f, hex(0xd9a2a0), hex(0x9a4c48), 9, 1.0f);
+  bool real = !getenv("RACER_CARTOON"); /* the realistic Salt Flats: the land's own range, no cartoon ridges, mesas or clouds */
+  if (!off('h') && !real) ridge_ring(root, "RidgesFar", 2150.0f, 300.0f, 70.0f, 600.0f, hex(0xb98fb8), hex(0x6e4f94), 3, 0.6f);
+  if (!off('h') && !real) ridge_ring(root, "RidgesMid", 1650.0f, 120.0f, 34.0f, 330.0f, hex(0xd9a2a0), hex(0x9a4c48), 9, 1.0f);
   if (!off('x') && !SPLIT) build_mirage(root);
-  if (!off('c')) build_clouds(root);
+  if (!off('c') && !real) build_clouds(root);
 
   /* a bare salt lakebed would be a flat page; the pieces below break it up and tell the story. */
   prop_set *ps = ps_new(root, "SaltProps");
@@ -1522,7 +1590,7 @@ static void salt_scenery(cw_node scene, const track *t, uint32_t seed) {
   ps_style(ps, PK_DUNE, TEX_GROUND_SAND, hex(0xfbefe8), 1.0f);
 
   /* mesas and spires on the horizon, far from the road */
-  int nfar = SPLIT ? 20 : 46;
+  int nfar = real ? 0 : SPLIT ? 20 : 46;
   for (int i = 0; i < nfar; i++) {
     float a = 6.2832f * ((float)i + hashf_(100u + (uint32_t)i)) / (float)nfar;
     float r = 950.0f + 600.0f * hashf_(200u + (uint32_t)i);
@@ -1532,7 +1600,7 @@ static void salt_scenery(cw_node scene, const track *t, uint32_t seed) {
     ps_add(ps, k, on_ground(x, z, -2.0f), hashf_(400u + (uint32_t)i) * 6.28f, sc, 500u + (uint32_t)i);
   }
   /* nearer mesas, a few hundred metres out, big and bright against the haze */
-  for (int i = 0; i < 20; i++) {
+  for (int i = 0; i < (real ? 0 : 20); i++) {
     float a = 6.2832f * ((float)i + hashf_(110u + (uint32_t)i)) / 20.0f;
     float r = 640.0f + 260.0f * hashf_(210u + (uint32_t)i);
     float x = CX + cosf(a) * r, z = CZ + sinf(a) * r;
@@ -1541,7 +1609,7 @@ static void salt_scenery(cw_node scene, const track *t, uint32_t seed) {
     ps_add(ps, i & 1 ? PK_MESA : PK_SPIRE, on_ground(x, z, -1.5f), hashf_(410u + (uint32_t)i) * 6.28f, 1.1f + 1.4f * hashf_(310u + (uint32_t)i), 600u + (uint32_t)i);
   }
   /* the escarpment: cliff faces along the edge between plateau and pan, seen from both halves of the lap */
-  for (int i = 0; i < 9; i++) {
+  for (int i = 0; i < (real ? 0 : 9); i++) {
     float u = (float)i / 8.0f;
     float x = lerpf(-70.0f, 560.0f, u) + 55.0f * (hashf_(700u + (uint32_t)i) - 0.5f), z = lerpf(-60.0f, 380.0f, u) + 40.0f * (hashf_(710u + (uint32_t)i) - 0.5f);
     /* sit on the plateau side of the line, away from the road */
@@ -1576,7 +1644,7 @@ static void salt_scenery(cw_node scene, const track *t, uint32_t seed) {
   so.kinds[0] = PK_BOULDERS, so.weight[0] = 2, so.kinds[1] = PK_DUNE, so.weight[1] = 2, so.kinds[2] = PK_ROCK, so.weight[2] = 3;
   so.nkinds = 3, so.spacing = SPLIT ? 90.0f : 46.0f, so.lat_min = 18.0f, so.lat_max = 260.0f, so.lat_curve = 1.3f;
   so.ground = ground_cb, so.far_thin = 0.5f, so.seed = 41;
-  scatter_along(ps, t, &so);
+  if (!real) scatter_along(ps, t, &so);
 
   /* ── the set pieces ── */
   if (!off('s')) salt_start(root, t, ps);
@@ -2427,6 +2495,7 @@ static void dev_camera(void) {
 }
 
 static void salt_frame(float alpha, double time) {
+  land_frame();
   (void)alpha;
   float T = (float)time;
   dev_camera();

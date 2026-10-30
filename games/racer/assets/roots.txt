@@ -273,3 +273,21 @@ models/rocks/boulder_b.glb
 models/rocks/boulder_c.glb
 models/rocks/boulders.glb
 models/rocks/outcrop.glb
+
+# the Salt Flats' land (tools/terrain-layers.sh salt: ambientCG and Poly Haven, CC0)
+terrain/salt/0_crust_albedo.png
+terrain/salt/0_crust_normal.png
+terrain/salt/1_salt_albedo.png
+terrain/salt/1_salt_normal.png
+terrain/salt/2_plateau_albedo.png
+terrain/salt/2_plateau_normal.png
+terrain/salt/3_fan_albedo.png
+terrain/salt/3_fan_normal.png
+terrain/salt/4_rock_albedo.png
+terrain/salt/4_rock_normal.png
+terrain/salt/5_rock2_albedo.png
+terrain/salt/5_rock2_normal.png
+terrain/salt/6_scarp_albedo.png
+terrain/salt/6_scarp_normal.png
+terrain/salt/7_gravel_albedo.png
+terrain/salt/7_gravel_normal.png

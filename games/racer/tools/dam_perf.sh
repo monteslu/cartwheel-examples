@@ -7,7 +7,7 @@ R="$D/../.."
 N="$1"; S="$2"; P="${3:-1}"; shift $(( $# > 3 ? 3 : $# ))
 for kv in "$@"; do export "$kv"; done
 cd "$R"
-CW_GPU_TIMERS=1 RACER_MAP=4 RACER_AUTO=1 RACER_VIEW=0 RACER_PLAYERS="$P" RACER_TEST_AT="$S:30" timeout 200 node deps/cartwheel-engine/tools/run-cart.mjs --host native --app racer \
+CW_GPU_TIMERS=1 RACER_MAP=${PERF_MAP:-4} RACER_AUTO=1 RACER_VIEW=0 RACER_PLAYERS="$P" RACER_TEST_AT="$S:30" timeout 200 node deps/cartwheel-engine/tools/run-cart.mjs --host native --app racer \
   --exe "${RACER_EXE:-build/native/games/racer/racer}" --frames 330 --shot "out/racer-$N.png" --state "out/racer-$N.json" --log "out/racer-$N.log" --start-cmds "@320 pipeline" > /dev/null 2>&1
 grep "^start cmd: pipeline" "out/racer-$N.log" | sed 's/^start cmd: pipeline -> //' | node -e '
 const d = JSON.parse(require("fs").readFileSync(0, "utf8"));
