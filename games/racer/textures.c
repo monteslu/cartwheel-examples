@@ -428,6 +428,23 @@ static void g_road_wood(float u, float v, texel *t) {
 
 /* temple flagstones: irregular slabs, a worn crown, moss in the joints and on the damp side, cracks */
 static void g_road_stone(float u, float v, texel *t) {
+  /* the photographed mossy paving when it is there (8 m a repeat, so its setts read as a temple's paving, not a
+   * street's: it wraps with the texture), moss deeper toward the edges and a worn racing line down the middle */
+  const photo *ph = photo_get("terrain/roads/stone_albedo.png");
+  if (ph) {
+    float pr, pg, pb, phh;
+    photo_at(ph, u * 16.0f, v * 8.0f, 8.0f, &pr, &pg, &pb, &phh);
+    float n = rfbm(u, v, 8, 5, 174);
+    float edge = clamp01(sstep(0.2f, 0.0f, u) + sstep(0.8f, 1.0f, u));
+    float moss = clamp01(edge * 0.6f + sstep(0.6f, 0.75f, rfbm(u, v, 3, 4, 176)) * 0.4f);
+    float polish = band(u, 0.5f, 0.2f, 0.2f);
+    rgb(t, pr * (1.02f + 0.1f * polish), pg * (1.02f + 0.1f * polish), pb * (1.0f + 0.1f * polish));
+    mixc(t, 0.16f + 0.06f * n, 0.3f + 0.08f * n, 0.1f, moss * 0.5f);
+    t->h = 0.3f + 0.6f * phh;
+    t->rough = 0.86f - 0.08f * polish;
+    t->ao = 0.75f + 0.25f * phh;
+    return;
+  }
   float d1, d2;
   uint32_t id;
   /* warp the lookup a little so the joints wander */

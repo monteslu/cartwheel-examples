@@ -56,9 +56,19 @@ The realistic maps' land (open licences only; each file's licence sits beside it
   Frostbite Pass ground textures (assets/terrain/frost/, the same tool):
     ambientCG Snow010A, Snow008A, Snow006, Rock051, Rock007, Ice002 (CC0 1.0);
     Poly Haven snow_02 and rocks_ground_04 (CC0 1.0).
+  Overgrowth Temple ground textures (assets/terrain/temple/, the same tool):
+    Poly Haven forest_ground_06, leaves_forest_ground, brown_mud_leaves_01,
+    leafy_grass, mossy_rock, rock_pitted_mossy, forest_leaves_02 and
+    mossy_cobblestone (CC0 1.0).
+  Jungle trees (assets/models/trees/canopy.glb, broadleaf.glb): generated with
+    EZ-Tree (MIT, program output; configs in tools/eztree-configs/), ambientCG
+    LeafSet004 leaves and Bark012 / Bark004 bark (CC0 1.0).
+  Jungle plants (assets/models/plants/, tools/plant-split.py): Poly Haven
+    fern_02 and anthurium_botany_01 photoscans (CC0 1.0), one clump each,
+    reduced for the game.
   Road photo bases (assets/terrain/roads/, the same tool; textures.c paints the
-    lane lines over them): Poly Haven concrete_floor_worn_001, asphalt_track and
-    asphalt_02, CC0 1.0.
+    lane lines over them): Poly Haven concrete_floor_worn_001, asphalt_track,
+    asphalt_02 and mossy_cobblestone, CC0 1.0.
 
   Trees (assets/models/trees/, tools/foliage-art.mjs): pinyon, juniper,
     ponderosa (two), scrub oak, fir and a dead snag generated with EZ-Tree by

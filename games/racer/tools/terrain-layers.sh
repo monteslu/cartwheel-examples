@@ -10,17 +10,7 @@
 #   polyhaven-tex/<id>/{diff,disp,nor_gl,rough}.jpg                            (CC0, https://polyhaven.com/license)
 #     the 1k jpg files the API lists for the texture (https://api.polyhaven.com/files/<id>)
 set -euo pipefail
-MAP="${1:?map (dam, salt, frost)
-  layer 0_snow Snow010A ""                                    # clean snow
-  layer 1_drift Snow008A ""                                   # wind-drifted snow
-  layer 2_packed Snow006 "-modulate 98,70,100"                # packed snow: the verges
-  layer 3_rock Rock051 "-modulate 82,18,104"                  # grey rock
-  layer 4_cliff Rock007 "-modulate 80,40,100"                 # dark cliff rock
-  layer 5_snowfield snow_02 "-modulate 102,60,100"            # powder over the snowfields
-  layer 6_ice Ice002 "-modulate 100,60,100" glossy            # the frozen lake and the falls
-  layer 7_scree rocks_ground_04 "-modulate 88,30,100"         # scree below the cliffs
-  ;;
-roads)}"
+MAP="${1:?map (dam, salt, frost, temple, roads)}"
 SRC="${2:?art dir}"
 D="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$D/assets/terrain/$MAP"
@@ -79,11 +69,22 @@ frost)
   layer 6_ice Ice002 "-modulate 100,60,100" glossy            # the frozen lake and the falls
   layer 7_scree rocks_ground_04 "-modulate 88,30,100"         # scree below the cliffs
   ;;
+temple)
+  layer 0_soil forest_ground_06 "-modulate 78,85,100"            # dark jungle soil
+  layer 1_litter leaves_forest_ground "-modulate 70,55,118"      # leaf litter, from autumn to wet brown-green
+  layer 2_moss brown_mud_leaves_01 "-modulate 86,110,100"        # mud with moss creeping over it
+  layer 3_grass leafy_grass "-modulate 82,135,104"               # clearings
+  layer 4_rock mossy_rock "-modulate 90,100,100"                 # mossy rock faces
+  layer 5_rock2 rock_pitted_mossy "-modulate 52,18,100"          # dark wet rock
+  layer 6_wet forest_leaves_02 "-modulate 62,90,100"             # wet ground by the water
+  layer 7_paving mossy_cobblestone "-modulate 90,85,100"         # old paving: the verges
+  ;;
 roads)
   # photo bases for the road textures (textures.c photo_get): the surface under each generator's own paint
   layer concrete concrete_floor_worn_001 "-modulate 100,60,100"  # the Dam's concrete
   layer asphalt asphalt_track ""                               # race-track asphalt
   layer asphalt_old asphalt_02 ""                              # older, cracked asphalt
+  layer stone mossy_cobblestone "-modulate 96,85,100"           # the temple road's old paving
   ;;
 *) echo "terrain-layers.sh: unknown map $MAP" >&2; exit 2 ;;
 esac

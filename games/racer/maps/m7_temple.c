@@ -79,6 +79,7 @@ static const piece SPEC[] = {
 #ifndef MAPFILE /* the scenery needs the engine: the host-side track tools include this file for the course only */
 
 #include "cartwheel/math.h"
+#include "../land.h"
 #include "../props.h"
 
 /* ── small helpers ──────────────────────────────────────────────────────────────────────────────────── */
@@ -945,6 +946,57 @@ static float mask_open(float x, float z, void *ud) {
   return gorge_cut(x, z) > 0.4f ? 0.0f : 1.0f;
 }
 
+/* ── the realistic land (land.h): jungle floor, moss, mud and rock on one Terrain3D, a jungle of real trees on it ── */
+enum { JL_SOIL, JL_LITTER, JL_MOSS, JL_GRASS, JL_ROCK, JL_ROCK2, JL_WET, JL_PAVING };
+static bool REAL; /* the realistic jungle (RACER_CARTOON=1: the stylised one) */
+static cw_node LAND;
+static float land_h(float x, float z, void *ud) { return temple_ground(x, z, ud); }
+static land_paint land_pt(float x, float y, float z, float slope, void *ud) {
+  (void)ud;
+  float gap = road_gap(T, x, z, NULL);
+  if (gap < 4.0f) return (land_paint){ JL_PAVING, JL_MOSS, (int)(255 * sstep(1.5f, 4.0f, gap)) };
+  float dx = x - PYR.c.x, dz = z - PYR.c.z;
+  float pd = sqrtf(dx * dx + dz * dz);
+  if (pd < PYR.base + 6.0f) return (land_paint){ JL_PAVING, JL_MOSS, (int)(255 * sstep(PYR.base, PYR.base + 6.0f, pd)) }; /* the pyramid's court */
+  float steep = sstep(0.7f, 1.2f, slope);
+  float n = ground_noise(x, z, 40.0f, 1.0f, 2, 71), m = ground_noise(x, z, 17.0f, 1.0f, 2, 72);
+  if (steep > 0.05f) return (land_paint){ n > 0 ? JL_ROCK : JL_ROCK2, JL_MOSS, (int)(255 * (1 - steep) * 1.4f) };
+  float wet = fmaxf(river_cut(x, z), gorge_cut(x, z) * sstep(-10.0f, -GORGE.depth * 0.6f, y));
+  if (wet > 0.3f) return (land_paint){ JL_WET, JL_MOSS, (int)(255 * (1 - wet) * 0.8f) };
+  if (slope > 0.45f) return (land_paint){ JL_MOSS, n > 0 ? JL_ROCK : JL_ROCK2, (int)(255 * sstep(0.45f, 0.7f, slope)) };
+  /* the floor: leaf litter under the trees, dark soil and mud with moss between, grass in the clearings */
+  int base = n > 0.25f ? JL_GRASS : m > 0 ? JL_LITTER : JL_SOIL;
+  return (land_paint){ base, JL_MOSS, (int)(255 * sstep(0.0f, 0.6f, fabsf(m)) * 0.6f) };
+}
+static void build_land(cw_node scene, const track *t) {
+  float x0 = 1e9f, x1 = -1e9f, z0 = 1e9f, z1 = -1e9f;
+  for (int i = 0; i < t->n; i++) x0 = fminf(x0, t->s[i].p.x), x1 = fmaxf(x1, t->s[i].p.x), z0 = fminf(z0, t->s[i].p.z), z1 = fmaxf(z1, t->s[i].p.z);
+  land_def d = land_defaults();
+  d.spacing = 2.0f, d.nx = d.nz = 1312; /* 2.6 km square, as the old ground */
+  d.x0 = (x0 + x1) * 0.5f - d.spacing * (float)d.nx * 0.5f, d.z0 = (z0 + z1) * 0.5f - d.spacing * (float)d.nz * 0.5f;
+  d.height = land_h, d.paint = land_pt, d.dir = "terrain/temple";
+  static const char *const NM[8] = { "0_soil", "1_litter", "2_moss", "3_grass", "4_rock", "5_rock2", "6_wet", "7_paving" };
+  static const float UV[8] = { 0.2f, 0.18f, 0.12f, 0.15f, 0.06f, 0.06f, 0.14f, 0.3f };
+  for (int i = 0; i < 8; i++) d.names[i] = NM[i], d.uv[i] = UV[i];
+  bool split = NV > 1;
+  d.quality = getenv("RACER_TERQ") ? atoi(getenv("RACER_TERQ")) : split ? 1 : 2;
+  d.far = split ? 500.0f : 900.0f;
+  LAND = land_build(scene, &d);
+  const uint32_t FLOOR = (1u << JL_SOIL) | (1u << JL_LITTER) | (1u << JL_MOSS) | (1u << JL_GRASS) | (1u << JL_WET);
+  /* (a jungle hides its far trees behind its near ones: canopy to 220 m and mid-storey to 140 cost 13 ms less than to
+   * 420 and 280) */
+  float tr = split ? 110.0f : 220.0f;
+  /* a closed canopy: emergents over a mid-storey; ferns and anthurium below, thick at the verges */
+  land_scatter(LAND, &(land_layer){ "Canopy", "models/trees/canopy.glb", split ? 0.002f : 0.003f, FLOOR, 30, 0.8f, 1.25f, false, 0, tr, 50, 60, !split, false, 51 });
+  land_scatter(LAND, &(land_layer){ "Broadleaf", "models/trees/broadleaf.glb", split ? 0.003f : 0.007f, FLOOR, 32, 0.8f, 1.3f, false, 0, split ? 60.0f : 140.0f, 40, 45, !split, false, 52 });
+  land_scatter(LAND, &(land_layer){ "FernA", "models/plants/fern0.glb", split ? 0.04f : 0.16f, FLOOR, 35, 1.8f, 3.0f, true, 0.05f, split ? 35.0f : 60.0f, 12, 25, false, true, 53 });
+  land_scatter(LAND, &(land_layer){ "FernB", "models/plants/fern1.glb", split ? 0.03f : 0.12f, FLOOR, 35, 1.8f, 3.2f, true, 0.05f, split ? 35.0f : 60.0f, 12, 25, false, true, 54 });
+  land_scatter(LAND, &(land_layer){ "Anthurium", "models/plants/anthurium0.glb", split ? 0.0f : 0.04f, FLOOR, 30, 1.4f, 2.4f, true, 0.05f, split ? 30.0f : 50.0f, 10, 25, false, true, 55 });
+  land_scatter(LAND, &(land_layer){ "BoulderA", "models/rocks/boulder_a.glb", 0.0006f, FLOOR | (1u << JL_ROCK) | (1u << JL_ROCK2), 45, 0.8f, 2.2f, true, 0.4f, tr, 40, 80, false, false, 56 });
+  land_scatter(LAND, &(land_layer){ "Outcrop", "models/rocks/outcrop.glb", 0.0004f, (1u << JL_ROCK) | (1u << JL_ROCK2), 55, 1.5f, 3.5f, true, 1.6f, tr, 60, 120, false, false, 57 });
+  land_stats_fields(LAND, "temple");
+}
+
 /* A forest of few models, placed along the course: every (model, layer, 140 m cell) is one draw, so the jungle is
  * built from a handful of variants instead of the toolbox's scatter (which spreads every kind over all its variants). */
 static float gy(float x, float z);
@@ -1363,7 +1415,8 @@ static void tunnel_mass(pmc *c, const track *t, float s0, float s1, bool to_grou
         for (int k = -1; k <= 1; k += 2) {
           float lat = (float)k * (W - 1.2f);
           t3_vec3 p = V(a.p.x + a.r.x * lat, base + y1, a.p.z + a.r.z * lat);
-          ps_add(tops, (int)(s / seg + (float)tier) % 2 ? PK_BUSH : PK_FERN, p, rnd(&R) * 6.28f, 2.2f, (uint32_t)(s * 5 + (float)tier * 3 + (float)k));
+          float yaw0 = rnd(&R) * 6.28f;
+          if (!REAL) ps_add(tops, (int)(s / seg + (float)tier) % 2 ? PK_BUSH : PK_FERN, p, yaw0, 2.2f, (uint32_t)(s * 5 + (float)tier * 3 + (float)k));
           inst_add(&D.vines, V(a.p.x + a.r.x * (float)k * (W + 0.1f), base + y1 - 0.4f, a.p.z + a.r.z * (float)k * (W + 0.1f)), yaw, 0.55f + rnd(&R) * 0.35f);
         }
       }
@@ -1381,7 +1434,7 @@ static void tunnel_mass(pmc *c, const track *t, float s0, float s1, bool to_grou
     pm_pop(b);
     pm_pop(b);
     /* foliage on the roof */
-    if (tops) {
+    if (tops && !REAL) { /* (the realistic jungle: no cartoon crowns on the masonry) */
       float ty = roof + 4.0f;
       for (int k = 0; k < 2; k++) {
         float lat = ((float)k - 0.5f) * (Wout - 2.5f);
@@ -1781,6 +1834,7 @@ static void build_waterfall(cw_node scene, const track *t) {
   wo.foam = 0.0f;
   wo.reflect = 0.0f;
   wo.refract = false;
+  wo.no_planar = REAL;
   wo.flow_x = 0.5f, wo.flow_z = 0.5f;
   /* the ford itself: a film of water over the road, wider than the walls */
   if (!off("film")) water_along_range(scene, t, C.water.s0, C.water.s1, 5.0f, 0.2f, &wo);
@@ -2019,7 +2073,7 @@ static void build_jump_ruins(cw_node scene, const track *t) {
       water_opts wo = water_defaults();
       wo.color = rgb(0.08f, 0.5f, 0.46f);
       wo.deep = rgb(0.04f, 0.42f, 0.4f);
-      wo.clarity = 0.3f, wo.wave_height = 0.08f, wo.foam = 0.4f, wo.reflect = 0.0f, wo.refract = false;
+      wo.clarity = 0.3f, wo.wave_height = 0.08f, wo.foam = 0.4f, wo.reflect = 0.0f, wo.refract = false, wo.no_planar = REAL;
       t3_vec3 pc = vadd(p, vmul(rr, -(float)side * 4.0f));
       water_surface(scene, pc.x, pc.z, 16.0f, 11.0f, g + 0.25f, &wo);
       if (NV == 1) fx_ambient_at(scene, FXA_MIST, V(pc.x, g + 1.0f, pc.z), V(6, 1.0f, 4), 0.5f, 150);
@@ -2553,6 +2607,7 @@ static void build_gorge_river(cw_node scene) {
   wo.reflect = 0.0f;
   wo.foam = 0.1f;
   wo.flow_x = 0.4f, wo.flow_z = 0.4f;
+  wo.no_planar = REAL;
   t3_vec3 p[5];
   for (int i = 0; i < 5; i++) {
     float l = ((float)i - 2.0f) * 55.0f;
@@ -2623,9 +2678,11 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
   G.shoulder = 5;
   G.road_drop = 0.2f;
   G.darken_edge = 0.25f;
-  if (!off("ground")) ground_plane(scene, t, &G);
+  REAL = !getenv("RACER_CARTOON");
+  if (REAL) build_land(scene, t); /* (G stays: the set pieces ask it for the ground's height, the land's own function) */
+  else if (!off("ground")) ground_plane(scene, t, &G);
   dec_begin();
-  if (!off("jungle")) build_jungle(scene, t);
+  if (!off("jungle") && !REAL) build_jungle(scene, t);
   if (!off("viaduct")) build_viaduct(scene, t);
   if (!off("tunnels")) build_tunnels(scene, t);
   if (!off("lining")) line_tunnels(scene);
@@ -2652,6 +2709,7 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
 
 static void scenery_frame(float alpha, double time) {
   (void)alpha;
+  land_frame();
   static double last = -1;
   float dt = last < 0 ? 0.0f : (float)(time - last);
   last = time;

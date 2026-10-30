@@ -1,0 +1,3 @@
+fern0.glb: Poly Haven "fern_02" (https://polyhaven.com/a/fern_02), a photoscanned plant with its textures.
+Licence: CC0 1.0 (public domain dedication), https://polyhaven.com/license
+One clump of the set, reduced for the game with games/racer/tools/plant-split.py (Blender): origin at the middle of its base.

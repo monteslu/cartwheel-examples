@@ -1,0 +1,330 @@
+{
+ "name": "eztree-broadleaf",
+ "species": "jungle mid-storey tree (rounded crown of big heart-shaped leaves)",
+ "height": 14,
+ "preset": "Oak Medium",
+ "options": {
+  "type": "deciduous",
+  "branch": {
+   "levels": 3,
+   "children": {
+    "0": 6,
+    "1": 4,
+    "2": 4
+   },
+   "angle": {
+    "1": 55,
+    "2": 45,
+    "3": 50
+   },
+   "start": {
+    "1": 0.55,
+    "2": 0.3,
+    "3": 0.2
+   },
+   "length": {
+    "0": 26,
+    "1": 14,
+    "2": 7,
+    "3": 4
+   },
+   "radius": {
+    "0": 1.2,
+    "1": 0.65,
+    "2": 0.6,
+    "3": 0.6
+   },
+   "sections": {
+    "0": 12,
+    "1": 7,
+    "2": 4,
+    "3": 3
+   },
+   "segments": {
+    "0": 8,
+    "1": 5,
+    "2": 4,
+    "3": 3
+   },
+   "taper": {
+    "0": 0.55,
+    "1": 0.7,
+    "2": 0.7,
+    "3": 0.8
+   },
+   "gnarliness": {
+    "0": 0.1,
+    "1": 0.2,
+    "2": 0.22,
+    "3": 0.2
+   },
+   "twist": {
+    "0": 0.1,
+    "1": 0.1,
+    "2": 0,
+    "3": 0
+   },
+   "force": {
+    "direction": {
+     "x": 0,
+     "y": 1,
+     "z": 0
+    },
+    "strength": 0.03
+   }
+  },
+  "seed": 7201,
+  "leaves": {
+   "billboard": "double",
+   "count": 6,
+   "start": 0.25,
+   "angle": 50,
+   "size": 3.4,
+   "sizeVariance": 0.35
+  }
+ },
+ "bark": {
+  "texture": "../textures/dl/Bark004/Bark004_1K-JPG_Color.jpg",
+  "tileMeters": 0.5,
+  "grade": {
+   "sat": 0.8,
+   "tint": [
+    1,
+    0.96,
+    0.9
+   ],
+   "gain": 0.9
+  }
+ },
+ "leafNormalBlend": 0.65,
+ "card": {
+  "size": 1024,
+  "sources": {
+   "twig": {
+    "diff": "../textures/dl/searsia_lucida_diff_2k.png",
+    "alpha": "../textures/dl/searsia_lucida_alpha_2k.png"
+   },
+   "heart": {
+    "diff": "../textures/dl/LeafSet004/LeafSet004_2K-PNG_Color.png",
+    "alpha": "../textures/dl/LeafSet004/LeafSet004_2K-PNG_Opacity.png"
+   }
+  },
+  "sprites": {
+   "l0": {
+    "src": "heart",
+    "rect": [
+     224,
+     86,
+     474,
+     908
+    ],
+    "base": [
+     461,
+     994
+    ],
+    "tip": [
+     461,
+     86
+    ]
+   },
+   "l1": {
+    "src": "heart",
+    "rect": [
+     766,
+     89,
+     506,
+     922
+    ],
+    "base": [
+     1019,
+     1011
+    ],
+    "tip": [
+     1019,
+     89
+    ]
+   },
+   "l2": {
+    "src": "heart",
+    "rect": [
+     1322,
+     124,
+     535,
+     834
+    ],
+    "base": [
+     1589,
+     958
+    ],
+    "tip": [
+     1589,
+     124
+    ]
+   },
+   "l3": {
+    "src": "heart",
+    "rect": [
+     256,
+     1084,
+     470,
+     877
+    ],
+    "base": [
+     491,
+     1961
+    ],
+    "tip": [
+     491,
+     1084
+    ]
+   },
+   "l4": {
+    "src": "heart",
+    "rect": [
+     849,
+     1107,
+     436,
+     852
+    ],
+    "base": [
+     1067,
+     1959
+    ],
+    "tip": [
+     1067,
+     1107
+    ]
+   },
+   "l5": {
+    "src": "heart",
+    "rect": [
+     1380,
+     1123,
+     468,
+     830
+    ],
+    "base": [
+     1614,
+     1953
+    ],
+    "tip": [
+     1614,
+     1123
+    ]
+   },
+   "t": {
+    "src": "twig",
+    "rect": [
+     552,
+     1008,
+     400,
+     1040
+    ],
+    "base": [
+     570,
+     2044
+    ],
+    "tip": [
+     687,
+     1012
+    ]
+   }
+  },
+  "grade": {
+   "sat": 1.0,
+   "tint": [
+    0.86,
+    1.0,
+    0.8
+   ],
+   "gain": 0.86
+  },
+  "place": [
+   {
+    "sprite": "t",
+    "at": [
+     0.47,
+     0
+    ],
+    "angle": 4,
+    "len": 0.92,
+    "shade": 0.9
+   },
+   {
+    "scatter": {
+     "sprites": [
+      "l0",
+      "l1",
+      "l2",
+      "l3",
+      "l4",
+      "l5"
+     ],
+     "n": 12,
+     "seed": 7202,
+     "x": [
+      0.2,
+      0.8
+     ],
+     "y": [
+      0.12,
+      0.72
+     ],
+     "angle": [
+      -40,
+      40
+     ],
+     "len": [
+      0.2,
+      0.28
+     ],
+     "shade": [
+      0.62,
+      0.8200000000000001
+     ],
+     "outward": 1
+    }
+   },
+   {
+    "scatter": {
+     "sprites": [
+      "l0",
+      "l1",
+      "l2",
+      "l3",
+      "l4",
+      "l5"
+     ],
+     "n": 14,
+     "seed": 7203,
+     "x": [
+      0.18,
+      0.82
+     ],
+     "y": [
+      0.2,
+      0.82
+     ],
+     "angle": [
+      -45,
+      45
+     ],
+     "len": [
+      0.19,
+      0.27
+     ],
+     "shade": [
+      0.88,
+      1.08
+     ],
+     "outward": 1
+    }
+   }
+  ]
+ },
+ "credits": [
+  "Twig: Poly Haven 'Searsia lucida' diff + alpha (CC0) https://polyhaven.com/a/searsia_lucida by James Ray Cock (modeling) + Jenelle van Heerden (photography); Poly Haven licence https://polyhaven.com/license",
+  "Leaves: ambientCG LeafSet004 Color + Opacity (CC0) https://ambientcg.com/view?id=LeafSet004 ; ambientCG licence https://docs.ambientcg.com/license/",
+  "Bark: ambientCG Bark004 (CC0) https://ambientcg.com/view?id=Bark004 ; ambientCG licence https://docs.ambientcg.com/license/"
+ ]
+}

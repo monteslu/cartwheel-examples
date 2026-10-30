@@ -1,10 +1,11 @@
 // games/racer/tools/foliage-art.mjs: the Dam's trees and grass as glTF for TerrainScatter3D.
 //
-//   node games/racer/tools/foliage-art.mjs <trees dir> <grass dir>
+//   node games/racer/tools/foliage-art.mjs <trees dir> <grass dir> [<more trees dir>]
 //
 // <trees dir> holds the EZ-Tree conifers as glTF, one folder per tree (eztree-<name>/eztree-<name>.glb: EZ-Tree,
 // MIT, program output; bark and needle textures CC0 from ambientCG and Poly Haven; each folder's LICENSE.txt says
-// which). <grass dir> holds Yughues' grass cards (grass_04_rgba.png, grass_05_rgba.png: CC0, OpenGameArt).
+// which). <more trees dir>: trees generated the same way for this game (the jungle's: eztree-canopy and
+// eztree-broadleaf, configs in its tools/eztree/configs). <grass dir> holds Yughues' grass cards (grass_04_rgba.png, grass_05_rgba.png: CC0, OpenGameArt).
 //
 // Trees: copied to assets/models/trees/<name>.glb with every leaf texture's fully transparent texels filled with
 // the average leaf colour, so its smaller mip levels do not darken toward black (the needles went dark at a
@@ -17,7 +18,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const [treesDir, grassDir] = process.argv.slice(2);
+const [treesDir, grassDir, moreDir] = process.argv.slice(2);
 if (!treesDir || !grassDir) {
   console.error('usage: node foliage-art.mjs <trees dir> <grass dir>');
   process.exit(2);
@@ -74,10 +75,10 @@ function fillTransparent(png) {
 }
 
 // ── trees ────────────────────────────────────────────────────────────────────────
-const TREES = ['ponderosa', 'ponderosa-2', 'pinyon', 'juniper', 'scruboak', 'snag', 'fir'];
+const TREES = ['ponderosa', 'ponderosa-2', 'pinyon', 'juniper', 'scruboak', 'snag', 'fir', ...(moreDir ? ['canopy', 'broadleaf'] : [])];
 fs.mkdirSync(path.join(ROOT, 'trees', 'licenses'), { recursive: true });
 for (const name of TREES) {
-  const dir = path.join(treesDir, `eztree-${name}`);
+  const dir = fs.existsSync(path.join(treesDir, `eztree-${name}`)) ? path.join(treesDir, `eztree-${name}`) : path.join(moreDir, `eztree-${name}`);
   const { json, bin } = readGlb(path.join(dir, `eztree-${name}.glb`));
   const replaced = new Map();
   // the images a MASK material's base colour uses

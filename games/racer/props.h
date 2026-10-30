@@ -397,6 +397,8 @@ typedef struct water_opts {
   float reflect;                   /* 0..1 how mirror-like (0.5) */
   float flow_x, flow_z;            /* ripple drift, metres per second (0.05, 0.02) */
   bool refract;                    /* planar refraction on (costs a render): default true */
+  bool no_planar;                  /* no planar reflection either (each one redraws the scene: a realistic jungle cost
+                                    * 11 ms of three waters' reflections): the sky's reflection stands in */
   int grid;                        /* subdivisions (200) */
   float horizon;                   /* >0: the outer half extent in metres, so one sheet is a sea out to the horizon (0) */
 } water_opts;
