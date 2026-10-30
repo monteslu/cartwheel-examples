@@ -3,8 +3,8 @@ Racer: credits
 Everything in this game was made for it: code, the karts, the props and eight
 worlds, the procedural textures, the colour grades and the synthesized sound
 and music (tools/make-audio.mjs, tools/make-music.mjs, and battle mode's pop and
-knockout from tools/make-battle-audio.mjs). The exceptions are the fonts and the
-announcer's voice below.
+knockout from tools/make-battle-audio.mjs). The exceptions are the fonts, the
+announcer's voice and the Dam's ground textures, trees, grass and rocks below.
 
 Fonts (from github.com/google/fonts; each licence ships beside its font in
 assets/fonts/):
@@ -42,3 +42,22 @@ filters, compressor, limiter, echoes and reverb). Nothing was recorded.
   Whisper base.en (OpenAI, MIT), run with Transformers.js: make-voice.mjs
   --asr transcribes every file back to check that it says its words. A check
   only; nothing of it ships.
+
+The Dam's land (open licences only; each file's licence sits beside it):
+
+  Ground textures (assets/terrain/dam/, packed and graded by tools/terrain-layers.sh):
+    ambientCG Rock029, Ground031, Ground105, Ground037, Ground080, Ground110,
+    Concrete034. CC0 1.0 (https://ambientcg.com/license).
+
+  Trees (assets/models/trees/, tools/foliage-art.mjs): pinyon, juniper,
+    ponderosa (two), scrub oak, fir and a dead snag generated with EZ-Tree by
+    Daniel Greenheck (MIT, program output); bark and needle textures CC0 from
+    ambientCG and Poly Haven. Licences: assets/models/trees/licenses/.
+
+  Grass (assets/models/grass/, tools/foliage-art.mjs): Yughues (Nobiax) grass
+    cards, CC0 1.0 (OpenGameArt). Licence: assets/models/grass/licenses/.
+
+  Rocks (assets/models/rocks/, tools/rock-decimate.py): Poly Haven
+    photoscans namaqualand_boulder_02, _04, _05, namaqualand_boulders_01 and
+    namaqualand_cliff_01, CC0 1.0 (https://polyhaven.com/license), reduced for
+    the game. Licences: assets/models/rocks/licenses/.

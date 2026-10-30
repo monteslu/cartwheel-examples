@@ -697,7 +697,9 @@ static void build_terrain(cw_node parent) {
   cw_node_set(n, "max_height", cw_val_float(hi));
   cw_node_set(n, "far_distance", cw_val_float(PV > 1 ? 350.0f : 600.0f));
   cw_node_set(n, "physics", cw_val_bool(false));
-  cw_node_set(n, "quality", cw_val_int(getenv("RACER_TERQ") ? atoi(getenv("RACER_TERQ")) : 2));
+  /* High alone (its blended transitions), Medium in split screen: four views of canyon walls at High took 10 ms of GPU on
+   * the 890M, at Medium 8 (cartwheel-engine v0.24.2) */
+  cw_node_set(n, "quality", cw_val_int(getenv("RACER_TERQ") ? atoi(getenv("RACER_TERQ")) : PV > 1 ? 1 : 2));
   static const char *const LN[8] = { "0_cliff", "1_band", "2_floor", "3_dirt", "4_scrub", "5_sand", "6_gravel", "7_concrete" };
   static const float UV[8] = { 0.06f, 0.06f, 0.16f, 0.16f, 0.14f, 0.2f, 0.3f, 0.12f };
   for (int i = 0; i < 8; i++) {

@@ -160,3 +160,5 @@ standard+map+rep+instbig+shadow+senv+atest+ds+l1001+xcluster
 standard+map+rep+instbig+shadow+senv+atest+ds+l1001
 standard+map+rep+instbig+nmap+rmap+mmap+shadow+senv+ds+l1001
 standard+map+rep+instbig+nmap+rmap+mmap+shadow+senv+ds+l1001+xcluster
+depth+instbig+xterrainlow_cluster
+standard+instbig+shadow+senv+l1001+xterrainlow_cluster
