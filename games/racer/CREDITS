@@ -53,6 +53,9 @@ The Dam's and the Salt Flats' land (open licences only; each file's licence sits
     dry_ground_01, dry_ground_rocks and gravelly_sand (CC0 1.0,
     https://polyhaven.com/license); ambientCG Gravel023, Rock051, Rock052,
     Rock029 and Ground110 (CC0 1.0).
+  Road photo bases (assets/terrain/roads/, the same tool; textures.c paints the
+    lane lines over them): Poly Haven concrete_floor_worn_001, asphalt_track and
+    asphalt_02, CC0 1.0.
 
   Trees (assets/models/trees/, tools/foliage-art.mjs): pinyon, juniper,
     ponderosa (two), scrub oak, fir and a dead snag generated with EZ-Tree by
