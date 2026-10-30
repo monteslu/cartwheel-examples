@@ -729,7 +729,7 @@ static void build_terrain(cw_node parent) {
   cw_node_set(scatter(n, "BoulderB", "models/rocks/boulder_b.glb", 0.0010f, ROCK_L, 40, 0.7f, 2.0f, true, tr, 40, 80, true, "SCATTER", 32), "sink", cw_val_float(0.35f));
   cw_node_set(scatter(n, "BoulderC", "models/rocks/boulder_c.glb", 0.0040f, ROCK_L, 45, 0.6f, 1.6f, true, tr * 0.5f, 20, 50, true, "SCATTER", 33), "sink", cw_val_float(0.25f));
   cw_node_set(scatter(n, "Stones", "models/rocks/boulders.glb", 0.02f, ROCK_L, 40, 0.8f, 1.8f, true, PV > 1 ? 50.0f : 90.0f, 15, 40, false, "SCATTER", 34), "sink", cw_val_float(0.1f));
-  cw_node_set(scatter(n, "Outcrop", "models/rocks/outcrop.glb", 0.0006f, (1u << LY_CLIFF) | (1u << LY_BAND), 80, 1.5f, 4.0f, true, tr * 1.3f, 60, 120, true, "SCATTER", 35), "sink", cw_val_float(0.6f));
+  cw_node_set(scatter(n, "Outcrop", "models/rocks/outcrop.glb", 0.0006f, (1u << LY_CLIFF) | (1u << LY_BAND), 55, 1.5f, 4.0f, true, tr * 1.3f, 60, 120, true, "SCATTER", 35), "sink", cw_val_float(1.6f)); /* (to 80 degrees and sunk 0.6 they hung off the cliffs) */
   /* grass: dry tufts over the earth, green and tall in the brush and down by the water */
   scatter(n, "DryGrass", "models/grass/dry.glb", 0.25f, (1u << LY_FLOOR) | (1u << LY_DIRT), 30, 0.5f, 1.0f, true, PV > 1 ? 45.0f : 70.0f, 15, 30, false, "GRASS", 21);
   scatter(n, "Grass", "models/grass/green.glb", 0.6f, (1u << LY_SCRUB) | (1u << LY_SAND), 30, 0.5f, 1.0f, true, PV > 1 ? 45.0f : 70.0f, 15, 30, false, "GRASS", 22);
