@@ -1,9 +1,0 @@
-# r186 program states for otium (cmake/programs.cmake; tools/programs.mjs adds what runs lack)
-standard+map+rep+shadow+l1001
-standard+shadow+l1001
-standard+instbig+shadow+icol+l1001
-standard+map+shadow+l1001
-physical+trans+shadow+l1001
-standard+instbig+shadow+l1001
-standard+l1001
-standard+instbig+l1001

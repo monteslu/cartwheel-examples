@@ -16,6 +16,6 @@ if(NOT COMMAND cw_add_app)
   find_package(cartwheel REQUIRED CONFIG)
 endif()
 
-foreach(game bikemesa bomberdude chromite derby otium pugball racer spout)
+foreach(game bikemesa bomberdude chromite derby pugball racer spout)
   add_subdirectory(games/${game})
 endforeach()
