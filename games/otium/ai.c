@@ -44,7 +44,7 @@ static float goods_short(const sim *S, int p, int c) {
   int goods[GOODS], coins = sim_house_cost(S, p, c, goods);
   float short_by = 0;
   for (int g = 0; g < GOODS; g++)
-    if (S->p[p].goods[g] < goods[g]) short_by += (float)(goods[g] - S->p[p].goods[g]) * (float)S->price[g];
+    if (S->p[p].goods[g] < goods[g]) short_by += (float)(goods[g] - S->p[p].goods[g]) * (float)(S->price[g] + 1);
   if (S->p[p].coins < coins) short_by += (float)(coins - S->p[p].coins);
   return short_by;
 }
@@ -116,7 +116,7 @@ order_req ai_choose(const sim *S, int p, int pers) {
         if (pl->goods[g] < goods[g]) want = g;
     }
     float v = 0;
-    if (want >= 0 && pl->coins >= S->price[want] + 3) r.trade[want] = 1, v = 3.5f;
+    if (want >= 0 && pl->coins >= S->price[want] + 4) r.trade[want] = 1, v = 3.5f;
     else {
       int most = 0;
       for (int g = 1; g < GOODS; g++)
@@ -124,9 +124,8 @@ order_req ai_choose(const sim *S, int p, int pers) {
       if (pl->goods[most] >= 3 && pl->coins < 6) r.trade[most] = -2, v = (float)S->price[most] * 0.5f;
       else if (pl->goods[most] >= 2 && pl->coins < 3) r.trade[most] = -1, v = (float)S->price[most] * 0.6f;
     }
-    v += 1.2f; /* the visit's pay */
     int days;
-    if (sim_check(S, p, &r, &days) == WHY_OK) CONSIDER(r, v, days);
+    if (v > 0 && sim_check(S, p, &r, &days) == WHY_OK) CONSIDER(r, v, days);
   }
   /* recruit: more units while there is time to use them */
   {

@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/monteslu/cartwheel-examples/actions/workflows/ci.yml/badge.svg)](https://github.com/monteslu/cartwheel-examples/actions/workflows/ci.yml)
 
-Eight complete games built with
+Seven complete games built with
 [cartwheel-engine](https://github.com/monteslu/cartwheel-engine), a 2D and 3D
 game engine in C. Each game builds as a native executable and as a
 [wasmcart](https://github.com/wasmcart/wasmcart) cart (`.wasc`) that runs in
@@ -95,22 +95,6 @@ last quarter holds the clock, the standings and a map of the arena with
 every car on it). Each player has their own chase camera and HUD.
 `games/derby/`
 
-### otium
-
-
-![otium: the fourth season over central Italy, houses in three colours, carts on the inked roads](docs/screenshots/otium.jpg)
-
-Roman trade across Italy, against two rival houses. A parchment map in relief
-on a walnut table: twenty-two cities in eight regions, roads inked across the
-land, sea lanes across the water. Send carts and galleys out from Roma, build
-houses, harvest regions, trade brick, food, tools, wine and cloth at the
-market and court the five gods, each of whom rewards one thing. Time moves
-only while you act: every order costs days (a sundial on the order wheel shows
-how many) and the rivals act while they pass, so you can think as long as you
-like. One player with a pad, keyboard or mouse; the icons carry the game, with
-almost no text. `games/otium/` (its [README](games/otium/README.md) has the
-controls and the rules).
-
 ### pugball
 
 
@@ -177,7 +161,7 @@ or be washed back to the last bracket. Five spouts, each opening the next.
 
 Tagged versions are on the
 [Releases](https://github.com/monteslu/cartwheel-examples/releases) page: the
-eight carts and each game's native builds.
+seven carts and each game's native builds.
 
 | File | Platform | Notes |
 |---|---|---|
