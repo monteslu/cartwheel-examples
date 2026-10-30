@@ -101,6 +101,8 @@ static struct {
   race_setup setup;
   bool trial, assist_steer, assist_gas;
   int bot;            /* 0 hands, 1 the CPU driver, 2 the CPU driver with keyboard-style steering */
+  int dev_eye;        /* view 0 held at eye_at[0] looking at eye_at[1] (RACER_EYE, the debug command `eye`) */
+  t3_vec3 eye_at[2];
   uint32_t seed;
   int32_t ghost_rec_n;
   uint32_t ghost_rec_hash, ghost_play_hash;
@@ -438,12 +440,11 @@ static void rig_tick(int v) {
   r->chase = false;
   static int dev_top = -1;
   if (dev_top < 0) dev_top = getenv("RACER_CAM") && !strcmp(getenv("RACER_CAM"), "top");
-  static int dev_eye = -1;
-  static t3_vec3 eye_at[2];
-  if (dev_eye < 0) /* dev aid: RACER_EYE=x,y,z,tx,ty,tz holds the camera there looking at the target (no HUD) */
-    dev_eye = getenv("RACER_EYE") && sscanf(getenv("RACER_EYE"), "%f,%f,%f,%f,%f,%f", &eye_at[0].x, &eye_at[0].y, &eye_at[0].z, &eye_at[1].x, &eye_at[1].y, &eye_at[1].z) == 6;
-  if (dev_eye && v == 0) {
-    e = eye_at[0], at = eye_at[1];
+  static bool eye_env;
+  if (!eye_env) /* dev aid: RACER_EYE=x,y,z,tx,ty,tz (or the debug command `eye`) holds the camera there looking at the target (no HUD) */
+    eye_env = true, G.dev_eye = getenv("RACER_EYE") && sscanf(getenv("RACER_EYE"), "%f,%f,%f,%f,%f,%f", &G.eye_at[0].x, &G.eye_at[0].y, &G.eye_at[0].z, &G.eye_at[1].x, &G.eye_at[1].y, &G.eye_at[1].z) == 6;
+  if (G.dev_eye && v == 0) {
+    e = G.eye_at[0], at = G.eye_at[1];
     r->snap = true;
   } else if (dev_top && v == 0) {
     const track *t = s->track;
@@ -886,6 +887,16 @@ static void cmd_battle(int argc, const char **argv, cw_reply *r) {
   if (r) cw_reply_printf(r, "{\"battle\":%d}", a);
 }
 
+/* a fixed camera for stills of any part of a map, where there is no environment (a cart on romdev) */
+static void cmd_eye(int argc, const char **argv, cw_reply *r) {
+  if (argc >= 7) {
+    G.eye_at[0] = (t3_vec3){ (float)atof(argv[1]), (float)atof(argv[2]), (float)atof(argv[3]) };
+    G.eye_at[1] = (t3_vec3){ (float)atof(argv[4]), (float)atof(argv[5]), (float)atof(argv[6]) };
+    G.dev_eye = 1;
+  } else G.dev_eye = 0;
+  if (r) cw_reply_printf(r, "{\"eye\":%d}", G.dev_eye);
+}
+
 static void cmd_bot(int argc, const char **argv, cw_reply *r) {
   G.bot = argc > 1 ? CW_CLAMP(atoi(argv[1]), 0, 2) : 1;
   if (r) cw_reply_printf(r, "{\"bot\":%d}", G.bot);
@@ -924,7 +935,7 @@ static void render(void *u, double alpha) {
   }
   cw_r2d_begin(&(cw_r2d_pass_desc){ .clear = false });
   cw_vec2 cs = cw_r2d_canvas_size();
-  if (!getenv("RACER_STUDIO") && !getenv("RACER_EYE")) ui_render(cs.x, cs.y); /* models agent: the studio view has no HUD over the kart */
+  if (!getenv("RACER_STUDIO") && !G.dev_eye) ui_render(cs.x, cs.y); /* models agent: the studio view has no HUD over the kart */
   {
     /* the menus' real karts (kartgfx.c's showroom) hang under view 0's camera, the one view the menus draw over; what
      * ui_render asked for above is placed for the next frame */
@@ -978,6 +989,7 @@ static void init(void *u) {
   cw_debug_command("race", "race <map -1..7> [humans] [laps] [class] [assists]: start a race now", cmd_race);
   cw_debug_command("trial", "trial <map 0..7> [runs]: start a time trial now (the bot drives <runs> runs when it is on)", cmd_trial);
   cw_debug_command("cup", "cup <0..1> [humans] [laps] [races]: a cup now, clicking through its own results (with `bot 1`)", cmd_cup);
+  cw_debug_command("eye", "eye <x y z tx ty tz>: hold view 0's camera there looking at the target, no HUD (no arguments: back to the chase)", cmd_eye);
   cw_debug_command("bot", "bot <0|1|2>: the human karts driven by the CPU driver (2: keyboard-style steering)", cmd_bot);
   cw_debug_command("battle", "battle <arena 0..5> [humans] [secs] [karts] [mode 0 balloons|1 flag|2 hill|3 assault]: an arena round now (secs 0: three minutes)", cmd_battle);
   cw_debug_i32("battle.mode", &G.amode);
