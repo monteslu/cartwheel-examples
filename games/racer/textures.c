@@ -91,6 +91,49 @@ static void emit(texel *t, float r, float g, float b, float k) {
   t->er = fmaxf(t->er, r * k), t->eg = fmaxf(t->eg, g * k), t->eb = fmaxf(t->eb, b * k);
 }
 
+/* ── photo bases ─────────────────────────────────────────────────────────────────────────────────────
+ * A surface can start from a photographed material instead of noise: a terrain layer's packed albedo (sRGB RGB, height
+ * in A: assets/terrain/<map>/, tools/terrain-layers.sh), decoded once and sampled bilinearly, wrapping, by metres. The
+ * generator then paints its own marks (lane lines, tyre tracks) over it. No file, no photo: the generator's own noise. */
+typedef struct photo {
+  const char *path;
+  int w, h;
+  uint8_t *px; /* RGBA */
+} photo;
+static photo PHOTOS[8];
+static const photo *photo_get(const char *path) {
+  for (int i = 0; i < 8; i++)
+    if (PHOTOS[i].path && !strcmp(PHOTOS[i].path, path)) return PHOTOS[i].px ? &PHOTOS[i] : NULL;
+  for (int i = 0; i < 8; i++) {
+    if (PHOTOS[i].path) continue;
+    PHOTOS[i].path = path;
+    size_t len = 0;
+    uint8_t *f = cw_vfs_read(path, &len);
+    if (f) {
+      int c;
+      PHOTOS[i].px = stbi_load_from_memory(f, (int)len, &PHOTOS[i].w, &PHOTOS[i].h, &c, 4);
+      free(f);
+    }
+    return PHOTOS[i].px ? &PHOTOS[i] : NULL;
+  }
+  return NULL;
+}
+/* albedo (sRGB 0..1) and height at (x, y) metres, `tile` metres a repeat */
+static void photo_at(const photo *p, float x, float y, float tile, float *r, float *g, float *b, float *h) {
+  float fx = fractf(x / tile) * (float)p->w - 0.5f, fy = fractf(y / tile) * (float)p->h - 0.5f;
+  int x0 = (int)floorf(fx), y0 = (int)floorf(fy);
+  float ax = fx - (float)x0, ay = fy - (float)y0;
+  float acc[4] = { 0 };
+  for (int k = 0; k < 4; k++) {
+    int xx = ((x0 + (k & 1)) % p->w + p->w) % p->w, yy = ((y0 + (k >> 1)) % p->h + p->h) % p->h;
+    float w = ((k & 1) ? ax : 1 - ax) * ((k >> 1) ? ay : 1 - ay);
+    const uint8_t *q = p->px + ((size_t)yy * p->w + xx) * 4;
+    for (int c = 0; c < 4; c++) acc[c] += w * (float)q[c] / 255.0f;
+  }
+  *r = acc[0], *g = acc[1], *b = acc[2], *h = acc[3];
+}
+
+
 /* ── roads: u 0..1 across (16 m), v 0..1 along (8 m) ────────────────── */
 
 /* Lane paint shared by the paved roads: edge lines at u 0.075 / 0.925 (just outside the kerb) and a
@@ -165,9 +208,19 @@ static void g_road_concrete(float u, float v, texel *t) {
   c -= stain + tracks + crack * 0.2f;
   float paint = lane_paint(u, v, 0.45f, 117);
   rgb(t, c, c * 0.985f, c * 0.95f);
+  /* the photographed concrete under it all when it is there (4 m a repeat, a slab's length: it wraps with the texture),
+   * each slab a little lighter or darker, the stains, tracks and cracks still darkening it */
+  const photo *ph = photo_get("terrain/roads/concrete_albedo.png");
+  float phh = 0.5f;
+  if (ph) {
+    float pr, pg, pb;
+    photo_at(ph, x, y, 4.0f, &pr, &pg, &pb, &phh);
+    float k = (1.18f + 0.14f * tint) * (1 - (stain + tracks + crack * 0.2f) * 1.4f); /* (the photo is darker than sunlit slabs) */
+    rgb(t, pr * k, pg * k, pb * k);
+  }
   mixc(t, 0.14f, 0.14f, 0.13f, joint * 0.85f);
   mixc(t, 0.9f, 0.9f, 0.82f, paint);
-  t->h = 0.55f + 0.2f * n + 0.1f * fine - joint * 0.6f - crack * 0.4f;
+  t->h = (ph ? 0.4f + 0.45f * phh : 0.55f + 0.2f * n + 0.1f * fine) - joint * 0.6f - crack * 0.4f;
   t->rough = 0.82f - 0.15f * paint + 0.06f * stain;
   t->ao = 0.88f + 0.12f * n - joint * 0.5f - crack * 0.3f;
 }
@@ -202,48 +255,6 @@ static void g_road_dirt(float u, float v, texel *t) {
 
 /* cracked salt crust: raised plates ringed by dark seams, pink-grey tint on the plate rims, faint tyre
  * marks, a chalky dashed orange line. The sparkle is in the roughness. */
-/* ── photo bases ─────────────────────────────────────────────────────────────────────────────────────
- * A surface can start from a photographed material instead of noise: a terrain layer's packed albedo (sRGB RGB, height
- * in A: assets/terrain/<map>/, tools/terrain-layers.sh), decoded once and sampled bilinearly, wrapping, by metres. The
- * generator then paints its own marks (lane lines, tyre tracks) over it. No file, no photo: the generator's own noise. */
-typedef struct photo {
-  const char *path;
-  int w, h;
-  uint8_t *px; /* RGBA */
-} photo;
-static photo PHOTOS[8];
-static const photo *photo_get(const char *path) {
-  for (int i = 0; i < 8; i++)
-    if (PHOTOS[i].path && !strcmp(PHOTOS[i].path, path)) return PHOTOS[i].px ? &PHOTOS[i] : NULL;
-  for (int i = 0; i < 8; i++) {
-    if (PHOTOS[i].path) continue;
-    PHOTOS[i].path = path;
-    size_t len = 0;
-    uint8_t *f = cw_vfs_read(path, &len);
-    if (f) {
-      int c;
-      PHOTOS[i].px = stbi_load_from_memory(f, (int)len, &PHOTOS[i].w, &PHOTOS[i].h, &c, 4);
-      free(f);
-    }
-    return PHOTOS[i].px ? &PHOTOS[i] : NULL;
-  }
-  return NULL;
-}
-/* albedo (sRGB 0..1) and height at (x, y) metres, `tile` metres a repeat */
-static void photo_at(const photo *p, float x, float y, float tile, float *r, float *g, float *b, float *h) {
-  float fx = fractf(x / tile) * (float)p->w - 0.5f, fy = fractf(y / tile) * (float)p->h - 0.5f;
-  int x0 = (int)floorf(fx), y0 = (int)floorf(fy);
-  float ax = fx - (float)x0, ay = fy - (float)y0;
-  float acc[4] = { 0 };
-  for (int k = 0; k < 4; k++) {
-    int xx = ((x0 + (k & 1)) % p->w + p->w) % p->w, yy = ((y0 + (k >> 1)) % p->h + p->h) % p->h;
-    float w = ((k & 1) ? ax : 1 - ax) * ((k >> 1) ? ay : 1 - ay);
-    const uint8_t *q = p->px + ((size_t)yy * p->w + xx) * 4;
-    for (int c = 0; c < 4; c++) acc[c] += w * (float)q[c] / 255.0f;
-  }
-  *r = acc[0], *g = acc[1], *b = acc[2], *h = acc[3];
-}
-
 static void salt_crust(float u, float v, texel *t, bool road) {
   /* the road: packed salt from the photographed crust (4 m a repeat, so it wraps with the texture: 16 m across, 8 along), its lane chalk
    * and tyre tracks painted over */

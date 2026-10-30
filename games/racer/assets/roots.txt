@@ -291,3 +291,11 @@ terrain/salt/6_scarp_albedo.png
 terrain/salt/6_scarp_normal.png
 terrain/salt/7_gravel_albedo.png
 terrain/salt/7_gravel_normal.png
+
+# photo bases for road textures (tools/terrain-layers.sh roads: Poly Haven, CC0)
+terrain/roads/asphalt_albedo.png
+terrain/roads/asphalt_normal.png
+terrain/roads/asphalt_old_albedo.png
+terrain/roads/asphalt_old_normal.png
+terrain/roads/concrete_albedo.png
+terrain/roads/concrete_normal.png

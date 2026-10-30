@@ -10,7 +10,7 @@
 #   polyhaven-tex/<id>/{diff,disp,nor_gl,rough}.jpg                            (CC0, https://polyhaven.com/license)
 #     the 1k jpg files the API lists for the texture (https://api.polyhaven.com/files/<id>)
 set -euo pipefail
-MAP="${1:?map (dam, salt)}"
+MAP="${1:?map (dam, salt, roads)}"
 SRC="${2:?art dir}"
 D="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$D/assets/terrain/$MAP"
@@ -55,6 +55,12 @@ salt)
   layer 5_rock2 Rock052 "-modulate 96,70,100"                 # buff rock, the lower slopes
   layer 6_scarp Rock029 "-modulate 96,85,100"                 # the escarpment's rust rock
   layer 7_gravel Ground110 "-modulate 108,50,100"             # the road's verges
+  ;;
+roads)
+  # photo bases for the road textures (textures.c photo_get): the surface under each generator's own paint
+  layer concrete concrete_floor_worn_001 "-modulate 100,60,100"  # the Dam's concrete
+  layer asphalt asphalt_track ""                               # race-track asphalt
+  layer asphalt_old asphalt_02 ""                              # older, cracked asphalt
   ;;
 *) echo "terrain-layers.sh: unknown map $MAP" >&2; exit 2 ;;
 esac
