@@ -15,7 +15,14 @@
 #include <string.h>
 
 #include "cartwheel/math.h"
+#include "cartwheel/vfs.h"
 #include "textures.h"
+/* photo bases (below): PNG decoding, private to this file so it never meets the engine's own copy */
+#define STB_IMAGE_STATIC
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_ONLY_PNG
+#define STBI_NO_STDIO
+#include "stb_image.h"
 
 /* ── hashing and noise ──────────────────────────────────────────────── */
 
@@ -195,7 +202,69 @@ static void g_road_dirt(float u, float v, texel *t) {
 
 /* cracked salt crust: raised plates ringed by dark seams, pink-grey tint on the plate rims, faint tyre
  * marks, a chalky dashed orange line. The sparkle is in the roughness. */
+/* ── photo bases ─────────────────────────────────────────────────────────────────────────────────────
+ * A surface can start from a photographed material instead of noise: a terrain layer's packed albedo (sRGB RGB, height
+ * in A: assets/terrain/<map>/, tools/terrain-layers.sh), decoded once and sampled bilinearly, wrapping, by metres. The
+ * generator then paints its own marks (lane lines, tyre tracks) over it. No file, no photo: the generator's own noise. */
+typedef struct photo {
+  const char *path;
+  int w, h;
+  uint8_t *px; /* RGBA */
+} photo;
+static photo PHOTOS[8];
+static const photo *photo_get(const char *path) {
+  for (int i = 0; i < 8; i++)
+    if (PHOTOS[i].path && !strcmp(PHOTOS[i].path, path)) return PHOTOS[i].px ? &PHOTOS[i] : NULL;
+  for (int i = 0; i < 8; i++) {
+    if (PHOTOS[i].path) continue;
+    PHOTOS[i].path = path;
+    size_t len = 0;
+    uint8_t *f = cw_vfs_read(path, &len);
+    if (f) {
+      int c;
+      PHOTOS[i].px = stbi_load_from_memory(f, (int)len, &PHOTOS[i].w, &PHOTOS[i].h, &c, 4);
+      free(f);
+    }
+    return PHOTOS[i].px ? &PHOTOS[i] : NULL;
+  }
+  return NULL;
+}
+/* albedo (sRGB 0..1) and height at (x, y) metres, `tile` metres a repeat */
+static void photo_at(const photo *p, float x, float y, float tile, float *r, float *g, float *b, float *h) {
+  float fx = fractf(x / tile) * (float)p->w - 0.5f, fy = fractf(y / tile) * (float)p->h - 0.5f;
+  int x0 = (int)floorf(fx), y0 = (int)floorf(fy);
+  float ax = fx - (float)x0, ay = fy - (float)y0;
+  float acc[4] = { 0 };
+  for (int k = 0; k < 4; k++) {
+    int xx = ((x0 + (k & 1)) % p->w + p->w) % p->w, yy = ((y0 + (k >> 1)) % p->h + p->h) % p->h;
+    float w = ((k & 1) ? ax : 1 - ax) * ((k >> 1) ? ay : 1 - ay);
+    const uint8_t *q = p->px + ((size_t)yy * p->w + xx) * 4;
+    for (int c = 0; c < 4; c++) acc[c] += w * (float)q[c] / 255.0f;
+  }
+  *r = acc[0], *g = acc[1], *b = acc[2], *h = acc[3];
+}
+
 static void salt_crust(float u, float v, texel *t, bool road) {
+  /* the road: packed salt from the photographed crust (4 m a repeat, so it wraps with the texture: 16 m across, 8 along), its lane chalk
+   * and tyre tracks painted over */
+  const photo *ph = road ? photo_get("terrain/salt/0_crust_albedo.png") : NULL;
+  if (ph) {
+    float pr, pg, pb, phh;
+    photo_at(ph, u * 16.0f, v * 8.0f, 4.0f, &pr, &pg, &pb, &phh); /* (4 m: the texture wraps at 16 across and 8 along) */
+    float n = rfbm(u, v, 6, 5, 132);
+    rgb(t, pr * 0.96f, pg * 0.95f, pb * 0.94f);
+    float streak = fbm2(u, v, 24, 3, 3, 134);
+    float tracks = clamp01(band(u, 0.3f, 0.05f, 0.08f) + band(u, 0.7f, 0.05f, 0.08f)) * sstep(0.35f, 0.65f, streak);
+    mixc(t, 0.7f, 0.66f, 0.6f, tracks * 0.4f);
+    float dash = sstep(0.06f, 0.09f, fractf(v)) * (1 - sstep(0.5f, 0.53f, fractf(v)));
+    float chalk = band(u, 0.5f, 0.007f, 0.004f) * dash + band(u, 0.075f, 0.008f, 0.004f) + band(u, 0.925f, 0.008f, 0.004f);
+    chalk = clamp01(chalk) * clamp01((rfbm(u, v, 24, 3, 135) - 0.3f) * 4);
+    mixc(t, 0.95f, 0.5f, 0.2f, chalk * 0.9f);
+    t->h = 0.35f + 0.5f * phh - tracks * 0.05f;
+    t->rough = 0.78f + 0.12f * n - tracks * 0.12f;
+    t->ao = 0.9f + 0.1f * phh;
+    return;
+  }
   float d1, d2;
   uint32_t id;
   if (road) cells2(u, v, 10, 5, 131, &d1, &d2, &id);
