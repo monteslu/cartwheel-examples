@@ -268,3 +268,8 @@ models/trees/snag.glb
 models/grass/dry.glb
 models/grass/green.glb
 models/grass/tall.glb
+models/rocks/boulder_a.glb
+models/rocks/boulder_b.glb
+models/rocks/boulder_c.glb
+models/rocks/boulders.glb
+models/rocks/outcrop.glb

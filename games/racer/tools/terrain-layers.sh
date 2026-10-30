@@ -17,7 +17,8 @@ layer() {
   # shellcheck disable=SC2086
   convert "${p}_Color.jpg" -resize 512x512! $grade \( "${p}_Displacement.jpg" -resize 512x512! -colorspace gray \) \
     -alpha off -compose CopyOpacity -composite -define png:color-type=6 "$OUT/${name}_albedo.png"
-  convert "${p}_NormalGL.jpg" -resize 512x512! \( "${p}_Roughness.jpg" -resize 512x512! -colorspace gray \) \
+  # roughness lifted into 0.8..1 (dry ground is matte: as scanned, 0.46..0.55 turned a sunlit slope into a white sheen)
+  convert "${p}_NormalGL.jpg" -resize 512x512! \( "${p}_Roughness.jpg" -resize 512x512! -colorspace gray -fx '0.8+0.2*u' \) \
     -alpha off -compose CopyOpacity -composite -define png:color-type=6 "$OUT/${name}_normal.png"
   echo "$name <- $set"
 }

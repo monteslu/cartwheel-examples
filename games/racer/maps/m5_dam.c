@@ -316,6 +316,7 @@ static float box_mask(float x, float z, float x0, float x1, float z0, float z1, 
   return 1.0f - sm(0, edge, box_dist(x, z, x0, x1, z0, z1));
 }
 
+static const bool TER_REAL = true; /* the realistic Dam: no cartoon clouds, mesas, cactus or procedural rocks */
 #define LAKE_Y (-3.3f)
 #define BED_Y (-26.0f)
 enum { KIND_ROCK, KIND_CONCRETE, KIND_CUT, KIND_VERGE, KIND_BED, KIND_TOP };
@@ -340,6 +341,19 @@ static float land0(float x, float z) {
   p += 30.0f * east * (0.8f + ground_noise(x, z, 80, 0.4f, 2, 14));
   /* far walls that close the valley in */
   p += 95.0f * sm(-380, -680, x) + 110.0f * sm(620, 900, z) + 90.0f * sm(820, 1200, x) + 70.0f * sm(-650, -900, z);
+  /* buttes out in the far valley: flat tops, sheer sides, a talus apron (the land paints them sandstone by slope) */
+  static const float BUTTE[][4] = { { -650, -520, 95, 105 }, { -720, 360, 120, 130 }, { -280, -900, 80, 90 }, { 920, -700, 110, 115 },
+                                    { 1150, 120, 75, 140 }, { 820, 760, 130, 100 }, { -220, 920, 90, 120 }, { 420, -1010, 70, 85 },
+                                    { 1230, -420, 60, 95 } };
+  for (int b = 0; b < (int)(sizeof BUTTE / sizeof BUTTE[0]); b++) {
+    float dx = x - BUTTE[b][0], dz = z - BUTTE[b][1];
+    float d = sqrtf(dx * dx + dz * dz) * (1.0f + 0.18f * ground_noise(x, z, 40, 1.0f, 2, 60 + b));
+    float r = BUTTE[b][2], top = A.yrim + BUTTE[b][3];
+    float hb = top * 0.92f + top * 0.08f * ground_noise(x, z, 30, 1.0f, 2, 70 + b);
+    float face = 1.0f - sm(r * 0.9f, r * 1.04f, d);
+    float talus = (1.0f - sm(r * 1.0f, r * 1.9f, d)) * 0.32f;
+    p = fmaxf(p, lerpf(p, hb, fmaxf(face, talus)));
+  }
   float v = fmaxf(box_mask(x, z, -520, -24, -640, 520, 80), box_mask(x, z, -520, 760, 436, 600, 70));
   v = fmaxf(v, box_mask(x, z, 376, 498, -340, 440, 55));
   float floor_n = yf + ground_noise(x, z, 41, 1.3f, 2, 15);
@@ -423,7 +437,8 @@ static float land_road(float x, float z, int *kind) {
     k = KIND_VERGE;
   } else if (h == lo && h0 < lo) {
     /* fill: the dam's own face where the road runs on the crest, an embankment elsewhere */
-    k = (idx < A.pool1 + 60 || idx > t->n - 700) ? KIND_CONCRETE : KIND_ROCK;
+    /* (the end of the lap is concrete only by the dam itself: on the realistic land the loop's embankments read as snow) */
+    k = (idx < A.pool1 + 60 || (idx > t->n - 700 && (!TER_REAL || fabsf(x) < 30.0f))) ? KIND_CONCRETE : KIND_ROCK;
   } else if (h == hi && h0 > hi) {
     k = KIND_CUT;
   }
@@ -603,6 +618,8 @@ static int TER_STAT[4]; /* debug fields dam.patches, dam.scatter (instances draw
 /* what a terrain sample is painted with: base layer, overlay layer and the overlay's share (0..255) */
 static uint32_t land_paint(float x, float y, float z, float slope, int kind, float road_g) {
   if (kind == KIND_CONCRETE) return cw_terrain_control(LY_CONCRETE, LY_CONCRETE, 0, 0, 0, false);
+  /* the switchyard's pad (its transformers stand in rows over x -162..-110, z -150..18): cleared gravel, no trees */
+  if (box_mask(x, z, -175, -97, -165, 32, 1) > 0.5f) return cw_terrain_control(LY_GRAVEL, LY_DIRT, 50, 0, 0, false);
   if (kind == KIND_BED || (lake_mask(x, z, 28) > 0.5f && y < LAKE_Y + 1.5f)) return cw_terrain_control(LY_SAND, LY_DIRT, (int)(60 * sm(LAKE_Y - 6, LAKE_Y, y)), 0, 0, false);
   if (kind == KIND_VERGE || road_g < 4.0f) return cw_terrain_control(LY_GRAVEL, LY_DIRT, (int)(255 * sm(1.5f, 4.0f, road_g)), 0, 0, false);
   /* the rock: strata by height (warped, so the bands wander), one of two reds a band */
@@ -621,9 +638,12 @@ static uint32_t land_paint(float x, float y, float z, float slope, int kind, flo
   return cw_terrain_control(flat, steep > 0.2f ? rock : over, steep > 0.2f ? (int)(255 * steep * 1.6f) : fb, 0, 0, false);
 }
 
-static void scatter(cw_node terr, const char *name, const char *mesh, float density, uint32_t layers, float slope, float smin,
+static cw_node scatter(cw_node terr, const char *name, const char *mesh, float density, uint32_t layers, float slope, float smin,
                     float smax, bool align, float range, float fade, float lod, bool shadow, const char *knob, int seed) {
   cw_node s = cw_node_new("TerrainScatter3D", name);
+  /* dev aid: RACER_NOSCATTER=all or a list of layer names leaves those layers out (what each one costs) */
+  const char *skip = getenv("RACER_NOSCATTER");
+  if (skip && (!strcmp(skip, "all") || strstr(skip, name))) density = 0;
   cw_node_set(s, "mesh", cw_val_string(mesh));
   cw_node_set(s, "density", cw_val_float(density));
   cw_node_set(s, "layers", cw_val_int((int)layers));
@@ -638,6 +658,7 @@ static void scatter(cw_node terr, const char *name, const char *mesh, float dens
   pset(s, "knob", knob);
   cw_node_set(s, "seed", cw_val_int(seed));
   cw_node_add_child(terr, s);
+  return s;
 }
 
 static void build_terrain(cw_node parent) {
@@ -700,6 +721,13 @@ static void build_terrain(cw_node parent) {
   scatter(n, "Ponderosa2", "models/trees/ponderosa-2.glb", 0.0006f, (1u << LY_SCRUB) | (1u << LY_FLOOR), 22, 1.2f, 1.8f, false, tr, 40, 70, true, "SCATTER", 14);
   scatter(n, "ScrubOak", "models/trees/scruboak.glb", 0.0025f, 1u << LY_SCRUB, 30, 0.8f, 1.3f, false, tr * 0.7f, 30, 45, true, "SCATTER", 15);
   scatter(n, "Snag", "models/trees/snag.glb", 0.0002f, (1u << LY_FLOOR) | (1u << LY_DIRT), 25, 0.8f, 1.2f, false, tr, 40, 70, true, "SCATTER", 16);
+  /* rocks: scanned desert boulders (Poly Haven, CC0) over the floor and up the slopes, outcrops on the steep rock */
+  const uint32_t ROCK_L = (1u << LY_FLOOR) | (1u << LY_DIRT) | (1u << LY_SCRUB) | (1u << LY_CLIFF) | (1u << LY_BAND) | (1u << LY_SAND);
+  cw_node_set(scatter(n, "BoulderA", "models/rocks/boulder_a.glb", 0.0018f, ROCK_L, 40, 0.8f, 2.4f, true, tr, 40, 80, true, "SCATTER", 31), "sink", cw_val_float(0.3f));
+  cw_node_set(scatter(n, "BoulderB", "models/rocks/boulder_b.glb", 0.0010f, ROCK_L, 40, 0.7f, 2.0f, true, tr, 40, 80, true, "SCATTER", 32), "sink", cw_val_float(0.35f));
+  cw_node_set(scatter(n, "BoulderC", "models/rocks/boulder_c.glb", 0.0040f, ROCK_L, 45, 0.6f, 1.6f, true, tr * 0.5f, 20, 50, true, "SCATTER", 33), "sink", cw_val_float(0.25f));
+  cw_node_set(scatter(n, "Stones", "models/rocks/boulders.glb", 0.02f, ROCK_L, 40, 0.8f, 1.8f, true, PV > 1 ? 50.0f : 90.0f, 15, 40, false, "SCATTER", 34), "sink", cw_val_float(0.1f));
+  cw_node_set(scatter(n, "Outcrop", "models/rocks/outcrop.glb", 0.0006f, (1u << LY_CLIFF) | (1u << LY_BAND), 80, 1.5f, 4.0f, true, tr * 1.3f, 60, 120, true, "SCATTER", 35), "sink", cw_val_float(0.6f));
   /* grass: dry tufts over the earth, green and tall in the brush and down by the water */
   scatter(n, "DryGrass", "models/grass/dry.glb", 0.25f, (1u << LY_FLOOR) | (1u << LY_DIRT), 30, 0.5f, 1.0f, true, PV > 1 ? 45.0f : 70.0f, 15, 30, false, "GRASS", 21);
   scatter(n, "Grass", "models/grass/green.glb", 0.6f, (1u << LY_SCRUB) | (1u << LY_SAND), 30, 0.5f, 1.0f, true, PV > 1 ? 45.0f : 70.0f, 15, 30, false, "GRASS", 22);
@@ -724,32 +752,6 @@ static void build_terrain(cw_node parent) {
     }
   cw_terrain_set_control(ter, 0, 0, sx, sz, ctl);
   cw_terrain_scatter_invalidate(ter);
-  if (getenv("RACER_TREETEST")) { /* dev aid: one tree placed directly (not scattered), x, z */
-    float tx = -200, tz = 20;
-    sscanf(getenv("RACER_TREETEST"), "%f,%f", &tx, &tz);
-    cw_res r = cw_res_load("models/trees/pinyon.glb", CW_RES_GLTF);
-    const cw_gltf *gl = cw_res_gltf(r);
-    cw_info("treetest: gltf %s meshes %d tris %d lods %d", gl ? "ok" : "MISSING", gl ? gl->mesh_count : -1, gl ? gl->triangles : -1, gl ? gl->lod_levels : -1);
-    for (int pp = 0; pp < 2; pp++) {
-      char path[64];
-      snprintf(path, sizeof path, "models/trees/pinyon.glb#mesh/0/%d", pp);
-      cw_res mr = cw_res_load(path, CW_RES_MESH);
-      const cw_mesh *m = cw_res_mesh(mr);
-      if (m) cw_info("treetest: part %d lods %d tris %d %d mat atest %.2f side %d transparent %d map %p opacity %.2f", pp, m->lod_count, m->lod_triangles[0], m->lod_count > 1 ? m->lod_triangles[1] : -1,
-                     m->material ? m->material->alpha_test : -1.0f, m->material ? (int)m->material->side : -1, m->material ? (int)m->material->transparent : -1, m->material ? (void *)m->material->map : NULL, m->material ? m->material->opacity : -1.0f);
-      else cw_info("treetest: part %d MISSING", pp);
-      cw_res_release(mr);
-    }
-    t3_object *o = cw_gltf_instantiate(r);
-    cw_res_release(r);
-    if (o) {
-      o->position = v3(tx, dam_land(tx, tz, NULL), tz);
-      o->scale = v3(2, 2, 2);
-      t3_object_update_matrix(o);
-      t3_object_add(cw_node3d_object(parent), o);
-      t3_release(o);
-    }
-  }
   free(ctl), free(h), free(kd), free(rg);
   cw_info("dam: terrain %d x %d samples, %.1f .. %.1f m", sx, sz, lo, hi);
   static bool fields;
@@ -1461,8 +1463,9 @@ static void build_land_props(cw_node parent, const track *t) {
   ps_style(ps, PK_CANYON_WALL, prop_tex(PK_CANYON_WALL), rgb(1.0f, 0.7f, 0.54f), 1.0f);
   int n = 0;
   float cx = 215, cz = -80;
-  /* far: mesas, spires and cliff slabs round the whole bowl, to give the horizon a silhouette */
-  {
+  /* far: mesas, spires and cliff slabs round the whole bowl, to give the horizon a silhouette (the realistic Dam: buttes
+   * in the land itself, rocks, trees and grass as the terrain's scatter layers) */
+  if (!TER_REAL) {
     maskp mk = { A.yfloor + 30, 1e9f, 0.55f, 0 };
     scatter_opts o = scatter_defaults();
     o.kinds[0] = PK_MESA, o.weight[0] = 3, o.kinds[1] = PK_SPIRE, o.weight[1] = 2, o.kinds[2] = PK_CANYON_WALL, o.weight[2] = 2, o.nkinds = 3;
@@ -1473,7 +1476,7 @@ static void build_land_props(cw_node parent, const track *t) {
     n += scatter_area(ps, t, &o);
   }
   /* near: rocks, boulders and a little scrub over the plateau, the valley floors and the canyon */
-  {
+  if (!TER_REAL) {
     maskp mk = { LAKE_Y + 1.5f, 1e9f, 0.8f, 6 };
     scatter_opts o = scatter_defaults();
     o.kinds[0] = PK_ROCK, o.weight[0] = 3, o.kinds[1] = PK_BOULDERS, o.weight[1] = 1.2f, o.kinds[2] = PK_BUSH, o.weight[2] = 3, o.kinds[3] = PK_GRASS, o.weight[3] = 3,
@@ -1485,7 +1488,7 @@ static void build_land_props(cw_node parent, const track *t) {
     n += scatter_area(ps, t, &o);
   }
   /* along the road: bigger rocks and tufts a little out from the walls, where the eye passes them at speed */
-  {
+  if (!TER_REAL) {
     maskp mk = { LAKE_Y + 1.5f, 1e9f, 0.7f, 4 };
     scatter_opts o = scatter_defaults();
     o.kinds[0] = PK_ROCK, o.weight[0] = 3, o.kinds[1] = PK_BOULDERS, o.weight[1] = 1, o.kinds[2] = PK_BUSH, o.weight[2] = 2, o.kinds[3] = PK_GRASS, o.weight[3] = 3, o.nkinds = 4;
@@ -1522,7 +1525,7 @@ static void build_land_props(cw_node parent, const track *t) {
     n += scatter_along(ps, t, &o);
   }
   /* the climb: broken rock, scrub and cacti on both sides of the long ascent */
-  {
+  if (!TER_REAL) {
     maskp mk = { A.yfloor, 1e9f, 0.9f, 3 };
     scatter_opts o = scatter_defaults();
     o.kinds[0] = PK_BOULDERS, o.weight[0] = 2, o.kinds[1] = PK_ROCK, o.weight[1] = 3, o.kinds[2] = PK_CACTUS, o.weight[2] = 1.5f, o.kinds[3] = PK_DEAD_TREE, o.weight[3] = 1, o.kinds[4] = PK_BUSH, o.weight[4] = 3, o.nkinds = 5;
@@ -1600,7 +1603,7 @@ static void build_sky_life(cw_node parent) {
   t3_material *cm = phys(lin(0.97f, 0.96f, 0.93f), 1.0f, 0);
   cm->emissive = lin(0.55f, 0.62f, 0.8f);
   cm->emissive_intensity = 0.28f; /* the shaded belly keeps a cool sky glow */
-  for (int i = 0; i < NCLOUD; i++) {
+  for (int i = 0; i < NCLOUD && !TER_REAL; i++) { /* (no cartoon clouds over the real land) */
     uint32_t h = hash32((uint32_t)(i * 977 + 13));
     float size = 90.0f + 130.0f * hashf(h);
     t3_geometry *g = make_cloud(h, size);

@@ -1,0 +1,3 @@
+boulder_c.glb: Poly Haven "namaqualand_boulder_05" (https://polyhaven.com/a/namaqualand_boulder_05), a photoscanned rock with its textures.
+Licence: CC0 1.0 (public domain dedication), https://polyhaven.com/license
+Reduced for the game with games/racer/tools/rock-decimate.py (Blender): joined, decimated, origin at the middle of its base.
