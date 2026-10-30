@@ -263,6 +263,7 @@ typedef struct sim {
   int order[MAXK];         /* kart indices, first place first */
   int finished_count;
   int race_ticks;          /* ticks since the lights went out */
+  int shock_at;            /* race_ticks + 1 when a Shockwave last went off (0: none yet): boxes hold the next one back */
   int speed_class;         /* 0 Standard, 1 Fast, 2 Blazing (sim_set_class) */
   int item_set;            /* 0 every item, 1 turbos only (a party preset) */
   float class_top, class_acc; /* every kart's top speed and acceleration scale for the class (1 = Standard) */

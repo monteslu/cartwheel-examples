@@ -15,6 +15,7 @@ static struct {
   int gets[3][IT_KINDS];      /* item boxes by place third: front (1-2), middle (3-5), back (6-8) */
   int warns, shock_hits, shields, nearmiss, hits, spins, falls;
   int human_best, human_worst;
+  int h_walls, h_spins, h_falls, h_hits, h_slow, h_oil, h_kind[5]; /* the human's own: wall hits, spins, falls, hits taken, ticks crawling */
   int prev_item[MAXK], get_third[MAXK];
 } T;
 
@@ -39,6 +40,11 @@ void stats_events(const sim *s) {
     case EV_SPIN: T.spins++; break;
     case EV_FALL: T.falls++; break;
     }
+    if (v->a >= 0 && v->a < s->nkarts && s->k[v->a].human) {
+      T.h_walls += v->kind == EV_WALL, T.h_spins += v->kind == EV_SPIN, T.h_falls += v->kind == EV_FALL, T.h_hits += v->kind == EV_HIT;
+      T.h_oil += v->kind == EV_SPIN && (int)v->k == SPIN_OIL;
+      if (v->kind == EV_SPIN && (int)v->k >= 0 && (int)v->k < 5) T.h_kind[(int)v->k]++;
+    }
   }
   if (s->phase != PH_RACE && s->phase != PH_DONE) return;
   /* the item is rolled after the box (item_wait): count it by the place the kart was in when it took the box */
@@ -48,6 +54,8 @@ void stats_events(const sim *s) {
     T.prev_item[i] = it;
   }
   if (s->race_ticks > 60 && s->order[0] != T.leader) T.lead_changes += T.leader >= 0, T.leader = s->order[0];
+  for (int i = 0; i < s->nkarts; i++)
+    if (s->k[i].human && s->race_ticks > 300 && !s->k[i].finished && v3len(s->k[i].v) < 0.5f * VEH[s->k[i].veh].top) T.h_slow++;
   for (int i = 0; i < s->nkarts; i++)
     if (s->k[i].human && s->race_ticks > 300 && !s->k[i].finished) {
       if (s->k[i].place < T.human_best) T.human_best = s->k[i].place;
@@ -82,11 +90,11 @@ void stats_events(const sim *s) {
           "[stats] map %d laps %d finished %d | lead changes %d, overtakes %d (human %d) | human place %d (best %d worst %d) | "
           "spread 1st-2nd %.2f s, 1st-last %.2f s | boosts drift %d trick %d pad %d draft %d nearmiss %d start %d item %d | "
           "shock warns %d shock hits %d shields %d hits %d spins %d falls %d shortcuts %d | "
-          "items front %s mid %s back %s\n",
+          "items front %s mid %s back %s | human walls %d spins %d (oil %d hit %d boom %d shock %d) falls %d hits %d slow %.1f s\n",
           s->map, s->laps, nfin, T.lead_changes, T.overtakes, T.human_overtakes, human_place, T.human_best, T.human_worst,
           nfin > 1 ? (second - first) / 60.0 : 0.0, nfin > 1 ? (last - first) / 60.0 : 0.0, T.boosts[2], T.boosts[4], T.boosts[0], T.boosts[5], T.boosts[6],
           T.boosts[3], T.boosts[1], T.warns, T.shock_hits, T.shields, T.hits, T.spins, T.falls, cuts, items[0], items[1],
-          items[2]);
+          items[2], T.h_walls, T.h_spins, T.h_oil, T.h_kind[SPIN_HIT], T.h_kind[SPIN_BOOM], T.h_kind[SPIN_SHOCK], T.h_falls, T.h_hits, T.h_slow / 60.0);
 }
 
 /* dev aid RACER_BUMPLOG=1: a kart that loses more than 8 m/s in a tenth of a second with nothing to show for it (no wall,

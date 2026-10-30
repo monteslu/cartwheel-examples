@@ -57,6 +57,7 @@ const char *const ITEM_NAME[IT_KINDS] = { "-", "Turbo", "Triple Turbo", "Missile
 #define BOOST_TURBO 126 /* ticks */
 #define HIT_SPIN 70
 #define OIL_SPIN 60
+#define SHOCK_GAP (25 * TICK_HZ) /* no Shockwave from a box this long after one went off */
 #define BOOM_SPIN 85
 #define SHOCK_SPIN 80
 #define SHOCK_WARN 78 /* ticks between the alarm and the wave: a quick hop on the drift button clears it */
@@ -809,6 +810,13 @@ static int roll_item(sim *s, int place, float gap_m, bool final_lap) {
     if (s->item_set == 1 && i != IT_TURBO && i != IT_TURBO3) w[i] = 0;
     /* the last lap is decided by driving more than by a Shockwave from the back */
     if (final_lap && i == IT_SHOCK) w[i] /= 3;
+    /* one Shockwave at a time, and none for 25 s after one went off: every one spins everyone ahead, so a leader who
+     * missed a hop was spun five times a race (the keyboard-driven bot on Salt Flats: 5 of its 6 spins) */
+    if (i == IT_SHOCK) {
+      bool held = false;
+      for (int j = 0; j < MAXK; j++) held |= s->k[j].on && s->k[j].item == IT_SHOCK;
+      if (held || (s->shock_at && s->race_ticks - (s->shock_at - 1) < SHOCK_GAP)) w[i] = 0;
+    }
     total += w[i];
   }
   if (total <= 0) return IT_TURBO;
@@ -909,6 +917,7 @@ static void use_item(sim *s, int i) {
   case IT_MINE: hz_add(s, HZ_MINE, i, il.s - 3.0f, il.lat, 0.5f); break;
   case IT_SHIELD: k->shield_ticks = 8 * TICK_HZ; break;
   case IT_SHOCK:
+    s->shock_at = s->race_ticks + 1;
     for (int j = 0; j < MAXK; j++) {
       if (j == i || !s->k[j].on) continue;
       if (s->k[j].place < k->place && s->k[j].shock_warn == 0) {
