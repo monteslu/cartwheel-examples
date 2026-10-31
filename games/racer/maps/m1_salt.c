@@ -926,17 +926,25 @@ static void salt_stack(pm *b, float H, float R, uint32_t seed) {
   pcol foot = pc_mix(hex(0x6e3628), hex(0x4e2820), hashf_(seed + 90)), mid = pc_mix(C_SALT, hex(0xd98a74), 0.62f);
   pcol top = pc_mul(hex(0xffd59a), 1.12f);
   int drums = H > 15.0f ? 3 : 2;
+  bool real = !getenv("RACER_CARTOON");
+  /* the realistic pan: weathered rock in buff and grey under its texture, broken into more, rougher drums */
+  if (real) {
+    foot = pc_mix(hex(0x5c4a3e), hex(0x4a3c34), hashf_(seed + 90)), mid = hex(0x9a8878), top = hex(0xb8a896);
+    drums = H > 15.0f ? 6 : 4;
+    pm_jitter(b, 0.42f);
+  }
   float y = -1.2f, r = R;
   pm_push(b);
   pm_rotz(b, (hashf_(seed) - 0.5f) * 0.16f);
   pm_rotx(b, (hashf_(seed + 1) - 0.5f) * 0.16f);
   for (int d = 0; d < drums; d++) {
     float h = (H + 1.2f) * (d == 0 ? 0.5f : d == 1 ? (drums == 2 ? 0.5f : 0.32f) : 0.18f);
+    if (real) h = (H + 1.2f) / (float)drums * (0.8f + 0.4f * hashf_(seed + 13u * (uint32_t)d));
     float r1 = r * (0.72f + 0.12f * hashf_(seed + 7u * (uint32_t)d));
     pm_push(b);
     pm_move(b, (hashf_(seed + 3u * (uint32_t)d) - 0.5f) * r * 0.25f, y, (hashf_(seed + 5u * (uint32_t)d) - 0.5f) * r * 0.25f);
     pm_roty(b, hashf_(seed + 11u * (uint32_t)d) * 6.28f);
-    pm_cyl(b, r, r1, h, 7, d == 0 ? foot : mid, d + 1 == drums ? top : d == 0 ? pc_mix(foot, mid, 0.35f) : mid);
+    pm_cyl(b, r, r1, h, real ? 12 : 7, d == 0 ? foot : mid, d + 1 == drums ? top : d == 0 ? pc_mix(foot, mid, 0.35f) : mid);
     pm_pop(b);
     /* a ledge of crust where one drum sits on the next */
     if (d + 1 < drums) {
@@ -950,7 +958,7 @@ static void salt_stack(pm *b, float H, float R, uint32_t seed) {
   pm_pop(b);
   pm_jitter(b, 0.0f);
   /* crystal blades and a heaved ring of crust at the foot */
-  for (int i = 0; i < 6; i++) {
+  for (int i = 0; i < (real ? 0 : 6); i++) {
     float a = 6.2832f * ((float)i + hashf_(seed + 20u + (uint32_t)i)) / 6.0f, d = R * (1.05f + 0.35f * hashf_(seed + 30u + (uint32_t)i));
     float h = R * (0.6f + 0.9f * hashf_(seed + 40u + (uint32_t)i));
     pm_push(b);
@@ -2112,6 +2120,7 @@ static bool clear_spot(const track *t, float s, float lat, float r, float clear,
 static void salt_pan_tall(cw_node root, const track *t) {
   float hw = t->s[0].hw;
   pmc *c = pmc_new(320.0f, 8800u);
+  pmc *rocks = getenv("RACER_CARTOON") ? c : pmc_new(320.0f, 8801u);
   int placed = 0;
   /* the airship, on the inside of the long bends, lying roughly along the road so its whole length shows */
   {
@@ -2169,7 +2178,7 @@ static void salt_pan_tall(cw_node root, const track *t) {
       float R = 1.8f + 0.11f * H * (0.7f + 0.6f * hashf_(h + 1));
       float a = hashf_(h + 2) * 6.28f, d = k == 0 ? 0.0f : 6.0f + 4.0f * hashf_(h + 3);
       t3_vec3 q = on_ground(p.x + cosf(a) * d, p.z + sinf(a) * d, 0);
-      pm *b = pmc_at(c, q);
+      pm *b = pmc_at(rocks, q);
       pm_push(b);
       pm_move(b, q.x, q.y, q.z);
       salt_stack(b, H, R, h);
@@ -2178,6 +2187,7 @@ static void salt_pan_tall(cw_node root, const track *t) {
     }
   }
   pmc_finish(c, root, "PanTall", true, -1);
+  if (rocks != c) pmc_finish(rocks, root, "PanRocks", true, TEX_GROUND_ROCK);
   cw_info("salt: %d tall pieces on the pan", placed);
 }
 
