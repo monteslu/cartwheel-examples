@@ -33,7 +33,7 @@ background = color(0.35, 0.55, 0.9, 1)
 ambient_color = color(0.62, 0.74, 0.95, 1)
 ambient_energy = 0.06
 sky_color = color(0.52, 0.68, 0.98, 1)
-ground_color = color(0.62, 0.36, 0.2, 1)
+ground_color = color(0.62, 0.52, 0.46, 1)
 hemi_energy = 0.8
 
 [node name="Fog" parent="." type="HeightFog"]

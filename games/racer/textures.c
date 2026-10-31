@@ -236,7 +236,10 @@ static void g_road_concrete(float u, float v, texel *t) {
   if (ph) {
     float pr, pg, pb;
     photo_at(ph, x, y, 4.0f, &pr, &pg, &pb, &phh);
-    float k = (1.18f + 0.14f * tint) * (1 - (stain + tracks + crack * 0.2f) * 1.4f); /* (the photo is darker than sunlit slabs) */
+    /* mostly grey: the photo's brown read as chocolate in a warm sun beside properly grey walls */
+    float grey = 0.3f * pr + 0.59f * pg + 0.11f * pb;
+    pr += (grey - pr) * 0.75f, pg += (grey - pg) * 0.75f, pb += (grey - pb) * 0.75f;
+    float k = (1.55f + 0.14f * tint) * (1 - (stain + tracks + crack * 0.2f) * 1.4f); /* (the photo is darker than sunlit slabs) */
     rgb(t, pr * k, pg * k, pb * k);
   }
   mixc(t, 0.14f, 0.14f, 0.13f, joint * 0.85f);
