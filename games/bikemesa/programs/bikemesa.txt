@@ -95,3 +95,10 @@ basic+vcol
 
 basic+instbig
 basic+map+vcol
+standard+map+rep+nearest+nmap+rmap+mmap+shadow+senv+ds+c1map+c1rmap+c1mmap+l1001
+physical+map+rep+shadow+senv+ds+l1001
+physical+shadow+senv+ds+l1001
+physical+map+rep+nmap+shadow+senv+ds+l1001
+physical+map+rep+nearest+rmap+mmap+shadow+senv+bs+transm+l1001
+physical+map+rep+nearest+rmap+mmap+shadow+senv+transm+l1001
+physical+shadow+senv+bs+transm+l1001

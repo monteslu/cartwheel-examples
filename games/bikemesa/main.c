@@ -1343,6 +1343,7 @@ static void init(void *u) {
   ground_setting = cw_quality_lever_add("Distant ground", GROUND_DETAIL, 2, (const uint8_t[CW_QUALITY_COUNT]){ 0, 0, 1, 1 });
   cw_quality_on_change(quality_changed, NULL);
   /* the player's graphics settings, if they chose any; else Auto */
+  cw_quality_full_resolution(true); /* Auto gives up detail, never pixels */
   cw_quality_restore(QUALITY_SAVE);
   cw_quality_auto(true, 0);
   /* Native benchmark runs must not inherit a save or adapt mid-measurement. */

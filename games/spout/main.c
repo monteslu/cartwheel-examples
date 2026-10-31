@@ -298,6 +298,7 @@ static void sync_hook(cw_tree *t, double alpha, void *u);
 static void init(void *u) {
   (void)u;
   save_check();
+  cw_quality_full_resolution(true); /* Auto gives up detail, never pixels */
   cw_quality_restore(gfx_saved()); /* the player's graphics settings, if they chose any; else Auto */
   cw_quality_auto(true, 0);
   if (!cw_input_load_bindings_asset("input.cfg")) cw_warn("spout: input.cfg had errors");
