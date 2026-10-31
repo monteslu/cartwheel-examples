@@ -383,3 +383,6 @@ terrain/roads/metal_albedo.png
 terrain/roads/metal_normal.png
 terrain/roads/dirt_albedo.png
 terrain/roads/dirt_normal.png
+models/plants/calathea0.glb
+models/plants/calathea1.glb
+models/plants/palm.glb

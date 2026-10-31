@@ -222,6 +222,9 @@ void world_build(cw_node scene, const sim *s, const map_def *map) {
   if (game_planned_views() > 2) {
     cw_node fog = cw_node_get(scene, "Fog");
     if (cw_node_valid(fog)) cw_node_set(fog, "volumetric", cw_val_bool(false));
+    /* no ambient occlusion, and so no depth prepass to feed it: that pass doubles the draws (as split screen, main.c) */
+    cw_node post = cw_node_get(scene, "Post");
+    if (cw_node_valid(post)) cw_node_set(post, "ssao", cw_val_bool(false)), cw_node_set(post, "depth_prepass", cw_val_bool(false));
   }
   {
     /* dev aid: RACER_LIST=1 logs the scene's nodes (to a depth of three) with their child counts; RACER_HIDE=text hides the nodes whose name contains it (draw-call attribution) */

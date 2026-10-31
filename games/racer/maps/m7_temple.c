@@ -982,16 +982,19 @@ static void build_land(cw_node scene, const track *t) {
   static const float UV[8] = { 0.2f, 0.18f, 0.12f, 0.15f, 0.06f, 0.06f, 0.14f, 0.3f };
   for (int i = 0; i < 8; i++) d.names[i] = NM[i], d.uv[i] = UV[i];
   bool split = NV > 1;
-  d.quality = getenv("RACER_TERQ") ? atoi(getenv("RACER_TERQ")) : split ? 1 : 2;
+  d.quality = getenv("RACER_TERQ") ? atoi(getenv("RACER_TERQ")) : split ? 1 : -1;
   d.far = split ? 500.0f : 900.0f;
   LAND = land_build(scene, &d);
   const uint32_t FLOOR = (1u << JL_SOIL) | (1u << JL_LITTER) | (1u << JL_MOSS) | (1u << JL_GRASS) | (1u << JL_WET);
   /* (a jungle hides its far trees behind its near ones: canopy to 220 m and mid-storey to 140 cost 13 ms less than to
    * 420 and 280) */
-  float tr = split ? 110.0f : 220.0f;
+  float tr = split ? 110.0f : 170.0f;
   /* a closed canopy: emergents over a mid-storey; ferns and anthurium below, thick at the verges */
-  land_scatter(LAND, &(land_layer){ "Canopy", "models/trees/canopy.glb", split ? 0.002f : 0.003f, FLOOR, 30, 0.8f, 1.25f, false, 0, tr, 50, 60, !split, false, 51 });
-  land_scatter(LAND, &(land_layer){ "Broadleaf", "models/trees/broadleaf.glb", split ? 0.003f : 0.007f, FLOOR, 32, 0.8f, 1.3f, false, 0, split ? 60.0f : 140.0f, 40, 45, !split, false, 52 });
+  land_scatter(LAND, &(land_layer){ "Canopy", "models/trees/canopy.glb", split ? 0.0015f : 0.002f, FLOOR, 30, 0.8f, 1.25f, false, 0, tr, 50, 60, !split, false, 51 });
+  land_scatter(LAND, &(land_layer){ "Broadleaf", "models/trees/broadleaf.glb", split ? 0.002f : 0.004f, FLOOR, 32, 0.8f, 1.3f, false, 0, split ? 60.0f : 140.0f, 40, 45, !split, false, 52 });
+  land_scatter(LAND, &(land_layer){ "Palm", "models/plants/palm.glb", split ? 0.0012f : 0.003f, FLOOR, 25, 0.75f, 1.3f, false, 0, tr, 50, 70, !split, false, 56 });
+  land_scatter(LAND, &(land_layer){ "GiantLeafA", "models/plants/calathea0.glb", split ? 0.006f : 0.02f, FLOOR, 35, 3.5f, 6.0f, true, 0.05f, split ? 35.0f : 60.0f, 12, 25, false, true, 57 });
+  land_scatter(LAND, &(land_layer){ "GiantLeafB", "models/plants/calathea1.glb", split ? 0.0f : 0.015f, FLOOR, 35, 4.0f, 7.0f, true, 0.05f, 50.0f, 10, 25, false, true, 58 });
   land_scatter(LAND, &(land_layer){ "FernA", "models/plants/fern0.glb", split ? 0.04f : 0.16f, FLOOR, 35, 1.8f, 3.0f, true, 0.05f, split ? 35.0f : 60.0f, 12, 25, false, true, 53 });
   land_scatter(LAND, &(land_layer){ "FernB", "models/plants/fern1.glb", split ? 0.03f : 0.12f, FLOOR, 35, 1.8f, 3.2f, true, 0.05f, split ? 35.0f : 60.0f, 12, 25, false, true, 54 });
   land_scatter(LAND, &(land_layer){ "Anthurium", "models/plants/anthurium0.glb", split ? 0.0f : 0.04f, FLOOR, 30, 1.4f, 2.4f, true, 0.05f, split ? 30.0f : 50.0f, 10, 25, false, true, 55 });

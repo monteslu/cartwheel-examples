@@ -2664,7 +2664,7 @@ static void rf_land(cw_node root, const track *t) {
   static const char *const NM[8] = { "0_earth", "1_stony", "2_scree", "3_gravel", "4_cracked", "5_burnt", "6_rock", "7_pad" };
   static const float UV[8] = { 0.12f, 0.14f, 0.12f, 0.3f, 0.08f, 0.1f, 0.04f, 0.1f };
   for (int i = 0; i < 8; i++) d.names[i] = NM[i], d.uv[i] = UV[i];
-  d.quality = getenv("RACER_TERQ") ? atoi(getenv("RACER_TERQ")) : NV > 1 ? 1 : 2;
+  d.quality = getenv("RACER_TERQ") ? atoi(getenv("RACER_TERQ")) : NV > 1 ? 1 : -1;
   d.far = NV > 1 ? 600.0f : 1000.0f;
   cw_node n = land_build(root, &d);
   const uint32_t WASTE = (1u << RL_EARTH) | (1u << RL_STONY) | (1u << RL_SCREE) | (1u << RL_CRACKED);

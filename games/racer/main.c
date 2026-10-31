@@ -124,7 +124,14 @@ static cw_node find_type(cw_node n, const char *type) {
 bool game_loaded(void) { return G.have_track; }
 const sim *game_sim(void) { return &G.S; }
 int game_views(void) { return G.nviews; }
-int game_planned_views(void) { return G.setup.humans < 1 ? 1 : G.setup.humans > MAXV ? MAXV : G.setup.humans; }
+/* The views the scenery is built for. Below High the graphics settings ask for what three or four views get whatever the
+ * number of views: shorter ranges, fewer trees, no tree shadows, no planar water. A Vega 8 at High spent 11-20 ms a frame
+ * of its one main thread just issuing draws. Auto's level is saved, so a weak machine builds its races thin from then on. */
+int game_planned_views(void) {
+  int n = G.setup.humans < 1 ? 1 : G.setup.humans > MAXV ? MAXV : G.setup.humans;
+  if (n < 3 && (getenv("RACER_THIN") || cw_quality_get() < CW_QUALITY_HIGH)) n = 3;
+  return n;
+}
 int game_view_player(int v) { return G.pl[v]; }
 void game_set_camera(int mode) {
   if (mode == 2 && G.nviews > 1) {
@@ -948,10 +955,18 @@ static void render(void *u, double alpha) {
   cw_r2d_end();
 }
 
+/* what Auto chose, in the log: a host with no debug channel (a libretro core) still shows it */
+static void quality_changed(cw_quality q, void *user) {
+  (void)q, (void)user;
+  cw_info("racer: graphics %s (%s), %s, Auto's cost %.1f ms", cw_quality_label(), cw_quality_is_auto() ? "auto" : "chosen", cw_render_res_label(), cw_quality_auto_cost());
+}
+
 static void init(void *u) {
   (void)u;
+  cw_quality_full_resolution(true); /* the racer draws at the output's size: Auto gives up detail, never pixels */
+  cw_quality_on_change(quality_changed, NULL);
   cw_quality_restore(0);
-  cw_quality_auto(true, 0);
+  cw_quality_auto(true, 17.5f); /* a steady 60: the default budget, 19 ms, sat happily at 53 fps on a Vega 8 */
   if (!cw_input_load_bindings_asset("input.cfg")) cw_warn("racer: input.cfg had errors (see above)");
   cw_input_commit_defaults();
   G.a_fwd = cw_action_find("thr_fwd");

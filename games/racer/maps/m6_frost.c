@@ -1519,7 +1519,7 @@ static void build_land(cw_node root, const track *t) {
   static const float UV[8] = { 0.1f, 0.06f, 0.2f, 0.04f, 0.04f, 0.08f, 0.05f, 0.12f };
   for (int i = 0; i < 8; i++) d.names[i] = NM[i], d.uv[i] = UV[i];
   bool split = game_planned_views() > 1;
-  d.quality = getenv("RACER_TERQ") ? atoi(getenv("RACER_TERQ")) : split ? 1 : 2;
+  d.quality = getenv("RACER_TERQ") ? atoi(getenv("RACER_TERQ")) : split ? 1 : -1;
   d.far = split ? 600.0f : 1000.0f;
   LAND = land_build(root, &d);
   float tr = split ? 260.0f : 480.0f;

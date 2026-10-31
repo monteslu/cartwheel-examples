@@ -755,7 +755,7 @@ void ui_init(void) {
 
   save_check();
   cw_quality_restore(gfx_saved()); /* the player's graphics settings if they chose any; else Auto */
-  cw_quality_auto(true, 0);
+  cw_quality_auto(true, 17.5f); /* a steady 60: the default budget, 19 ms, sat happily at 53 fps on a Vega 8 */
   U.laps = SAVE.laps, U.skill = SAVE.skill, U.items = SAVE.items, U.map = SAVE.map;
   if (getenv("RACER_UI_ITEMS")) U.items = atoi(getenv("RACER_UI_ITEMS")) % 3; /* dev aid: the item-box setting the screens show */
   U.cls = SAVE.speed_class, U.assist = SAVE.assist, U.ghost_on = SAVE.ghost_on, U.cup_sel = SAVE.cup_pick;

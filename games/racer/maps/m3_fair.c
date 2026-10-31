@@ -2319,7 +2319,7 @@ static void fa_land(cw_node root, const track *t) {
   static const char *const NM[8] = { "0_grass", "1_dry", "2_path", "3_dirt", "4_leaf", "5_rock", "6_gravel", "7_sand" };
   static const float UV[8] = { 0.1f, 0.1f, 0.14f, 0.16f, 0.14f, 0.05f, 0.3f, 0.12f };
   for (int i = 0; i < 8; i++) d.names[i] = NM[i], d.uv[i] = UV[i];
-  d.quality = getenv("RACER_TERQ") ? atoi(getenv("RACER_TERQ")) : THIN ? 1 : 2;
+  d.quality = getenv("RACER_TERQ") ? atoi(getenv("RACER_TERQ")) : THIN ? 1 : -1;
   d.far = THIN ? 600.0f : 1000.0f;
   cw_node n = land_build(root, &d);
   const uint32_t OPEN = (1u << FA_GRASS) | (1u << FA_DRY) | (1u << FA_LEAF) | (1u << FA_SAND);

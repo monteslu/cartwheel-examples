@@ -1498,7 +1498,7 @@ static void build_land(cw_node root) {
   static const char *const NM[8] = { "0_crust", "1_salt", "2_plateau", "3_fan", "4_rock", "5_rock2", "6_scarp", "7_gravel" };
   static const float UV[8] = { 0.07f, 0.12f, 0.14f, 0.12f, 0.03f, 0.04f, 0.05f, 0.3f };
   for (int i = 0; i < 8; i++) d.names[i] = NM[i], d.uv[i] = UV[i];
-  d.quality = getenv("RACER_TERQ") ? atoi(getenv("RACER_TERQ")) : SPLIT ? 1 : 2;
+  d.quality = getenv("RACER_TERQ") ? atoi(getenv("RACER_TERQ")) : SPLIT ? 1 : -1;
   d.far = SPLIT ? 600.0f : 1100.0f;
   LAND = land_build(root, &d);
   float tr = SPLIT ? 260.0f : 480.0f;
