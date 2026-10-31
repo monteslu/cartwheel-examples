@@ -784,6 +784,9 @@ static void fixed(void *u, double dt) {
     for (int v = 0; v < G.nviews; v++) eyes[v] = cw_node_valid(G.rig[v].cam) ? cw_node3d_global_position(G.rig[v].cam) : G.rig[v].cam_eye;
     audio_tick(&G.S, eyes, G.nviews);
     trace();
+    /* the log's marks round the racing itself (a host with no debug channel still shows them) */
+    if (G.S.phase == PH_RACE && G.S.race_ticks == 1) cw_info("racer: green light");
+    if (G.S.phase == PH_DONE && G.S.phase_ticks == 1) cw_info("racer: race over after %.1f s", (double)G.S.race_ticks / 60.0);
     if (G.S.phase == PH_DONE && G.S.phase_ticks == 1) ui_race_over();
   }
   camera_tick();

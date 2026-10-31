@@ -6,6 +6,7 @@
 
 #include "cartwheel/base.h"
 #include "cartwheel/debug.h"
+#include "cartwheel/quality.h"
 #include "cartwheel/terrain.h"
 #include "land.h"
 
@@ -37,7 +38,8 @@ cw_node land_build(cw_node parent, const land_def *d) {
   cw_node_set(node, "region_size", cw_val_int(64));
   cw_node_set(node, "min_height", cw_val_float(lo));
   cw_node_set(node, "max_height", cw_val_float(hi));
-  cw_node_set(node, "far_distance", cw_val_float(d->far));
+  /* Low: the macro colour from 40 m (0.5-1 ms of the 890M's scene pass, no change seen from the race camera) */
+  cw_node_set(node, "far_distance", cw_val_float(cw_quality_get() == CW_QUALITY_LOW ? 40.0f : d->far));
   cw_node_set(node, "physics", cw_val_bool(false));
   cw_node_set(node, "quality", cw_val_int(d->quality));
   for (int i = 0; i < 8; i++) {

@@ -10,7 +10,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "cartwheel/base.h"
+#include "cartwheel/quality.h"
+#include "cartwheel//base.h"
 #include "cartwheel/math.h"
 #include "cartwheel/debug.h"
 #include "cartwheel/resource.h"
@@ -695,7 +696,7 @@ static void build_terrain(cw_node parent) {
   cw_node_set(n, "region_size", cw_val_int(64));
   cw_node_set(n, "min_height", cw_val_float(lo));
   cw_node_set(n, "max_height", cw_val_float(hi));
-  cw_node_set(n, "far_distance", cw_val_float(PV > 1 ? 350.0f : 600.0f));
+  cw_node_set(n, "far_distance", cw_val_float(cw_quality_get() == CW_QUALITY_LOW ? 40.0f : PV > 1 ? 350.0f : 600.0f));
   cw_node_set(n, "physics", cw_val_bool(false));
   /* The graphics settings alone (High: its blended transitions; Auto lowers it on a weak GPU), Medium in split screen: four views of canyon walls at High took 10 ms of GPU on
    * the 890M, at Medium 8 (cartwheel-engine v0.24.2) */
