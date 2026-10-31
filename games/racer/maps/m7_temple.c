@@ -2777,8 +2777,8 @@ const map_def map_temple = {
   .scene = "scenes/temple.cwscene",
   .spec = &(track_spec){ .name = "temple", .pieces = SPEC, .npieces = sizeof SPEC / sizeof SPEC[0], .hw0 = 6.5f, .circuit = true },
   .mesh = { .wall_h = { 0, 0.9f, 1.6f, 3.2f }, .curb_w = 0.9f, .tile_v = 8.0f, .tunnel_clear = 8.0f },
-  .look = { .road = { 0.55f, 0.55f, 0.5f }, .kerb_a = { 0.85f, 0.14f, 0.1f }, .kerb_b = { 0.95f, 0.72f, 0.2f }, .wall = { 0.62f, 0.66f, 0.5f },
-            .wall_top = { 0.8f, 0.78f, 0.6f }, .road_rough = 0.8f, .road_tex = TEX_ROAD_STONE, .wall_tex = TEX_WALL_STONE },
+  .look = { .road = { 0.55f, 0.55f, 0.5f }, .kerb_a = { 0.85f, 0.14f, 0.1f }, .kerb_b = { 0.95f, 0.72f, 0.2f }, .wall = { 0.74f, 0.7f, 0.62f },
+            .wall_top = { 0.86f, 0.82f, 0.72f }, .road_rough = 0.8f, .road_tex = TEX_ROAD_STONE, .wall_tex = TEX_WALL_STONE },
   .laps = 3,
   .par_lap = 60,
 #ifndef MAPFILE

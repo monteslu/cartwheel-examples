@@ -119,6 +119,7 @@ static const photo *photo_get(const char *path) {
   return NULL;
 }
 /* albedo (sRGB 0..1) and height at (x, y) metres, `tile` metres a repeat */
+bool tex_photo_at(const char *path, float x, float y, float tile, float *r, float *g, float *b, float *height);
 static void photo_at(const photo *p, float x, float y, float tile, float *r, float *g, float *b, float *h) {
   float fx = fractf(x / tile) * (float)p->w - 0.5f, fy = fractf(y / tile) * (float)p->h - 0.5f;
   int x0 = (int)floorf(fx), y0 = (int)floorf(fy);
@@ -149,6 +150,12 @@ static float lane_paint(float u, float v, float wear, uint32_t seed) {
 
 /* worn asphalt: grit, two polished wheel lines, hairline cracks, tar patches, chipped paint.
  * wet 0 dry .. 1 soaked: darker, glossy, with mirror puddles */
+bool tex_photo_at(const char *path, float x, float y, float tile, float *r, float *g, float *b, float *height) {
+  const photo *ph = photo_get(path);
+  if (ph) photo_at(ph, x, y, tile, r, g, b, height);
+  return ph != NULL;
+}
+
 /* a building's wall: the photographed weathered concrete, neutral enough for the vertex colours to tint it */
 static void g_wall_facade(float u, float v, texel *t) {
   const photo *ph = photo_get("terrain/roads/facade_albedo.png");

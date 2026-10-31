@@ -370,7 +370,7 @@ static void build_aurora(cw_node parent) {
   static const float R[NCURT] = { 1250, 1500, 1200, 1450, 1350 }, H0[NCURT] = { 330, 420, 290, 380, 350 }, HH[NCURT] = { 520, 600, 480, 560, 540 };
   for (int k = 0; k < NCURT; k++) {
     curtain *c = &SKY.c[k];
-    c->nu = 72, c->nv = 6;
+    c->nu = 96, c->nv = 10;
     c->a0 = A0[k], c->a1 = A0[k] + SPAN[k], c->R = R[k], c->h0 = H0[k], c->H = HH[k];
     c->phase = (float)k * 1.7f, c->speed = 0.7f + 0.18f * (float)k, c->hue = (float)k / (float)NCURT;
     int nv = (c->nu + 1) * (c->nv + 1);
@@ -415,8 +415,10 @@ static void aurora_update(curtain *c, float t) {
     float r = c->R + bend;
     float x = SKY.cx + cosf(a) * r, z = SKY.cz + sinf(a) * r;
     /* rays: narrow bright columns that come and go */
-    float ray = 0.5f + 0.5f * sinf(u * 83.0f + t * 0.8f * c->speed + sinf(u * 7.0f + t * 0.3f) * 2.0f);
-    ray = 0.25f + 0.75f * ray * ray;
+    float ray = 0.5f + 0.5f * sinf(u * 83.0f + t * 0.8f * c->speed + sinf(u * 7.0f + t * 0.3f) * 4.0f);
+    float ray2 = 0.5f + 0.5f * sinf(u * 31.7f - t * 0.5f * c->speed + sinf(u * 11.0f - t * 0.2f + c->phase) * 3.0f);
+    ray = 0.3f + 0.7f * (0.55f * ray * ray + 0.45f * ray2 * ray2);
+    float hem = 45.0f * sinf(u * 19.0f + t * 0.17f + c->phase) + 20.0f * sinf(u * 47.0f - t * 0.31f);
     float flick = 0.7f + 0.3f * sinf(u * 41.0f - t * 1.9f + c->phase);
     float body = 0.5f + 0.5f * sinf(u * 3.1f + t * 0.06f + c->phase * 2.3f);
     float lean = 70.0f * sinf(t * 0.13f * c->speed + u * 2.0f + c->phase);
@@ -424,12 +426,13 @@ static void aurora_update(curtain *c, float t) {
     for (int j = 0; j <= c->nv; j++) {
       float v = (float)j / (float)c->nv;
       int k = (j * (c->nu + 1) + i) * 3;
-      float hgt = c->h0 + c->H * powf(v, 1.15f);
+      float hgt = c->h0 + c->H * powf(v, 1.15f) + hem * (1.0f - v);
       float ox = lean * v * cosf(a + 1.57f), oz = lean * v * sinf(a + 1.57f);
       P[k] = x + ox, P[k + 1] = hgt, P[k + 2] = z + oz;
-      /* brightness: a sharp lower edge and a long fade up */
-      float edge = cw_smoothstep(0.0f, 0.12f, v) * expf(-v * 2.0f) * (1.0f + 1.8f * expf(-v * 22.0f)) * (1.0f - cw_smoothstep(0.55f, 1.0f, v));
-      float I = edge * ray * flick * (0.25f + 0.85f * body) * surge;
+      /* brightness: a soft lower hem and a long fade up */
+      float edge = cw_smoothstep(0.0f, 0.28f, v) * expf(-v * 1.8f) * (1.0f - cw_smoothstep(0.5f, 1.0f, v));
+      /* (the ends of a curtain fade out: a hard stop read as a cut in the sky) */
+      float I = edge * ray * flick * (0.25f + 0.85f * body) * surge * cw_smoothstep(0.0f, 0.14f, u) * (1.0f - cw_smoothstep(0.86f, 1.0f, u));
       float m = cw_clampf(cw_smoothstep(0.1f, 0.95f, v) + (hue_shift - 0.5f) * 0.45f + (c->hue - 0.5f) * 0.2f, 0, 1);
       /* green (0.12, 1, 0.4) up through teal (0.1, 0.85, 0.8) to violet (0.55, 0.3, 1) */
       float r0 = 0.12f + 0.45f * m * m, g0 = 1.0f - 0.2f * m - 0.55f * m * m, b0 = 0.4f + 0.6f * m;
@@ -522,7 +525,7 @@ static uint8_t q8(float x) { return (uint8_t)(cw_clampf(x, 0, 1) * 255.0f + 0.5f
 /* trodden snow: soft drifts, two tyre ruts packed hard and blue, a polished middle, wind ripples along the road
  * and a few glints. u runs across the road (one repeat), v along it (one repeat per 8 m). */
 static void make_snow_road(t3_texture **map, t3_texture **nrm, t3_texture **rgh) {
-  const int W = 512, H = 256;
+  const int W = 1024, H = 512;
   uint8_t *a = malloc((size_t)W * H * 4), *n = malloc((size_t)W * H * 4), *r = malloc((size_t)W * H * 4);
   float *ht = malloc(sizeof(float) * (size_t)W * H);
   for (int y = 0; y < H; y++)
@@ -533,20 +536,26 @@ static void make_snow_road(t3_texture **map, t3_texture **nrm, t3_texture **rgh)
       float fine = hashf2(x, y, 3);
       float rut = 0;
       for (int k = 0; k < 2; k++) {
-        float c = k ? 0.73f : 0.27f, d = (u - c) / 0.05f;
+        float c = k ? 0.7f : 0.3f, d;
         float wob = 0.012f * sinf(v * TAU_F * 2.0f + (float)k * 2.0f);
-        d = (u - c - wob) / 0.05f;
+        d = (u - c - wob) / 0.032f;
         rut += expf(-d * d);
       }
       rut = cw_clampf(rut, 0, 1) * (0.7f + 0.3f * fwrap(u, v, 8, 4, 2, 21));
       float centre = expf(-powf((u - 0.5f) / 0.1f, 2.0f));
       float edge = cw_smoothstep(0.1f, 0.0f, u) + cw_smoothstep(0.9f, 1.0f, u);
       float tread = 0.5f + 0.5f * sinf(v * TAU_F * 16.0f + u * 40.0f);
-      float h = 0.5f + 0.18f * (drift - 0.5f) + 0.07f * (ripple - 0.5f) - 0.3f * rut - 0.04f * rut * tread + 0.1f * edge;
-      float k = 0.9f + 0.14f * (drift - 0.5f) + 0.05f * (ripple - 0.5f);
+      /* many tyres' thin tracks along the road, the photographed snow under it all (4 m a repeat wraps with the texture) */
+      float marks = cw_smoothstep(0.52f, 0.72f, fwrap(u, v, 90, 2, 3, 31));
+      float pr = 0.8f, pg = 0.83f, pb = 0.88f, ph = 0.5f;
+      tex_photo_at("terrain/frost/2_packed_albedo.png", u * 16.0f, v * 8.0f, 4.0f, &pr, &pg, &pb, &ph);
+      float h = 0.5f + 0.18f * (drift - 0.5f) + 0.07f * (ripple - 0.5f) + 0.5f * (ph - 0.5f) - 0.3f * rut - 0.04f * rut * tread + 0.1f * edge - 0.05f * marks;
+      float k = 0.82f + 0.3f * (drift - 0.5f) + 0.08f * (ripple - 0.5f) - 0.1f * marks;
+      float pl = (pr + pg + pb) / 3.0f; /* (the photo's own contrast, its mean left to the snow's colour) */
+      k *= 1.0f + 1.5f * (pl - 0.55f);
       float R = 0.88f * k, G = 0.93f * k, B = 1.0f * k;
       /* ruts: compressed, shadowed, bluer */
-      R = R + (0.4f - R) * rut * 0.85f, G = G + (0.52f - G) * rut * 0.85f, B = B + (0.78f - B) * rut * 0.85f;
+      R = R + (0.36f - R) * rut * 0.7f, G = G + (0.46f - G) * rut * 0.7f, B = B + (0.64f - B) * rut * 0.7f;
       /* the middle is polished by passing karts, the verges are fluffy drifts */
       R += 0.04f * centre, G += 0.04f * centre, B += 0.03f * centre;
       R += 0.06f * edge, G += 0.06f * edge, B += 0.05f * edge;

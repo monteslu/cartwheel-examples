@@ -71,4 +71,7 @@ void tex_scroll(int kind, float du, float dv);
 void tex_free_all(void);
 extern uint32_t tex_hash; /* a checksum of everything made, a debug field */
 
+/* a photographed material from the assets, read at (x, y) metres with one repeat every tile metres; false: no such file */
+bool tex_photo_at(const char *path, float x, float y, float tile, float *r, float *g, float *b, float *height);
+
 #endif

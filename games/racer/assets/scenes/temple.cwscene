@@ -29,9 +29,9 @@ mode = "CLUSTERED"
 
 [node name="Env" parent="." type="WorldEnvironment"]
 background = color(0.2, 0.3, 0.28, 1)
-ambient_color = color(0.4, 0.62, 0.5, 1)
+ambient_color = color(0.46, 0.58, 0.7, 1)
 ambient_energy = 0.05
-sky_color = color(0.52, 0.7, 0.62, 1)
+sky_color = color(0.58, 0.7, 0.88, 1)
 ground_color = color(0.07, 0.15, 0.08, 1)
 hemi_energy = 1.35
 
@@ -68,7 +68,7 @@ vignette_intensity = 0.3
 vignette_smoothness = 0.55
 grade = true
 lut = "grades/temple.cube"
-grade_intensity = 0.85
+grade_intensity = 0.55
 grain = true
 grain_intensity = 0.03
 

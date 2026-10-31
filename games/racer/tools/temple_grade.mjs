@@ -11,7 +11,7 @@ const DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'assets', 'grade
 mkdirSync(DIR, { recursive: true });
 const N = 17;
 const clamp = (x) => Math.max(0, Math.min(1, x));
-const g = { sat: 1.24, sh: [-0.035, 0.02, 0.025], hi: [0.075, 0.04, -0.06], s: 0.5, lift: 0.012 };
+const g = { sat: 1.14, sh: [-0.02, 0.0, 0.03], hi: [0.06, 0.03, -0.03], s: 0.5, lift: 0.012 };
 const lines = ['TITLE "racer temple"', `LUT_3D_SIZE ${N}`, 'DOMAIN_MIN 0 0 0', 'DOMAIN_MAX 1 1 1'];
 for (let b = 0; b < N; b++)
   for (let gg = 0; gg < N; gg++)

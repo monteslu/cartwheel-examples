@@ -4,14 +4,14 @@
 
 [node name="Sky" parent="." type="ProceduralSky"]
 sun = "../Sun"
-time_of_day = 6.25
+time_of_day = 6.9
 latitude = 32
 declination = 14
 north = 215
 sun_energy = 5.6
 sky_energy = 1.15
-rayleigh = 1.7
-mie = 2.0
+rayleigh = 1.35
+mie = 1.2
 mie_g = 0.8
 sun_size = 1.4
 sun_disk_intensity = 1.6

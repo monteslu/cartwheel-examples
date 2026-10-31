@@ -2046,7 +2046,7 @@ static void build_rainbow(cw_node parent, const char *name, t3_vec3 centre, t3_v
       float a = 3.14159265f * (float)i / (float)N;
       t3_vec3 p = v3add(centre, v3add(v3mul(e1, cosf(a) * r), v3(0, sinf(a) * r, 0)));
       float fade = sm(0.0f, 0.18f, sinf(a)) * 1.0f;
-      float k = b < 7 ? 1.0f : 0.0f;
+      float k = sinf(3.14159265f * (float)b / 7.0f); /* the arc's edges melt into the sky */
       int bi = b < 7 ? b : 6;
       pcol col = { BAND[bi][0] * alpha * fade * k, BAND[bi][1] * alpha * fade * k, BAND[bi][2] * alpha * fade * k };
       (void)k;
@@ -2459,10 +2459,10 @@ static void dam_scenery(cw_node scene, const track *t, uint32_t seed) {
   {
     /* rainbows: over the jets as seen from the closing run, and over the foot of the spillway as seen from the descent */
     const tsample *c0 = &t->s[t->n - 380];
-    build_rainbow(root, "RainbowJets", v3(-58.0f, A.yfloor + 4.0f, c0->p.z + 40.0f), v3(0.0f, 4.0f, c0->p.z - 140.0f), 78.0f, 3.4f, 0.55f);
+    build_rainbow(root, "RainbowJets", v3(-58.0f, A.yfloor + 4.0f, c0->p.z + 40.0f), v3(0.0f, 4.0f, c0->p.z - 140.0f), 78.0f, 3.4f, 0.24f);
     const tsample *g0 = &t->s[A.spill1];
     t3_vec3 foot = v3add(g0->p, v3mul(flat_right(g0), -30.0f));
-    build_rainbow(root, "RainbowPool", v3(foot.x + 40.0f, A.yfloor + 2.0f, foot.z), v3add(g0->p, v3mul(flat_dir(g0->f), -220.0f)), 70.0f, 3.2f, 0.5f);
+    build_rainbow(root, "RainbowPool", v3(foot.x + 40.0f, A.yfloor + 2.0f, foot.z), v3add(g0->p, v3mul(flat_dir(g0->f), -220.0f)), 70.0f, 3.2f, 0.22f);
   }
   dress_road(root, t);
 }

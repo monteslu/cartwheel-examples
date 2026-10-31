@@ -549,10 +549,11 @@ static void blade_sign(pm *b, float x, float y0, float reach, float w, float h, 
 
 typedef struct tint_set { pcol wall0, wall1; pcol a, b; } tint_set;
 
+static void grad_quad(pm *b, float x0, float y0, float x1, float y1, float z, pcol cb, pcol ct);
 static pcol window_colour(uint32_t *rs, const tint_set *ts) {
   float r = frand(rs);
   pcol c = r < 0.5f ? WARM : r < 0.64f ? ts->a : r < 0.78f ? ts->b : r < 0.9f ? hex(0xcfe8ff) : AMBER;
-  return glow(c, 1.3f + 1.2f * frand(rs));
+  return glow(c, 0.8f + 0.9f * frand(rs));
 }
 
 /* the windows of one face, in the face's own frame: x along, y up, z out of the face, face is w wide, y0..y1. Every cell has a
@@ -578,7 +579,8 @@ static void windows_face(pm *b, float w, float y0, float y1, float lit, const ti
         pcol c = window_colour(&rs, ts);
         /* a curtain or a blind across part of the pane keeps the glow from being a flat tile */
         float drop = frand(&rs) < 0.4f ? 0.2f + 0.6f * frand(&rs) : 0.0f;
-        pm_quad(b, V(x - ww, y - hh, 0.07f), V(x + ww, y - hh, 0.07f), V(x + ww, y + hh - drop * 2.0f * hh, 0.07f), V(x - ww, y + hh - drop * 2.0f * hh, 0.07f), c);
+        /* a room is lit from its ceiling: the pane is brighter at the top */
+        grad_quad(b, x - ww, y - hh, x + ww, y + hh - drop * 2.0f * hh, 0.07f, (pcol){ c.r * 0.4f, c.g * 0.4f, c.b * 0.4f }, c);
         pm_layer(b, PL_MAIN);
         pm_quad(b, V(x - 0.05f, y - hh, 0.09f), V(x + 0.05f, y - hh, 0.09f), V(x + 0.05f, y + hh, 0.09f), V(x - 0.05f, y + hh, 0.09f), frame);
         pm_quad(b, V(x - ww, y - 0.05f + 0.25f, 0.09f), V(x + ww, y - 0.05f + 0.25f, 0.09f), V(x + ww, y + 0.05f + 0.25f, 0.09f), V(x - ww, y + 0.05f + 0.25f, 0.09f), frame);
@@ -712,13 +714,13 @@ static void pool_add(int g, const tsample *a, int side, float x_along, float hal
   t3_vec3 base = vadd(vadd(a->p, vmul(a->u, 0.045f)), vmul(a->f, x_along));
   t3_vec3 pts[25];
   pcol cols[25];
-  static const float along_at[5] = { -1.0f, -0.62f, -0.28f, 0.0f, 0.3f }, along_k[5] = { 0.0f, 0.22f, 0.62f, 1.0f, 0.0f };
-  static const float lat_at[5] = { 0.0f, 0.25f, 0.5f, 0.75f, 1.0f }, lat_k[5] = { 0.35f, 0.8f, 1.0f, 0.5f, 0.0f };
+  static const float along_at[5] = { -1.0f, -0.62f, -0.28f, 0.0f, 0.3f }, along_k[5] = { 0.0f, 0.18f, 0.5f, 0.8f, 0.0f };
+  static const float lat_at[5] = { 0.0f, 0.25f, 0.5f, 0.75f, 1.0f }, lat_k[5] = { 0.0f, 0.5f, 0.75f, 0.4f, 0.0f };
   for (int r = 0; r < 5; r++)
     for (int c = 0; c < 5; c++) {
       float lat = (float)side * (a->hw - 0.15f - half_w * lat_at[c]);
       pts[r * 5 + c] = vadd(vadd(base, vmul(a->r, lat)), vmul(a->f, len * along_at[r]));
-      float k = along_k[r] * lat_k[c] * gain;
+      float k = along_k[r] * lat_k[c] * gain * 0.55f; /* (a sheen on the wet road, never a painted wedge) */
       cols[r * 5 + c] = (pcol){ col.r * k, col.g * k, col.b * k };
     }
   gbuf_quad_grid(&PO.b[g][chunk], pts, cols);
