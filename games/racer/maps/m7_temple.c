@@ -992,7 +992,7 @@ static void build_land(cw_node scene, const track *t) {
   /* a closed canopy: emergents over a mid-storey; ferns and anthurium below, thick at the verges */
   land_scatter(LAND, &(land_layer){ "Canopy", "models/trees/canopy.glb", split ? 0.0015f : 0.002f, FLOOR, 30, 0.8f, 1.25f, false, 0, tr, 50, 60, !split, false, 51 });
   land_scatter(LAND, &(land_layer){ "Broadleaf", "models/trees/broadleaf.glb", split ? 0.002f : 0.004f, FLOOR, 32, 0.8f, 1.3f, false, 0, split ? 60.0f : 140.0f, 40, 45, !split, false, 52 });
-  land_scatter(LAND, &(land_layer){ "Palm", "models/plants/palm.glb", split ? 0.0012f : 0.003f, FLOOR, 25, 0.75f, 1.3f, false, 0, tr, 50, 70, !split, false, 56 });
+  land_scatter(LAND, &(land_layer){ "Palm", "models/plants/palm.glb", split ? 0.002f : 0.006f, FLOOR, 25, 0.75f, 1.3f, false, 0, tr, 50, 70, !split, false, 56 });
   land_scatter(LAND, &(land_layer){ "GiantLeafA", "models/plants/calathea0.glb", split ? 0.006f : 0.02f, FLOOR, 35, 3.5f, 6.0f, true, 0.05f, split ? 35.0f : 60.0f, 12, 25, false, true, 57 });
   land_scatter(LAND, &(land_layer){ "GiantLeafB", "models/plants/calathea1.glb", split ? 0.0f : 0.015f, FLOOR, 35, 4.0f, 7.0f, true, 0.05f, 50.0f, 10, 25, false, true, 58 });
   land_scatter(LAND, &(land_layer){ "FernA", "models/plants/fern0.glb", split ? 0.04f : 0.16f, FLOOR, 35, 1.8f, 3.0f, true, 0.05f, split ? 35.0f : 60.0f, 12, 25, false, true, 53 });
