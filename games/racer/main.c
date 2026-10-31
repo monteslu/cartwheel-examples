@@ -87,6 +87,7 @@ static struct {
   cw_node scene, sun;
   track trk;
   bool have_track;
+  cw_quality race_quality; /* the graphics level this race's scenery was built for */
   sim S;
   ai_mem ai[MAXK];
   bool human[MAXK];
@@ -287,6 +288,7 @@ static void views_setup(void) {
 
 void game_start_race(const race_setup *rs) {
   unload();
+  G.race_quality = cw_quality_get();
   G.setup = *rs;
   bool battle = rs->mode == RM_BATTLE && !rs->attract;
   int map = rs->map < 0 ? -1 : rs->map >= NMAPS ? NMAPS - 1 : rs->map;
@@ -912,7 +914,9 @@ static void cmd_bot(int argc, const char **argv, cw_reply *r) {
 static void update(void *u, double dt) {
   (void)u;
   (void)dt;
-  cw_quality_auto_measure(G.have_track && ui_race_runs());
+  /* one step a race: the scenery is built for the level at its load (game_planned_views), so a step shows only in the
+   * next race, and measuring on would walk High to Low on the same heavy scenery */
+  cw_quality_auto_measure(G.have_track && ui_race_runs() && cw_quality_get() == G.race_quality);
 }
 
 static void render(void *u, double alpha) {
@@ -958,7 +962,8 @@ static void render(void *u, double alpha) {
 /* what Auto chose, in the log: a host with no debug channel (a libretro core) still shows it */
 static void quality_changed(cw_quality q, void *user) {
   (void)q, (void)user;
-  cw_info("racer: graphics %s (%s), %s, Auto's cost %.1f ms", cw_quality_label(), cw_quality_is_auto() ? "auto" : "chosen", cw_render_res_label(), cw_quality_auto_cost());
+  static const char *const NM[] = { "Low", "Medium", "High", "Ultra" };
+  cw_info("racer: graphics %s (%s), now %s, %s", cw_quality_label(), cw_quality_is_auto() ? "auto" : "chosen", NM[cw_quality_get()], cw_render_res_label());
 }
 
 static void init(void *u) {
@@ -966,6 +971,7 @@ static void init(void *u) {
   cw_quality_full_resolution(true); /* the racer draws at the output's size: Auto gives up detail, never pixels */
   cw_quality_on_change(quality_changed, NULL);
   cw_quality_restore(0);
+  if (getenv("RACER_LOW")) cw_quality_set(CW_QUALITY_LOW, false); /* dev aid: what Low costs in a test run */
   cw_quality_auto(true, 17.5f); /* a steady 60: the default budget, 19 ms, sat happily at 53 fps on a Vega 8 */
   if (!cw_input_load_bindings_asset("input.cfg")) cw_warn("racer: input.cfg had errors (see above)");
   cw_input_commit_defaults();
