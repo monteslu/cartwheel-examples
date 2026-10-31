@@ -915,8 +915,9 @@ static void update(void *u, double dt) {
   (void)u;
   (void)dt;
   /* one step a race: the scenery is built for the level at its load (game_planned_views), so a step shows only in the
-   * next race, and measuring on would walk High to Low on the same heavy scenery */
-  cw_quality_auto_measure(G.have_track && ui_race_runs() && cw_quality_get() == G.race_quality);
+   * next race, and measuring on would walk High to Low on the same heavy scenery. And only three seconds past the green:
+   * the load's tail and the countdown (a Vega 8: 66 ms a frame of first uploads) say nothing about the race */
+  cw_quality_auto_measure(G.have_track && ui_race_runs() && cw_quality_get() == G.race_quality && G.S.phase == PH_RACE && G.S.race_ticks > 180);
 }
 
 static void render(void *u, double alpha) {
