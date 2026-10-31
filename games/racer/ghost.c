@@ -251,6 +251,7 @@ void ghost_gfx_build(cw_node parent) {
     m->clearcoat = 0;
     m->metalness = 0;
     m->roughness = 0.7f;
+    m->diffuse_roughness = 0;
   }
   ghostify(Z.rig.root);
   Z.node = hang(parent, "Ghost", Z.rig.root);
