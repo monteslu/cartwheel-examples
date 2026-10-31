@@ -179,7 +179,10 @@ static struct {
 } N;
 
 static void neon_begin(void) {
-  for (int g = 0; g < GR_N; g++) N.c[g] = pmc_new(70, 500u + (uint32_t)g * 31u), N.level[g] = 1;
+  for (int g = 0; g < GR_N; g++) {
+    N.c[g] = pmc_new(70, 500u + (uint32_t)g * 31u), N.level[g] = 1;
+    pmc_texture_metres(N.c[g], 6.0f); /* the walls' photo, 6 m a repeat */
+  }
 }
 
 /* the glow layer's own material for group g: swapped onto every mesh that carries the shared glow material */
@@ -199,7 +202,7 @@ static void neon_finish(cw_node parent) {
   for (int g = 0; g < GR_N; g++) {
     char name[24];
     snprintf(name, sizeof name, "Neon%d", g);
-    cw_node n = pmc_finish(N.c[g], parent, name, g == GR_STEADY, -1);
+    cw_node n = pmc_finish(N.c[g], parent, name, g == GR_STEADY, getenv("RACER_CARTOON") ? -1 : TEX_WALL_FACADE);
     N.c[g] = NULL;
     if (g == GR_STEADY) continue;
     N.mat[g] = t3_mesh_basic_material_new(0xffffff);
@@ -594,7 +597,9 @@ static void building(const tsample *a, t3_vec3 p, int side, float len, float dep
     { { 0.07f, 0.12f, 0.16f }, { 0.14f, 0.26f, 0.32f }, { 0 }, { 0 } }, { { 0.13f, 0.12f, 0.12f }, { 0.26f, 0.24f, 0.23f }, { 0 }, { 0 } } };
   int si = (int)(frand(&rs) * 3.99f);
   tint_set ts = sets[si];
-  ts.wall0 = rgb(ts.wall0.r, ts.wall0.g, ts.wall0.b), ts.wall1 = rgb(ts.wall1.r, ts.wall1.g, ts.wall1.b);
+  /* (lifted: the walls' photo multiplies these, and at night a flat 0.1 over it was black) */
+  float wk = getenv("RACER_CARTOON") ? 1.0f : 2.6f;
+  ts.wall0 = rgb(ts.wall0.r * wk, ts.wall0.g * wk, ts.wall0.b * wk), ts.wall1 = rgb(ts.wall1.r * wk, ts.wall1.g * wk, ts.wall1.b * wk);
   ts.a = si == 1 ? PINK : si == 2 ? CYAN : frand(&rs) < 0.5f ? CYAN : PINK;
   ts.b = si == 1 ? VIOLET : si == 2 ? LIME : VIOLET;
   int g = frand(&rs) < 0.07f ? GR_FLICK : GR_STEADY;

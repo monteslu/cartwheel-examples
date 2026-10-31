@@ -68,7 +68,15 @@ The realistic maps' land (open licences only; each file's licence sits beside it
     reduced for the game.
   Road photo bases (assets/terrain/roads/, the same tool; textures.c paints the
     lane lines over them): Poly Haven concrete_floor_worn_001, asphalt_track,
-    asphalt_02 and mossy_cobblestone, CC0 1.0.
+    asphalt_02, mossy_cobblestone, concrete_wall_007, worn_planks, metal_plate
+    and dirt_floor, CC0 1.0.
+  Rustwheel Fairgrounds ground textures (assets/terrain/fair/, the same tool):
+    Poly Haven grass_ground, grass_path_2, dirt_floor, forest_leaves_02 and
+    coast_sand_01 (CC0 1.0); ambientCG Rock052 and Ground110 (CC0 1.0).
+  Cinder Refinery ground textures (assets/terrain/refinery/, the same tool):
+    Poly Haven coast_sand_01, dry_ground_rocks, rocks_ground_04, dry_ground_01,
+    cracked_red_ground and concrete_floor_worn_001 (CC0 1.0); ambientCG Ground110
+    and Rock051 (CC0 1.0).
 
   Trees (assets/models/trees/, tools/foliage-art.mjs): pinyon, juniper,
     ponderosa (two), scrub oak, fir and a dead snag generated with EZ-Tree by

@@ -1031,7 +1031,7 @@ cw_app_desc cw_main(int argc, char **argv) {
   (void)argv;
   cw_scene_register_builtin_types();
   static cw_app_desc base = { .title = GAME_TITLE, .width = 960, .height = 540, .debug = true, .init = init, .fixed_update = fixed,
-                              .update = update, .render = render, .shutdown = shutdown, .touch_pointer = true, .max_substeps = 3 };
+                              .update = update, .render = render, .shutdown = shutdown, .touch_pointer = true, .max_substeps = 3, .reversed_depth = true };
   /* ui agent: the save data and RACER_RES (pure getters from ui.c) */
   base.save = ui_save_ptr();
   base.save_size = ui_save_size();

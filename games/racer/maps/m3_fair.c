@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "cartwheel/particles.h"
+#include "../land.h"
 #include "../props.h"
 
 static const piece SPEC[] = {
@@ -189,6 +190,30 @@ static void find_places(const track *t) {
 
 /* ── ground ──────────────────────────────────────────────────────────────────────────────────────── */
 
+/* the land's own mesas past the park: an eroded rim, cliffs broken into strata ledges, and a talus skirt at the foot.
+ * All of them stand past 900 m from the park's middle, beyond every prop on the ground */
+static float fair_mesas(float x, float z) {
+  static const struct { float ang, dist, r, h; } M[] = {
+    { 10, 1150, 150, 135 }, { 58, 1320, 190, 105 }, { 120, 1120, 120, 115 }, { 165, 1290, 210, 150 },
+    { 215, 1200, 170, 145 }, { 268, 1350, 230, 120 }, { 310, 1260, 180, 160 }, { 342, 960, 80, 90 },
+  };
+  if (hypotf(x - 90.0f, z - 100.0f) < 700.0f) return 0;
+  float best = 0;
+  float dr = ground_noise(x, z, 120.0f, 55.0f, 3, 201) + ground_noise(x, z, 28.0f, 11.0f, 2, 202);
+  for (int i = 0; i < (int)(sizeof M / sizeof M[0]); i++) {
+    float a = M[i].ang * CW_PI / 180.0f;
+    float d = hypotf(x - (90.0f + sinf(a) * M[i].dist), z - (100.0f + cosf(a) * M[i].dist)) + dr;
+    float cliff = 1.0f - cw_smoothstep(M[i].r * 0.94f, M[i].r * 1.12f, d);
+    float talus = 1.0f - cw_smoothstep(M[i].r * 1.05f, M[i].r * 1.75f, d);
+    float f = cliff * 0.72f + talus * talus * 0.28f;
+    /* ledges where a hard bed of rock holds the slope up */
+    float bed = f * 6.0f, step = floorf(bed);
+    f += ((step + cw_smoothstep(0.3f, 0.75f, bed - step)) / 6.0f - f) * 0.55f;
+    best = fmaxf(best, f * M[i].h);
+  }
+  return best;
+}
+
 /* the park lies on a plain with soft hills, and the drop and the helix sink into a sunken basin (the old quarry the
  * wooden tower was built in) so the road dives under the plain and climbs back out */
 static float fair_ground(float x, float z, void *ud) {
@@ -197,6 +222,7 @@ static float fair_ground(float x, float z, void *ud) {
   /* the park sits in a wide bowl: low hills rise toward the horizon */
   float dd = hypotf(x - 90.0f, z - 100.0f);
   h += (95.0f + ground_noise(x, z, 380.0f, 55.0f, 3, 77)) * cw_smoothstep(520.0f, 1500.0f, dd);
+  if (!getenv("RACER_CARTOON")) h += fair_mesas(x, z);
   float basin = ground_basin(x, z, P.helix_c.x + 20, P.helix_c.z + 20, 150, 170, 12.5f, 60);
   /* a sunken channel along the corkscrew: the road rolls half below its own axis, so the earth has to be out of the way */
   float pit = ground_basin(x, z, P.cork_c.x, P.cork_c.z, 19.0f, P.cork_hl + 8.0f, 9.0f, 15.0f);
@@ -204,6 +230,7 @@ static float fair_ground(float x, float z, void *ud) {
 }
 
 static ground_opts GO;
+static const track *GT;
 static struct { cw_node scene, cam; } F;
 
 /* ── helpers ─────────────────────────────────────────────────────────────────────────────────────── */
@@ -2189,6 +2216,7 @@ static void build_fences(cw_node root, const track *t) {
 static void build_backdrop(cw_node root, const track *t) {
   prop_set *ps = ps_new(root, "Backdrop");
   ps_shadows(ps, false);
+  bool cartoon = getenv("RACER_CARTOON") != NULL; /* the realistic land has its own mesas (fair_mesas) */
   ps_style(ps, PK_MESA, -1, (pcol){ 1.3f, 0.8f, 0.7f }, 1.0f);
   struct { prop_kind k; float ang, dist, size; int variant; } far_[] = {
     { PK_MESA, 10, 1150, 130, 0 }, { PK_MESA, 120, 1100, 110, 0 }, { PK_MESA, 215, 1200, 140, 0 }, { PK_MESA, 310, 1250, 150, 0 },
@@ -2197,6 +2225,7 @@ static void build_backdrop(cw_node root, const track *t) {
   };
   const float cx = 90, cz = 100;
   for (int i = 0; i < (int)(sizeof far_ / sizeof far_[0]); i++) {
+    if (far_[i].k == PK_MESA && !cartoon) continue;
     float a = far_[i].ang * CW_PI / 180.0f;
     t3_vec3 p = V3(cx + sinf(a) * far_[i].dist, 0, cz + cosf(a) * far_[i].dist);
     p.y = fair_ground(p.x, p.z, NULL) - 1.0f;
@@ -2258,6 +2287,51 @@ static dress_style fair_dress(void) {
   return st;
 }
 
+/* ── the realistic land (land.h): rough grass, trodden ground and rock on one Terrain3D ───────────────────── */
+enum { FA_GRASS, FA_DRY, FA_PATH, FA_DIRT, FA_LEAF, FA_ROCK, FA_GRAVEL, FA_SAND };
+static float fa_h(float x, float z, void *ud) {
+  (void)ud;
+  return ground_height_at(&GO, x, z);
+}
+static land_paint fa_pt(float x, float y, float z, float slope, void *ud) {
+  (void)ud;
+  float gap = road_gap(GT, x, z, NULL);
+  if (gap < 4.0f) return (land_paint){ FA_GRAVEL, FA_PATH, (int)(255 * cw_smoothstep(1.5f, 4.0f, gap)) };
+  if (gap < 22.0f) return (land_paint){ FA_PATH, FA_DRY, (int)(255 * cw_smoothstep(4.0f, 22.0f, gap)) }; /* trodden by the crowds */
+  float steep = cw_smoothstep(0.55f, 1.0f, slope);
+  if (y > 75.0f && steep > 0.05f) { /* a mesa's cliffs: beds of red and pale rock */
+    float bed = 0.5f + 0.5f * sinf(y * 0.42f + ground_noise(x, z, 90.0f, 2.2f, 2, 83));
+    return (land_paint){ FA_ROCK, FA_SAND, (int)(255 * cw_smoothstep(0.55f, 0.85f, bed) * 0.8f) };
+  }
+  if (steep > 0.05f) return (land_paint){ FA_ROCK, FA_DRY, (int)(255 * (1 - steep)) };
+  float n = ground_noise(x, z, 70.0f, 1.0f, 2, 81), m = ground_noise(x, z, 19.0f, 1.0f, 2, 82);
+  if (n > 0.35f) return (land_paint){ FA_LEAF, FA_GRASS, (int)(255 * cw_smoothstep(0.35f, 0.6f, n)) };
+  return (land_paint){ m > 0 ? FA_DRY : FA_GRASS, n < -0.3f ? FA_SAND : FA_PATH, (int)(255 * cw_smoothstep(0.1f, 0.7f, fabsf(n)) * 0.45f) };
+}
+static void fa_land(cw_node root, const track *t) {
+  ground_bind(t, &GO);
+  float x0 = 1e9f, x1 = -1e9f, z0 = 1e9f, z1 = -1e9f;
+  for (int i = 0; i < t->n; i++) x0 = fminf(x0, t->s[i].p.x), x1 = fmaxf(x1, t->s[i].p.x), z0 = fminf(z0, t->s[i].p.z), z1 = fmaxf(z1, t->s[i].p.z);
+  land_def d = land_defaults();
+  d.spacing = 3.0f, d.nx = d.nz = 1024;
+  d.x0 = (x0 + x1) * 0.5f - d.spacing * (float)d.nx * 0.5f, d.z0 = (z0 + z1) * 0.5f - d.spacing * (float)d.nz * 0.5f;
+  d.height = fa_h, d.paint = fa_pt, d.dir = "terrain/fair";
+  static const char *const NM[8] = { "0_grass", "1_dry", "2_path", "3_dirt", "4_leaf", "5_rock", "6_gravel", "7_sand" };
+  static const float UV[8] = { 0.1f, 0.1f, 0.14f, 0.16f, 0.14f, 0.05f, 0.3f, 0.12f };
+  for (int i = 0; i < 8; i++) d.names[i] = NM[i], d.uv[i] = UV[i];
+  d.quality = getenv("RACER_TERQ") ? atoi(getenv("RACER_TERQ")) : THIN ? 1 : 2;
+  d.far = THIN ? 600.0f : 1000.0f;
+  cw_node n = land_build(root, &d);
+  const uint32_t OPEN = (1u << FA_GRASS) | (1u << FA_DRY) | (1u << FA_LEAF) | (1u << FA_SAND);
+  land_scatter(n, &(land_layer){ "Broadleaf", "models/trees/broadleaf.glb", 0.0007f, 1u << FA_LEAF, 28, 0.9f, 1.5f, false, 0, THIN ? 220.0f : 420.0f, 40, 60, !THIN, false, 61 });
+  land_scatter(n, &(land_layer){ "ScrubOak", "models/trees/scruboak.glb", 0.0012f, OPEN, 30, 1.0f, 1.8f, false, 0, THIN ? 160.0f : 320.0f, 30, 45, !THIN, false, 62 });
+  land_scatter(n, &(land_layer){ "Snag", "models/trees/snag.glb", 0.0001f, OPEN, 25, 0.8f, 1.2f, false, 0, THIN ? 220.0f : 420.0f, 40, 70, !THIN, false, 63 });
+  land_scatter(n, &(land_layer){ "BoulderA", "models/rocks/boulder_a.glb", 0.0002f, OPEN | (1u << FA_ROCK), 40, 0.8f, 2.0f, true, 0.3f, 300.0f, 40, 80, false, false, 64 });
+  land_scatter(n, &(land_layer){ "DryGrass", "models/grass/dry.glb", THIN ? 0.08f : 0.2f, (1u << FA_DRY) | (1u << FA_SAND), 30, 0.5f, 1.1f, true, 0, THIN ? 40.0f : 70.0f, 15, 30, false, true, 65 });
+  land_scatter(n, &(land_layer){ "Grass", "models/grass/green.glb", THIN ? 0.1f : 0.28f, (1u << FA_GRASS) | (1u << FA_LEAF), 30, 0.5f, 1.1f, true, 0, THIN ? 40.0f : 70.0f, 15, 30, false, true, 66 });
+  land_stats_fields(n, "fair");
+}
+
 static void fair_scenery(cw_node scene, const track *t, uint32_t seed) {
   (void)seed;
   TR = t;
@@ -2290,7 +2364,9 @@ static void fair_scenery(cw_node scene, const track *t, uint32_t seed) {
   GO.patch_scale = 45;
   GO.base_y = 0;
   GO.seed = 5;
-  ground_plane(root, t, &GO);
+  GT = t;
+  if (getenv("RACER_CARTOON")) ground_plane(root, t, &GO);
+  else fa_land(root, t); /* (GO stays: the props ask it for the ground's height) */
 
   dress_style st = fair_dress();
   dress_start_line(root, t, &st);
@@ -2397,6 +2473,7 @@ static void fair_tick(const sim *s, int ticks) {
 
 static void fair_frame(float alpha, double time) {
   (void)alpha;
+  land_frame();
   float t = (float)time;
   /* the chasing bulbs: three phases, a pulse that runs round them */
   for (int set = 0; set < 2; set++)
@@ -2467,7 +2544,7 @@ const map_def map_fair = {
   /* the tall walls (the drop, the helix and the run off it) stand 4.4 m: at 3.2 a kart knocked sideways at the foot of
    * the drop at 55 m/s still climbed over them */
   .mesh = { .wall_h = { 0, 0.9f, 1.6f, 4.4f }, .curb_w = 0.9f, .tile_v = 8.0f, .tunnel_clear = 8.0f },
-  .look = { .road = { 0.95f, 0.82f, 0.7f }, .kerb_a = { 0.86f, 0.22f, 0.18f }, .kerb_b = { 0.96f, 0.92f, 0.8f }, .wall = { 1.32f, 1.24f, 1.08f },
+  .look = { .road = { 1.15f, 1.08f, 1.0f }, .kerb_a = { 0.86f, 0.22f, 0.18f }, .kerb_b = { 0.96f, 0.92f, 0.8f }, .wall = { 1.32f, 1.24f, 1.08f },
             .wall_top = { 0.96f, 0.9f, 0.76f }, .road_tex = TEX_ROAD_WOOD, .wall_tex = TEX_WALL_WOOD, .road_rough = 0.8f },
   .laps = 3,
   .par_lap = 60,

@@ -10,7 +10,7 @@
 #   polyhaven-tex/<id>/{diff,disp,nor_gl,rough}.jpg                            (CC0, https://polyhaven.com/license)
 #     the 1k jpg files the API lists for the texture (https://api.polyhaven.com/files/<id>)
 set -euo pipefail
-MAP="${1:?map (dam, salt, frost, temple, roads)}"
+MAP="${1:?map (dam, salt, frost, temple, fair, refinery, roads)}"
 SRC="${2:?art dir}"
 D="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$D/assets/terrain/$MAP"
@@ -79,12 +79,36 @@ temple)
   layer 6_wet forest_leaves_02 "-modulate 62,90,100"             # wet ground by the water
   layer 7_paving mossy_cobblestone "-modulate 90,85,100"         # old paving: the verges
   ;;
+fair)
+  layer 0_grass grass_ground "-modulate 100,115,100"          # the fairground's rough grass
+  layer 1_dry grass_ground "-modulate 112,70,92"              # dry grass, gone to straw
+  layer 2_path grass_path_2 ""                                # trodden ground, stones showing
+  layer 3_dirt dirt_floor "-modulate 74,75,100"               # earth
+  layer 4_leaf forest_leaves_02 "-modulate 88,90,100"         # leaf litter under the trees
+  layer 5_rock Rock052 "-modulate 90,70,100"                  # the rock of the far hills
+  layer 6_gravel Ground110 "-modulate 105,55,100"             # the road's verges
+  layer 7_sand coast_sand_01 ""                               # bare sandy ground
+  ;;
+refinery)
+  layer 0_earth coast_sand_01 "-modulate 58,55,100"           # oil-darkened earth
+  layer 1_stony dry_ground_rocks "-modulate 62,45,100"        # stony waste ground
+  layer 2_scree rocks_ground_04 "-modulate 74,25,100"         # slag and scree
+  layer 3_gravel Ground110 "-modulate 88,40,100"              # gravel lots and verges
+  layer 4_cracked dry_ground_01 "-modulate 70,60,100"         # cracked dry mud
+  layer 5_burnt cracked_red_ground "-modulate 60,60,100"      # burnt ground by the slag
+  layer 6_rock Rock051 "-modulate 74,20,100"                  # grey rock
+  layer 7_pad concrete_floor_worn_001 "-modulate 70,40,100"   # concrete pads
+  ;;
 roads)
   # photo bases for the road textures (textures.c photo_get): the surface under each generator's own paint
   layer concrete concrete_floor_worn_001 "-modulate 100,60,100"  # the Dam's concrete
   layer asphalt asphalt_track ""                               # race-track asphalt
   layer asphalt_old asphalt_02 ""                              # older, cracked asphalt
   layer stone mossy_cobblestone "-modulate 96,85,100"           # the temple road's old paving
+  layer facade concrete_wall_007 "-modulate 105,70,100"         # the city's weathered building walls
+  layer wood worn_planks ""                                     # the coaster's boardwalk
+  layer metal metal_plate ""                                    # the refinery's rusted diamond plate
+  layer dirt dirt_floor "-modulate 74,75,100"                   # packed earth
   ;;
 *) echo "terrain-layers.sh: unknown map $MAP" >&2; exit 2 ;;
 esac

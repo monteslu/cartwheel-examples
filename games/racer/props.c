@@ -587,6 +587,7 @@ t3_material *prop_material(int layer, int tex, pcol tint, float rough_k) {
   } else {
     m = phys((t3_color){ tint.r, tint.g, tint.b }, 0.8f, 0);
     m->vertex_colors = true;
+    if (layer == PL_MAIN) m->diffuse_roughness = rough_diffuse(); /* rock, wood, cloth: soft at grazing angles, not plastic */
     if (layer == PL_METAL) m->roughness = 0.38f, m->metalness = 0.85f;
     if (layer == PL_LEAF) m->roughness = 0.75f, m->side = T3_DOUBLE_SIDE;
     m->roughness = cw_clampf(m->roughness * rough_k, 0.04f, 1);

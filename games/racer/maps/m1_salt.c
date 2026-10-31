@@ -1464,7 +1464,7 @@ enum { SL_CRUST, SL_SALT, SL_PLATEAU, SL_FAN, SL_ROCK, SL_ROCK2, SL_SCARP, SL_GR
 static cw_node LAND;
 static float land_h(float x, float z, void *ud) {
   (void)ud;
-  return height_fn(x, z, NULL);
+  return ground_height_at(&GO, x, z);
 }
 static land_paint land_pt(float x, float y, float z, float slope, void *ud) {
   (void)ud;
@@ -1535,7 +1535,10 @@ static void build_ground(cw_node root, const track *t) {
   if (getenv("RACER_CARTOON")) {
     ground_plane(root, t, &GO);
     far_ground(root);
-  } else build_land(root);
+  } else {
+    ground_bind(t, &GO);
+    build_land(root);
+  }
 }
 
 static void salt_start(cw_node root, const track *t, prop_set *ps);

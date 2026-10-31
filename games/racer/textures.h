@@ -52,6 +52,7 @@ enum {
   TEX_TUNNEL,         /* tunnel lining: ribbed concrete rings, a lamp strip along the crown (u runs round the arch, 8 m per repeat) */
   TEX_GROUND_SALT,    /* the salt crust's plates and cracks with no road paint or tyre tracks (an arena floor), tiles freely */
   TEX_GROUND_STREAK,  /* weathered rock in long streaks, grey-olive and brown, dark seams: bare asteroid or cliff ground */
+  TEX_WALL_FACADE,    /* a building's weathered wall, from a photo (terrain/roads/facade): tinted by the vertex colours */
   TEX_KINDS
 };
 

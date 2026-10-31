@@ -9,6 +9,7 @@
 
 t3_color lin(float r, float g, float b); /* screen colour -> linear */
 t3_material *phys(t3_color c, float rough, float metal);
+float rough_diffuse(void); /* how rough the diffuse of dusty surfaces is (RACER_NOEON: 0, to compare) */
 cw_node hang(cw_node parent, const char *name, t3_object *obj);
 void add_mesh(cw_node parent, const char *name, t3_geometry *g, t3_material *m, bool cast, bool recv);
 

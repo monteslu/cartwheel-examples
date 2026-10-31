@@ -778,6 +778,7 @@ void rig_build(kart_rig *r, int veh, int colour, int number) {
   r->mat[S_PAINT2] = mat_vc(paint2, 0.4f, 0.1f);
   r->mat[S_METAL] = mat_vc(lin(1, 1, 1), 0.48f, 0.75f);
   r->mat[S_DARK] = mat_vc(lin(1, 1, 1), 0.8f, 0.05f);
+  r->mat[S_DARK]->diffuse_roughness = rough_diffuse(); /* rubber and cloth, soft at grazing angles */
   r->mat[S_LAMP] = phys(lin(1, 0.95f, 0.8f), 0.2f, 0);
   r->mat[S_LAMP]->emissive = lin(1, 0.9f, 0.6f);
   r->mat[S_LAMP]->emissive_intensity = 2.5f;

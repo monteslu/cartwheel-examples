@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "../fx_int.h"
+#include "../land.h"
 #include "../props.h"
 #include "../ui.h"
 #include "cartwheel/base.h"
@@ -693,7 +694,7 @@ const map_def map_refinery = {
   .scene = "scenes/refinery.cwscene",
   .spec = MAP_SPEC,
   .mesh = { .wall_h = { 0, 0.9f, 1.6f, 3.2f }, .curb_w = 0.9f, .tile_v = 8.0f, .tunnel_clear = 8.0f },
-  .look = { .road = { 0.75f, 0.76f, 0.8f }, .kerb_a = { 0.95f, 0.72f, 0.08f }, .kerb_b = { 0.1f, 0.1f, 0.11f }, .wall = { 0.75f, 0.7f, 0.6f },
+  .look = { .road = { 1.1f, 1.1f, 1.14f }, .kerb_a = { 0.95f, 0.72f, 0.08f }, .kerb_b = { 0.1f, 0.1f, 0.11f }, .wall = { 0.75f, 0.7f, 0.6f },
             .wall_top = { 0.9f, 0.85f, 0.75f }, .road_tex = TEX_ROAD_METAL, .wall_tex = TEX_WALL_HAZARD, .road_rough = 0.75f },
   .laps = 3,
   .par_lap = 60,
@@ -2634,6 +2635,46 @@ static bool off(const char *part) {
   return e && strstr(e, part);
 }
 
+/* ── the realistic waste ground (land.h): oil-dark earth, slag, gravel lots and pads on one Terrain3D ───────── */
+enum { RL_EARTH, RL_STONY, RL_SCREE, RL_GRAVEL, RL_CRACKED, RL_BURNT, RL_ROCK, RL_PAD };
+static ground_opts RG;
+static float rf_h(float x, float z, void *ud) {
+  (void)ud;
+  return ground_height_at(&RG, x, z);
+}
+static land_paint rf_pt(float x, float y, float z, float slope, void *ud) {
+  (void)y, (void)ud;
+  float gap = road_gap(R.t, x, z, NULL);
+  if (gap < 5.0f) return (land_paint){ RL_GRAVEL, RL_EARTH, (int)(255 * sst(2.0f, 5.0f, gap)) };
+  if (x > 380.0f && fabsf(x - river_x(z)) < RIVER_W) return (land_paint){ RL_BURNT, RL_SCREE, (int)(255 * sst(RIVER_W * 0.5f, RIVER_W, fabsf(x - river_x(z)))) };
+  float steep = sst(0.5f, 1.0f, slope);
+  if (steep > 0.05f) return (land_paint){ RL_ROCK, RL_SCREE, (int)(255 * (1 - steep)) };
+  float n = ground_noise(x, z, 90.0f, 1.0f, 2, 91), m = ground_noise(x, z, 24.0f, 1.0f, 2, 92);
+  if (gap < 40.0f) return (land_paint){ RL_EARTH, m > 0 ? RL_GRAVEL : RL_STONY, (int)(255 * sst(0.0f, 0.7f, fabsf(m)) * 0.7f) };
+  if (n > 0.3f) return (land_paint){ RL_CRACKED, RL_EARTH, (int)(255 * (1 - sst(0.3f, 0.6f, n)) * 0.8f) };
+  return (land_paint){ n < -0.3f ? RL_STONY : RL_EARTH, RL_SCREE, (int)(255 * sst(0.2f, 0.8f, m) * 0.5f) };
+}
+static void rf_land(cw_node root, const track *t) {
+  float x0 = 1e9f, x1 = -1e9f, z0 = 1e9f, z1 = -1e9f;
+  for (int i = 0; i < t->n; i++) x0 = fminf(x0, t->s[i].p.x), x1 = fmaxf(x1, t->s[i].p.x), z0 = fminf(z0, t->s[i].p.z), z1 = fmaxf(z1, t->s[i].p.z);
+  land_def d = land_defaults();
+  d.spacing = 3.0f, d.nx = d.nz = 1024;
+  d.x0 = (x0 + x1) * 0.5f - d.spacing * (float)d.nx * 0.5f, d.z0 = (z0 + z1) * 0.5f - d.spacing * (float)d.nz * 0.5f;
+  d.height = rf_h, d.paint = rf_pt, d.dir = "terrain/refinery";
+  static const char *const NM[8] = { "0_earth", "1_stony", "2_scree", "3_gravel", "4_cracked", "5_burnt", "6_rock", "7_pad" };
+  static const float UV[8] = { 0.12f, 0.14f, 0.12f, 0.3f, 0.08f, 0.1f, 0.04f, 0.1f };
+  for (int i = 0; i < 8; i++) d.names[i] = NM[i], d.uv[i] = UV[i];
+  d.quality = getenv("RACER_TERQ") ? atoi(getenv("RACER_TERQ")) : NV > 1 ? 1 : 2;
+  d.far = NV > 1 ? 600.0f : 1000.0f;
+  cw_node n = land_build(root, &d);
+  const uint32_t WASTE = (1u << RL_EARTH) | (1u << RL_STONY) | (1u << RL_SCREE) | (1u << RL_CRACKED);
+  land_scatter(n, &(land_layer){ "Snag", "models/trees/snag.glb", 0.0002f, WASTE, 25, 0.8f, 1.3f, false, 0, 320.0f, 40, 70, false, false, 71 });
+  land_scatter(n, &(land_layer){ "BoulderA", "models/rocks/boulder_a.glb", 0.0005f, WASTE, 40, 0.7f, 1.8f, true, 0.3f, 300.0f, 40, 80, false, false, 72 });
+  land_scatter(n, &(land_layer){ "Stones", "models/rocks/boulders.glb", 0.01f, WASTE | (1u << RL_GRAVEL), 40, 0.8f, 1.6f, true, 0.1f, NV > 1 ? 50.0f : 90.0f, 15, 40, false, false, 73 });
+  land_scatter(n, &(land_layer){ "DryGrass", "models/grass/dry.glb", NV > 1 ? 0.04f : 0.09f, (1u << RL_EARTH) | (1u << RL_STONY), 30, 0.4f, 0.9f, true, 0, NV > 1 ? 40.0f : 70.0f, 15, 30, false, true, 74 });
+  land_stats_fields(n, "refinery");
+}
+
 static void scenery(cw_node scene, const track *t, uint32_t seed) {
   memset(&R, 0, sizeof R);
   R.t = t, R.scene = scene, R.seed = seed;
@@ -2692,7 +2733,11 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
   go.darken_edge = 0.35f;
   go.lumpy = 0.55f; /* blotches of soot and dust, so the cracked mud does not read as one tiled floor */
   go.seed = 9;
-  if (!off("ground")) {
+  RG = go;
+  if (!getenv("RACER_CARTOON")) {
+    ground_bind(t, &RG);
+    rf_land(R.root, t); /* (the realistic waste ground: land.h) */
+  } else if (!off("ground")) {
     cw_node gn = ground_plane(R.root, t, &go);
     static geoset gs;
     gs.n = 0;
@@ -2841,6 +2886,7 @@ static void dev_camera(void) {
 }
 
 static void scenery_frame(float alpha, double time) {
+  land_frame();
   (void)alpha;
   R.time = (float)time;
   float t = R.time;

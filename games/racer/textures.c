@@ -149,6 +149,17 @@ static float lane_paint(float u, float v, float wear, uint32_t seed) {
 
 /* worn asphalt: grit, two polished wheel lines, hairline cracks, tar patches, chipped paint.
  * wet 0 dry .. 1 soaked: darker, glossy, with mirror puddles */
+/* a building's wall: the photographed weathered concrete, neutral enough for the vertex colours to tint it */
+static void g_wall_facade(float u, float v, texel *t) {
+  const photo *ph = photo_get("terrain/roads/facade_albedo.png");
+  float r = 0.5f, g = 0.5f, b = 0.5f, h = 0.5f;
+  if (ph) photo_at(ph, u, v, 1.0f, &r, &g, &b, &h);
+  rgb(t, r, g, b);
+  t->h = h;
+  t->rough = 0.86f;
+  t->ao = 0.8f + 0.2f * h;
+}
+
 static void asphalt_core(float u, float v, texel *t, float wet) {
   float n1 = rfbm(u, v, 4, 4, 91), n2 = rfbm(u, v, 24, 3, 92);
   float grit = h01((int)(u * 1024), (int)(v * 512), 93);
@@ -174,8 +185,18 @@ static void asphalt_core(float u, float v, texel *t, float wet) {
   /* wet: dark sheen everywhere, mirror in the puddles */
   c *= 1 - 0.3f * wet;
   rgb(t, c, c, c * 1.06f);
+  /* the photographed asphalt under it all when it is there (4 m a repeat: it wraps with the texture): tracks, tar
+   * patches, cracks and wet still darken it */
+  const photo *ph = photo_get(wet > 0 ? "terrain/roads/asphalt_old_albedo.png" : "terrain/roads/asphalt_albedo.png");
+  float phh = 0.5f;
+  if (ph) {
+    float pr, pg, pb;
+    photo_at(ph, u * 16.0f, v * 8.0f, 4.0f, &pr, &pg, &pb, &phh);
+    float k = (1 - tracks * 0.2f) * (1 - 0.25f * patch) * (1 - seam * 0.2f) * (1 - crack * 0.3f) * (1 - 0.3f * wet) * 1.1f;
+    rgb(t, pr * k, pg * k, pb * k);
+  }
   mixc(t, 0.82f - 0.25f * wet, 0.82f - 0.25f * wet, 0.76f - 0.25f * wet, paint);
-  t->h = 0.3f + 0.35f * n2 + 0.25f * grit - crack * 0.5f + paint * 0.08f;
+  t->h = (ph ? 0.3f + 0.5f * phh : 0.3f + 0.35f * n2 + 0.25f * grit) - crack * 0.5f + paint * 0.08f;
   float rough = 0.86f - 0.12f * tracks - 0.1f * paint;
   rough = mixf(rough, 0.34f, wet);
   rough = mixf(rough, 0.03f, w);
@@ -234,6 +255,14 @@ static void g_road_dirt(float u, float v, texel *t) {
   float side = sstep(0.14f, 0.04f, u) + sstep(0.86f, 0.96f, u);
   float k = 0.82f + 0.3f * n + 0.12f * (clod - 0.5f) + 0.05f * (grit - 0.5f);
   rgb(t, 0.66f * k, 0.48f * k, 0.3f * k);
+  /* the photographed dirt under its ruts and pebbles when it is there (4 m a repeat wraps with the texture); no drawn
+   * cracks over it */
+  const photo *ph = photo_get("terrain/roads/dirt_albedo.png");
+  if (ph) {
+    float pr, pg, pb, phh;
+    photo_at(ph, u * 16.0f, v * 8.0f, 4.0f, &pr, &pg, &pb, &phh);
+    rgb(t, pr, pg, pb);
+  }
   mixc(t, 0.34f, 0.24f, 0.15f, rut * 0.65f);           /* compacted, damp */
   mixc(t, 0.46f, 0.43f, 0.2f, side * 0.5f * sstep(0.4f, 0.6f, clod)); /* dry grass at the verges */
   /* pebbles */
@@ -246,7 +275,7 @@ static void g_road_dirt(float u, float v, texel *t) {
   float cd1, cd2;
   uint32_t cid;
   cells2(u, v, 10, 5, 126, &cd1, &cd2, &cid);
-  float crack = (1 - sstep(0.0f, 0.05f, cd2 - cd1)) * (1 - rut) * sstep(0.45f, 0.6f, rfbm(u, v, 3, 2, 127));
+  float crack = ph ? 0 : (1 - sstep(0.0f, 0.05f, cd2 - cd1)) * (1 - rut) * sstep(0.45f, 0.6f, rfbm(u, v, 3, 2, 127));
   t->r -= crack * 0.18f, t->g -= crack * 0.14f, t->b -= crack * 0.1f;
   t->h = 0.6f + 0.25f * clod + 0.1f * n - rut * 0.45f + crown * 0.1f + peb * 0.3f - crack * 0.3f;
   t->rough = 0.95f - 0.12f * rut;
@@ -360,6 +389,15 @@ static void g_road_metal(float u, float v, texel *t) {
     r = g = b = (0.34f + 0.06f * n) * (0.35f + 0.65f * solid);
     rough = 0.35f + 0.2f * n;
   }
+  /* the photographed rusted plate on the solid panels when it is there (4 m a repeat wraps with the texture) */
+  const photo *ph = photo_get("terrain/roads/metal_albedo.png");
+  if (ph && !grate) {
+    float pr, pg, pb, phh;
+    photo_at(ph, x, y, 4.0f, &pr, &pg, &pb, &phh);
+    r = pr * 1.25f, g = pg * 1.25f, b = pb * 1.25f;
+    h = 0.25f + 0.65f * phh;
+    ao = 0.7f + 0.3f * phh;
+  }
   /* rust creeping out of the seams, orange speckle */
   float rust = clamp01((rfbm(u, v, 12, 4, 154) - 0.55f) * 4) * 0.7f + seam * 0.4f * sstep(0.4f, 0.6f, n);
   rgb(t, r, g, b);
@@ -388,6 +426,22 @@ static void g_road_metal(float u, float v, texel *t) {
 /* weathered planks laid along the road with butt joints, nails at the joints, silver-grey grain */
 static void g_road_wood(float u, float v, texel *t) {
   float x = u * 16, y = v * 8;
+  /* the photographed worn planks when they are there (they run along the road; 4 m a repeat wraps with the texture) */
+  const photo *ph = photo_get("terrain/roads/wood_albedo.png");
+  if (ph) {
+    float pr, pg, pb, phh;
+    photo_at(ph, x, y, 4.0f, &pr, &pg, &pb, &phh);
+    float tracks = clamp01(band(u, 0.3f, 0.07f, 0.06f) + band(u, 0.7f, 0.07f, 0.06f)) * (0.5f + 0.5f * rfbm(u, v, 3, 3, 163));
+    /* greyed: old boards silver in the weather, and the photo alone goes deep red in a low sun */
+    float grey = 0.3f * pr + 0.59f * pg + 0.11f * pb;
+    pr += (grey - pr) * 0.45f, pg += (grey - pg) * 0.45f, pb += (grey - pb) * 0.45f;
+    rgb(t, pr, pg, pb);
+    mixc(t, pr * 0.72f, pg * 0.72f, pb * 0.72f, tracks * 0.6f);
+    t->h = 0.2f + 0.7f * phh;
+    t->rough = 0.82f - 0.12f * tracks;
+    t->ao = 0.72f + 0.28f * phh;
+    return;
+  }
   float pw = x / 0.5f; /* 32 planks across */
   int plank = (int)floorf(pw);
   float within = fractf(pw);
@@ -773,6 +827,22 @@ static void g_wall_tech(float u, float v, texel *t) {
 /* painted boards: 0.2 m horizontal planks, nailed to posts every metre, paint chipped back to grey wood, drip stains */
 static void g_wall_wood(float u, float v, texel *t) {
   float up = u * 4, al = v * 4;
+  /* the road's photographed planks when they are there, run along the wall, with a hard shadow line every 0.5 m */
+  const photo *ph = photo_get("terrain/roads/wood_albedo.png");
+  if (ph) {
+    float pr, pg, pb, phh;
+    photo_at(ph, up, al, 4.0f, &pr, &pg, &pb, &phh);
+    float grey = 0.3f * pr + 0.59f * pg + 0.11f * pb;
+    pr += (grey - pr) * 0.55f, pg += (grey - pg) * 0.55f, pb += (grey - pb) * 0.55f;
+    float gd = fminf(fractf(up / 0.5f), 1 - fractf(up / 0.5f)) * 0.5f;
+    float seam = 1 - sstep(0.004f, 0.016f, gd);
+    rgb(t, pr * 1.2f, pg * 1.2f, pb * 1.2f);
+    mixc(t, 0.05f, 0.04f, 0.03f, seam * 0.85f);
+    t->h = 0.3f + 0.6f * phh - seam * 0.3f;
+    t->rough = 0.85f;
+    t->ao = (0.8f + 0.2f * phh) * (1 - seam * 0.5f);
+    return;
+  }
   float rowf = up / 0.2f;
   int row = (int)floorf(rowf);
   float inrow = fractf(rowf);
@@ -1068,6 +1138,7 @@ static const kind_info INFO[TEX_KINDS] = {
   [TEX_WALL_HAZARD] = { g_wall_hazard, WL, 2.5f, "hazard wall" },
   [TEX_WALL_RUST] = { g_wall_rust, WL, 4.0f, "rust wall" },
   [TEX_WALL_BRICK] = { g_wall_brick, WL, 4.0f, "brick" },
+  [TEX_WALL_FACADE] = { g_wall_facade, WL, 6.0f, "building facade" },
   [TEX_WALL_STONE] = { g_wall_stone, WL, 4.0f, "stone wall" },
   [TEX_WALL_ICE] = { g_wall_ice, WL, 2.0f, "ice wall" },
   [TEX_WALL_TECH] = { g_wall_tech, WL, 3.5f, "tech wall" },

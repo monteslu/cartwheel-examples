@@ -1484,7 +1484,10 @@ static void build_outcrops(cw_node root, const track *t) {
 enum { FL_SNOW, FL_DRIFT, FL_PACKED, FL_ROCK, FL_CLIFF, FL_FIELD, FL_ICE, FL_SCREE };
 static bool REAL; /* the realistic pass (RACER_CARTOON=1: the stylised one) */
 static cw_node LAND;
-static float land_h(float x, float z, void *ud) { return terrain(x, z, ud); }
+static float land_h(float x, float z, void *ud) {
+  (void)ud;
+  return ground_height_at(&F.g, x, z);
+}
 static land_paint land_pt(float x, float y, float z, float slope, void *ud) {
   (void)ud;
   if (in_lake(x, z, 1.0f)) return (land_paint){ FL_ICE, FL_SNOW, in_lake(x, z, 0.92f) ? 0 : 160 };
@@ -2913,7 +2916,10 @@ static void frost_scenery(cw_node scene, const track *t, uint32_t seed) {
   F.g.darken_edge = 0.12f;
   F.g.lumpy = 0.22f;
   F.g.rough = 0.8f;
-  if (REAL) build_land(root, t);
+  if (REAL) {
+    ground_bind(t, &F.g);
+    build_land(root, t);
+  }
   else {
     cw_node gn = ground_plane(root, t, &F.g);
     static geoset gs;

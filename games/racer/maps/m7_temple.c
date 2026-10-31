@@ -950,7 +950,10 @@ static float mask_open(float x, float z, void *ud) {
 enum { JL_SOIL, JL_LITTER, JL_MOSS, JL_GRASS, JL_ROCK, JL_ROCK2, JL_WET, JL_PAVING };
 static bool REAL; /* the realistic jungle (RACER_CARTOON=1: the stylised one) */
 static cw_node LAND;
-static float land_h(float x, float z, void *ud) { return temple_ground(x, z, ud); }
+static float land_h(float x, float z, void *ud) {
+  (void)ud;
+  return ground_height_at(&G, x, z);
+}
 static land_paint land_pt(float x, float y, float z, float slope, void *ud) {
   (void)ud;
   float gap = road_gap(T, x, z, NULL);
@@ -2679,7 +2682,7 @@ static void scenery(cw_node scene, const track *t, uint32_t seed) {
   G.road_drop = 0.2f;
   G.darken_edge = 0.25f;
   REAL = !getenv("RACER_CARTOON");
-  if (REAL) build_land(scene, t); /* (G stays: the set pieces ask it for the ground's height, the land's own function) */
+  if (REAL) ground_bind(t, &G), build_land(scene, t); /* (G stays: the set pieces ask it for the ground's height, the land's own function) */
   else if (!off("ground")) ground_plane(scene, t, &G);
   dec_begin();
   if (!off("jungle") && !REAL) build_jungle(scene, t);

@@ -632,7 +632,7 @@ static uint32_t land_paint(float x, float y, float z, float slope, int kind, flo
   float patch = sm(0.1f, 0.5f, ground_noise(x, z, 24, 1.0f, 2, 25));
   int flat = n > 0 ? LY_FLOOR : LY_DIRT;
   int over = patch > 0.5f ? LY_SCRUB : (flat == LY_FLOOR ? LY_DIRT : LY_FLOOR);
-  int fb = patch > 0.5f ? (int)(255 * sm(0.5f, 1.0f, patch) * 0.85f) : (int)(255 * (0.5f - 0.5f * fabsf(n)) * 0.6f);
+  int fb = patch > 0.5f ? (int)(255 * sm(0.5f, 1.0f, patch) * 0.85f) : (int)(255 * (0.5f - 0.5f * fabsf(n)) * 0.6f * (1 - sm(0.25f, 0.5f, patch))); /* (fades out before the overlay turns to brush: a hard edge otherwise) */
   if (kind == KIND_CUT) steep = fmaxf(steep, 0.6f);
   if (steep > 0.5f) return cw_terrain_control(rock, flat, (int)(255 * (1 - steep) * 1.4f > 255 ? 255 : 255 * (1 - steep) * 1.4f), 0, 0, false);
   return cw_terrain_control(flat, steep > 0.2f ? rock : over, steep > 0.2f ? (int)(255 * steep * 1.6f) : fb, 0, 0, false);

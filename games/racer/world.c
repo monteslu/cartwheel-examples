@@ -28,6 +28,8 @@ cw_node hang(cw_node parent, const char *name, t3_object *obj) {
   return n;
 }
 
+float rough_diffuse(void) { return getenv("RACER_NOEON") ? 0.0f : 0.7f; }
+
 t3_material *phys(t3_color c, float rough, float metal) {
   t3_material *m = t3_mesh_physical_material_new(0xffffff);
   m->color = c;
@@ -102,8 +104,9 @@ static t3_material *road_material(const map_look *L, int surf, int road_tex) {
   default: break;
   }
   /* the surfaces with a look of their own keep their own colours; only the map's road surface is tinted */
-  t3_material *m = phys(surf == SURF_ROAD ? tint(L->road, 0.85f) : lin(1, 1, 1), 1.0f, kind == TEX_ROAD_METAL ? 0.8f : 0.0f);
+  t3_material *m = phys(surf == SURF_ROAD ? tint(L->road, 0.85f) : lin(1, 1, 1), 1.0f, kind == TEX_ROAD_METAL ? 0.3f : 0.0f); /* (rusted, painted plate: at 0.8 a dusk sky left it black) */
   tex_apply(m, kind, 1, 1, 1.0f, 1.0f);
+  if (kind != TEX_ROAD_GLASS && kind != TEX_ROAD_ICE) m->diffuse_roughness = rough_diffuse(); /* dusty and flat at grazing angles, not plastic */
   /* road_rough scales the texture's roughness map (1 = as made; a map that wants it glossier lowers it) */
   if (surf == SURF_ROAD) rough_k = L->road_rough > 0 ? L->road_rough / 0.75f : 1.0f;
   m->roughness = fminf(rough_k, 1.0f);
@@ -154,6 +157,7 @@ void world_build(cw_node scene, const sim *s, const map_def *map) {
       break;
     case TM_WALL:
       m = phys(tint(L->wall, 0.85f), 1.0f, wall_tex == TEX_WALL_RUST || wall_tex == TEX_WALL_TECH ? 0.5f : 0.0f);
+      if (m->metalness == 0) m->diffuse_roughness = rough_diffuse();
       tex_apply(m, wall_tex, 1, 1, 1.0f, 1.0f);
       if (m->emissive_map) {
         /* lit strips: the map's glow colour, or off */

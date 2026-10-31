@@ -311,7 +311,7 @@ static void split(gbuild *B, float x0, float z0, float S) {
   }
 }
 
-cw_node ground_plane(cw_node parent, const track *t, const ground_opts *in) {
+void ground_bind(const track *t, const ground_opts *in) {
   ground_opts o = in ? *in : ground_defaults();
   if (o.cx > 1e8f) {
     float x0 = 1e9f, x1 = -1e9f, z0 = 1e9f, z1 = -1e9f;
@@ -322,6 +322,11 @@ cw_node ground_plane(cw_node parent, const track *t, const ground_opts *in) {
   }
   if (o.near_cell < 8) o.near_cell = 64;
   G.t = t, G.o = o, G.have = true;
+}
+
+cw_node ground_plane(cw_node parent, const track *t, const ground_opts *in) {
+  ground_bind(t, in);
+  const ground_opts o = G.o;
   /* the root: the smallest power-of-two multiple of near_cell that covers 2 * half */
   float S = o.near_cell;
   while (S < o.half * 2) S *= 2;
