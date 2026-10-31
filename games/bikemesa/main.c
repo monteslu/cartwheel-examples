@@ -1351,8 +1351,8 @@ static void init(void *u) {
   if (bench_quality) {
     int q = atoi(bench_quality);
     if (q >= 0 && q < CW_QUALITY_COUNT) {
-      cw_quality_set((cw_quality)q, false);
       cw_quality_auto(false, 0);
+      cw_quality_set((cw_quality)q, false);
     }
   }
   quality_changed(cw_quality_get(), NULL);

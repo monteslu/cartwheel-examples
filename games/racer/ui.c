@@ -493,6 +493,7 @@ static void save_check(void) {
 }
 cw_font ui_menu_font(void) { return U.f_hud; }
 void *ui_save_ptr(void) { return &SAVE; }
+void ui_save_settings(void) { save_write(); }
 size_t ui_save_size(void) { return sizeof SAVE; }
 
 bool ui_dev_resolution(int *w, int *h) {

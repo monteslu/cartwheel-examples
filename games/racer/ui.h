@@ -81,6 +81,7 @@ void ui_debug_cup(int cup, int humans, int laps, int races);
  * graphics and volume settings, in a versioned and checksummed layout. main.c hands these
  * to the app description (a call, so set the fields after the static initialiser). */
 void *ui_save_ptr(void);
+void ui_save_settings(void); /* write the settings now (Auto stepped) */
 size_t ui_save_size(void);
 
 /* The canvas size a dev run opens at: RACER_RES=WxH (e.g. 1920x1080, 540x960 for a portrait

@@ -962,6 +962,7 @@ static void render(void *u, double alpha) {
 /* what Auto chose, in the log: a host with no debug channel (a libretro core) still shows it */
 static void quality_changed(cw_quality q, void *user) {
   (void)q, (void)user;
+  if (G.have_track) ui_save_settings(); /* (a race: the save has loaded, and Auto's step was made there) */
   static const char *const NM[] = { "Low", "Medium", "High", "Ultra" };
   cw_info("racer: graphics %s (%s), now %s, %s", cw_quality_label(), cw_quality_is_auto() ? "auto" : "chosen", NM[cw_quality_get()], cw_render_res_label());
 }
