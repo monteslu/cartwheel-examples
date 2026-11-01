@@ -167,6 +167,8 @@ typedef struct kart {
   int item;
   int item_count;       /* charges of a triple turbo, and so on */
   int item_wait;        /* ticks the box is spinning before the item shows */
+  bool box_taken;       /* took a box and still touches that row: no second one */
+  int boxes;            /* item boxes taken this race */
   int item_cool;        /* ticks before another item can be used */
   uint8_t last_btn;
   /* stats */

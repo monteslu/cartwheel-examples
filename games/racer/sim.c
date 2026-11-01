@@ -350,6 +350,16 @@ void sim_place_on_grid(sim *s) {
   }
 }
 
+/* the wall's arc: how fast the road turns under a kart here, radians a metre (0 elsewhere), and the share of it the road does */
+#define WALL_CARRY 0.8f
+static float wall_arc_rate(const track *t, const tsample *ts) {
+  if (!(ts->flags & TF_WALLTURN) || fabsf(ts->u.y) > 0.1f) return 0;
+  const tsample *nx = &t->s[(int)(ts - t->s + 6) % t->n];
+  float ds = nx->s - ts->s;
+  if (ds < 0) ds += t->length;
+  return ds > 1.0f ? v3dot(v3cross(ts->f, nx->f), ts->u) / ds : 0;
+}
+
 /* ── the box rows ───────────────────────────────────────────────────── */
 
 static void make_boxes(sim *s) {
@@ -935,22 +945,34 @@ static void use_item(sim *s, int i) {
 static void boxes_step(sim *s) {
   for (int b = 0; b < s->nbox; b++) {
     itembox *x = &s->box[b];
-    if (x->cool > 0) {
-      x->cool--;
+    if (x->cool > 0) x->cool--;
+  }
+  /* a kart takes one box from a row, the nearest it touches, and no other until it has cleared them all (a row's boxes
+   * stand 3 m apart and reach 2.6 m: it took two at once) */
+  for (int i = 0; i < MAXK; i++) {
+    kart *k = &s->k[i];
+    if (!k->on || k->respawn_ticks > 0 || k->finished || k->out) continue;
+    int near = -1;
+    float best = 2.6f * 2.6f;
+    for (int b = 0; b < s->nbox; b++) {
+      if (s->box[b].cool > 0) continue;
+      t3_vec3 d = v3sub(k->p, s->box[b].p);
+      float dd = v3dot(d, d);
+      if (dd <= best) best = dd, near = b;
+    }
+    if (near < 0) {
+      k->box_taken = false;
       continue;
     }
-    for (int i = 0; i < MAXK; i++) {
-      kart *k = &s->k[i];
-      if (!k->on || k->respawn_ticks > 0 || k->finished || k->out) continue;
-      t3_vec3 d = v3sub(k->p, x->p);
-      if (v3dot(d, d) > 2.6f * 2.6f) continue;
-      x->cool = (s->battle && s->amode == AM_ASSAULT ? 4 : 6) * TICK_HZ; /* (an assault burns through items: quicker back) */
-      event(s, EV_BOX, i, b, x->p, 0);
-      if (k->item == IT_NONE && k->item_wait == 0) {
-        k->item_wait = 50;
-        event(s, EV_ITEM_GET, i, 0, k->p, 0);
-      }
-      break;
+    if (k->box_taken) continue;
+    k->box_taken = true;
+    k->boxes++;
+    itembox *x = &s->box[near];
+    x->cool = (s->battle && s->amode == AM_ASSAULT ? 4 : 6) * TICK_HZ; /* (an assault burns through items: quicker back) */
+    event(s, EV_BOX, i, near, x->p, 0);
+    if (k->item == IT_NONE && k->item_wait == 0) {
+      k->item_wait = 50;
+      event(s, EV_ITEM_GET, i, 0, k->p, 0);
     }
   }
 }
@@ -1235,10 +1257,11 @@ static void kart_control(sim *s, int i, kin in) {
       if (ds < 0) ds += t->length;
       float kappa = ds > 1.0f ? v3dot(v3sub(nx->f, ts->f), ts->u) / ds : 0;
       if (kappa > 0) cw_body3d_apply_force(b, v3mul(m.u, sp * sp * kappa * mass * attach), NULL);
-      /* and the arc on the wall carries the kart round, its way and its nose both, like a rail: forces and steering cannot do
-       * it (the tyres own the yaw; it slid to the outside rail and lost 15 m/s at 38, with the road pushing 100% of the turn) */
+      /* and the arc on the wall carries the kart most of the way round, its way and its nose both: forces and steering alone
+       * cannot (the tyres own the yaw; it slid to the outside rail and lost 15 m/s at 38). The rest is the driver's: steer a
+       * little into it or run wide into the rail */
       float along = v3dot(k->v, ts->f);
-      float turn = along > 0 && ds > 1.0f ? along * DT * v3dot(v3cross(ts->f, nx->f), ts->u) / ds : 0;
+      float turn = along > 0 ? WALL_CARRY * along * DT * wall_arc_rate(t, ts) : 0;
       if (fabsf(turn) > 1e-4f) {
         t3_quat qt = qaxis(ts->u, turn);
         k->v = qrot(qt, k->v);
@@ -1335,7 +1358,9 @@ static void kart_control(sim *s, int i, kin in) {
     if (frl > 0.3f && fkl > 0.3f) {
       fr = v3mul(fr, 1.0f / frl), fk = v3mul(fk, 1.0f / fkl);
       float err = cw_atan2(v3dot(v3cross(fk, fr), up), v3dot(fk, fr)); /* + : the road heads left of the nose */
-      eff = clampf(-err * 3.0f - k->loc.lat * 0.22f + steer * 0.5f, -1.0f, 1.0f);
+      /* (on the wall's arc the steering is the driver's alone, and gentle: the road's share of the turn plus full lock is still
+       * only a little too much, so a kart held hard over does not slam into the inside rail) */
+      eff = fabsf(wall_arc_rate(t, ts)) > 1e-3f ? steer * 0.55f : clampf(-err * 3.0f - k->loc.lat * 0.22f + steer * 0.5f, -1.0f, 1.0f);
       k->drifting = false;
     }
   }

@@ -78,6 +78,7 @@ typedef struct rig {
 static struct {
   int32_t ticks, phase, views, loaded;
   int32_t draws, tris;
+  int32_t boxes[MAXK];
   int32_t place[MAXK], lap[MAXK], prog[MAXK], falls[MAXK], cuts[MAXK], speed[MAXK], tricks[MAXK], hits[MAXK], lat[MAXK], ypos[MAXK], upy[MAXK], spd_max[MAXK], finished[MAXK], best_lap[MAXK], finish_tick[MAXK];
   int32_t balloons[MAXK], points[MAXK], out[MAXK], battle_left, battle_end, battle_alive;
   int32_t amode, team_score[2], flag_state[2], hill_holder, hill_spot, team[MAXK], caps[MAXK], hill[MAXK]; /* capture the flag, king of the mountain */
@@ -806,6 +807,7 @@ static void fixed(void *u, double dt) {
       G.lat[i] = (int32_t)(k->loc.lat * 10);
       G.ypos[i] = (int32_t)(k->p.y * 10);
       G.upy[i] = (int32_t)(kart_up(k).y * 100);
+      G.boxes[i] = k->boxes;
       G.spd_max[i] = (int32_t)(k->top_speed_seen * 10);
       G.finished[i] = k->finished;
       G.best_lap[i] = (int32_t)(k->best_lap * 100);
@@ -1006,6 +1008,7 @@ static void init(void *u) {
   G.a_reset = cw_action_find("reset");
   cw_debug_i32("ticks", &G.ticks);
   cw_debug_i32("race.phase", &G.phase);
+  cw_debug_field("karts.boxes", G.boxes, CW_DBG_I32, MAXK); /* item boxes taken */
   cw_debug_i32("race.loaded", &G.loaded);
   cw_debug_i32("views", &G.views);
   cw_debug_field("karts.place", G.place, CW_DBG_I32, MAXK);

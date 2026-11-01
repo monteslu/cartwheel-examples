@@ -3,6 +3,11 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.16.19 (2026-11-01)
+
+- **racer**: The wall's U needs steering: the road does 80% of the turn and the rest is the driver's, so a kart that does not steer runs wide into the outside rail and loses speed
+- **racer**: A kart takes one item box from a row, the nearest it touches, even when it touches two
+
 ## v0.16.18 (2026-11-01)
 
 - **racer**: The chase view keeps up through the wall's U (it fell 45 degrees behind the kart and stared at the outside rail)
