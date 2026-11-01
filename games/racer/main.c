@@ -78,7 +78,7 @@ typedef struct rig {
 static struct {
   int32_t ticks, phase, views, loaded;
   int32_t draws, tris;
-  int32_t place[MAXK], lap[MAXK], prog[MAXK], falls[MAXK], cuts[MAXK], speed[MAXK], tricks[MAXK], hits[MAXK], spd_max[MAXK], finished[MAXK], best_lap[MAXK], finish_tick[MAXK];
+  int32_t place[MAXK], lap[MAXK], prog[MAXK], falls[MAXK], cuts[MAXK], speed[MAXK], tricks[MAXK], hits[MAXK], lat[MAXK], spd_max[MAXK], finished[MAXK], best_lap[MAXK], finish_tick[MAXK];
   int32_t balloons[MAXK], points[MAXK], out[MAXK], battle_left, battle_end, battle_alive;
   int32_t amode, team_score[2], flag_state[2], hill_holder, hill_spot, team[MAXK], caps[MAXK], hill[MAXK]; /* capture the flag, king of the mountain */
   int32_t assault[7]; /* assault: half, stage, objectives done in each half, ticks to the last in each, the winning team */
@@ -521,7 +521,7 @@ static void rig_tick(int v) {
      * into the road rising ahead, a wall of deck filling the screen */
     bool loopy = false;
     if (k->loc.i >= 0 && k->loc.br < 0)
-      for (int j = -4; j <= 24 && !loopy; j += 4) loopy = (s->track->s[(k->loc.i + j + s->track->n) % s->track->n].flags & TF_LOOP) != 0;
+      for (int j = -4; j <= 24 && !loopy; j += 4) loopy = (s->track->s[(k->loc.i + j + s->track->n) % s->track->n].flags & (TF_LOOP | TF_WALLTURN)) != 0;
     float ku = loopy ? 0.22f : 0.07f, kf = loopy ? 0.25f : 0.09f;
     r->up = v3norm(v3add(v3mul(r->up, 1 - ku), v3mul(tsup, ku)));
     r->fwd = v3norm(v3add(v3mul(r->fwd, 1 - kf), v3mul(want_f, kf)));
@@ -801,6 +801,7 @@ static void fixed(void *u, double dt) {
       G.speed[i] = (int32_t)(k->speed * 10);
       G.tricks[i] = k->tricks;
       G.hits[i] = k->hits_taken;
+      G.lat[i] = (int32_t)(k->loc.lat * 10);
       G.spd_max[i] = (int32_t)(k->top_speed_seen * 10);
       G.finished[i] = k->finished;
       G.best_lap[i] = (int32_t)(k->best_lap * 100);
@@ -909,6 +910,14 @@ static void cmd_eye(int argc, const char **argv, cw_reply *r) {
   if (r) cw_reply_printf(r, "{\"eye\":%d}", G.dev_eye);
 }
 
+/* put <s> [speed] [lat] [kart]: a kart on the road there, moving (what RACER_TEST_AT does natively, for hosts with no environment) */
+static void cmd_put(int argc, const char **argv, cw_reply *r) {
+  bool ok = argc > 1 && G.have_track && !G.S.battle;
+  int k = argc > 4 ? atoi(argv[4]) & 7 : 0;
+  if (ok) sim_put(&G.S, k, (float)atof(argv[1]), argc > 3 ? (float)atof(argv[3]) : 0, argc > 2 ? (float)atof(argv[2]) : 30);
+  if (r) cw_reply_printf(r, "{\"put\":%d}", ok ? 1 : 0);
+}
+
 static void cmd_bot(int argc, const char **argv, cw_reply *r) {
   G.bot = argc > 1 ? CW_CLAMP(atoi(argv[1]), 0, 2) : 1;
   if (r) cw_reply_printf(r, "{\"bot\":%d}", G.bot);
@@ -1007,6 +1016,7 @@ static void init(void *u) {
   cw_debug_f32_array("cam.eye", (float *)&G.rig[0].cam_eye, 3);
   cw_debug_f32_array("cam.at", (float *)&G.rig[0].cam_at, 3);
   cw_debug_field("karts.hits", G.hits, CW_DBG_I32, MAXK);
+  cw_debug_field("karts.lat", G.lat, CW_DBG_I32, MAXK); /* metres x10 to the right of the centre line */
   cw_debug_field("karts.top_speed", G.spd_max, CW_DBG_I32, MAXK);
   cw_debug_field("karts.finished", G.finished, CW_DBG_I32, MAXK);
   cw_debug_field("karts.best_lap", G.best_lap, CW_DBG_I32, MAXK);
@@ -1016,6 +1026,7 @@ static void init(void *u) {
   cw_debug_command("trial", "trial <map 0..7> [runs]: start a time trial now (the bot drives <runs> runs when it is on)", cmd_trial);
   cw_debug_command("cup", "cup <0..1> [humans] [laps] [races]: a cup now, clicking through its own results (with `bot 1`)", cmd_cup);
   cw_debug_command("eye", "eye <x y z tx ty tz>: hold view 0's camera there looking at the target, no HUD (no arguments: back to the chase)", cmd_eye);
+  cw_debug_command("put", "put <s> [speed] [lat] [kart]: a kart on the road at s metres, moving", cmd_put);
   cw_debug_command("bot", "bot <0|1|2>: the human karts driven by the CPU driver (2: keyboard-style steering)", cmd_bot);
   cw_debug_command("battle", "battle <arena 0..5> [humans] [secs] [karts] [mode 0 balloons|1 flag|2 hill|3 assault]: an arena round now (secs 0: three minutes)", cmd_battle);
   cw_debug_i32("battle.mode", &G.amode);

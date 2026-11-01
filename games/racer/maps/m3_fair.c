@@ -65,7 +65,11 @@ static const piece SPEC[] = {
   ITEMS(),
   LOOP(24, -1),
   ASTRAIGHT(40),
-  ABANKED(180, 330, 26),
+  /* the wall turn: the U-turn home tilts up until the road is nearly a wall, held off a pit on hydraulic rams
+   * (dress_wall_turn). The bank rises and falls over the whole 330 m, so it comes on gently even at boost speed. Low
+   * walls: tall ones hid the sky, the pit and the fact it is a wall */
+  FLAG(TF_WALLTURN, 330),
+  ABANKED(180, 330, 78),
   ATURN(20, 90),
   ATURN(-20, 90),
   ASTRAIGHT(100),
@@ -114,6 +118,9 @@ typedef struct fair_pos {
   int jump_i;
   t3_vec3 cork_c;             /* the middle of the corkscrew (ground level) */
   float cork_hl;              /* half its length */
+  float wall_s0, wall_s1;     /* the wall turn */
+  t3_vec3 wall_c;             /* the middle of its half circle's full circle, ground level */
+  float wall_r;
 } fair_pos;
 
 static fair_pos P;
@@ -139,6 +146,14 @@ static bool piece_range(const track *t, int piece, int *i0, int *i1) {
 
 static void find_places(const track *t) {
   memset(&P, 0, sizeof P);
+  /* the wall turn: its axis is halfway between where it starts and ends */
+  for (int i = 0, a = -1; i < t->n; i++) {
+    if (!(t->s[i].flags & TF_WALLTURN)) continue;
+    if (a < 0) a = i, P.wall_s0 = t->s[i].s;
+    P.wall_s1 = t->s[i].s;
+    P.wall_c = V3((t->s[a].p.x + t->s[i].p.x) * 0.5f, 0, (t->s[a].p.z + t->s[i].p.z) * 0.5f);
+    P.wall_r = hypotf(t->s[a].p.x - t->s[i].p.x, t->s[a].p.z - t->s[i].p.z) * 0.5f;
+  }
   int nl = 0;
   for (int k = 0; k < (int)(sizeof SPEC / sizeof SPEC[0]); k++) {
     const piece *pc = &SPEC[k];
@@ -226,7 +241,9 @@ static float fair_ground(float x, float z, void *ud) {
   float basin = ground_basin(x, z, P.helix_c.x + 20, P.helix_c.z + 20, 150, 170, 12.5f, 60);
   /* a sunken channel along the corkscrew: the road rolls half below its own axis, so the earth has to be out of the way */
   float pit = ground_basin(x, z, P.cork_c.x, P.cork_c.z, 19.0f, P.cork_hl + 8.0f, 9.0f, 15.0f);
-  return h + basin + pit;
+  /* the pit the wall turn was lifted out of */
+  float wall = P.wall_r > 0 ? ground_basin(x, z, P.wall_c.x, P.wall_c.z, P.wall_r + 22.0f, P.wall_r + 22.0f, 9.0f, 26.0f) : 0;
+  return h + basin + pit + wall;
 }
 
 static ground_opts GO;
@@ -901,7 +918,7 @@ static void build_strings(cw_node root, const track *t) {
   bool have = false;
   for (float s = 40.0f; s < t->length - 30.0f; s += 6.0f) {
     tsample a = track_at(t, s);
-    bool bad = (a.flags & (TF_LOOP | TF_GAP | TF_TUNNEL)) || (a.s > P.crest_s - 100.0f && a.s < P.crest_s + 70.0f) || fabsf(a.f.y) > 0.14f || fabsf(a.bank) > 0.17f || fabsf(a.u.y) < 0.97f;
+    bool bad = (a.flags & (TF_LOOP | TF_GAP | TF_TUNNEL | TF_WALLTURN)) || (a.s > P.crest_s - 100.0f && a.s < P.crest_s + 70.0f) || fabsf(a.f.y) > 0.14f || fabsf(a.bank) > 0.17f || fabsf(a.u.y) < 0.97f;
     for (int k = 0; k < 3 && !bad; k++) {
       tsample q = track_at(t, s + (float)(k - 1) * 22.0f);
       if (q.flags & (TF_LOOP | TF_GAP)) bad = true;
@@ -1581,7 +1598,7 @@ static void build_park(cw_node root, pmc *st, pmc *wood, gcells *chase[3], gcell
     for (float s = 30; s < t->length - 30 && n < 8; s += 5.0f) {
       float k = track_curvature(t, s + 30.0f, 40.0f);
       tsample a = track_at(t, s);
-      if (fabsf(k) > 0.0075f && s - last > 200.0f && !(a.flags & (TF_LOOP | TF_GAP))) {
+      if (fabsf(k) > 0.0075f && s - last > 200.0f && !(a.flags & (TF_LOOP | TF_GAP | TF_WALLTURN))) {
         last = s;
         float lat = k > 0 ? a.hw + 10.0f : -(a.hw + 10.0f); /* outside of the turn: + curvature turns left, so the outside is the right */
         t3_vec3 p = track_point(t, s + 12.0f, lat, 0);
@@ -1747,6 +1764,46 @@ static void edge_bulbs(const track *t, gcells *chase[3], float s0, float s1, flo
       bulb(chase[k % 3], p, 0.3f, bulb_col(k), 4.2f);
     }
   }
+}
+
+/* the wall turn stands on rusted hydraulic rams: at each station a ram from the pit to the deck's low edge, a raking
+ * strut from behind to its high half, both on concrete pads sunk into the ground, and bulbs along the rim */
+static void ram_pad(pmc *st, t3_vec3 at) {
+  pm *b = pmc_at(st, at);
+  pm_layer(b, PL_MAIN);
+  pm_push(b);
+  pm_move(b, at.x, at.y - 1.6f, at.z); /* a cell's builder is in world coordinates */
+  pm_box(b, 4.2f, 2.0f, 4.2f, rgb(0.34f, 0.33f, 0.3f), rgb(0.52f, 0.5f, 0.45f));
+  pm_pop(b);
+}
+static void dress_wall_turn(pmc *st, gcells *chase[3], const track *t) {
+  if (P.wall_s1 <= P.wall_s0) return;
+  pcol rust = hex(0x6d3f27), red = hex(0xa8382b), chrome = rgb(0.72f, 0.72f, 0.7f);
+  for (float s = P.wall_s0 + 30.0f; s < P.wall_s1 - 25.0f; s += THIN ? 44.0f : 22.0f) {
+    tsample a = track_at(t, s);
+    float hi = a.r.y >= 0 ? 1.0f : -1.0f; /* which way along r the road's high edge lies */
+    t3_vec3 lo = v3add(v3add(a.p, v3mul(a.r, -hi * a.hw * 0.8f)), v3mul(a.u, -0.5f));
+    t3_vec3 up = v3add(v3add(a.p, v3mul(a.r, hi * a.hw * 0.55f)), v3mul(a.u, -0.5f));
+    float rl = hypotf(a.r.x, a.r.z);
+    t3_vec3 out = rl > 1e-3f ? V3(a.r.x * hi / rl, 0, a.r.z * hi / rl) : V3(0, 0, 0); /* level, away from the turn's middle */
+    /* the ram: a fat rusted barrel with a bright rod out of its top */
+    t3_vec3 foot = V3(lo.x, ground_height_at(NULL, lo.x, lo.z), lo.z);
+    t3_vec3 mid = v3add(foot, v3mul(v3sub(lo, foot), 0.58f));
+    pm *b = pmc_at(st, foot);
+    pm_layer(b, PL_METAL);
+    pm_limb(b, foot, mid, 1.15f, 1.0f, 10, rust, red);
+    pm_limb(b, mid, lo, 0.5f, 0.5f, 8, chrome, chrome);
+    ram_pad(st, foot);
+    /* the raking strut from behind */
+    float run = (up.y - foot.y) * 0.55f + 4.0f;
+    t3_vec3 back = v3add(up, v3mul(out, run));
+    back.y = ground_height_at(NULL, back.x, back.z);
+    pm *c = pmc_at(st, back);
+    pm_layer(c, PL_METAL);
+    pm_limb(c, back, up, 0.75f, 0.5f, 8, rust, red);
+    ram_pad(st, back);
+  }
+  edge_bulbs(t, chase, P.wall_s0 + 20.0f, P.wall_s1 - 20.0f, 3.2f, 0.55f, 1.65f); /* on the low wall's top, 1.6 m */
 }
 
 /* a candy arch over the road: two legs and a half hoop, striped, with bulbs */
@@ -2390,6 +2447,7 @@ static void fair_scenery(cw_node scene, const track *t, uint32_t seed) {
   dress_loop(str, chase, t, 0);
   dress_loop(str, chase, t, 1);
   dress_corkscrew(str, chase, t);
+  dress_wall_turn(str, chase, t);
   dress_climb(t, str, chase);
   dress_helix(t, chase);
   wall_tapers(root, t);

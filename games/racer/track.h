@@ -51,6 +51,7 @@ enum {
   TF_BRANCH = 1u << 17,  /* a sample of a branch (an alternate route), not of the main road */
   TF_JOIN = 1u << 18,    /* a branch sample still overlapping the main road: its road is drawn only beyond the main edge (cut) */
   TF_SLOW = 1u << 19,    /* deep sand, mud, loose snow: drags the speed down */
+  TF_WALLTURN = 1u << 20, /* a turn banked near vertical: the road is the kart's floor as in a loop, but it can still drift and pass */
 };
 
 /* road surface kinds (the material the road mesh wears and the tyres feel) */

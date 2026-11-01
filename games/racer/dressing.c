@@ -233,7 +233,7 @@ void dress_checkpoints(cw_node parent, const track *t, const dress_style *in) {
 
 static bool support_ok(const track *t, int i) {
   const tsample *a = &t->s[i];
-  return !(a->flags & (TF_GAP | TF_LOOP | TF_TUNNEL));
+  return !(a->flags & (TF_GAP | TF_LOOP | TF_TUNNEL | TF_WALLTURN)); /* (a wall turn's map stands it on its own rams) */
 }
 /* is another part of the course directly beneath this point, so a column would pierce it */
 static bool crossing(const track *t, int i, float x, float z) {

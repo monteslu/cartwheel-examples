@@ -511,7 +511,7 @@ static void spin_kart(sim *s, int i, int kind, int by) {
     event(s, EV_SPIN, i, by, k->p, (float)kind);
     return;
   }
-  if (!s->battle && k->loc.i >= 0 && (s->track->s[k->loc.i].flags & TF_LOOP)) {
+  if (!s->battle && k->loc.i >= 0 && (s->track->s[k->loc.i].flags & (TF_LOOP | TF_WALLTURN))) {
     t3_vec3 v = cw_body3d_velocity(PH.body[i]);
     cw_body3d_set_velocity(PH.body[i], v3mul(v, 0.75f));
     k->hits_taken++;
@@ -1179,7 +1179,7 @@ static void kart_control(sim *s, int i, kin in) {
   }
   /* and through a loop or corkscrew it keeps a kart rolling: one slowed by a bump in the tube used to stall there until the
    * stuck timer put it back (3.5 s gone) */
-  if (touching && (ts->flags & TF_LOOP) && !s->battle && k->spin_ticks == 0) {
+  if (touching && (ts->flags & (TF_LOOP | TF_WALLTURN)) && !s->battle && k->spin_ticks == 0) {
     float along = v3dot(k->v, ts->f);
     if (along < 14.0f) {
       float need = fminf(14.0f - along, 0.6f);
@@ -1188,10 +1188,10 @@ static void kart_control(sim *s, int i, kin in) {
     }
   }
   float attach = 0;
-  if (!gap && lat_over < ((ts->flags & TF_LOOP) ? 6.0f : 2.5f) && h > -1.0f && !s->battle) {
+  if (!gap && lat_over < ((ts->flags & (TF_LOOP | TF_WALLTURN)) ? 6.0f : 2.5f) && h > -1.0f && !s->battle) {
     /* in a loop or corkscrew the road keeps its hold a long way out: a kart bounced off it upside down was dropped out
      * of the tube (2.3 m was all it had) */
-    float reach = (ts->flags & TF_LOOP) ? 7.0f : 3.0f;
+    float reach = (ts->flags & (TF_LOOP | TF_WALLTURN)) ? 7.0f : 3.0f;
     attach = clampf((reach - h) / 0.9f, 0, 1);
     float al = v3dot(up, m.u);
     if (al < 0.0f && !(ts->flags & TF_LOOP)) attach *= 0.0f;
@@ -1200,7 +1200,7 @@ static void kart_control(sim *s, int i, kin in) {
   if (attach > 0) {
     /* gravity leans towards the road's own down: all of the way in a loop or corkscrew (a kart needs no more speed
      * than it can drive), half way on a hill (a slope still slows a climb and speeds a drop, a little) */
-    float blend = (ts->flags & TF_LOOP) ? 1.0f : 0.45f;
+    float blend = (ts->flags & (TF_LOOP | TF_WALLTURN)) ? 1.0f : 0.45f;
     t3_vec3 gdiff = v3sub((t3_vec3){ 0, 1, 0 }, m.u);
     cw_body3d_apply_force(b, v3mul(gdiff, GRAV * mass * attach * blend), NULL);
     float sp = absf(k->speed);
@@ -1226,6 +1226,20 @@ static void kart_control(sim *s, int i, kin in) {
         float need = sp * sp * kappa - 0.85f * GRAV;
         if (need > 0) cw_body3d_apply_force(b, v3mul(m.u, -fminf(need, 2.0f * GRAV) * mass * attach), NULL);
       }
+    }
+    /* a wall turn presses a fast kart into the road (v^2 x the road's curve towards it: 3.5 g at 62 m/s): the springs
+     * bottomed out and the chassis scraped, 8 m/s gone in a tick. The road takes that up instead */
+    if ((ts->flags & TF_WALLTURN) && k->loc.br < 0) {
+      const tsample *nx = &t->s[(k->loc.i + 6) % t->n];
+      float ds = nx->s - ts->s;
+      if (ds < 0) ds += t->length;
+      float kappa = ds > 1.0f ? v3dot(v3sub(nx->f, ts->f), ts->u) / ds : 0;
+      if (kappa > 0) cw_body3d_apply_force(b, v3mul(m.u, sp * sp * kappa * mass * attach), NULL);
+      /* and the banking carries it round: most of the turning force comes from the road, not the tyres (at 62 m/s the
+       * tyres gave out, the kart met the outside wall nearly square and came off it backwards at -11 m/s) */
+      float along = v3dot(k->v, ts->f);
+      float lat_k = ds > 1.0f ? v3dot(v3sub(nx->f, ts->f), ts->r) / ds : 0;
+      if (along > 0) cw_body3d_apply_force(b, v3mul(ts->r, 0.85f * along * along * lat_k * mass * attach), NULL);
     }
   }
   if (s->battle && (grounded || touching) && up.y > 0.7f) {
@@ -1396,7 +1410,7 @@ static void kart_control(sim *s, int i, kin in) {
 
   /* grounded: the body lies on the road; the legs take what the surface asks. The turn that lays it flat is a rate
    * (so many radians a second per radian off), held hard in a loop or corkscrew where the road turns under the kart */
-  bool in_loop = (ts->flags & TF_LOOP) != 0;
+  bool in_loop = (ts->flags & (TF_LOOP | TF_WALLTURN)) != 0;
   if (attach > 0 && (touching || in_loop)) {
     t3_vec3 w = k->w;
     t3_vec3 ax = v3cross(up, m.u);
@@ -1413,7 +1427,7 @@ static void kart_control(sim *s, int i, kin in) {
 
   /* never on its side or its roof near the road (outside loops): a kart tipped past about 30 degrees from the road's up
    * is turned back upright, hard, so a bump or a wall is a wobble and not a roll into the barrier */
-  if (!(ts->flags & TF_LOOP) && m.u.y > 0.8f && k->loc.height < 3.0f && k->spin_ticks <= 0 && k->trick_ticks <= 0) {
+  if (!(ts->flags & TF_LOOP) && (m.u.y > 0.8f || (ts->flags & TF_WALLTURN)) && k->loc.height < 3.0f && k->spin_ticks <= 0 && k->trick_ticks <= 0) {
     float c = v3dot(up, m.u);
     if (c < 0.87f) {
       t3_vec3 ax = v3cross(up, m.u);
