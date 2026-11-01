@@ -226,13 +226,19 @@ kin ai_think(const sim *s, int me, ai_mem *m) {
   if (m->skill >= 1 && k->shock_warn > 0 && k->shock_warn <= 9 + 2 * (2 - m->skill)) in.btn |= KB_DRIFT;
   /* facing the wrong way (a spin left it there): back round toward the line, nose swinging to it, instead of a slow
    * forward U-turn whose arc ran it off an open edge (a Temple ledge took a spun CPU at 10 m/s) */
-  if (fabsf(ang) > 1.7f && k->grounded && k->spin_ticks <= 0 && s->phase == PH_RACE && !(here.flags & TF_LOOP)) in.thr = -127;
+  if (fabsf(ang) > 1.7f && s->phase == PH_RACE && k->spin_ticks <= 0 && !(here.flags & TF_LOOP)) {
+    if (k->grounded) in.thr = -127;
+    m->backing++; /* a tyre off the ground for a tick on a bumpy road does not start the count again */
+  } else if (fabsf(ang) < 1.2f) m->backing = 0;
   /* stuck: the other way out. Driving forward got nowhere: back out, wheels turned the other way. Backing round got
-   * nowhere (something right behind it, a Frost kart sat 3.5 s against one): forward, a slow U-turn to the line, held
-   * until it faces the line (unstick < 0 counts that up) */
+   * nowhere (something right behind it, a Frost kart sat 3.5 s against one; or sliding backwards down a wall with the
+   * nose pinned, 50 s of a Temple lap at 12 m/s): forward, a slow U-turn to the line, held until it faces the line
+   * (unstick < 0 counts that up) */
   if (fabsf(spd) < 1.5f && s->phase == PH_RACE) m->stuck++;
   else m->stuck = 0;
   if (m->stuck > 90) m->unstick = in.thr < 0 ? -150 : 60, m->stuck = 0;
+  if (m->unstick != 0) m->backing = 0;
+  else if (m->backing > 120) m->unstick = -150, m->backing = 0;
   if (m->unstick > 0) {
     m->unstick--;
     in.thr = -127;

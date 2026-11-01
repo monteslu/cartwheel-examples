@@ -51,7 +51,7 @@ enum {
   TF_BRANCH = 1u << 17,  /* a sample of a branch (an alternate route), not of the main road */
   TF_JOIN = 1u << 18,    /* a branch sample still overlapping the main road: its road is drawn only beyond the main edge (cut) */
   TF_SLOW = 1u << 19,    /* deep sand, mud, loose snow: drags the speed down */
-  TF_WALLTURN = 1u << 20, /* a turn banked near vertical: the road is the kart's floor as in a loop, but it can still drift and pass */
+  TF_WALLTURN = 1u << 20, /* up a wall and back down (P_WALLU), always with TF_LOOP: the road is the kart's floor while its up is level */
 };
 
 /* road surface kinds (the material the road mesh wears and the tyres feel) */
@@ -79,6 +79,8 @@ typedef enum {
   P_MOVE,    /* a: length   b: heading change (deg, + left)  c: pitch to (deg)  d: bank to (deg)  e: half width to */
   P_LOOP,    /* a: radius   b: side the loop steps to (+1 right, -1 left)  c: pitch the lead-in has */
   P_CORK,    /* a: length   b: turns (+ rolls to the left over the top)  */
+  P_WALLU,   /* up a wall and back down: a: length of each ramp between ground and wall  b: side the U arcs to (+1 left, -1 right)
+             c: straight climb before the arc  d: length of each quarter of the arc  e: the run along the wall between them */
   P_JUMP,    /* a: horizontal distance of the gap (0: where the arc lands level with the lip)   b: design speed m/s, the SLOWEST
              a kart is expected to take off at: faster ones fly further and land on the slope after the gap */
   P_SURF,    /* a: surface kind from here on */
@@ -113,6 +115,7 @@ typedef struct piece {
 #define WIDTH(len, hw) PC(P_MOVE, .a = (len), .b = 0, .c = KEEP, .d = KEEP, .e = (hw))
 #define LOOP(radius, side) PC(P_LOOP, .a = (radius), .b = (side))
 #define CORKSCREW(len, turns) PC(P_CORK, .a = (len), .b = (turns))
+#define WALLU(ramp, side, climb, arc, run) PC(P_WALLU, .a = (ramp), .b = (side), .c = (climb), .d = (arc), .e = (run))
 #define JUMP(gap, speed) PC(P_JUMP, .a = (gap), .b = (speed))
 #define SURFACE(k) PC(P_SURF, .a = (k))
 #define WALLS(l, r) PC(P_WALLS, .a = (l), .b = (r))

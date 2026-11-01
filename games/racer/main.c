@@ -78,7 +78,7 @@ typedef struct rig {
 static struct {
   int32_t ticks, phase, views, loaded;
   int32_t draws, tris;
-  int32_t place[MAXK], lap[MAXK], prog[MAXK], falls[MAXK], cuts[MAXK], speed[MAXK], tricks[MAXK], hits[MAXK], lat[MAXK], spd_max[MAXK], finished[MAXK], best_lap[MAXK], finish_tick[MAXK];
+  int32_t place[MAXK], lap[MAXK], prog[MAXK], falls[MAXK], cuts[MAXK], speed[MAXK], tricks[MAXK], hits[MAXK], lat[MAXK], ypos[MAXK], upy[MAXK], spd_max[MAXK], finished[MAXK], best_lap[MAXK], finish_tick[MAXK];
   int32_t balloons[MAXK], points[MAXK], out[MAXK], battle_left, battle_end, battle_alive;
   int32_t amode, team_score[2], flag_state[2], hill_holder, hill_spot, team[MAXK], caps[MAXK], hill[MAXK]; /* capture the flag, king of the mountain */
   int32_t assault[7]; /* assault: half, stage, objectives done in each half, ticks to the last in each, the winning team */
@@ -802,6 +802,8 @@ static void fixed(void *u, double dt) {
       G.tricks[i] = k->tricks;
       G.hits[i] = k->hits_taken;
       G.lat[i] = (int32_t)(k->loc.lat * 10);
+      G.ypos[i] = (int32_t)(k->p.y * 10);
+      G.upy[i] = (int32_t)(kart_up(k).y * 100);
       G.spd_max[i] = (int32_t)(k->top_speed_seen * 10);
       G.finished[i] = k->finished;
       G.best_lap[i] = (int32_t)(k->best_lap * 100);
@@ -1017,6 +1019,8 @@ static void init(void *u) {
   cw_debug_f32_array("cam.at", (float *)&G.rig[0].cam_at, 3);
   cw_debug_field("karts.hits", G.hits, CW_DBG_I32, MAXK);
   cw_debug_field("karts.lat", G.lat, CW_DBG_I32, MAXK); /* metres x10 to the right of the centre line */
+  cw_debug_field("karts.y", G.ypos, CW_DBG_I32, MAXK); /* height, metres x10 */
+  cw_debug_field("karts.upy", G.upy, CW_DBG_I32, MAXK); /* how much of the kart's up points at the sky x100: 0 on a wall, -100 upside down */
   cw_debug_field("karts.top_speed", G.spd_max, CW_DBG_I32, MAXK);
   cw_debug_field("karts.finished", G.finished, CW_DBG_I32, MAXK);
   cw_debug_field("karts.best_lap", G.best_lap, CW_DBG_I32, MAXK);

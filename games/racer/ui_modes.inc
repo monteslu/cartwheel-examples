@@ -14,7 +14,7 @@ enum { MEDAL_NONE, MEDAL_BRONZE, MEDAL_SILVER, MEDAL_GOLD, MEDAL_AUTHOR, MEDAL_K
 static const char *const MEDAL_NAME[MEDAL_KINDS] = { "NO MEDAL", "BRONZE", "SILVER", "GOLD", "AUTHOR" };
 
 /* the reference lap of each map from the grid at the standard class, in centiseconds (tools/trial_ref.sh prints these) */
-static const uint32_t TRIAL_REF_CS[NMAPS] = { 7728, 8255, 8928, 7760, 7093, 8982, 7852, 7980 };
+static const uint32_t TRIAL_REF_CS[NMAPS] = { 7728, 8255, 9235, 7760, 7093, 8982, 7852, 7980 };
 /* a medal's time as a share of the reference: you earn the medal by being at least that quick */
 static const int MEDAL_PCT[MEDAL_KINDS] = { 0, 135, 117, 105, 100 };
 
@@ -240,6 +240,8 @@ static void draw_trial_results(float W, float H, float s) {
 
 /* ── the trial's HUD panels ─────────────────────────────────────────── */
 
+/* the time trial's panels sit over the road ahead and the top of the view: see through them, the outlined numbers still read */
+#define TRIAL_PANEL rgba(0.11f, 0.08f, 0.09f, 0.4f)
 static void hud_trial(const hv *g) {
   const sim *S = g->S;
   const kart *k = g->k;
@@ -251,7 +253,7 @@ static void hud_trial(const hv *g) {
   {
     float x = g->x + 14 * s, y = g->y + 12 * s, w = 158 * s, rh = 22 * s;
     float h = g->compact ? 4 * rh + 8 * s : 4 * rh + 30 * s;
-    slab(cw_rect_make(x, y, w, h), 14 * s, PANEL, s);
+    slab(cw_rect_make(x, y, w, h), 14 * s, TRIAL_PANEL, s);
     float y0 = y + 14 * s;
     if (!g->compact) tx(U.f_small, "TIME TRIAL", x + 18 * s, y0, hpx(15, s, 11), DIM, CW_ALIGN_LEFT), y0 += 18 * s;
     int aim = 0; /* the best medal still in reach */
@@ -266,7 +268,7 @@ static void hud_trial(const hv *g) {
       if (mine) cw_r2d_rect(cw_rect_make(x + 6 * s, cy - rh * 0.5f + 1 * s, w - 12 * s, rh - 2 * s), alpha(MUSTARD, 0.18f));
       if (out) cw_r2d_circle_lines(cw_v2(x + 26 * s, cy), 6 * s, 1.5f * s, 12, alpha(DIM, 0.45f));
       else draw_medal(cw_v2(x + 26 * s, cy + 2 * s), 6.5f * s, tier, s, U.time);
-      tx(U.f_hud, b, x + w - 16 * s, cy, hpx(16, s, 11), out ? alpha(DIM, 0.55f) : mine ? MUSTARD : CREAM, CW_ALIGN_RIGHT);
+      tx_o(U.f_hud, b, x + w - 16 * s, cy, hpx(16, s, 11), out ? alpha(CREAM, 0.5f) : mine ? MUSTARD : CREAM, (txopt){ .align = CW_ALIGN_RIGHT, .outline = 1.6f * s });
     }
   }
   /* the ghost's gap, top centre */
@@ -277,7 +279,7 @@ static void hud_trial(const hv *g) {
     bool have = ghost_loaded() && racing && ghost_gap(k->prog, S->race_ticks, &gap_s);
     cw_color edge = rgba(0.5f, 0.45f, 0.4f, 1);
     if (have) edge = gap_s <= 0 ? LIME : RED;
-    rslab(r, 14 * s, PANEL, s);
+    rslab(r, 14 * s, TRIAL_PANEL, s);
     cw_r2d_round_rect_lines(cw_rect_make(r.x + 3 * s, r.y + 3 * s, r.w - 6 * s, r.h - 6 * s), 11 * s, 3 * s, 6, alpha(edge, have ? 0.9f : 0.5f));
     char b[32];
     if (have) {

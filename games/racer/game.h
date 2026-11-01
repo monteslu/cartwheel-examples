@@ -364,7 +364,7 @@ typedef struct ai_mem {
   int lane_ticks;
   float weave_phase;
   int item_wait;
-  int stuck, unstick;
+  int stuck, unstick, backing; /* backing: ticks spent reversing round to the line */
   float steer_smooth;
   /* battle (ai_battle.c) */
   int b_target, b_box, b_think, b_reverse, b_hold, b_slow, b_side, b_frust, b_roam;

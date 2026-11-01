@@ -1227,7 +1227,7 @@ static void kart_control(sim *s, int i, kin in) {
         if (need > 0) cw_body3d_apply_force(b, v3mul(m.u, -fminf(need, 2.0f * GRAV) * mass * attach), NULL);
       }
     }
-    /* a wall turn presses a fast kart into the road (v^2 x the road's curve towards it: 3.5 g at 62 m/s): the springs
+    /* the wall's ramps press a fast kart into the road (v^2 x the road's curve towards it: 3.5 g at 62 m/s): the springs
      * bottomed out and the chassis scraped, 8 m/s gone in a tick. The road takes that up instead */
     if ((ts->flags & TF_WALLTURN) && k->loc.br < 0) {
       const tsample *nx = &t->s[(k->loc.i + 6) % t->n];
@@ -1235,7 +1235,7 @@ static void kart_control(sim *s, int i, kin in) {
       if (ds < 0) ds += t->length;
       float kappa = ds > 1.0f ? v3dot(v3sub(nx->f, ts->f), ts->u) / ds : 0;
       if (kappa > 0) cw_body3d_apply_force(b, v3mul(m.u, sp * sp * kappa * mass * attach), NULL);
-      /* and the banking carries it round: most of the turning force comes from the road, not the tyres (at 62 m/s the
+      /* and the arc on the wall carries it round: most of the turning force comes from the road, not the tyres (at 62 m/s the
        * tyres gave out, the kart met the outside wall nearly square and came off it backwards at -11 m/s) */
       float along = v3dot(k->v, ts->f);
       float lat_k = ds > 1.0f ? v3dot(v3sub(nx->f, ts->f), ts->r) / ds : 0;

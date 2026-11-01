@@ -215,6 +215,76 @@ static void do_cork(walker *w, const piece *pc) {
   }
 }
 
+/* a sample and a step of the wall U, in a frame of its own: on the wall the road's up is level, where a heading and a
+ * pitch have no good answer */
+static void wallu_step(walker *w, t3_vec3 r, t3_vec3 u, t3_vec3 f, t3_vec3 fm, float ds) {
+  emit(w, v3_(0, 0, 0), false, TF_LOOP | TF_WALLTURN);
+  if (w->out && w->n <= w->cap) {
+    tsample *q = &w->out[w->n - 1];
+    q->r = r, q->u = u, q->f = f;
+  }
+  w->ps.p = add(w->ps.p, mul(fm, ds));
+  w->s += ds;
+}
+
+/* Up a wall and back down: a ramp curls the road up until it is vertical, it climbs, arcs over sideways on the wall's
+ * face (an upside-down U), comes down, and a second ramp lays it on the ground again going the other way. The road's up
+ * stays level, pointing out of the wall, from the top of the first ramp to the foot of the second. The net move is a
+ * level U-turn's: sideways by the U's width, the same height, heading reversed. */
+static void do_wallu(walker *w, const piece *pc) {
+  const float psi0 = w->ps.psi, th0 = w->ps.theta, half_pi = 1.57079633f;
+  const float side = pc->b >= 0 ? 1.0f : -1.0f;
+  t3_vec3 rh, u0, fh, y = v3_(0, 1, 0);
+  frame_of(psi0, 0, 0, &rh, &u0, &fh);
+  const t3_vec3 up_wall = mul(fh, -1);
+  int start = w->n;
+  /* the ramp up */
+  int n = (int)(pc->a / STEP_M + 0.5f);
+  float ds = pc->a / (float)n;
+  for (int i = 0; i < n; i++) {
+    float t0 = (float)i / (float)n, tm = (i + 0.5f) / (float)n;
+    t3_vec3 r, u, f, fm;
+    frame_of(psi0, th0 + (half_pi - th0) * smooth(t0), 0, &r, &u, &f);
+    frame_of(psi0, th0 + (half_pi - th0) * smooth(tm), 0, &r, &u, &fm);
+    frame_of(psi0, th0 + (half_pi - th0) * smooth(t0), 0, &r, &u, &f);
+    wallu_step(w, r, u, f, fm, ds);
+  }
+  /* on the wall: alpha 0 straight up, pi/2 along it, pi straight down */
+#define WALLU_F(al) add(mul(y, cw_cos(al)), mul(rh, -side * cw_sin(al)))
+#define WALLU_R(al) add(mul(rh, cw_cos(al)), mul(y, side * cw_sin(al)))
+  struct { float len, a0, a1; } run[5] = {
+    { pc->c, 0, 0 }, { pc->d, 0, half_pi }, { pc->e, half_pi, half_pi }, { pc->d, half_pi, 2 * half_pi }, { pc->c, 2 * half_pi, 2 * half_pi },
+  };
+  for (int k = 0; k < 5; k++) {
+    if (run[k].len < 0.5f) continue;
+    n = (int)(run[k].len / STEP_M + 0.5f);
+    ds = run[k].len / (float)n;
+    for (int i = 0; i < n; i++) {
+      float a = run[k].a0 + (run[k].a1 - run[k].a0) * smooth((float)i / (float)n);
+      float am = run[k].a0 + (run[k].a1 - run[k].a0) * smooth((i + 0.5f) / (float)n);
+      wallu_step(w, WALLU_R(a), up_wall, WALLU_F(a), WALLU_F(am), ds);
+    }
+  }
+#undef WALLU_F
+#undef WALLU_R
+  /* the ramp down, heading the other way */
+  float psi1 = psi0 + 2 * half_pi * side;
+  n = (int)(pc->a / STEP_M + 0.5f);
+  ds = pc->a / (float)n;
+  for (int i = 0; i < n; i++) {
+    float t0 = (float)i / (float)n, tm = (i + 0.5f) / (float)n;
+    t3_vec3 r, u, f, fm;
+    frame_of(psi1, -half_pi * (1 - smooth(tm)), 0, &r, &u, &fm);
+    frame_of(psi1, -half_pi * (1 - smooth(t0)), 0, &r, &u, &f);
+    wallu_step(w, r, u, f, fm, ds);
+  }
+  w->ps.psi = psi1, w->ps.theta = 0, w->ps.phi = 0;
+  if (w->t && w->t->nloops < 16) {
+    w->t->loop_from[w->t->nloops] = start;
+    w->t->loop_to[w->t->nloops++] = w->n;
+  }
+}
+
 static void do_jump(walker *w, const piece *pc) {
   float L = pc->a, v = pc->b;
   float th0 = w->ps.theta;
@@ -268,6 +338,7 @@ static void walk_pieces(walker *w, const piece *p, int np) {
     case P_MOVE: do_move(w, pc); break;
     case P_LOOP: do_loop(w, pc); break;
     case P_CORK: do_cork(w, pc); break;
+    case P_WALLU: do_wallu(w, pc); break;
     case P_JUMP: do_jump(w, pc); break;
     case P_SURF: w->surf = (uint8_t)pc->a; break;
     case P_WALLS: w->wl = (uint8_t)pc->a, w->wr = (uint8_t)pc->b; break;

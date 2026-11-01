@@ -65,11 +65,9 @@ static const piece SPEC[] = {
   ITEMS(),
   LOOP(24, -1),
   ASTRAIGHT(40),
-  /* the wall turn: the U-turn home tilts up until the road is nearly a wall, held off a pit on hydraulic rams
-   * (dress_wall_turn). The bank rises and falls over the whole 330 m, so it comes on gently even at boost speed. Low
-   * walls: tall ones hid the sky, the pit and the fact it is a wall */
-  FLAG(TF_WALLTURN, 330),
-  ABANKED(180, 330, 78),
+  /* the wall: the road curls up onto a great painted wall, climbs it, arcs over and along it and comes back down to
+   * the ground going the other way (P_WALLU, dress_wall_turn). As wide as the level U-turn it took the place of */
+  WALLU(70, 1, 10, 94, 96),
   ATURN(20, 90),
   ATURN(-20, 90),
   ASTRAIGHT(100),
@@ -118,9 +116,9 @@ typedef struct fair_pos {
   int jump_i;
   t3_vec3 cork_c;             /* the middle of the corkscrew (ground level) */
   float cork_hl;              /* half its length */
-  float wall_s0, wall_s1;     /* the wall turn */
-  t3_vec3 wall_c;             /* the middle of its half circle's full circle, ground level */
-  float wall_r;
+  float wall_s0, wall_s1;     /* the wall */
+  t3_vec3 wall_at, wall_n, wall_side; /* a point on its face, the way out of it, along it */
+  float wall_x0, wall_x1, wall_top;
 } fair_pos;
 
 static fair_pos P;
@@ -146,13 +144,21 @@ static bool piece_range(const track *t, int piece, int *i0, int *i1) {
 
 static void find_places(const track *t) {
   memset(&P, 0, sizeof P);
-  /* the wall turn: its axis is halfway between where it starts and ends */
-  for (int i = 0, a = -1; i < t->n; i++) {
-    if (!(t->s[i].flags & TF_WALLTURN)) continue;
-    if (a < 0) a = i, P.wall_s0 = t->s[i].s;
-    P.wall_s1 = t->s[i].s;
-    P.wall_c = V3((t->s[a].p.x + t->s[i].p.x) * 0.5f, 0, (t->s[a].p.z + t->s[i].p.z) * 0.5f);
-    P.wall_r = hypotf(t->s[a].p.x - t->s[i].p.x, t->s[a].p.z - t->s[i].p.z) * 0.5f;
+  /* the wall: the plane its road lies on (where the road's up is level), how far along it and how high that road goes */
+  for (int i = 0; i < t->n; i++) {
+    const tsample *a = &t->s[i];
+    if (!(a->flags & TF_WALLTURN)) continue;
+    if (P.wall_s1 <= 0) P.wall_s0 = a->s, P.wall_side = a->r;
+    P.wall_s1 = a->s;
+    if (fabsf(a->u.y) < 0.01f && P.wall_n.x == 0 && P.wall_n.z == 0) P.wall_at = a->p, P.wall_n = a->u;
+    if (a->p.y > P.wall_top) P.wall_top = a->p.y;
+  }
+  for (int i = 0; i < t->n && P.wall_top > 0; i++) {
+    const tsample *a = &t->s[i];
+    if (!(a->flags & TF_WALLTURN) || fabsf(a->u.y) >= 0.01f) continue;
+    float x = v3dot(v3sub(a->p, P.wall_at), P.wall_side);
+    if (x < P.wall_x0) P.wall_x0 = x;
+    if (x > P.wall_x1) P.wall_x1 = x;
   }
   int nl = 0;
   for (int k = 0; k < (int)(sizeof SPEC / sizeof SPEC[0]); k++) {
@@ -241,9 +247,7 @@ static float fair_ground(float x, float z, void *ud) {
   float basin = ground_basin(x, z, P.helix_c.x + 20, P.helix_c.z + 20, 150, 170, 12.5f, 60);
   /* a sunken channel along the corkscrew: the road rolls half below its own axis, so the earth has to be out of the way */
   float pit = ground_basin(x, z, P.cork_c.x, P.cork_c.z, 19.0f, P.cork_hl + 8.0f, 9.0f, 15.0f);
-  /* the pit the wall turn was lifted out of */
-  float wall = P.wall_r > 0 ? ground_basin(x, z, P.wall_c.x, P.wall_c.z, P.wall_r + 22.0f, P.wall_r + 22.0f, 9.0f, 26.0f) : 0;
-  return h + basin + pit + wall;
+  return h + basin + pit;
 }
 
 static ground_opts GO;
@@ -1766,9 +1770,9 @@ static void edge_bulbs(const track *t, gcells *chase[3], float s0, float s1, flo
   }
 }
 
-/* the wall turn stands on rusted hydraulic rams: at each station a ram from the pit to the deck's low edge, a raking
- * strut from behind to its high half, both on concrete pads sunk into the ground, and bulbs along the rim */
-static void ram_pad(pmc *st, t3_vec3 at) {
+/* the wall: a great painted board the road climbs, braced from behind by raking steel on concrete pads, its ramps boxed
+ * in down to the ground */
+static void wall_pad(pmc *st, t3_vec3 at) {
   pm *b = pmc_at(st, at);
   pm_layer(b, PL_MAIN);
   pm_push(b);
@@ -1776,34 +1780,49 @@ static void ram_pad(pmc *st, t3_vec3 at) {
   pm_box(b, 4.2f, 2.0f, 4.2f, rgb(0.34f, 0.33f, 0.3f), rgb(0.52f, 0.5f, 0.45f));
   pm_pop(b);
 }
+static void quad2(pm *b, t3_vec3 p0, t3_vec3 p1, t3_vec3 p2, t3_vec3 p3, pcol c) {
+  pm_quad(b, p0, p1, p2, p3, c);
+  pm_quad(b, p3, p2, p1, p0, c);
+}
 static void dress_wall_turn(pmc *st, gcells *chase[3], const track *t) {
-  if (P.wall_s1 <= P.wall_s0) return;
-  pcol rust = hex(0x6d3f27), red = hex(0xa8382b), chrome = rgb(0.72f, 0.72f, 0.7f);
-  for (float s = P.wall_s0 + 30.0f; s < P.wall_s1 - 25.0f; s += THIN ? 44.0f : 22.0f) {
-    tsample a = track_at(t, s);
-    float hi = a.r.y >= 0 ? 1.0f : -1.0f; /* which way along r the road's high edge lies */
-    t3_vec3 lo = v3add(v3add(a.p, v3mul(a.r, -hi * a.hw * 0.8f)), v3mul(a.u, -0.5f));
-    t3_vec3 up = v3add(v3add(a.p, v3mul(a.r, hi * a.hw * 0.55f)), v3mul(a.u, -0.5f));
-    float rl = hypotf(a.r.x, a.r.z);
-    t3_vec3 out = rl > 1e-3f ? V3(a.r.x * hi / rl, 0, a.r.z * hi / rl) : V3(0, 0, 0); /* level, away from the turn's middle */
-    /* the ram: a fat rusted barrel with a bright rod out of its top */
-    t3_vec3 foot = V3(lo.x, ground_height_at(NULL, lo.x, lo.z), lo.z);
-    t3_vec3 mid = v3add(foot, v3mul(v3sub(lo, foot), 0.58f));
-    pm *b = pmc_at(st, foot);
-    pm_layer(b, PL_METAL);
-    pm_limb(b, foot, mid, 1.15f, 1.0f, 10, rust, red);
-    pm_limb(b, mid, lo, 0.5f, 0.5f, 8, chrome, chrome);
-    ram_pad(st, foot);
-    /* the raking strut from behind */
-    float run = (up.y - foot.y) * 0.55f + 4.0f;
-    t3_vec3 back = v3add(up, v3mul(out, run));
-    back.y = ground_height_at(NULL, back.x, back.z);
-    pm *c = pmc_at(st, back);
+  if (P.wall_top <= 0) return;
+  const t3_vec3 n = P.wall_n, x = P.wall_side, back = v3mul(n, -1);
+  const float margin = 16.0f, step = THIN ? 44.0f : 22.0f;
+  const float x0 = P.wall_x0 - margin, x1 = P.wall_x1 + margin, top = P.wall_top + 14.0f;
+  const float behind = 1.2f; /* the board stands just behind the road's underside */
+  pcol boards[3] = { hex(0xa8382b), hex(0xd8c9a2), hex(0x2f6f73) };
+  int band = 0;
+  for (float a = x0; a < x1 - 0.5f; a += step, band++) {
+    float b = fminf(a + step, x1);
+    t3_vec3 pa = v3add(v3add(P.wall_at, v3mul(x, a)), v3mul(back, behind)), pb = v3add(v3add(P.wall_at, v3mul(x, b)), v3mul(back, behind));
+    float ga = fminf(ground_height_at(NULL, pa.x, pa.z), ground_height_at(NULL, pb.x, pb.z)) - 3.0f;
+    t3_vec3 mid = V3((pa.x + pb.x) * 0.5f, (ga + top) * 0.5f, (pa.z + pb.z) * 0.5f);
+    pm *m = pmc_at(st, mid);
+    pm_layer(m, PL_MAIN);
+    quad2(m, V3(pa.x, ga, pa.z), V3(pb.x, ga, pb.z), V3(pb.x, top, pb.z), V3(pa.x, top, pa.z), boards[band % 3]);
+    /* the bracing behind it */
+    pm *c = pmc_at(st, v3add(mid, v3mul(back, 30.0f)));
     pm_layer(c, PL_METAL);
-    pm_limb(c, back, up, 0.75f, 0.5f, 8, rust, red);
-    ram_pad(st, back);
+    for (int h = 0; h < 2; h++) {
+      float hy = ga + (top - ga) * (h ? 0.82f : 0.45f), run = (hy - ga) * 0.5f + 6.0f;
+      t3_vec3 hi = V3(pa.x, hy, pa.z), lo = v3add(pa, v3mul(back, run));
+      lo.y = ground_height_at(NULL, lo.x, lo.z);
+      pm_limb(c, lo, hi, 0.7f, 0.45f, 8, hex(0x6d3f27), hex(0x8a5a3a));
+      wall_pad(st, lo);
+    }
   }
-  edge_bulbs(t, chase, P.wall_s0 + 20.0f, P.wall_s1 - 20.0f, 3.2f, 0.55f, 1.65f); /* on the low wall's top, 1.6 m */
+  /* the sides of the ramps, down to the ground */
+  for (int i = 0; i + 1 < t->n; i++) {
+    const tsample *a = &t->s[i], *b = &t->s[i + 1];
+    if (!(a->flags & TF_WALLTURN) || !(b->flags & TF_WALLTURN) || (fabsf(a->u.y) < 0.01f && fabsf(b->u.y) < 0.01f)) continue;
+    for (int sd = -1; sd <= 1; sd += 2) {
+      t3_vec3 pa = v3add(a->p, v3mul(a->r, (float)sd * a->hw)), pb = v3add(b->p, v3mul(b->r, (float)sd * b->hw));
+      pm *m = pmc_at(st, pa);
+      pm_layer(m, PL_MAIN);
+      quad2(m, pa, pb, V3(pb.x, ground_height_at(NULL, pb.x, pb.z) - 1.0f, pb.z), V3(pa.x, ground_height_at(NULL, pa.x, pa.z) - 1.0f, pa.z), hex(0x7a4a33));
+    }
+  }
+  edge_bulbs(t, chase, P.wall_s0 + 10.0f, P.wall_s1 - 10.0f, 3.2f, 0.55f, 1.65f);
 }
 
 /* a candy arch over the road: two legs and a half hoop, striped, with bulbs */
