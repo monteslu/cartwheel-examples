@@ -649,7 +649,7 @@ static float rider_z(int i) {
   bike_select(i);
   float shift = bike_loop_shift(); /* round a loop: two lanes across, with the loop */
   bike_select(keep);
-  if (shift > 0) return lane_z(r->lane_to + 2 * shift);
+  if (shift != 0) return lane_z(r->lane_to + 2 * shift);
   if (r->lane_t <= 0) return lane_z((float)r->lane_to);
   float u = cw_smoothstep(0, 1, r->lane_t / (float)lane_ticks(i));
   return lane_z(r->lane_from + (r->lane_to - r->lane_from) * u);
@@ -689,7 +689,7 @@ static void lane_input(void) {
   for (float dx = -0.6f; dx <= 0.8f; dx += 0.35f) /* not sideways into a ramp's flank: onto it only at its foot (off it is fine: you drop) */
     if (track_ramp_h(G.t, b->x + dx, to) > track_ramp_h(G.t, b->x + dx, P->lane_to) + 0.12f) closed = true;
   for (int l = 0; l < G.t->loop_count; l++) /* not round a loop */
-    if (fabsf(b->x - G.t->loops[l * 3]) < G.t->loops[l * 3 + 2] + 1) closed = true;
+    if (fabsf(b->x - G.t->loops[l * 4]) < G.t->loops[l * 4 + 2] + 1) closed = true;
   if (to < 0 || to >= LANES || closed || !lane_free(to, b->x, 1.6f)) {
     game_sfx(SFX_LOCKED, 0.4f);
     return;
@@ -715,7 +715,7 @@ static void auto_lane(void) {
   bool shut = false;
   for (float ax = 0; ax <= 30; ax += 2) shut |= !track_lane_open(G.t, b->x + ax, l);
   for (int k = 0; k < G.t->loop_count; k++)
-    if (fabsf(b->x - G.t->loops[k * 3]) < G.t->loops[k * 3 + 2] + 2) shut = false; /* round the loop: stay */
+    if (fabsf(b->x - G.t->loops[k *4]) < G.t->loops[k *4 + 2] + 2) shut = false; /* round the loop: stay */
   if (!shut) return;
   for (int d = 1; d < LANES; d++)
     for (int sg = -1; sg <= 1; sg += 2) {
@@ -962,12 +962,12 @@ static void camera_tick(void) {
   /* Frame giant stunts early enough to read the entry, crest and exit.
    * The existing camera easing keeps the pullback continuous. */
   if (G.t && b->alive) for (int l = 0; l < G.t->loop_count; l++) {
-    float cx = G.t->loops[l*3], r = G.t->loops[l*3+2];
+    float cx = G.t->loops[l*4], r = G.t->loops[l*4+2];
     if (r < 10) continue;
     float near = 1-cw_smoothstep(r+4, r+22, fabsf(b->x-cx));
     if (near <= 0) continue;
     at.x += (cx-at.x)*near*.8f;
-    at.y += (G.t->loops[l*3+1]+r-at.y)*near*.8f;
+    at.y += (G.t->loops[l*4+1]+r-at.y)*near*.8f;
     dist += (fmaxf(dist, r*3.2f)-dist)*near;
   }
   if (G.t && b->alive) {
@@ -1451,6 +1451,7 @@ static void init(void *u) {
   cw_debug_i32("ticks", &G.ticks);
   cw_debug_i32("ride.ticks", &G.ride_ticks);
   cw_debug_i32("crashes", &P->crashes);
+  cw_debug_i32("boost.ticks", &P->boost_ticks);
   cw_debug_i32("checkpoint", &P->checkpoint);
   cw_debug_i32("score", &P->score);
   cw_debug_i32("flips", &P->flips);
@@ -1630,8 +1631,8 @@ static bool ride_pre(const bike_input *inp) {
        * committed run-up (coasting or braking into it drops off the top) */
       bool run_in = false;
       for (int l = 0; l < G.t->loop_count; l++)
-        if (G.t->loops[l * 3] - G.t->boosts[i * 2 + 1] < LOOP_RUN_IN &&
-            G.t->loops[l * 3] + G.t->loops[l * 3 + 2] >= G.t->boosts[i * 2]) run_in = true;
+        if (G.t->loops[l * 4] - G.t->boosts[i * 2 + 1] < LOOP_RUN_IN &&
+            G.t->loops[l * 4] + G.t->loops[l * 4 + 2] >= G.t->boosts[i * 2]) run_in = true;
       for (int c = 0; c < G.t->corkscrew_count; c++) {
         const float *v = G.t->corkscrews + 5*c;
         if (G.t->boosts[i*2] <= v[1] && G.t->boosts[i*2+1] >= v[0]) run_in = true;
@@ -1834,7 +1835,7 @@ static void menu_select(void) {
   if (cw_action_just_pressed(0, G.m_left) && c % cols > 0) c--;
   if (cw_action_just_pressed(0, G.m_right) && c % cols < cols - 1 && c + 1 < n) c++;
   if (cw_action_just_pressed(0, G.m_up) && c >= cols) c -= cols;
-  if (cw_action_just_pressed(0, G.m_down) && c + cols < n) c += cols;
+  if (cw_action_just_pressed(0, G.m_down) && (c/cols+1)*cols<n) c = CW_MIN(c+cols,n-1);
   if (c != G.select_cursor) game_sfx(SFX_SELECT, 0.5f);
   G.select_cursor = c;
 }
@@ -1843,9 +1844,15 @@ static cw_rect tile_rect(int i, float W, float H) {
   float s = H / 540.0f, tw = 166 * s, th = 78 * s, gap = 8 * s;
   int cols = 5;
   float x0 = (W - cols * tw - (cols - 1) * gap) * 0.5f, y0 = H * 0.17f;
-  return cw_rect_make(x0 + (i % cols) * (tw + gap), y0 + (i / cols) * (th + gap), tw, th);
+  int first=CW_MAX(0,G.select_cursor/cols-3),row=i/cols-first;
+  if(first>0)y0+=20*s; /* breathing room for the up arrow */
+  if(row<0||row>=4)return cw_rect_make(-10000,-10000,tw,th);
+  return cw_rect_make(x0 + (i % cols) * (tw + gap), y0 + row * (th + gap), tw, th);
 }
 
+static cw_rect map_scroll_rect(float W,float H,bool up) {
+ float s=H/540.f;return cw_rect_make(W*.5f-90*s,H*(up?.165f:.837f)-13*s,180*s,26*s);
+}
 static cw_rect choice_rect(int i, float W, float H) {
   float s = H / 540.0f;
   return cw_rect_make(W * 0.5f + (i ? 220 : -460) * s, H * 0.48f, 240 * s, 56 * s);
@@ -2137,6 +2144,11 @@ static void fixed(void *u, double dt) {
     if (mouse_clicked && in_rect(m, change_bike_rect(cs.x, cs.y, cs.y / 540.0f))) {
       return_to_bikes();
       return;
+    }
+    if(mouse_clicked&&TRACK_COUNT>20) {
+      int first=CW_MAX(0,G.select_cursor/5-3)*5;
+      if(first>0&&in_rect(m,map_scroll_rect(cs.x,cs.y,true))){G.select_cursor-=5;game_sfx(SFX_SELECT,.5f);return;}
+      if(first+20<TRACK_COUNT&&in_rect(m,map_scroll_rect(cs.x,cs.y,false))){G.select_cursor=CW_MIN(first+20+G.select_cursor%5,TRACK_COUNT-1);game_sfx(SFX_SELECT,.5f);return;}
     }
     if (mouse_clicked)
       for (int i = 0; i < TRACK_COUNT; i++)
@@ -2586,9 +2598,13 @@ static void draw_select(float W, float H, float s) {
     round_rect(cw_rect_make(x, 14 * s, 50 * s, 30 * s), 8 * s, rider_col(p, 0.9f));
     title_text(b, x, 17 * s, 22 * s, rgba(0.05f, 0.05f, 0.06f, 1), CW_ALIGN_CENTER, 50 * s);
   }
-  title_text("PICK A TRACK", 0, H * 0.06f, 42 * s, rgba(1, 0.62f, 0.15f, 1), CW_ALIGN_CENTER, W);
+  title_text("PICK A TRACK", 0, H * 0.035f, 40 * s, rgba(1, 0.62f, 0.15f, 1), CW_ALIGN_CENTER, W);
+  char count[64];int first=CW_MAX(0,G.select_cursor/5-3)*5;
+  snprintf(count,sizeof count,"%d MAPS  |  SHOWING %d-%d",TRACK_COUNT,first+1,CW_MIN(first+20,TRACK_COUNT));
+  text(count,0,H*.116f,13*s,rgba(.8f,.9f,1,1),CW_ALIGN_CENTER,W);
   for (int i = 0; i < TRACK_COUNT; i++) {
     cw_rect r = tile_rect(i, W, H);
+    if(r.y<0)continue;
     if (i == G.bump_tile && G.bump_ticks > 0) r.x += 6 * s * cw_sin(G.bump_ticks * 1.6f) * G.bump_ticks / 24.0f;
     bool open = track_open(i), on = i == G.select_cursor;
     if (on) {
@@ -2611,6 +2627,15 @@ static void draw_select(float W, float H, float s) {
         medal_dot(r.x + r.w - 22 * s, r.y + r.h - 16 * s, 10 * s, SAVE.tr[i].medal, 1);
       } else text("new", r.x + 10 * s, r.y + r.h - 24 * s, 14 * s, rgba(0.7f, 1, 0.7f, 1), CW_ALIGN_LEFT, 0);
     }
+  }
+  for(int up=0;up<2;up++)if(up?first>0:first+20<TRACK_COUNT) {
+    cw_rect r=map_scroll_rect(W,H,up);float x=W*.5f,y=r.y+r.h*.5f;
+    float dir=up?-1.f:1.f;
+    float pulse=.72f+.28f*(.5f+.5f*cw_sin(G.ticks*.05f));
+    cw_vec2 outline[3]={{x-54*s,y-dir*9*s},{x+54*s,y-dir*9*s},{x,y+dir*11*s}};
+    cw_vec2 points[3]={{x-47*s,y-dir*7*s},{x+47*s,y-dir*7*s},{x,y+dir*8*s}};
+    cw_r2d_polygon(outline,3,rgba(.12f,.07f,.025f,pulse));
+    cw_r2d_polygon(points,3,rgba(1,.62f,.15f,pulse));
   }
   const char *p = prompt();
   chip(p, W * 0.5f, H * 0.88f, 20 * s, 1);

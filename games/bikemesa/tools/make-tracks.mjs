@@ -27,7 +27,8 @@
 //   ['train', len, dy]            a jump's tabletop with a train crossing under it
 //   ['split', len, h, dy, at, end] two routes after a kicker: a high plank deck from h above the lip at at m on, sloping
 //                                 down to end above it (a hopped jump//                                 reaches it; faster, a bonus) over a low line falling dy; they rejoin
-//   ['loop', r, powered=false]    a vertical loop of radius r; powered adds a pedal-driven boost strip
+//   ['loop', r, powered=false, dir=1] a vertical loop of radius r; powered adds a pedal-driven boost strip; dir -1 enters
+//                                 on the front lanes and leaves on the back ones
 //   ['corkscrew', len, radius, direction] a full roll around the track's forward axis; direction is +1 or -1
 //   ['check']                     a checkpoint here
 //   ['boost', len]                a boost strip along the next len metres
@@ -78,6 +79,7 @@ export const THEMES = {
     amb: [1, 0.85, 0.75], hemi: 0.45, tonemap: 'AGX', exposure: 1.05, grade: 'beach' },
   hellfire: { tod: 23.5, lat: 35, north: 70, sun: 0, sky: .08, mie: .1, fog: .003, fogh: .012, ground: [.045,.018,.025],
     amb: [.45,.35,.6], hemi: .65, tonemap: 'AGX', exposure: 1.2, grade: null },
+  lightgrid: {tod:0,lat:35,north:70,sun:0,sky:.025,mie:.1,fog:.003,fogh:.01,ground:[0,0,0],amb:[.12,.35,.55],hemi:.6,tonemap:"AGX",exposure:1.1,grade:null},
   nightburbs: { tod: 23.5, lat: 35, north: 70, sun: 0, sky: 0.12, mie: 0.1, fog: 0.002, fogh: 0.035, ground: [0.025,0.045,0.085],
     amb: [0.38,0.53,0.85], hemi: 0.8, tonemap: 'AGX', exposure: 1.25, grade: null },
   stuntshow: { tod: 15.3, lat: 35, north: 70, sun: 5.5, sky: 1.0, mie: 0.25, fog: 0.003, fogh: 0.04, ground: [0.12, 0.16, 0.24],
@@ -289,6 +291,16 @@ export const TRACKS = [
     ['boost',24], ['flat',24], ['kicker',12,2.8], ['pit',16,-2], ['landing',24,3],
     ['slope',42,-3], ['flat',36], ['finish'], ['flat',60],
   ] },
+  {name:'Black Circuit',theme:'lightgrid',par:110,ready:true,drag:.8,pieces:[
+    ['flat',28],['slope',30,-5],['boost',16],['flat',20],['check'],
+    ...Array.from({length:7},(_,i)=>[
+      ['slope',24,-3],['boost',16],['flat',18],['kicker',12,2.5],
+      ['pit',12,-2],['landing',22,3],['flat',20],['check'],
+      ...(i===2?[['boost',12],['flat',16],['loop',8,true],['flat',12],['boost',12],['flat',6],['loop',8,true,-1],['flat',20]]:
+         i===4?[['boost',14],['flat',18],['corkscrew',48,2.7,1],['flat',20]]:
+         [['rollers',2,.3,12]])
+    ]).flat(),['flat',40],['finish'],['flat',60]
+  ]},
 ];
 
 // ── sampling ────────────────────────────────────────────────────────────
@@ -325,7 +337,7 @@ function build(track) {
     else if (k === 'wreck') { movers.push([3, x + a / 2, y, a]); curve(a, () => 0); }
     else if (k === 'logs') { movers.push([4, x, y, a]); curve(a, (t) => b * (1 - Math.cos(Math.PI * t)) / 2); }
     else if (k === 'train') { movers.push([5, x + a / 2, y + b / 2, a]); const x0 = x; curve(a, (t) => b * t * t * (3 - 2 * t)); kickers.push([x0, x, 0]); }
-    else if (k === 'loop') { if(b) boosts.push([x, x + 2*a + 6]); loops.push([x + 3 + a, y, a]); curve(2 * a + 6, () => 0); }
+    else if (k === 'loop') { if(b) boosts.push([x, x + 2*a + 6]); loops.push([x + 3 + a, y, a, c ?? 1]); curve(2 * a + 6, () => 0); }
     else if (k === 'corkscrew') { corkscrews.push([x, x + a, y, b, c]); boosts.push([x, x + a]); curve(a, () => 0); }
     else if (k === 'split') { highs.push([x + (p[4] || 18), x + a - 3, y + b, y + (p[5] ?? 1.5)]); curve(a, (t) => c * t * t * (3 - 2 * t)); }
     else if (k === 'ice') ice.push([+x.toFixed(3), +(x + a).toFixed(3)]);
@@ -390,7 +402,7 @@ function writeScene(n, t, b) {
 [node name="Track" type="Node3D"]
 
 [node name="Sky" parent="." type="ProceduralSky"]
-${['neon','nightburbs','hellfire'].includes(t.theme) ? 'sun = ""' : 'sun = "../Sun"'}
+${['neon','nightburbs','hellfire','lightgrid'].includes(t.theme) ? 'sun = ""' : 'sun = "../Sun"'}
 time_of_day = ${th.tod}
 latitude = ${th.lat}
 declination = 12
@@ -404,7 +416,7 @@ env_update_angle = 2
 
 [node name="Sun" parent="." type="DirectionalLight3D"]
 position = vec3(0, 0, 0)
-${t.theme === 'hellfire' ? 'rotation = vec3(-0.6, -0.4, 0)\ncolor = color(0.45, 0.55, 0.8, 1)\nenergy = 2.2\n' : t.theme === 'nightburbs' ? 'rotation = vec3(-0.65, -0.4, 0)\ncolor = color(0.48, 0.65, 1, 1)\nenergy = 1.4\n' : t.theme === 'neon' ? 'rotation = vec3(-0.65, -0.4, 0)\ncolor = color(0.55, 0.7, 1, 1)\nenergy = 0.7\n' : ''}shadow = true
+${t.theme === 'lightgrid' ? 'rotation = vec3(-0.6, -0.4, 0)\ncolor = color(0.25, 0.6, 1, 1)\nenergy = 1.8\n' : t.theme === 'hellfire' ? 'rotation = vec3(-0.6, -0.4, 0)\ncolor = color(0.45, 0.55, 0.8, 1)\nenergy = 2.2\n' : t.theme === 'nightburbs' ? 'rotation = vec3(-0.65, -0.4, 0)\ncolor = color(0.48, 0.65, 1, 1)\nenergy = 1.4\n' : t.theme === 'neon' ? 'rotation = vec3(-0.65, -0.4, 0)\ncolor = color(0.55, 0.7, 1, 1)\nenergy = 0.7\n' : ''}shadow = true
 shadow_size = 2048
 shadow_extent = 16
 shadow_far = 120
@@ -420,7 +432,7 @@ hemi_energy = ${th.hemi}
 density = ${th.fog}
 height_falloff = ${th.fogh}
 base_height = ${(b.minY - 10).toFixed(1)}
-use_sky_color = ${t.theme === 'hellfire' ? 'false\ncolor = color(0.11, 0.045, 0.035, 1)' : t.theme === 'nightburbs' ? 'false\ncolor = color(0.04, 0.07, 0.12, 1)' : t.theme === 'stuntshow' ? 'false\ncolor = color(0.36, 0.5, 0.68, 1)' : 'true'}
+use_sky_color = ${t.theme === 'lightgrid' ? 'false\ncolor = color(0, 0, 0, 1)' : t.theme === 'hellfire' ? 'false\ncolor = color(0.11, 0.045, 0.035, 1)' : t.theme === 'nightburbs' ? 'false\ncolor = color(0.04, 0.07, 0.12, 1)' : t.theme === 'stuntshow' ? 'false\ncolor = color(0.36, 0.5, 0.68, 1)' : 'true'}
 ${t.theme === 'scary' ? 'volumetric = true\nvolumetric_distance = 48\nvolumetric_ambient = 1.3\nvolumetric_albedo = color(0.8, 0.85, 1, 1)\n' : ''}sun_scatter = 0.35
 sun_g = 0.8
 max_opacity = 0.7
@@ -431,7 +443,7 @@ sky_distance = 500
 ${t.theme === 'neon' ? 'depth_prepass = true\n' : ''}tonemap = ${th.tonemap}
 exposure = ${th.exposure}
 bloom = true
-bloom_intensity = ${t.theme === 'hellfire' ? .22 : t.theme === 'nightburbs' ? .12 : .06}
+bloom_intensity = ${t.theme === 'lightgrid' ? .32 : t.theme === 'hellfire' ? .22 : t.theme === 'nightburbs' ? .12 : .06}
 bloom_threshold = 1
 bloom_knee = 0.6
 ssao = true
@@ -449,7 +461,7 @@ grade_intensity = ${t.theme === 'stuntshow' ? 0.12 : t.theme === 'neon' ? 0.3 : 
 position = vec3(0, 3, 14)
 fov = 46
 near = 0.3
-far = ${t.theme === 'nightburbs' ? 20000 : 900}
+far = ${t.theme === 'nightburbs' ? 20000 : t.theme === 'lightgrid' ? 4000 : 900}
 `;
   mkdirSync(join(GAME, 'assets', 'scenes'), { recursive: true });
   writeFileSync(join(GAME, 'assets', 'scenes', `track${String(n).padStart(2, '0')}.cwscene`), s);

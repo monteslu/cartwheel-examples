@@ -138,6 +138,7 @@ typedef struct bk {
   int hop_cool, hop_phase, hop_buf; /* ticks until the next hop; the hop's second beat; a press waiting for both wheels */
   float crank;
   cw_vec2 v_pre;             /* the frame's velocity before this half step (contact severity) */
+  float loop_dir;            /* +1 toward front lanes, -1 toward back */
   float loop_t;              /* 0..1 round the loop being ridden (0: not in one) */
 } bk;
 static bk BK[MAX_RIDERS];
@@ -247,7 +248,7 @@ void bike_world_create(const track_desc *t) {
   /* the loops: two one-sided arcs each, solid on the inside (wound
    * clockwise), with a ghost point past each end so the ends join smoothly */
   for (int i = 0; i < t->loop_count && i < MAX_LOOPS; i++) {
-    float cx = t->loops[i * 3], cy = t->loops[i * 3 + 1] + t->loops[i * 3 + 2], r = t->loops[i * 3 + 2];
+    float cx = t->loops[i *4], cy = t->loops[i *4 + 1] + t->loops[i *4 + 2], r = t->loops[i *4 + 2];
     int N = (int)ceilf(24*fmaxf(1,r/5.6f));
     if(N>128)N=128;
     cw_vec2 a[131], b[131];
@@ -385,7 +386,7 @@ void bike_set_lane(int lane) {
   bike_relayer();
 }
 int bike_lane(void) { return B.lane; }
-float bike_loop_shift(void) { return cw_smoothstep(0.25f, 0.75f, B.loop_t); }
+float bike_loop_shift(void) { return B.loop_dir * cw_smoothstep(0.25f, 0.75f, B.loop_t); }
 
 /* the narrows: each pinch, and each loop's run-in (back lanes, a barrier
  * closing the front ones) and run-out (front lanes; the loop itself fills
@@ -398,9 +399,10 @@ int track_narrows(const track_desc *t, narrow *out) {
     out[n++] = (narrow){ p[0], p[1], (int)p[2], (int)p[3], true };
   }
   for (int i = 0; i < t->loop_count && n + 1 < MAX_NARROWS; i++) {
-    float cx = t->loops[i * 3], r = t->loops[i * 3 + 2];
-    out[n++] = (narrow){ cx - r - 4, cx, 0, 1, true };
-    out[n++] = (narrow){ cx, cx + r + 4, 2, 3, false };
+    float cx = t->loops[i *4], r = t->loops[i *4 + 2];
+    int entry = t->loops[i * 4 + 3] < 0 ? 2 : 0;
+    out[n++] = (narrow){ cx - r - 4, cx, entry, entry + 1, true };
+    out[n++] = (narrow){ cx, cx + r + 4, 2 - entry, 3 - entry, false };
   }
   return n;
 }
@@ -1393,18 +1395,36 @@ static void controls(const bike_input *in, bool boosting, bool air) {
       float load = cw_clampf(1 - spin / ((PENNY ? 18.5f : (BIGWHEEL || UNICYCLE) ? 42.0f : TOP_SPIN) * pedal), 0, 1);
       if (err > -0.1f) cw_body2d_apply_torque(B.frame, -20 * pedal * load);
     }
+    /* Follow the powered circuit's curved road with the same rider balance
+     * used on a flat. A single-wheel bike needs this too: switching its
+     * balancing off at a loop's footprint made it fall over on entry. */
+    if (B.loop_zone && !strcmp(T->theme,"lightgrid") && fabsf(lean)<.1f) {
+      cw_xform2 fx=cw_body2d_transform(B.frame);
+      for(int l=0;l<T->loop_count;l++) {
+        float cx=T->loops[l*4], r=T->loops[l*4+2], cy=T->loops[l*4+1]+r;
+        float dx=fx.p.x-cx,dy=fx.p.y-cy;
+        if(fabsf(dx)>r+1 || dx*dx+dy*dy<(r-2.5f)*(r-2.5f))continue;
+        float target=(dy < -r+.8f && (dx<0&&!B.loop_b[l])) ? 0 : cw_atan2(dx,-dy);
+        float err=cw_wrap_angle(target-cw_rot2_angle(fx.q));
+        float w=cw_body2d_angular_velocity(B.frame);
+        cw_vec2 v=cw_body2d_velocity(B.frame);
+        float rate=(dx*v.y-dy*v.x)/fmaxf(dx*dx+dy*dy,1);
+        if(target==0)rate=0;
+        cw_body2d_apply_torque(B.frame,cw_clampf(err*(UNICYCLE?480:260)+(rate-w)*(UNICYCLE?55:24),-220,220));
+      }
+    }
     /* hands off in the air: the bike eases its nose along the flight path
      * (so a plain jump lands), unless it is already flipping */
     if (air && fabsf(lean) >= 0.1f) B.air_leaned = true;
     if (!air) B.air_leaned = false;
-    if (air && fabsf(lean) < 0.1f && (!B.air_leaned || fabsf(s->air_rot) < 1.2f)) {
+    if (air && !B.loop_zone && fabsf(lean) < 0.1f && (!B.air_leaned || fabsf(s->air_rot) < 1.2f)) {
       cw_xform2 fx = cw_body2d_transform(B.frame);
       cw_vec2 v = cw_body2d_velocity(B.frame);
       float target = cw_clampf(cw_atan2(v.y, cw_clampf(v.x, 0.5f, 100)) * 0.5f, -0.4f, 0.35f);
       float err = cw_wrap_angle(target - cw_rot2_angle(fx.q));
       float w = cw_body2d_angular_velocity(B.frame);
       cw_body2d_apply_torque(B.frame, err * 40 - w * 10.0f);
-    } else if (air && fabsf(lean) < 0.1f) {
+    } else if (air && !B.loop_zone && fabsf(lean) < 0.1f) {
       /* let go mid-flip: the spin slows and, once the wheels come round, the
        * bike settles toward level to stick the landing */
       cw_xform2 fx = cw_body2d_transform(B.frame);
@@ -1438,10 +1458,12 @@ static void controls(const bike_input *in, bool boosting, bool air) {
        * Keep its cargo mass for pedalling, braking, suspension and impacts. */
       float thrust = (CARGO || BIGWHEEL || UNICYCLE) ? total * 14.0f : 260.0f;
       float assist = 1;
+      bool circuit_loop = false;
       /* Large powered loops need sustained thrust, not unlimited entry speed:
        * excessive centrifugal load bottoms out the bike's suspension. */
       for (int l = 0; l < T->loop_count; l++) {
-        float cx = T->loops[l*3], r = T->loops[l*3+2];
+        float cx = T->loops[l*4], r = T->loops[l*4+2];
+        if (!strcmp(T->theme,"lightgrid") && f.p.x > cx-r-4 && f.p.x < cx+r+4) circuit_loop = true;
         if (r >= 10 && f.p.x > cx-r-3 && f.p.x < cx+r+3) {
           cw_vec2 v = cw_body2d_velocity(B.frame);
           float speed = v.x*f.q.c + v.y*f.q.s;
@@ -1450,6 +1472,14 @@ static void controls(const bike_input *in, bool boosting, bool air) {
       }
       for (int i = 0; i < 3; i++) {
         float k = thrust * assist * cw_body2d_mass(parts[i]) / total;
+        if (circuit_loop) {
+          /* The powered circuit regulates every bike's speed, rather than
+           * piling thrust onto already-fast small wheels. Excess speed
+           * compressed the suspension and pitched riders into the loop. */
+          cw_vec2 v = cw_body2d_velocity(B.frame);
+          float speed = v.x*f.q.c + v.y*f.q.s;
+          k = cw_body2d_mass(parts[i]) * cw_clampf((20-speed)*6, -24, 14);
+        }
         cw_body2d_apply_force(parts[i], (cw_vec2){ f.q.c * k, f.q.s * k }, NULL);
       }
     }
@@ -1553,14 +1583,15 @@ static void bike_pre(const bike_input *in, bool *air_out) {
   {
     cw_vec2 fp = cw_body2d_transform(B.frame).p;
     bool b_on = false;
+    B.loop_t = 0;
     B.loop_zone = false;
     for (int i = 0; i < T->loop_count && i < MAX_LOOPS; i++) {
-      float cx = T->loops[i * 3], r = T->loops[i * 3 + 2], cy = T->loops[i * 3 + 1] + r;
+      float cx = T->loops[i *4], r = T->loops[i *4 + 2], cy = T->loops[i *4 + 1] + r;
       if (B.loop_b[i]) {
         if (fp.x > cx + r + 1 || fp.x < cx - r - 2) {
           if (fp.x > cx + r + 1 && s->alive) { /* round: out on the front lanes, two along from the way in */
             s->loops++;
-            B.lane = CW_MIN(B.lane + 2, LANES - 1);
+            B.lane = CW_CLAMP(B.lane + 2 * (int)T->loops[i * 4 + 3], 0, LANES - 1);
             B.loop_t = 0;
             bike_relayer();
           }
@@ -1569,11 +1600,12 @@ static void bike_pre(const bike_input *in, bool *air_out) {
       } else if (s->alive && fp.x < cx && fp.x > cx - r - 1 && fp.y > cy) B.loop_b[i] = true;
       /* how far round (the drawn rider shifts across with the loop): the climb up the right, then the left back down */
       if (s->alive && fp.x > cx - r - 1 && fp.x < cx + r + 1) {
+        B.loop_dir = T->loops[i * 4 + 3];
         float a = cw_atan2(fp.y - cy, fp.x - cx) + 1.5707963f; /* 0 at the bottom, round anticlockwise */
         if (a < 0) a += 6.2831853f;
         if (B.loop_b[i]) B.loop_t = fp.x >= cx && fp.y < cy ? 1 : cw_clampf(a / 6.2831853f, 0.5f, 1);
         else B.loop_t = fp.x > cx && B.loop_layer == L_LOOP_A && fp.y > cy - r + 0.5f ? cw_clampf(a / 6.2831853f, 0, 0.5f) : 0;
-      } else if (s->alive && !B.loop_b[i] && fp.x <= cx - r - 1) B.loop_t = 0;
+      }
       b_on |= B.loop_b[i];
       if (fp.x > cx - r - 0.3f && fp.x < cx + r + 0.3f) B.loop_zone = true;
     }

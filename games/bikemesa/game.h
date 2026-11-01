@@ -17,7 +17,7 @@
 #define GAME_TITLE "BikeMesa"
 
 #define TICK_HZ 60
-#define BIKEMESA_TRACKS_MAX 20
+#define BIKEMESA_TRACKS_MAX 21
 #define MAX_POPUPS 16
 #define TRACK_HALF_W 2.0f   /* the riding surface spans z -W..W */
 /* four lanes across it: lane 0 at the back (-z),
@@ -68,7 +68,7 @@ typedef struct track_desc {
   int mover_count;
   const float *highs;             /* x0, x1, y0, y1: the high routes' plank decks, sloping from y0 to y1 */
   int high_count;
-  const float *loops;             /* x, y, r: vertical loops (the bottom at x, y; ridden clockwise as seen) */
+  const float *loops;             /* x, y, r, lane direction (+1/-1): vertical loops (the bottom at x, y; ridden clockwise as seen) */
   int loop_count;
   const float *pinches;           /* x0, x1, lo, hi: only lanes lo..hi open from x0 to x1 */
   int pinch_count;

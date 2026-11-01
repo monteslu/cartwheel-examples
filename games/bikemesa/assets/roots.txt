@@ -119,3 +119,4 @@ bikes/bikemesa-sticker.png
 
 scenes/track20.cwscene
 hellfire/molten-basalt.png
+scenes/track21.cwscene

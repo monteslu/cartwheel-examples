@@ -114,6 +114,7 @@ static const theme THEMES[] = {
     { 0.6f, 0.7f, 0.9f }, { 0.9f, 0.6f, 0.25f }, 2, 0.6f },
   { "hellfire", TEX_ROCK,TEX_ROCK,TEX_ROCK,{.20f,.15f,.23f},{.12f,.08f,.15f},{.12f,.08f,.16f},
     {0,0,0},{0,0,0},3,.9f },
+  {"lightgrid",TEX_ASPHALT,TEX_METAL,TEX_METAL,{.018f,.025f,.04f},{.008f,.012f,.025f},{.005f,.008f,.02f},{0,0,0},{0,0,0},3,.25f},
   { "nightburbs", TEX_ASPHALT,TEX_CONCRETE,TEX_GRASS,{.40f,.45f,.55f},{.27f,.31f,.40f},{.15f,.25f,.22f},
     {.12f,.23f,.18f},{.18f,.30f,.22f},3,.8f },
   { "stuntshow", TEX_ASPHALT, TEX_CONCRETE, TEX_GRASS, { 0.82f, 0.84f, 0.9f }, { 0.57f, 0.59f, 0.64f }, { 0.5f, 0.6f, 0.5f },
@@ -121,7 +122,7 @@ static const theme THEMES[] = {
 
 };
 /* themes where nothing grows along the track */
-static bool barren(const theme *th) { return !strcmp(th->name,"hellfire") || !strcmp(th->name, "moon") || !strcmp(th->name, "mars"); }
+static bool barren(const theme *th) { return !strcmp(th->name,"lightgrid") || !strcmp(th->name,"hellfire") || !strcmp(th->name, "moon") || !strcmp(th->name, "mars"); }
 
 static const theme *theme_for(const char *name) {
   for (int i = 0; i < (int)CW_ARRAY_LEN(THEMES); i++)
@@ -269,7 +270,7 @@ static void open_edges(const narrow *nw, int n, float x, float *zb, float *zf) {
 
 static bool in_loop(const track_desc *t, float x, float pad) {
   for (int i = 0; i < t->loop_count; i++)
-    if (fabsf(x - t->loops[i * 3]) < t->loops[i * 3 + 2] + pad) return true;
+    if (fabsf(x - t->loops[i *4]) < t->loops[i *4 + 2] + pad) return true;
   return false;
 }
 static bool in_corkscrew(const track_desc *t, float x) {
@@ -440,6 +441,35 @@ static void ramps_build(t3_object *root, const track_desc *t, const theme *th) {
   t3_release(wood), t3_release(dark), t3_release(paint);
 }
 
+/* Shared art-directed neon reflection environment: captured once by three.c's
+ * PMREM path, then sampled by the glass. No per-frame scene capture. */
+static t3_texture *circuit_env;
+static t3_material *circuit_glass(float roughness) {
+  if (!circuit_env) {
+    enum { W=512,H=256 }; uint8_t *pixels=malloc(W*H*4);
+    for(int y=0;y<H;y++)for(int x=0;x<W;x++) {
+      float v=(float)y/H; int cell=x/32, local=x%32;
+      float top=.22f+(cell%5)*.045f;
+      bool edge=v>top&&v<.67f&&(local<2||local>29);
+      bool roof=fabsf(v-top)<.008f;
+      bool window=v>top&&v<.64f&&local>5&&local<25&&y%13<2;
+      float glow=edge||roof?1:window?.38f:.006f;
+      int n=(y*W+x)*4;bool pink=cell%4==0;
+      pixels[n]=(uint8_t)(255*glow*(pink?1:.12f));
+      pixels[n+1]=(uint8_t)(255*glow*(pink?.12f:.65f));
+      pixels[n+2]=(uint8_t)(255*glow*(pink?.48f:1));pixels[n+3]=255;
+    }
+    circuit_env=t3_data_texture_new(W,H,pixels);free(pixels);
+    circuit_env->mapping=T3_EQUIRECTANGULAR_REFLECTION_MAPPING;
+    circuit_env->color_space=T3_SRGB_COLOR_SPACE;
+  }
+  t3_material *m=t3_mesh_physical_material_new(0x07101c);
+  m->metalness=.22f;m->roughness=roughness;m->clearcoat=.85f;
+  m->clearcoat_roughness=.13f;m->env_map_intensity=.7f;
+  t3_material_set_texture(m,T3_ENV_MAP,circuit_env);
+  return m;
+}
+
 static void ribbon(t3_object *root, const track_desc *t, const theme *th) {
   mb top = { 0 }, face = { 0 };
   float bottom = t->min_y - 60;
@@ -501,6 +531,7 @@ static void ribbon(t3_object *root, const track_desc *t, const theme *th) {
   bool city_slab = !strcmp(th->name, "neon") || !strcmp(th->name,"nightburbs");
   t3_material *mt = mat(th->top_tex, th->top, 1, 1,
                         city_slab ? .12f : 1.2f, city_slab ? .92f : th->top_rough);
+  if (!strcmp(th->name,"lightgrid")) { t3_release(mt); mt=circuit_glass(.23f); }
   t3_material *mf = mat(th->face_tex, th->face, 1, 1, !strcmp(th->name,"nightburbs")?.08f:1.3f, 0.95f);
   /* the surface tiles every 4 m along and once across */
   t3_geometry *gt = mb_done(&top), *gf = mb_done(&face);
@@ -2367,11 +2398,16 @@ static void loops_build(t3_object *root, const track_desc *t) {
   if (!t->loop_count) return;
   t3_material *deck = mat(TEX_WOOD, (float[3]){ 0.9f, 0.8f, 0.66f }, 1, 1, 1.2f, 0.8f);
   t3_material *frame = mat(TEX_WOOD, (float[3]){ 0.42f, 0.34f, 0.28f }, 1, 1, 1.2f, 0.9f);
+  if(!strcmp(t->theme,"lightgrid")) {
+    t3_release(deck);t3_release(frame);
+    deck=circuit_glass(.2f);
+    frame=t3_mesh_standard_material_new(0x067ddd);frame->emissive=lin(.015f,.48f,1);frame->emissive_intensity=2.4f;
+  }
   t3_geometry *box = t3_box_geometry_new(1, 1, 1, 1, 1, 1);
   for (int i = 0; i < t->loop_count; i++) {
-    float cx = t->loops[i * 3], y0 = t->loops[i * 3 + 1], r = t->loops[i * 3 + 2], cy = y0 + r;
+    float cx = t->loops[i *4], y0 = t->loops[i *4 + 1], r = t->loops[i *4 + 2], cy = y0 + r;
     /* a band two lanes wide (and a little), a helix: in on lanes 0-1, out on lanes 2-3 */
-    const float W = LANE_W + 0.12f, TH = 0.22f, ZIN = lane_z(0.5f), ZSH = 2 * LANE_W;
+    const float W = LANE_W + 0.12f, TH = 0.22f, ZIN = lane_z(t->loops[i * 4 + 3] < 0 ? 2.5f : 0.5f), ZSH = 2 * LANE_W * t->loops[i * 4 + 3];
     enum { N = 96 };
     mb in = { 0 }, out = { 0 };
     for (int k = 0; k < N; k++) {
@@ -2751,8 +2787,10 @@ static cw_node particles(cw_node parent, const char *name, const char *const *kv
 #include "autumn.inc"
 #include "nightburbs.inc"
 #include "hellfire.inc"
+#include "lightgrid.inc"
 
 void view_build(cw_node parent, const track_desc *t, int track_index) {
+  gg_count=0;
   discovery_parent=parent;
   chocolate_parent=parent;chocolate_track=t;
   memset(chocolate_prev,0,sizeof chocolate_prev);memset(chocolate_carry,0,sizeof chocolate_carry);memset(chocolate_last,0,sizeof chocolate_last);
@@ -2767,7 +2805,7 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
   bank(root, t, th);
   markers(root, t);
   int still0 = root->child_count;
-  if (strcmp(th->name, "stuntshow") && strcmp(th->name,"nightburbs") && strcmp(th->name,"hellfire")) {
+  if (strcmp(th->name, "stuntshow") && strcmp(th->name,"nightburbs") && strcmp(th->name,"hellfire") && strcmp(th->name,"lightgrid")) {
     landforms(root, t, th, !backdrop_build(parent, t, track_index));
     if (strcmp(th->name, "neon")) fill(root, t, th);
     props(root, t, th);
@@ -2779,10 +2817,11 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
   autumn_build(root,t);
   nightburbs_build(parent,root,t);
   hellfire_build(parent,root,t);
+  lightgrid_build(parent,root,t);
   chocolate_colliders_build(root,chocolate_first,t);
   loose_toys_build(root,t);
   chocolate_fx_build(root,t);
-  merge_still(root, still0, root->child_count, !strcmp(th->name, "neon") ? 1 : !strcmp(th->name,"hellfire") ? 2 : 0);
+  merge_still(root, still0, root->child_count, !strcmp(th->name, "neon") ? 1 : (!strcmp(th->name,"hellfire")||!strcmp(th->name,"lightgrid")) ? 2 : 0);
   fog_build(parent, th, track_index);
   ice_patches(root, t);
   planks_build(root);
@@ -2971,7 +3010,7 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
                          : !strcmp(th->name, "desert") ? sand_kv : !strcmp(th->name, "jungle") || !strcmp(th->name, "neon") ? fireflies_kv
                          : motes_kv;
   motes = particles(parent, "Weather", wx);
-  if (!strcmp(th->name,"hellfire")||!strcmp(th->name,"stuntshow")||!strcmp(th->name,"nightburbs")) cw_node_set(motes,"emitting",cw_val_bool(false));
+  if (!strcmp(th->name,"lightgrid")||!strcmp(th->name,"hellfire")||!strcmp(th->name,"stuntshow")||!strcmp(th->name,"nightburbs")) cw_node_set(motes,"emitting",cw_val_bool(false));
   wx_dy = wx == snow_kv ? 8 : wx == rain_kv ? 11 : wx == stars_kv ? 10 : wx == leaves_kv ? 5 : wx == gulls_kv || wx == bats_kv ? 7 : 3;
   wx_dz = wx == stars_kv ? -45 : wx == devils_kv ? -9 : wx == gulls_kv ? -8 : -2;
 
@@ -2980,7 +3019,7 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
 
 /* one fixed tick: wind, and the motes riding along with the camera's area */
 void view_tick(float rider_x, float rider_y, float speed, bool grounded) {
-  hellfire_tick(rider_x);
+  hellfire_tick(rider_x);gg_tick();
   wind_t++; /* the grass is posed for the frame, the tufts in view only (view_grass) */
   if (n_tufts) { /* wind.hash: every 64th tuft's pose (the wind's math on this host; which tufts are in view is not hashed) */
     float m[16];
@@ -3054,7 +3093,8 @@ void view_grass(const cw_node *cameras, int n) {
 
 void view_forget(void) {
 
-  hellfire_forget();
+  t3_release(circuit_env);circuit_env=NULL;
+  gg_count=0;hellfire_forget();
   memset(forest_deer,0,sizeof forest_deer);
   memset(forest_legs,0,sizeof forest_legs);
   chocolate_track=NULL;chocolate_parent=(cw_node){0};

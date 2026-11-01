@@ -283,8 +283,8 @@ static void bank(tri_list *b, const track_desc *t) {
 static float loop_shift(float t) { return cw_smoothstep(0.25f, 0.75f, t); }
 static void loops(tri_list *b, const track_desc *t) {
   for (int i = 0; i < t->loop_count; i++) {
-    float cx = t->loops[i * 3], y0 = t->loops[i * 3 + 1], r = t->loops[i * 3 + 2], cy = y0 + r;
-    const float W = LANE_W + 0.12f, TH = 0.22f, ZIN = lane_z(0.5f), ZSH = 2 * LANE_W;
+    float cx = t->loops[i *4], y0 = t->loops[i *4 + 1], r = t->loops[i *4 + 2], cy = y0 + r;
+    const float W = LANE_W + 0.12f, TH = 0.22f, ZIN = lane_z(t->loops[i * 4 + 3] < 0 ? 2.5f : 0.5f), ZSH = 2 * LANE_W * t->loops[i * 4 + 3];
     enum { N = 96 };
     for (int k = 0; k < N; k++) {
       float t0 = (float)k / N, t1 = (float)(k + 1) / N;
@@ -371,8 +371,8 @@ void crash_world_build(const track_desc *t) {
   }
   /* the loops' masts and beams behind the track (view.c loops_build) */
   for (int i = 0; i < t->loop_count; i++) {
-    float cx = t->loops[i * 3], r = t->loops[i * 3 + 2], cy = t->loops[i * 3 + 1] + r;
-    const float W = LANE_W + 0.12f, TH = 0.22f, ZIN = lane_z(0.5f), ZSH = 2 * LANE_W;
+    float cx = t->loops[i *4], r = t->loops[i *4 + 2], cy = t->loops[i *4 + 1] + r;
+    const float W = LANE_W + 0.12f, TH = 0.22f, ZIN = lane_z(t->loops[i * 4 + 3] < 0 ? 2.5f : 0.5f), ZSH = 2 * LANE_W * t->loops[i * 4 + 3];
     static const float AT[] = { 0.36f, 0.64f };
     for (int k = 0; k < 2; k++) {
       float tt = AT[k], a = -1.5707963f + 6.2831853f * tt;
