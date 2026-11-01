@@ -57,7 +57,7 @@ const char *const ITEM_NAME[IT_KINDS] = { "-", "Turbo", "Triple Turbo", "Missile
 #define BOOST_TURBO 126 /* ticks */
 #define HIT_SPIN 70
 #define OIL_SPIN 60
-#define SHOCK_GAP (25 * TICK_HZ) /* no Shockwave from a box this long after one went off */
+#define SHOCK_GAP (40 * TICK_HZ) /* no Shockwave from a box this long after one went off (at 25 s it spun the leader about three times a race) */
 #define BOOM_SPIN 85
 #define SHOCK_SPIN 80
 #define SHOCK_WARN 78 /* ticks between the alarm and the wave: a quick hop on the drift button clears it */
@@ -1334,8 +1334,8 @@ static void kart_control(sim *s, int i, kin in) {
     car->def.wheels[w].grip = g;
   }
   if (ts->flags & TF_WATER) {
-    k->v = v3mul(k->v, 1.0f);
-    if (touching && k->speed > 8) cw_body3d_apply_force(b, v3mul(f, -k->speed * 0.55f * mass), NULL);
+    /* a ford drags, a boost skims it: at 0.55 a kart crawled at half speed for 5 to 7 s of every lap, with no way round */
+    if (touching && k->speed > 8) cw_body3d_apply_force(b, v3mul(f, -k->speed * (k->boost_ticks > 0 ? 0.06f : 0.22f) * mass), NULL);
     if (touching && (s->tick & 7) == 0) event(s, EV_WATER, i, 0, k->p, clampf(k->speed / 40.0f, 0, 1));
   }
   /* deep sand, mud, loose snow: the speed bleeds away (a boost pushes through it) */
