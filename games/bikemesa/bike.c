@@ -426,12 +426,20 @@ float track_ramp_h(const track_desc *t, float x, int lane) {
   if (!t) return 0;
   for (int i = 0; i < t->ramp_count; i++) {
     const float *r = &t->ramps[i * 7];
-    if (lane >= (int)r[5] && lane <= (int)r[6]) h = fmaxf(h, ramp_profile(r, x));
+    if (lane >= (int)r[5] && lane <= (int)r[6] && x>=r[0] && x<=r[0]+r[1]+r[3]+r[4]) h = !strcmp(t->theme,"backyard")?ramp_profile(r,x):fmaxf(h,ramp_profile(r,x));
   }
   return h;
 }
 /* the ground under the selected rider: the track, and a ramp in its lane */
-static float ground_at(float x, bool *found) { return track_height_at(x, found) + track_ramp_h(T, x, B.lane); }
+static float ground_at(float x, bool *found) {
+ float y=track_height_at(x,found)+track_ramp_h(T,x,B.lane);
+ /* A lane deck across a gap is real supporting ground for pitch control. */
+ if(found && !*found && T)for(int i=0;i<T->ramp_count;i++) {
+  const float *r=T->ramps+i*7;
+  if(B.lane>=(int)r[5]&&B.lane<=(int)r[6]&&x>=r[0]&&x<=r[0]+r[1]+r[3]+r[4]){*found=true;break;}
+ }
+ return y;
+}
 
 /* ground height under x (the highest track point at x), for spawning and the camera */
 float track_height_at(float x, bool *found) {
@@ -463,6 +471,11 @@ float track_height_at(float x, bool *found) {
       any = true;
     }
   if (found) *found = any;
+  if(!any && T && !strcmp(T->theme,"backyard"))for(int i=1;i<T->piece_count;i++) {
+    const track_piece *a=&T->pieces[i-1],*b=&T->pieces[i];
+    float x0=a->pts[(a->count-1)*2],x1=b->pts[0];
+    if(x>x0&&x<x1)return a->pts[(a->count-1)*2+1]+(b->pts[1]-a->pts[(a->count-1)*2+1])*(x-x0)/(x1-x0);
+  }
   return any ? best : 0;
 }
 

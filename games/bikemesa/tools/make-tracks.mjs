@@ -32,6 +32,7 @@
 //   ['corkscrew', len, radius, direction] a full roll around the track's forward axis; direction is +1 or -1
 //   ['check']                     a checkpoint here
 //   ['boost', len]                a boost strip along the next len metres
+//   ['lane_fork', len, kind]     four lanes at four heights (kind picks the set) for len m, each on its own ramp
 //   ['pinch', len, lo, hi]        only lanes lo..hi open along the next len metres (a barrier closes the others)
 // a track's ramps: [x0, up, h, top, down, lo, hi] each, a ramp on lanes lo..hi only: up over
 //   `up` m to h above the track, flat for `top`, down over `down`; the other lanes ride past on the track
@@ -79,6 +80,7 @@ export const THEMES = {
     amb: [1, 0.85, 0.75], hemi: 0.45, tonemap: 'AGX', exposure: 1.05, grade: 'beach' },
   hellfire: { tod: 23.5, lat: 35, north: 70, sun: 0, sky: .08, mie: .1, fog: .003, fogh: .012, ground: [.045,.018,.025],
     amb: [.45,.35,.6], hemi: .65, tonemap: 'AGX', exposure: 1.2, grade: null },
+  backyard: {tod:16.5,lat:35,north:60,sun:5.2,sky:1,mie:.5,fog:.004,fogh:.04,ground:[.13,.20,.06],amb:[1,.88,.64],hemi:.6,tonemap:"AGX",exposure:1.05,grade:null},
   lightgrid: {tod:0,lat:35,north:70,sun:0,sky:.025,mie:.1,fog:.003,fogh:.01,ground:[0,0,0],amb:[.12,.35,.55],hemi:.6,tonemap:"AGX",exposure:1.1,grade:null},
   nightburbs: { tod: 23.5, lat: 35, north: 70, sun: 0, sky: 0.12, mie: 0.1, fog: 0.002, fogh: 0.035, ground: [0.025,0.045,0.085],
     amb: [0.38,0.53,0.85], hemi: 0.8, tonemap: 'AGX', exposure: 1.25, grade: null },
@@ -301,6 +303,15 @@ export const TRACKS = [
          [['rollers',2,.3,12]])
     ]).flat(),['flat',40],['finish'],['flat',60]
   ]},
+  {name:'Backyard Giants',theme:'backyard',par:110,ready:true,ramps:[[40,8,.8,8,8,0,0],[45,8,1.4,8,8,2,2]],pieces:[
+    ['flat',34],['slope',24,-3],['flat',26],['check'],
+    ...Array.from({length:7},(_,i)=>[
+      ['flat',16],['lane_fork',48,i%3],['flat',18],['check'],
+      ['rollers',2,.45,9],['boost',10],['flat',12],
+      ['kicker',8,1.1],['gap',8,-1],['landing',14,1.4],['flat',18],
+      ...(i===2?[['bridge',16,-1],['flat',12]]:i===4?[['dip',12,.35],['flat',12]]:[])
+    ]).flat(),['flat',30],['finish'],['flat',60]
+  ]},
 ];
 
 // ── sampling ────────────────────────────────────────────────────────────
@@ -330,6 +341,7 @@ function build(track) {
     }
     else if (k === 'quarter') { const x0 = x; curve(a, (t) => b * (1 - Math.sqrt(Math.max(0, 1 - t * t * 0.995)))); kickers.push([x0, x, b]); }
     else if (k === 'gap') { const x0 = x; curve(a, (t) => b * t * t * (3 - 2 * t)); kickers.push([x0, x, 0]); }
+    else if (k === 'lane_fork') { const hs=[[.8,0,1.4,-.5],[2,1,-1,3],[3,0,-1,1.5]][b||0]; for(let lane=0;lane<4;lane++)ramps.push([x,12,hs[lane],a-24,12,lane,lane]); x+=a;pieces.push([]);put(x,y); }
     else if (k === 'pit') { x += a; y += b; pieces.push([]); put(x, y); }
     else if (k === 'bridge') { bridges.push([x, y, x + a, y + b]); x += a; y += b; pieces.push([]); put(x, y); }
     else if (k === 'drawbridge') { movers.push([1, x, y, a]); x += a; pieces.push([]); put(x, y); }

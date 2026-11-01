@@ -114,6 +114,7 @@ static const theme THEMES[] = {
     { 0.6f, 0.7f, 0.9f }, { 0.9f, 0.6f, 0.25f }, 2, 0.6f },
   { "hellfire", TEX_ROCK,TEX_ROCK,TEX_ROCK,{.20f,.15f,.23f},{.12f,.08f,.15f},{.12f,.08f,.16f},
     {0,0,0},{0,0,0},3,.9f },
+  {"backyard",TEX_WOOD,TEX_DIRT,TEX_GRASS,{.65f,.43f,.20f},{.16f,.11f,.045f},{.14f,.24f,.06f},{.22f,.38f,.06f},{.32f,.44f,.08f},3,.8f},
   {"lightgrid",TEX_ASPHALT,TEX_METAL,TEX_METAL,{.018f,.025f,.04f},{.008f,.012f,.025f},{.005f,.008f,.02f},{0,0,0},{0,0,0},3,.25f},
   { "nightburbs", TEX_ASPHALT,TEX_CONCRETE,TEX_GRASS,{.40f,.45f,.55f},{.27f,.31f,.40f},{.15f,.25f,.22f},
     {.12f,.23f,.18f},{.18f,.30f,.22f},3,.8f },
@@ -400,6 +401,7 @@ static void ramps_build(t3_object *root, const track_desc *t, const theme *th) {
     int n = (int)(len / 0.2f) + 1, bd = deck.nv;
     for (int k = 0; k <= n; k++) {
       float x = r[0] + len * k / n, g = track_height_at(x, NULL), y = g + track_ramp_h(t, x, lo);
+      if(!strcmp(t->theme,"backyard"))g=y-.16f;
       float xa = x - 0.05f, xb = x + 0.05f;
       float ya = track_height_at(xa, NULL) + track_ramp_h(t, xa, lo), yb = track_height_at(xb, NULL) + track_ramp_h(t, xb, lo);
       t3_vec3 nn = { -(yb - ya), 0.1f, 0 };
@@ -408,6 +410,7 @@ static void ramps_build(t3_object *root, const track_desc *t, const theme *th) {
       if (k > 0) mb_t(&deck, bd + (k - 1) * 2, bd + (k - 1) * 2 + 1, bd + k * 2 + 1), mb_t(&deck, bd + (k - 1) * 2, bd + k * 2 + 1, bd + k * 2);
       if (k > 0) { /* the two sides, ground to deck */
         float px = r[0] + len * (k - 1) / n, pg = track_height_at(px, NULL), py = pg + track_ramp_h(t, px, lo);
+        if(!strcmp(t->theme,"backyard"))pg=py-.16f;
         for (int sd = 0; sd < 2; sd++) {
           float z = sd ? zb : za;
           int v = mb_v(&side, (t3_vec3){ px, pg - 0.05f, z }, (t3_vec3){ 0, 0, sd ? 1.0f : -1.0f }, px / 2, 0, 1);
@@ -770,6 +773,7 @@ static float bank_y(float x, float z, int kind) {
   near = track_height_at(x, &f);
   if (!f) near = ground_at(x);
   float base = near + (ground_at(x) - near) * cw_clampf(d / 4, 0, 1);
+  if (kind == 6) return base-6-.025f*d;
   if (kind == 5) return !f ? base-4.5f : base-.15f-3.1f*cw_smoothstep(0,5,d);
   if (kind == 4) return base-.12f;
   if (kind == 3) return base - .08f - 3.5f * cw_clampf(d / 4, 0, 1);
@@ -816,6 +820,7 @@ static void bank(t3_object *root, const track_desc *t, const theme *th) {
     bank_tex = TEX_GRASS;
     pale[0] = 0.48f; pale[1] = 0.68f; pale[2] = 0.48f;
   }
+  if (!strcmp(th->name,"backyard")) {bank_tex=TEX_DIRT;pale[0]=.30f;pale[1]=.24f;pale[2]=.12f;}
   if (!strcmp(th->name,"nightburbs")) {bank_tex=TEX_GRASS;pale[0]=.18f;pale[1]=.29f;pale[2]=.24f;}
   if (!strcmp(th->name,"autumn")) {
     bank_tex=TEX_MOSS; pale[0]=.42f;pale[1]=.51f;pale[2]=.28f;
@@ -2788,6 +2793,7 @@ static cw_node particles(cw_node parent, const char *name, const char *const *kv
 #include "nightburbs.inc"
 #include "hellfire.inc"
 #include "lightgrid.inc"
+#include "backyard.inc"
 
 void view_build(cw_node parent, const track_desc *t, int track_index) {
   gg_count=0;
@@ -2797,7 +2803,7 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
   chocolate_marks=0;cw_debug_i32("chocolate.marks",&chocolate_marks);
   const theme *th = theme_for(t->theme);
   S = (uint32_t)(track_index + 1) * 2654435761u + 11;
-  bank_kind = !strcmp(th->name,"hellfire") ? 5 : !strcmp(th->name,"nightburbs") ? 4 : !strcmp(th->name, "stuntshow") ? 3 : th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0;
+  bank_kind = !strcmp(th->name,"backyard") ? 6 : !strcmp(th->name,"hellfire") ? 5 : !strcmp(th->name,"nightburbs") ? 4 : !strcmp(th->name, "stuntshow") ? 3 : th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0;
   t3_object *root = t3_group_new();
   ground_build(t);
   ribbon(root, t, th);
@@ -2805,7 +2811,7 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
   bank(root, t, th);
   markers(root, t);
   int still0 = root->child_count;
-  if (strcmp(th->name, "stuntshow") && strcmp(th->name,"nightburbs") && strcmp(th->name,"hellfire") && strcmp(th->name,"lightgrid")) {
+  if (strcmp(th->name, "stuntshow") && strcmp(th->name,"nightburbs") && strcmp(th->name,"hellfire") && strcmp(th->name,"lightgrid") && strcmp(th->name,"backyard")) {
     landforms(root, t, th, !backdrop_build(parent, t, track_index));
     if (strcmp(th->name, "neon")) fill(root, t, th);
     props(root, t, th);
@@ -2818,10 +2824,11 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
   nightburbs_build(parent,root,t);
   hellfire_build(parent,root,t);
   lightgrid_build(parent,root,t);
+  backyard_build(parent,root,t);
   chocolate_colliders_build(root,chocolate_first,t);
   loose_toys_build(root,t);
   chocolate_fx_build(root,t);
-  merge_still(root, still0, root->child_count, !strcmp(th->name, "neon") ? 1 : (!strcmp(th->name,"hellfire")||!strcmp(th->name,"lightgrid")) ? 2 : 0);
+  merge_still(root, still0, root->child_count, !strcmp(th->name, "neon") ? 1 : (!strcmp(th->name,"hellfire")||!strcmp(th->name,"lightgrid")||!strcmp(th->name,"backyard")) ? 2 : 0);
   fog_build(parent, th, track_index);
   ice_patches(root, t);
   planks_build(root);

@@ -681,13 +681,13 @@ static void lane_input(void) {
   if (ly == P->prev_ly || P->lane_t > 0 || !b->alive) return;
   /* Keep a press made during a jump or the previous lane change pending until
    * the bike can move. Consuming it here made up/down appear unresponsive. */
-  if (!b->grounded_rear && !b->grounded_front) return;
+  if (strcmp(G.t->theme,"backyard") && !b->grounded_rear && !b->grounded_front) return;
   P->prev_ly = ly;
   int to = P->lane_to + ly;
   bool closed = false; /* a lane that is shut here, or shuts just ahead */
   for (float ax = 0; ax <= 3; ax += 1) closed |= !track_lane_open(G.t, b->x + ax, to);
   for (float dx = -0.6f; dx <= 0.8f; dx += 0.35f) /* not sideways into a ramp's flank: onto it only at its foot (off it is fine: you drop) */
-    if (track_ramp_h(G.t, b->x + dx, to) > track_ramp_h(G.t, b->x + dx, P->lane_to) + 0.12f) closed = true;
+    if (strcmp(G.t->theme,"backyard") && track_ramp_h(G.t, b->x + dx, to) > track_ramp_h(G.t, b->x + dx, P->lane_to) + 0.12f) closed = true;
   for (int l = 0; l < G.t->loop_count; l++) /* not round a loop */
     if (fabsf(b->x - G.t->loops[l * 4]) < G.t->loops[l * 4 + 2] + 1) closed = true;
   if (to < 0 || to >= LANES || closed || !lane_free(to, b->x, 1.6f)) {
@@ -999,7 +999,7 @@ static void camera_tick(void) {
   if(G.t&&!strcmp(G.t->theme,"nightburbs")&&(G.state==GS_RIDE||G.state==GS_COUNT)) {
     at.y=b->y+.6f;dist=fmaxf(dist,air?19:13);
   }
-  if(G.t&&!strcmp(G.t->theme,"hellfire")&&(G.state==GS_RIDE||G.state==GS_COUNT)){at.y=b->y+1.4f;dist=fmaxf(dist,air?17:13.5f);}
+  if(G.t&&(!strcmp(G.t->theme,"hellfire")||!strcmp(G.t->theme,"backyard")||!strcmp(G.t->theme,"lightgrid"))&&(G.state==GS_RIDE||G.state==GS_COUNT)){at.y=b->y+1.4f;dist=fmaxf(dist,air?17:13.5f);}
   if (G.state == GS_FINISH) dist = 8;
   if(P->finished&&!strcmp(G.t->theme,"toybox")) {
     at=(t3_vec3){G.t->finish_x+9,G.t->finish_y+1.3f,0};dist=11;
@@ -1067,6 +1067,7 @@ static void camera_frame(double alpha) {
     eye = (t3_vec3){ at.x - 6, at.y + 9, 34 };
     at = (t3_vec3){ at.x, at.y + 6, -60 };
   }
+  if(NRID==1&&G.t&&!strcmp(G.t->theme,"backyard")&&(G.state==GS_RIDE||G.state==GS_COUNT))eye.y=at.y+d*.48f;
   if (P->shake > 0) {
     float k = 0.01f * P->shake;
     eye.x += k * cw_sin(G.ticks * 1.9f);

@@ -21,7 +21,7 @@ what is what.
 ![BikeMesa: riding the Red Rock Run canyon track](docs/screenshots/bikemesa.jpg)
 
 A downhill bike game. A 2D Box2D bicycle and rider ride hand-shaped lines
-through twenty-one 3D worlds, from a red rock canyon and a snowy slope to a
+through twenty-two 3D worlds, from a red rock canyon and a snowy slope to a
 Downtown Mesa streets, a haunted town, the Moon and Mars, a big-top circus, a low-gravity candy world and a giant toybox.
 Pedal, hop, lean into flips, hold poses in the air and land clean; get it
 wrong and the rider tumbles through a full 3D crash. Up to four players race
@@ -53,6 +53,8 @@ fireballs keep their recorded timing in the instant replay. Its project shader's
 regeneration command is in `games/bikemesa/programs/extensions/README.txt`.
 Black Circuit pairs black glass and neon towers with a synthwave skyline, fast jumps,
 and consecutive mirrored loops that carry the rider down two lanes and back up.
+Backyard Giants adds giant garden insects and four independently raised or lowered lanes:
+sideways transfers can drop onto a lower route, while higher paths require a jump.
 The map selector scrolls through all the maps with arrows above and below the list.
 Its fork, handlebars, hub pedals and rider articulate during lane changes.
 Night Burbs adds three big suburban jumps, oak and elm trees, warm porch lights,
