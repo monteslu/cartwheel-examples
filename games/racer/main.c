@@ -542,8 +542,10 @@ static void rig_tick(int v) {
     }
     r->chase = true;
     if (back) r->erel = erel, r->lrel = lrel;
-    spring3(&r->erel, &r->eye_v, erel, 6.0f);
-    spring3(&r->lrel, &r->look_v, lrel, 9.0f);
+    /* (the wall's U turns the kart at over 2 rad/s: on the usual springs the view fell 45 degrees behind it and stared at the outside rail) */
+    bool on_wall = k->loc.i >= 0 && k->loc.br < 0 && (s->track->s[k->loc.i].flags & TF_WALLTURN) && fabsf(s->track->s[k->loc.i].u.y) < 0.1f;
+    spring3(&r->erel, &r->eye_v, erel, on_wall ? 16.0f : 6.0f);
+    spring3(&r->lrel, &r->look_v, lrel, on_wall ? 20.0f : 9.0f);
     r->eye = v3add(k->p, r->erel), r->look = v3add(k->p, r->lrel);
     /* never under the road: where it curls up into a loop (or over a crest) the eye behind the kart can end up below the
      * deck and the view shows its underside as a dark wall across the road. Keep the eye 1.2 m over the road beneath it */
