@@ -62,10 +62,12 @@ static void legs(kit *k) {
   for (int s = -1; s <= 1; s += 2) {
     t3_vec3 hip = v3add(vg->seat, V((float)s * 0.095f * ds, 0.03f * ds, -0.02f * ds)), knee = v3add(hip, V(0, 0.1f * ds, 0.3f * ds)),
             ank = v3add(knee, V(0, -0.2f * ds, 0.12f * ds));
-    mb_tube(m, hip, knee, 0.05f * ds, 8, vg->suit2);
-    mb_ball(m, knee, 0.05f * ds, vg->suit2);
-    mb_tube(m, knee, ank, 0.042f * ds, 8, vg->suit2);
-    mb_rbox(m, xf_at(ank.x, ank.y - 0.03f * ds, ank.z + 0.05f * ds), 0.1f * ds, 0.07f * ds, 0.2f * ds, 0.025f * ds, 1, C_BLACK);
+    /* thigh to knee to calf: the same suit as the body, tapering to the ankle, a laced boot */
+    mb_tube_cap(m, hip, knee, 0.08f * ds, 0.054f * ds, 10, vg->suit);
+    mb_ball(m, knee, 0.056f * ds, vg->suit);
+    mb_tube_cap(m, knee, ank, 0.053f * ds, 0.036f * ds, 10, vg->suit);
+    mb_tube_cap(m, v3add(ank, V(0, 0.05f * ds, -0.01f * ds)), v3add(ank, V(0, -0.03f * ds, 0)), 0.041f * ds, 0.043f * ds, 8, C_BLACK);
+    mb_ballxyz(m, v3add(ank, V(0, -0.045f * ds, 0.055f * ds)), V(0.046f * ds, 0.036f * ds, 0.105f * ds), C_BLACK);
   }
 }
 

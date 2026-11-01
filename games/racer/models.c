@@ -510,67 +510,132 @@ static t3_geometry *flame_geo(void) {
   return g;
 }
 
+/* a soft body of rings stacked up y: half width w, half depth d, squareness n (2 an ellipse, 3 a soft box), shifted z forward.
+ * A colour per ring, the side panels in side (NULL: none), closed at both ends */
+typedef struct body_ring {
+  float y, w, d, z, n;
+  const float *col;
+} body_ring;
+#define BODY_SEG 18
+static void body_rings(mb *b, const body_ring *R, int nr, const float *side, float ds) {
+  t3_vec3 *P = malloc(sizeof(t3_vec3) * (size_t)(nr * BODY_SEG));
+  for (int i = 0; i < nr; i++)
+    for (int j = 0; j < BODY_SEG; j++) {
+      float th = 6.2831853f * (float)j / BODY_SEG, c = cosf(th), s = sinf(th), e = 2.0f / R[i].n;
+      P[i * BODY_SEG + j] = v3((c < 0 ? -1.0f : 1.0f) * powf(fabsf(c), e) * R[i].w * ds, R[i].y * ds, (R[i].z + (s < 0 ? -1.0f : 1.0f) * powf(fabsf(s), e) * R[i].d) * ds);
+    }
+  int base = b->nv;
+  for (int i = 0; i < nr; i++)
+    for (int j = 0; j < BODY_SEG; j++) {
+      t3_vec3 up = v3sub(P[(i < nr - 1 ? i + 1 : i) * BODY_SEG + j], P[(i > 0 ? i - 1 : i) * BODY_SEG + j]);
+      t3_vec3 ar = v3sub(P[i * BODY_SEG + (j + 1) % BODY_SEG], P[i * BODY_SEG + (j + BODY_SEG - 1) % BODY_SEG]);
+      t3_vec3 p = P[i * BODY_SEG + j];
+      /* the panels down the flanks */
+      bool panel = side && fabsf(p.z - R[i].z * ds) < R[i].d * ds * 0.42f;
+      mb_vert(b, p, v3norm(v3cross(up, ar)), panel ? side : R[i].col);
+    }
+  for (int i = 0; i + 1 < nr; i++)
+    for (int j = 0; j < BODY_SEG; j++) {
+      int a0 = base + i * BODY_SEG + j, a1 = base + i * BODY_SEG + (j + 1) % BODY_SEG, c0 = a0 + BODY_SEG, c1 = a1 + BODY_SEG;
+      mb_tri(b, a0, c0, a1);
+      mb_tri(b, a1, c0, c1);
+    }
+  for (int e = 0; e < 2; e++) {
+    int ri = e ? nr - 1 : 0, cn = mb_vert(b, v3(0, R[ri].y * ds, R[ri].z * ds), v3(0, e ? 1.0f : -1.0f, 0), R[ri].col);
+    for (int j = 0; j < BODY_SEG; j++) {
+      int a0 = base + ri * BODY_SEG + j, a1 = base + ri * BODY_SEG + (j + 1) % BODY_SEG;
+      if (e) mb_tri(b, cn, a1, a0);
+      else mb_tri(b, cn, a0, a1);
+    }
+  }
+  free(P);
+}
+
 static void driver_build(kart_rig *r, const veh_geo *vg, t3_object *body) {
   float ds = vg->driver_scale;
   const float *su = vg->suit, *su2 = vg->suit2;
-  float skin[3] = { 0.86f, 0.62f, 0.46f };
-  float glove[3] = { 0.14f, 0.13f, 0.13f };
-  /* torso */
+  float skin[3] = { 0.72f, 0.5f, 0.38f };
+  float glove[3] = { 0.1f, 0.09f, 0.09f }, web[3] = { 0.07f, 0.07f, 0.08f }, under[3] = { 0.06f, 0.06f, 0.07f };
+  /* torso: a racing suit over a person, hips to shoulders, the chest deeper than the waist and the shoulders falling to the
+   * neck; harness straps over the shoulders and down the chest, a padded collar */
   r->torso = pivot_at(body, v3add(vg->seat, v3(0, 0.1f * ds, -0.02f * ds)));
-  mb tm = { .jit = 0.1f };
-  mb_rbox(&tm, xf_at(0, 0.2f * ds, 0), 0.34f * ds, 0.44f * ds, 0.22f * ds, 0.07f * ds, 1, su);
-  mb_rbox(&tm, xf_at(0, 0.02f * ds, 0), 0.32f * ds, 0.12f * ds, 0.22f * ds, 0.04f * ds, 1, su2); /* belt */
-  mb_rbox(&tm, xf_at(0, 0.3f * ds, 0.1f * ds), 0.14f * ds, 0.2f * ds, 0.04f * ds, 0.015f * ds, 1, su2); /* harness chest plate */
-  mb_tube(&tm, v3(0.1f * ds, 0.42f * ds, 0.1f * ds), v3(0.04f * ds, 0.04f * ds, 0.1f * ds), 0.018f * ds, 6, glove);
-  mb_tube(&tm, v3(-0.1f * ds, 0.42f * ds, 0.1f * ds), v3(-0.04f * ds, 0.04f * ds, 0.1f * ds), 0.018f * ds, 6, glove);
-  mb_cyl(&tm, xf_at(0, 0.45f * ds, 0), 0.05f * ds, 0.06f * ds, 0.08f * ds, 8, skin); /* neck */
+  mb tm = { .jit = 0.06f };
+  const body_ring TR[] = {
+    { -0.04f, 0.13f, 0.09f, 0, 2.6f, su2 }, { 0.02f, 0.165f, 0.112f, 0, 2.6f, su2 }, { 0.08f, 0.158f, 0.105f, 0.003f, 2.6f, su2 },
+    { 0.11f, 0.146f, 0.098f, 0.005f, 2.6f, su }, { 0.19f, 0.15f, 0.104f, 0.008f, 2.6f, su }, { 0.28f, 0.172f, 0.118f, 0.012f, 2.6f, su },
+    { 0.35f, 0.186f, 0.116f, 0.008f, 2.8f, su }, { 0.4f, 0.17f, 0.098f, 0, 2.8f, su }, { 0.44f, 0.115f, 0.08f, -0.006f, 2.4f, su },
+    { 0.47f, 0.066f, 0.066f, -0.008f, 2, su },
+  };
+  body_rings(&tm, TR, sizeof TR / sizeof TR[0], su2, ds);
+  /* the shoulders round into the arms */
+  mb_ballxyz(&tm, v3(0.185f * ds, 0.355f * ds, 0), v3(0.062f * ds, 0.058f * ds, 0.066f * ds), su);
+  mb_ballxyz(&tm, v3(-0.185f * ds, 0.355f * ds, 0), v3(0.062f * ds, 0.058f * ds, 0.066f * ds), su);
+  /* the harness: from the seat behind, over each shoulder, down the chest to the belt */
+  for (int s = -1; s <= 1; s += 2) {
+    float x = (float)s * ds;
+    t3_vec3 st[5] = { v3(x * 0.095f, 0.2f * ds, -0.112f * ds), v3(x * 0.09f, 0.37f * ds, -0.103f * ds), v3(x * 0.088f, 0.442f * ds, -0.02f * ds), v3(x * 0.09f, 0.37f * ds, 0.113f * ds), v3(x * 0.05f, 0.08f * ds, 0.114f * ds) };
+    mb_polyline(&tm, st, 5, 0.013f * ds, 5, web);
+  }
+  mb_rbox(&tm, xf_at(0, 0.09f * ds, 0.112f * ds), 0.07f * ds, 0.055f * ds, 0.018f * ds, 0.006f * ds, 1, C_STEEL); /* the buckle */
+  mb_cyl(&tm, xf_at(0, 0.5f * ds, -0.005f * ds), 0.052f * ds, 0.062f * ds, 0.09f * ds, 10, under); /* neck, under a fire hood */
+  mb_torus(&tm, xf_rot(0, 0.463f * ds, -0.008f * ds, 1.5707963f, 0, 0), 0.066f * ds, 0.017f * ds, 12, 6, su2); /* collar */
   t3_geometry *g = mb_done(&tm);
   add_mesh_to(r->torso, g, r->mat[S_DARK], true);
   t3_release(g);
-  /* head: face and goggles on the dark material, the helmet in the kart's paint */
-  r->head = pivot_at(r->torso, v3(0, 0.56f * ds, 0));
-  mb hm = { .jit = 0.05f };
-  float strap[3] = { 0.08f, 0.08f, 0.09f }, gframe[3] = { 0.12f, 0.12f, 0.13f };
-  mb_ballxyz(&hm, v3(0, -0.02f * ds, 0.015f * ds), v3(0.1f * ds, 0.11f * ds, 0.115f * ds), skin);
-  mb_rbox(&hm, xf_at(0, 0.03f * ds, 0.1f * ds), 0.2f * ds, 0.085f * ds, 0.05f * ds, 0.03f * ds, 1, gframe); /* goggle frame */
-  mb_ballxyz(&hm, v3(0.052f * ds, 0.03f * ds, 0.125f * ds), v3(0.04f * ds, 0.032f * ds, 0.02f * ds), (float[3]){ 0.95f, 0.75f, 0.2f });
-  mb_ballxyz(&hm, v3(-0.052f * ds, 0.03f * ds, 0.125f * ds), v3(0.04f * ds, 0.032f * ds, 0.02f * ds), (float[3]){ 0.95f, 0.75f, 0.2f });
-  mb_rbox(&hm, xf_at(0, 0.0f, 0.0f), 0.215f * ds, 0.03f * ds, 0.22f * ds, 0.01f, 0, strap);
-  mb_tube(&hm, v3(0.1f * ds, -0.02f * ds, 0.02f * ds), v3(0.04f * ds, -0.12f * ds, 0.1f * ds), 0.008f * ds, 5, strap); /* chin strap */
-  mb_tube(&hm, v3(-0.1f * ds, -0.02f * ds, 0.02f * ds), v3(-0.04f * ds, -0.12f * ds, 0.1f * ds), 0.008f * ds, 5, strap);
+  /* head: a closed racing helmet, or (kinds 0 and 4) an open one with goggles and a dust wrap over the face */
+  r->head = pivot_at(r->torso, v3(0, 0.595f * ds, 0));
+  bool open_face = vg->helmet == 0 || vg->helmet == 4;
+  mb hm = { .jit = 0.03f };
+  float visor[3] = { 0.03f, 0.035f, 0.05f }, glint[3] = { 0.2f, 0.26f, 0.34f }, strap[3] = { 0.07f, 0.07f, 0.08f }, gframe[3] = { 0.11f, 0.11f, 0.12f };
+  if (open_face) {
+    mb_ballxyz(&hm, v3(0, -0.015f * ds, 0.03f * ds), v3(0.09f * ds, 0.105f * ds, 0.1f * ds), skin);
+    mb_ballxyz(&hm, v3(0, -0.058f * ds, 0.038f * ds), v3(0.094f * ds, 0.066f * ds, 0.1f * ds), su2); /* the dust wrap */
+    mb_rbox(&hm, xf_at(0, 0.028f * ds, 0.1f * ds), 0.165f * ds, 0.06f * ds, 0.05f * ds, 0.024f * ds, 1, gframe);
+    mb_ballxyz(&hm, v3(0.04f * ds, 0.028f * ds, 0.123f * ds), v3(0.033f * ds, 0.025f * ds, 0.012f * ds), visor);
+    mb_ballxyz(&hm, v3(-0.04f * ds, 0.028f * ds, 0.123f * ds), v3(0.033f * ds, 0.025f * ds, 0.012f * ds), visor);
+    mb_ballxyz(&hm, v3(0.038f * ds, 0.038f * ds, 0.133f * ds), v3(0.012f * ds, 0.006f * ds, 0.004f * ds), glint);
+    mb_ballxyz(&hm, v3(-0.042f * ds, 0.038f * ds, 0.133f * ds), v3(0.012f * ds, 0.006f * ds, 0.004f * ds), glint);
+    mb_torus(&hm, xf_rot(0, 0.028f * ds, 0.004f * ds, 1.5707963f, 0, 0), 0.112f * ds, 0.007f * ds, 16, 4, strap); /* the goggle strap */
+  } else {
+    /* the visor: a dark band across the front, a strip of sky along its top */
+    mb_ballxyz(&hm, v3(0, 0.012f * ds, 0.018f * ds), v3(0.107f * ds, 0.044f * ds, 0.127f * ds), visor);
+    mb_ballxyz(&hm, v3(0, 0.038f * ds, 0.045f * ds), v3(0.082f * ds, 0.009f * ds, 0.1f * ds), glint);
+  }
+  mb_torus(&hm, xf_rot(0, -0.112f * ds, -0.006f * ds, 1.5707963f, 0, 0), 0.08f * ds, 0.014f * ds, 12, 5, under); /* the helmet's neck roll */
   g = mb_done(&hm);
   add_mesh_to(r->head, g, r->mat[S_DARK], true);
   t3_release(g);
+  /* the shell, in the kart's paint */
   mb pm = { 0 };
-  float hp[3] = { 1, 1, 1 };
-  mb_geo(&pm, t3_sphere_geometry_new_ex(1, 14, 8, 0, 6.2831853f, 0, 1.75f), xf_scaled(xf_at(0, 0.0f, -0.005f * ds), 0.125f * ds, 0.125f * ds, 0.135f * ds), hp);
+  float hp[3] = { 1, 1, 1 }, hdark[3] = { 0.16f, 0.16f, 0.17f }, hstripe[3] = { 0.42f, 0.42f, 0.44f };
+  if (open_face) {
+    const body_ring HR[] = {
+      { -0.05f, 0.106f, 0.116f, -0.018f, 2.2f, hp }, { 0.0f, 0.117f, 0.128f, -0.012f, 2.2f, hp }, { 0.05f, 0.116f, 0.13f, -0.004f, 2.2f, hp },
+      { 0.09f, 0.098f, 0.112f, 0, 2.1f, hp }, { 0.115f, 0.066f, 0.076f, 0, 2, hp }, { 0.127f, 0.024f, 0.028f, 0, 2, hp },
+    };
+    body_rings(&pm, HR, sizeof HR / sizeof HR[0], NULL, ds);
+  } else {
+    const body_ring HR[] = {
+      { -0.105f, 0.082f, 0.094f, 0, 2.2f, hp }, { -0.07f, 0.105f, 0.126f, 0.01f, 2.3f, hp }, { -0.025f, 0.113f, 0.133f, 0.006f, 2.3f, hp },
+      { 0.03f, 0.117f, 0.135f, 0, 2.2f, hp }, { 0.075f, 0.105f, 0.122f, -0.002f, 2.1f, hp }, { 0.105f, 0.072f, 0.086f, -0.004f, 2, hp }, { 0.122f, 0.026f, 0.03f, -0.004f, 2, hp },
+    };
+    body_rings(&pm, HR, sizeof HR / sizeof HR[0], NULL, ds);
+    mb_ballxyz(&pm, v3(0, -0.066f * ds, 0.084f * ds), v3(0.084f * ds, 0.04f * ds, 0.062f * ds), hp); /* the chin bar */
+    for (int s = -1; s <= 1; s += 2) mb_ballxyz(&pm, v3((float)s * 0.113f * ds, 0.012f * ds, 0.03f * ds), v3(0.009f * ds, 0.016f * ds, 0.016f * ds), hdark); /* visor pivots */
+  }
+  /* what you see from behind: a stripe over the crown */
+  mb_ballxyz(&pm, v3(0, 0.03f * ds, -0.006f * ds), v3(0.024f * ds, 0.102f * ds, 0.136f * ds), hstripe);
   if (vg->helmet == 1) {
-    for (int i = 0; i < 5; i++) mb_cone(&pm, xf_rot(0, (0.13f - 0.012f * (float)(i % 2)) * ds, (-0.07f + (float)i * 0.035f) * ds, 0, 0, 0), 0.02f * ds, 0.06f * ds, 5, hp);
-    mb_rbox(&pm, xf_at(0, 0.115f * ds, 0), 0.025f * ds, 0.04f * ds, 0.2f * ds, 0.01f, 1, hp);
+    mb_rbox(&pm, xf_at(0, 0.11f * ds, -0.006f * ds), 0.016f * ds, 0.032f * ds, 0.17f * ds, 0.008f * ds, 1, hp); /* a low armoured ridge */
   } else if (vg->helmet == 2) {
-    mb_rbox(&pm, xf_at(0.12f * ds, -0.04f * ds, 0), 0.03f * ds, 0.1f * ds, 0.1f * ds, 0.01f, 1, hp);
-    mb_rbox(&pm, xf_at(-0.12f * ds, -0.04f * ds, 0), 0.03f * ds, 0.1f * ds, 0.1f * ds, 0.01f, 1, hp);
-    mb_rbox(&pm, xf_at(0, 0.075f * ds, 0.12f * ds), 0.2f * ds, 0.02f * ds, 0.08f * ds, 0.008f, 1, hp);
+    /* a peak, as off-road helmets have */
+    mb_rbox(&pm, xf_at(0, 0.092f * ds, 0.135f * ds), 0.17f * ds, 0.012f * ds, 0.11f * ds, 0.005f * ds, 1, hp);
   } else if (vg->helmet == 3) {
-    mb_rbox(&pm, xf_at(0, 0.0f, 0.11f * ds), 0.2f * ds, 0.03f * ds, 0.07f * ds, 0.01f, 1, hp);
-  } else if (vg->helmet == 4) {
-    mb_ball(&pm, v3(0, 0.135f * ds, 0), 0.025f * ds, hp);
+    mb_rbox(&pm, xf_at(0, 0.098f * ds, -0.118f * ds), 0.13f * ds, 0.012f * ds, 0.03f * ds, 0.005f * ds, 1, hp); /* a small spoiler */
   }
   g = mb_done(&pm);
   add_mesh_to(r->head, g, r->mat[S_PAINT], true);
   t3_release(g);
-  /* a prop on the beanie: two blades on a pivot that spins */
-  if (vg->helmet == 4) {
-    r->prop = pivot_at(r->head, v3(0, 0.17f * ds, 0));
-    mb bl = { 0 };
-    float bc[3] = { 0.95f, 0.9f, 0.3f };
-    mb_rbox(&bl, xf_at(0.1f * ds, 0, 0), 0.2f * ds, 0.008f, 0.04f * ds, 0.003f, 1, bc);
-    mb_rbox(&bl, xf_at(-0.1f * ds, 0, 0), 0.2f * ds, 0.008f, 0.04f * ds, 0.003f, 1, bc);
-    mb_cyl(&bl, xf_at(0, -0.02f * ds, 0), 0.012f, 0.012f, 0.04f * ds, 6, C_CHROME);
-    g = mb_done(&bl);
-    add_mesh_to(r->prop, g, r->mat[S_DARK], false);
-    t3_release(g);
-  }
   /* the scarf trailing back from the neck */
   {
     t3_object *par = r->torso;
@@ -579,7 +644,7 @@ static void driver_build(kart_rig *r, const veh_geo *vg, t3_object *body) {
     for (int i = 0; i < 4; i++) {
       r->scarf[i] = pivot_at(par, at);
       mb sm = { 0 };
-      mb_rbox(&sm, xf_at(0, 0, -sl * 0.5f), (0.11f - 0.012f * (float)i) * ds, 0.012f, sl, 0.004f, 1, vg->suit2);
+      mb_rbox(&sm, xf_at(0, 0, -sl * 0.5f), (0.072f - 0.01f * (float)i) * ds, 0.006f, sl, 0.002f, 1, vg->suit2);
       g = mb_done(&sm);
       add_mesh_to(r->scarf[i], g, r->mat[S_DARK], false);
       t3_release(g);
@@ -588,14 +653,21 @@ static void driver_build(kart_rig *r, const veh_geo *vg, t3_object *body) {
     }
   }
   /* arms: an upper arm and a forearm each (stretched by place_tube each frame) and a glove */
-  mb ar = { .jit = 0.08f };
-  mb_tube(&ar, v3(0, -0.5f, 0), v3(0, 0.5f, 0), 0.036f * ds, 8, su);
+  /* each is a unit long along y and stretched to the arm's length, so a joint's y radius is divided by it */
+  const float seg_l = 0.25f * ds;
+  mb ar = { .jit = 0.05f };
+  mb_tube_cap(&ar, v3(0, -0.5f, 0), v3(0, 0.5f, 0), 0.05f * ds, 0.039f * ds, 10, su);
   t3_geometry *ag = mb_done(&ar);
-  mb fa = { .jit = 0.08f };
-  mb_tube(&fa, v3(0, -0.5f, 0), v3(0, 0.5f, 0), 0.031f * ds, 8, su2);
+  mb fa = { .jit = 0.05f };
+  mb_tube_cap(&fa, v3(0, -0.5f, 0), v3(0, 0.26f, 0), 0.039f * ds, 0.03f * ds, 10, su);
+  mb_tube_cap(&fa, v3(0, 0.26f, 0), v3(0, 0.5f, 0), 0.033f * ds, 0.031f * ds, 10, glove); /* the glove's cuff */
+  mb_ballxyz(&fa, v3(0, -0.5f, 0), v3(0.041f * ds, 0.041f * ds / seg_l, 0.041f * ds), su); /* the elbow */
   t3_geometry *fg = mb_done(&fa);
+  /* a gloved fist round the wheel: the back of the hand, four knuckles, a thumb */
   mb hd = { 0 };
-  mb_ball(&hd, v3(0, 0, 0), 0.04f * ds, glove);
+  mb_ballxyz(&hd, v3(0, 0, -0.006f * ds), v3(0.038f * ds, 0.042f * ds, 0.032f * ds), glove);
+  for (int i = 0; i < 4; i++) mb_ballxyz(&hd, v3((-0.027f + 0.018f * (float)i) * ds, 0.012f * ds, 0.024f * ds), v3(0.0115f * ds, 0.017f * ds, 0.015f * ds), glove);
+  mb_tube_cap(&hd, v3(0.03f * ds, -0.02f * ds, 0.004f * ds), v3(0.012f * ds, -0.012f * ds, 0.034f * ds), 0.014f * ds, 0.01f * ds, 6, glove);
   t3_geometry *hg = mb_done(&hd);
   for (int s = 0; s < 2; s++) {
     r->arm_up[s] = &t3_mesh_new(ag, r->mat[S_DARK])->base;

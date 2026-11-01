@@ -3,6 +3,10 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.16.20 (2026-11-01)
+
+- **racer**: The drivers look like people: a shaped racing suit with sloped shoulders and a harness, tapered arms and legs, gloved fists, closed helmets with visors (or open ones with goggles and a dust wrap), a thin scarf; the propeller beanie and helmet spikes are gone
+
 ## v0.16.19 (2026-11-01)
 
 - **racer**: The wall's U needs steering: the road does 80% of the turn and the rest is the driver's, so a kart that does not steer runs wide into the outside rail and loses speed
