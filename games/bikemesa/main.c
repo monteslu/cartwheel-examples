@@ -469,6 +469,18 @@ static bool find_nodes(cw_node n, void *user) {
   return true;
 }
 
+/* what the engine holds, by tag, and how big the cart's memory has grown (it never shrinks, and the cart dies at its cap) */
+static void mem_line(char *out, size_t n) {
+  cw_mem_stats st;
+  cw_mem_get_stats(&st);
+  size_t at = 0;
+  at += (size_t)snprintf(out + at, n - at, "total %d MB, peak %d MB", (int)(st.total_bytes >> 20), (int)(st.peak_bytes >> 20));
+#ifdef __wasm__
+  at += (size_t)snprintf(out + at, n - at, ", heap %d MB", (int)(__builtin_wasm_memory_size(0) >> 4));
+#endif
+  for (int i = 0; i < CW_MEM_TAG_COUNT && at + 32 < n; i++) at += (size_t)snprintf(out + at, n - at, ", %s %d MB", cw_mem_tag_name((cw_mem_tag)i), (int)(st.bytes[i] >> 20));
+}
+
 static void minimap_build(void);
 static float sun_extent, sun_shown; /* the scene's sun's shadow_extent, and the one split screen widened it to (to take in the field) */
 /* index: the track; attract: no scoring (the title's ride-by, the previews);
@@ -481,6 +493,7 @@ static bool load_track(int index, bool attract, int riders) {
     return false;
   }
   cw_tree *t = cw_scene_app_tree();
+  models_unbind();
   if (cw_node_valid(G.scene)) cw_node_free(G.scene);
   view_forget();
   models_forget();
@@ -533,7 +546,9 @@ static bool load_track(int index, bool attract, int riders) {
     for (int i = 0; i < NRID; i++) use_rider(i), camera_tick();
     use_rider(0);
   }
-  cw_info("bikemesa: track %d %s (%s)", index + 1, G.t->name, G.t->theme);
+  char mem[256];
+  mem_line(mem, sizeof mem);
+  cw_info("bikemesa: track %d %s (%s): %s", index + 1, G.t->name, G.t->theme, mem);
   return true;
 }
 
@@ -835,6 +850,13 @@ static void cmd_respawn_sweep(int argc, const char **argv, cw_reply *r) {
   sweep_raw = argc > 2 && !strcmp(argv[2], "raw");
   cw_reply_printf(r, "{\"ticks\":%d}", pending_sweep);
 }
+static void cmd_mem(int argc, const char **argv, cw_reply *r) {
+  (void)argc, (void)argv;
+  char mem[256];
+  mem_line(mem, sizeof mem);
+  if (r) cw_reply_printf(r, "{\"mem\":\"%s\"}", mem);
+}
+
 static void cmd_track(int argc, const char **argv, cw_reply *r) {
   int n = argc > 1 ? atoi(argv[1]) : 0;
   if (n < 1 || n > TRACK_COUNT) {
@@ -1458,6 +1480,7 @@ static void init(void *u) {
   cw_debug_i32("save.unlocked", &dbg_unlocked);
   cw_debug_bytes("save.bytes", &SAVE, sizeof SAVE);
   cw_debug_command("inspect", "inspect off | inspect eyeX eyeY eyeZ targetX targetY targetZ: inspection camera", cmd_inspect);
+  cw_debug_command("mem", "mem: the engine's live memory by tag and the cart's heap", cmd_mem);
   cw_debug_command("track", "track <1..n> [checkpoint]: ride a track or resume at a checkpoint", cmd_track);
   cw_debug_command("respawn_sweep", "respawn_sweep [ticks] [raw]: respawn at every checkpoint of every track, in every lane, with inputs held through the wipeout; each must ride clean for ticks (sweep.*)", cmd_respawn_sweep);
   cw_debug_i32("sweep.cases", &dbg_sweep_cases);

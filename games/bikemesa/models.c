@@ -1475,6 +1475,20 @@ static void models_sync_rider_(const bike_pose *p, float z) {
   if(!person_only[(int)(Mc-MS)]) {dj_hands(p);penny_steer(p);}
 }
 
+/* before the scene goes: a rider's skinned meshes hold its skeleton, the skeleton holds its bones and the first bone is the
+ * root the meshes hang from. That ring of references never reaches zero, so every load left a rider behind (8 MB on the
+ * first track, until the cart ran out of memory at its 1 GB cap about 84 loads in). Unbinding breaks the ring */
+void models_unbind(void) {
+  for (int r = 0; r < MAX_RIDERS; r++)
+    for (int i = 0; i <= MS[r].near_n; i++) {
+      t3_object *o = i == 0 ? MS[r].far_mesh : MS[r].near_mesh[i - 1];
+      if (!o) continue;
+      t3_skinned_mesh *sm = (t3_skinned_mesh *)o;
+      t3_release(sm->skeleton);
+      sm->skeleton = NULL;
+    }
+}
+
 void models_forget(void) {
   memset(MS, 0, sizeof MS);
   Mc = MS;

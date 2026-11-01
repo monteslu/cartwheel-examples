@@ -3,6 +3,10 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.16.23 (2026-11-01)
+
+- **BikeMesa**: Reloading tracks no longer runs the cart out of memory: each load left a whole rider behind (about 8 MB on the first track), which crashed the game after about 84 loads. The log and a `mem` debug command now show memory at each load
+
 ## v0.16.22 (2026-11-01)
 
 - **racer**: The truck's windscreen is an open frame: the opaque glass hid its driver and left only the wheel and hands on show

@@ -293,6 +293,7 @@ void models_sync_rider(int idx, const bike_pose *p, float z);
 void models_set_track(const track_desc *t);
 void models_far(int idx, bool far); /* the far look: one draw (split screen's other riders) */
 void models_refresh(int idx); /* rider idx's world matrices, after posing it again mid-frame */
+void models_unbind(void); /* before the scene is freed */
 void models_forget(void);
 /* geometries placed by their matrices merged into one (positions, normals,
  * uvs, colours: the attributes in mask, geo_merge_mask's bits) */
