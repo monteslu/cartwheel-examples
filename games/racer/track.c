@@ -263,8 +263,10 @@ static void do_wallu(walker *w, const piece *pc) {
     n = (int)(run[k].len / STEP_M + 0.5f);
     ds = run[k].len / (float)n;
     for (int i = 0; i < n; i++) {
-      float a = run[k].a0 + (run[k].a1 - run[k].a0) * smooth((float)i / (float)n);
-      float am = run[k].a0 + (run[k].a1 - run[k].a0) * smooth((i + 0.5f) / (float)n);
+      /* (one arc eases in half as much: most of the turn is at one radius, not all at its tightest point) */
+      float t0 = (float)i / (float)n, tm = (i + 0.5f) / (float)n, ease = one_arc ? 0.5f : 1.0f;
+      float a = run[k].a0 + (run[k].a1 - run[k].a0) * (t0 + (smooth(t0) - t0) * ease);
+      float am = run[k].a0 + (run[k].a1 - run[k].a0) * (tm + (smooth(tm) - tm) * ease);
       wallu_step(w, WALLU_R(a), up_wall, WALLU_F(a), WALLU_F(am), ds);
     }
   }

@@ -1235,11 +1235,21 @@ static void kart_control(sim *s, int i, kin in) {
       if (ds < 0) ds += t->length;
       float kappa = ds > 1.0f ? v3dot(v3sub(nx->f, ts->f), ts->u) / ds : 0;
       if (kappa > 0) cw_body3d_apply_force(b, v3mul(m.u, sp * sp * kappa * mass * attach), NULL);
-      /* and the arc on the wall carries it round: most of the turning force comes from the road, not the tyres (at 62 m/s the
-       * tyres gave out, the kart met the outside wall nearly square and came off it backwards at -11 m/s) */
+      /* and the arc on the wall carries the kart round, its way and its nose both, like a rail: forces and steering cannot do
+       * it (the tyres own the yaw; it slid to the outside rail and lost 15 m/s at 38, with the road pushing 100% of the turn) */
       float along = v3dot(k->v, ts->f);
-      float lat_k = ds > 1.0f ? v3dot(v3sub(nx->f, ts->f), ts->r) / ds : 0;
-      if (along > 0) cw_body3d_apply_force(b, v3mul(ts->r, 0.85f * along * along * lat_k * mass * attach), NULL);
+      float turn = along > 0 && ds > 1.0f ? along * DT * v3dot(v3cross(ts->f, nx->f), ts->u) / ds : 0;
+      if (fabsf(turn) > 1e-4f) {
+        t3_quat qt = qaxis(ts->u, turn);
+        k->v = qrot(qt, k->v);
+        cw_body3d_set_velocity(b, k->v);
+        if (k->spin_ticks <= 0) {
+          t3_quat q = k->q;
+          k->q = (t3_quat){ qt.w * q.x + qt.x * q.w + qt.y * q.z - qt.z * q.y, qt.w * q.y - qt.x * q.z + qt.y * q.w + qt.z * q.x,
+                            qt.w * q.z + qt.x * q.y - qt.y * q.x + qt.z * q.w, qt.w * q.w - qt.x * q.x - qt.y * q.y - qt.z * q.z };
+          cw_body3d_set_transform(b, (cw_xform3){ k->p, k->q });
+        }
+      }
     }
   }
   if (s->battle && (grounded || touching) && up.y > 0.7f) {
