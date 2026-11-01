@@ -589,7 +589,7 @@ static void driver_build(kart_rig *r, const veh_geo *vg, t3_object *body) {
   float visor[3] = { 0.03f, 0.035f, 0.05f }, glint[3] = { 0.2f, 0.26f, 0.34f }, strap[3] = { 0.07f, 0.07f, 0.08f }, gframe[3] = { 0.11f, 0.11f, 0.12f };
   if (open_face) {
     mb_ballxyz(&hm, v3(0, -0.015f * ds, 0.03f * ds), v3(0.09f * ds, 0.105f * ds, 0.1f * ds), skin);
-    mb_ballxyz(&hm, v3(0, -0.058f * ds, 0.038f * ds), v3(0.094f * ds, 0.066f * ds, 0.1f * ds), su2); /* the dust wrap */
+    mb_ballxyz(&hm, v3(0, -0.058f * ds, 0.026f * ds), v3(0.093f * ds, 0.062f * ds, 0.095f * ds), (float[3]){ 0.2f, 0.18f, 0.15f }); /* a dull cloth dust wrap */
     mb_rbox(&hm, xf_at(0, 0.028f * ds, 0.1f * ds), 0.165f * ds, 0.06f * ds, 0.05f * ds, 0.024f * ds, 1, gframe);
     mb_ballxyz(&hm, v3(0.04f * ds, 0.028f * ds, 0.123f * ds), v3(0.033f * ds, 0.025f * ds, 0.012f * ds), visor);
     mb_ballxyz(&hm, v3(-0.04f * ds, 0.028f * ds, 0.123f * ds), v3(0.033f * ds, 0.025f * ds, 0.012f * ds), visor);

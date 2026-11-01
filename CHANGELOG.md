@@ -3,6 +3,10 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.16.21 (2026-11-01)
+
+- **racer**: An open helmet's dust wrap is dull cloth lying flat on the face (in v0.16.20 it stuck out in the suit's colour like a beak)
+
 ## v0.16.20 (2026-11-01)
 
 - **racer**: The drivers look like people: a shaped racing suit with sloped shoulders and a harness, tapered arms and legs, gloved fists, closed helmets with visors (or open ones with goggles and a dust wrap), a thin scarf; the propeller beanie and helmet spikes are gone
