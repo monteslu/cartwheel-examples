@@ -1,6 +1,6 @@
 /* Discoveries are deliberately placed beyond the opening third of a course.
  * Keep scenery out of collision and batch each rigid animated body part. */
-static void merge_still(t3_object *root,int a,int b,bool city);
+static void merge_still(t3_object *root,int a,int b,int spatial);
 static cw_node discovery_parent;
 static t3_object *snow_limb(t3_object *root,const whimsy_parts *p,t3_material *fur,
                            float x,float y,float z,float length,float width,float phase) {

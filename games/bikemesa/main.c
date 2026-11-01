@@ -52,7 +52,7 @@ static int visible_tracks(void) {
 #define RIDER_BIKE_COUNT BIKE_MODEL_COUNT
 static bool person_preview_build;
 static const char *const RIDER_NAMES[RIDER_CHARACTER_COUNT] = { "LM", "LJ", "JP" };
-static const char *const BIKE_NAMES[RIDER_BIKE_COUNT] = { "FOLDING 16\"", "CRUISER 26\"", "E-BIKE 27.5\"", "DJ CARGO 26/20\"", "PENNY FARTHING 60/16\"", "BMX 20\"", "ADULT BIG WHEEL 26/12\"" };
+static const char *const BIKE_NAMES[RIDER_BIKE_COUNT] = { "FOLDING 16\"", "CRUISER 26\"", "E-BIKE 27.5\"", "DJ CARGO 26/20\"", "PENNY FARTHING 60/16\"", "BMX 20\"", "ADULT BIG WHEEL 26/12\"", "UNICYCLE 24\"" };
 static const char *const COLOR_NAMES[BIKE_COLOR_COUNT] = { "GREEN", "RED", "BLUE", "YELLOW", "ORANGE", "PURPLE", "BLACK", "WHITE" };
 int TRACK_COUNT;
 const track_desc *track_get(int i) { return i >= 0 && i < (int)CW_ARRAY_LEN(TRACKS) ? &TRACKS[i] : NULL; }
@@ -80,7 +80,7 @@ const track_desc *track_get(int i) { return i >= 0 && i < (int)CW_ARRAY_LEN(TRAC
 #define LAND_PERFECT 0.12f
 #define LAND_CLEAN 0.35f
 #define SAVE_MAGIC 0x534D4B42u /* 'BKMS' */
-#define SAVE_VERSION 11
+#define SAVE_VERSION 12
 #define SAVE_V3_SIZE 204
 #define SAVE_V8_SIZE 208
 #define SAVE_V9_SIZE 220
@@ -359,7 +359,7 @@ static void save_check(void) {
   if (SAVE.magic == SAVE_MAGIC && SAVE.version == 8 && SAVE.size == SAVE_V8_SIZE && SAVE.checksum == save_sum()) {
     uint32_t old_quality;
     memcpy(&old_quality, (const uint8_t *)&SAVE + 204, sizeof old_quality);
-    memset(&SAVE.tr[16], 0, 3 * sizeof SAVE.tr[16]);
+    memset(&SAVE.tr[16], 0, (BIKEMESA_TRACKS_MAX-16) * sizeof SAVE.tr[16]);
     SAVE.quality = old_quality;
     SAVE.version = SAVE_VERSION;
     SAVE.size = (uint16_t)sizeof SAVE;
@@ -368,7 +368,7 @@ static void save_check(void) {
   if (SAVE.magic == SAVE_MAGIC && SAVE.version == 9 && SAVE.size == SAVE_V9_SIZE && SAVE.checksum == save_sum()) {
     uint32_t old_quality;
     memcpy(&old_quality, (const uint8_t *)&SAVE + 216, sizeof old_quality);
-    memset(&SAVE.tr[17], 0, 2 * sizeof SAVE.tr[17]);
+    memset(&SAVE.tr[17], 0, (BIKEMESA_TRACKS_MAX-17) * sizeof SAVE.tr[17]);
     SAVE.quality = old_quality;
     SAVE.version = SAVE_VERSION;
     SAVE.size = (uint16_t)sizeof SAVE;
@@ -376,7 +376,12 @@ static void save_check(void) {
   }
   if (SAVE.magic == SAVE_MAGIC && SAVE.version == 10 && SAVE.size == 232 && SAVE.checksum == save_sum()) {
     uint32_t old_quality;memcpy(&old_quality,(const uint8_t *)&SAVE+228,sizeof old_quality);
-    memset(&SAVE.tr[18],0,sizeof SAVE.tr[18]);SAVE.quality=old_quality;
+    memset(&SAVE.tr[18],0,(BIKEMESA_TRACKS_MAX-18)*sizeof SAVE.tr[18]);SAVE.quality=old_quality;
+    SAVE.version=SAVE_VERSION;SAVE.size=(uint16_t)sizeof SAVE;SAVE.checksum=save_sum();
+  }
+  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 11 && SAVE.size == 244 && SAVE.checksum == save_sum()) {
+    uint32_t q;memcpy(&q,(const uint8_t *)&SAVE+240,sizeof q);
+    memset(&SAVE.tr[19],0,(BIKEMESA_TRACKS_MAX-19)*sizeof SAVE.tr[19]);SAVE.quality=q;
     SAVE.version=SAVE_VERSION;SAVE.size=(uint16_t)sizeof SAVE;SAVE.checksum=save_sum();
   }
   if (SAVE.magic != SAVE_MAGIC || SAVE.version != SAVE_VERSION || SAVE.size != sizeof SAVE || SAVE.checksum != save_sum()) {
@@ -633,7 +638,7 @@ static void use_rider(int i) {
 static int lane_ticks(int i) { return G.bike[i] == BIKE_DJ ? 48 : LANE_TICKS; }
 static float rider_steering(int i) {
   const rider_t *r=&RD[i];
-  if((G.bike[i]!=BIKE_DJ && G.bike[i]!=BIKE_PENNY && G.bike[i]!=BIKE_BIGWHEEL) || r->lane_t<=0) return 0;
+  if((G.bike[i]!=BIKE_DJ && G.bike[i]!=BIKE_PENNY && G.bike[i]!=BIKE_BIGWHEEL && G.bike[i]!=BIKE_UNICYCLE) || r->lane_t<=0) return 0;
   float u=r->lane_t/(float)lane_ticks(i);
   return -(r->lane_to-r->lane_from)*.40f*cw_sin(6.2831853f*u);
 }
@@ -846,6 +851,29 @@ static void cmd_track(int argc, const char **argv, cw_reply *r) {
   cw_reply_printf(r, "{\"track\":%d}", n);
 }
 /* Repeatable inspection aid; no scoring special case in normal gameplay. */
+/* Place a rider at a real vent for collision/respawn inspection. Uses the
+ * normal spawn, immunity, lane and fixed-step simulation paths. */
+static void cmd_place(int argc,const char **argv,cw_reply *r) {
+ if(argc<3){cw_reply_printf(r,"{} ");return;}
+ float x=cw_clampf((float)atof(argv[1]),0,G.t->finish_x);int lane=CW_CLAMP(atoi(argv[2]),0,LANES-1);
+ use_rider(0);set_lane_now(lane);bike_spawn(x,track_height_at(x,NULL)+track_ramp_h(G.t,x,lane),0);
+ P->cam_snap=true;enter(GS_RIDE);cw_reply_printf(r,"{} ");
+}
+static void cmd_hellfire(int argc,const char **argv,cw_reply *r) {
+  if(strcmp(G.t->theme,"hellfire")){cw_reply_printf(r,"{\"error\":\"load track 20 first\"}");return;}
+  if(argc>1&&!strcmp(argv[1],"pit")) {
+    int gap=argc>2?CW_CLAMP(atoi(argv[2]),1,G.t->piece_count-1):1;
+    const track_piece *a=&G.t->pieces[gap-1],*b=&G.t->pieces[gap];
+    float x=(a->pts[(a->count-1)*2]+b->pts[0])*.5f;
+    float surface=fminf(a->pts[(a->count-1)*2+1],b->pts[1])-1.7f;
+    use_rider(0);set_lane_now(1);bike_spawn(x,surface+2.5f,0);
+    P->cam_snap=true;enter(GS_RIDE);cw_reply_printf(r,"{\"pit\":%d}",gap);return;
+  }
+  const float x[]={52,G.t->finish_x*.45f,G.t->finish_x*.8f};const int lanes[]={1,2,1};int i=argc>1?CW_CLAMP(atoi(argv[1])-1,0,2):0;
+  use_rider(0);set_lane_now(argc>2?CW_CLAMP(atoi(argv[2]),0,3):lanes[i]);
+  bike_spawn(x[i],track_height_at(x[i],NULL),0);P->cam_snap=true;enter(GS_RIDE);
+  cw_reply_printf(r,"{\"vent\":%d}",i+1);
+}
 static void cmd_chocolate(int argc,const char **argv,cw_reply *r) {
   if(argc>1&&(!strcmp(argv[1],"crash")||!strcmp(argv[1],"ride"))&&!strcmp(G.t->theme,"candy")) {
     float x=G.t->finish_x*((argc>2&&atoi(argv[2])==2)?.73f:.34f);
@@ -971,6 +999,7 @@ static void camera_tick(void) {
   if(G.t&&!strcmp(G.t->theme,"nightburbs")&&(G.state==GS_RIDE||G.state==GS_COUNT)) {
     at.y=b->y+.6f;dist=fmaxf(dist,air?19:13);
   }
+  if(G.t&&!strcmp(G.t->theme,"hellfire")&&(G.state==GS_RIDE||G.state==GS_COUNT)){at.y=b->y+1.4f;dist=fmaxf(dist,air?17:13.5f);}
   if (G.state == GS_FINISH) dist = 8;
   if(P->finished&&!strcmp(G.t->theme,"toybox")) {
     at=(t3_vec3){G.t->finish_x+9,G.t->finish_y+1.3f,0};dist=11;
@@ -1030,6 +1059,7 @@ static void camera_frame(double alpha) {
   float cork_view = G.state == GS_RIDE ? corkscrew_camera_weight(G.t, at.x, NULL) : 0;
   float stunt_view = G.state == GS_RIDE ? stunt_camera_weight(G.t, at.x, NULL) : 0;
   t3_vec3 eye = { at.x - d * 0.16f, at.y + d * (city_view ? .18f : .36f - .18f * cork_view - .13f * stunt_view), at.z + d };
+  if(NRID==1&&G.t&&!strcmp(G.t->theme,"hellfire")&&(G.state==GS_RIDE||G.state==GS_COUNT))eye.y=at.y+d*.10f;
   if(NRID==1&&G.t&&!strcmp(G.t->theme,"nightburbs")&&(G.state==GS_RIDE||G.state==GS_COUNT))eye.y=at.y+d*(.12f-.195f*cw_smoothstep(13,18,d));
   if (getenv("BIKEMESA_CAM_34")) eye = (t3_vec3){ at.x - d * 0.75f, at.y + d * 0.5f, d * 0.7f }; /* dev aid: a three-quarter view from ahead */
   if (getenv("BIKEMESA_CAM_TOP")) eye = (t3_vec3){ at.x, at.y + 16, 0.5f }; /* dev aid: from above */
@@ -1055,6 +1085,8 @@ static void replay_pose(int i, float f, bike_pose *out) {
   float t = c - k;
   const bike_pose *a = &ring[i][k % RING], *b = &ring[i][(k + 1 <= hi ? k + 1 : k) % RING];
   *out = *b;
+  out->world_time=a->world_time+(b->world_time-a->world_time)*t;
+  out->burning=a->burning;
   out->frame = cw_xform2_lerp(a->frame, b->frame, t);
   out->rear = cw_xform2_lerp(a->rear, b->rear, t);
   out->front = cw_xform2_lerp(a->front, b->front, t);
@@ -1140,6 +1172,10 @@ static void replay_camera(cw_node cam, const bike_pose *p, float u,
  * were updated for the frame, so it updates its own) */
 static void view_hook(int view, void *u) {
   (void)u;
+  if(NRID>1) {
+    const bike_pose *hp=RD[view].replay_t>0?&RD[view].replay:&RD[view].live;
+    view_hellfire_pose(hp->world_time,hp,view);
+  }
   if(NRID>1 && RD[view].replay_t>0) {
     deer_pose deer[DEER_CROSSINGS];
     replay_deer(view,replay_tick(&RD[view],0),deer);
@@ -1185,6 +1221,7 @@ static void frame_hook(cw_tree *t, double alpha, void *u) {
     replay_pose(0, replay_tick(P, alpha), &p);
     models_sync(&p);
     view_frame((float)alpha);
+    view_hellfire_pose(p.world_time,&p,0);
     deer_pose deer[DEER_CROSSINGS];
     replay_deer(0,replay_tick(P,alpha),deer);
     view_deer_poses(deer);
@@ -1227,6 +1264,7 @@ static void frame_hook(cw_tree *t, double alpha, void *u) {
   models_sync_rider(0, &p, rider_z(0));
   if (G.state == GS_CHARACTER) models_turntable(0, -1.45f + G.state_ticks * 0.014f, p.frame.p.x + (G.slot[0]==SLOT_RIDER?0:G.bike[0]==BIKE_DJ?.40f:G.bike[0]==BIKE_BIGWHEEL?-.35f:.05f));
   view_frame((float)alpha);
+  view_hellfire_pose(p.world_time,&p,0);
   camera_frame(alpha);
   view_stream(&G.camera,1);
   view_grass(&G.camera, 1);
@@ -1399,6 +1437,8 @@ static void init(void *u) {
 
 
   cw_debug_i32("game.state", &G.state);
+  cw_debug_i32("select.cursor",&G.select_cursor);
+  cw_debug_i32("track.count",&TRACK_COUNT);
   cw_debug_i32("game.track", &G.track);
   cw_debug_i32("bike.model", &G.bike[0]);
   cw_debug_i32("bike.color", &G.color[0]);
@@ -1463,9 +1503,11 @@ static void init(void *u) {
   cw_debug_i32("sweep.cases", &dbg_sweep_cases);
   cw_debug_i32("sweep.fails", &dbg_sweep_fails);
   cw_debug_field("sweep.fail", dbg_sweep_fail, CW_DBG_I32, 5);
+  cw_debug_command("place","place x lane: spawn on the current route for inspection",cmd_place);
+  cw_debug_command("hellfire", "hellfire <1..3> [lane]: inspect a live eruption",cmd_hellfire);
   cw_debug_command("chocolate", "chocolate [crash|ride [1|2]]: inspect decals or exercise either river",cmd_chocolate);
   cw_debug_command("players", "players <1..4>: riders in the next race (split screen)", cmd_players);
-  cw_debug_command("bike_pick", "bike_pick <0..6> <0..7>: inspect a frame and paint", cmd_bike_pick);
+  cw_debug_command("bike_pick", "bike_pick <0..7> <0..7>: inspect a frame and paint", cmd_bike_pick);
   cw_debug_command("progress", "progress [show | preset <n>]: the save data", cmd_progress);
   cw_tree_add_hook(cw_scene_app_tree(), 2, 0, frame_hook, NULL);
   G.state_hash = CW_HASH32_INIT;

@@ -9,7 +9,7 @@ game engine in C. Each game builds as a native executable and as a
 a browser, in Node, in a native player and in RetroArch.
 
 Everything in the games is made by code in this repository (models,
-textures, levels, sound and music) except BikeMesa’s credited venue logos and the fonts, which ship with their
+textures, levels, sound and music) except BikeMesa’s credited venue logos, circus recording, generated lava image and the fonts, which ship with their
 licences (SIL Open Font License, and MIT for Chromite's Hack). Each game's `CREDITS` file says
 what is what.
 
@@ -21,7 +21,7 @@ what is what.
 ![BikeMesa: riding the Red Rock Run canyon track](docs/screenshots/bikemesa.jpg)
 
 A downhill bike game. A 2D Box2D bicycle and rider ride hand-shaped lines
-through nineteen 3D worlds, from a red rock canyon and a snowy slope to a
+through twenty 3D worlds, from a red rock canyon and a snowy slope to a
 Downtown Mesa streets, a haunted town, the Moon and Mars, a big-top circus, a low-gravity candy world and a giant toybox.
 Pedal, hop, lean into flips, hold poses in the air and land clean; get it
 wrong and the rider tumbles through a full 3D crash. Up to four players race
@@ -29,20 +29,28 @@ split screen in four lanes, one pad each: two share the screen top and
 bottom, three or four take its quarters (with three, the last quarter holds
 the race clock, a mini map of the course and the standings). Each player
 picks a rider and a bike before the run. The folding bike, cruiser, e-bike,
-DJ cargo tricycle, penny-farthing, BMX, and adult Big Wheel have distinct frame and wheel geometry. The DJ bike
+DJ cargo tricycle, penny-farthing, BMX, adult Big Wheel, and unicycle have distinct frame and wheel geometry. The DJ bike
 carries twin speakers, a sloped controller deck and laptop; its two 20-inch
 front wheels and cargo assembly steer together ahead of a 26-inch rear wheel.
 It accelerates more slowly and takes longer to change lanes. The penny-farthing
 has a direct-drive 60-inch front wheel, a 16-inch rear wheel, a curved backbone,
 and a raised leather saddle. Its pedals turn with the front wheel even while
 coasting. Each frame starts in its own default paint: green folding bike, red
-cruiser, DJ bike and Big Wheel, white e-bike, black penny-farthing, and blue BMX; paint can still be
+cruiser, DJ bike and Big Wheel, white e-bike, black penny-farthing, blue BMX, and orange unicycle; paint can still be
 changed in the next selection step. The 20-inch BMX carries a brown, blanket-wrapped
 alien in a standard 13 × 13 × 11-inch front milk crate. Hard landings and crashes
 can eject him into the 3D physics world, arms flailing; he stays behind through
 checkpoint resets, can be knocked along the ground by passing bikes, and returns for the next level. The e-bike has extra low-speed
 motor assist that tapers out by 6 m/s. The adult Big Wheel has a 26-inch direct-drive
 front wheel, twin 12-inch rear drums, a low bucket seat and forward pedals.
+The unicycle has one 24-inch contact wheel, direct-drive pedals, and a rider who
+extends their arms sideways to balance. Hellfire adds a volcanic causeway, layered
+cliffs, animated molten basalt, a waving demon and timed erupting iron fireballs.
+Lava swells, boiling bubbles, drifting crust and local orange lights animate the pools.
+Lava contact and fireballs cause burning wipeouts; charcoal marks persist until the
+next level. Checkpoint spawns have three seconds of fireball protection, and the
+fireballs keep their recorded timing in the instant replay. Its project shader's
+regeneration command is in `games/bikemesa/programs/extensions/README.txt`.
 Its fork, handlebars, hub pedals and rider articulate during lane changes.
 Night Burbs adds three big suburban jumps, oak and elm trees, warm porch lights,
 and a huge glowing Moon using NASA lunar imagery. The BMX and alien cross its

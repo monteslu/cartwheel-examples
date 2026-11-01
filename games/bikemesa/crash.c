@@ -51,7 +51,7 @@ void crash_riding_wheels(int rider,cw_xform3 rear,cw_xform3 front,int model,bool
   cw_xform3 pose[2]={rear,front};
   for(int j=0;j<2;j++) {
     cw_xform3 target=pose[j];
-    if(!alive)target.p.z=-1000;
+    if(!alive || (model==BIKE_UNICYCLE&&j==0))target.p.z=-1000;
     if(!cw_body3d_valid(toy_wheels[rider][j])) {
       if(!alive)continue;
       cw_body3d_def bd=cw_body3d_default_def();bd.type=CW_BODY_KINEMATIC;

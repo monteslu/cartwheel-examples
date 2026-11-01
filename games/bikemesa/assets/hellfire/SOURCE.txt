@@ -1,0 +1,6 @@
+molten-basalt.png
+Generated with OpenAI image generation on 2026-10-23; not a photograph.
+Prompt summary: Seamless square orthographic top-down photoreal molten basalt
+material, 65% dark wrinkled pahoehoe crust, 35% irregular incandescent fissures;
+multiscale detail, uniform texel scale, no horizon, smoke, flames or text; avoid
+regular Voronoi grids. Used as color/heat and micro-normal input to helllava.

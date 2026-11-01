@@ -116,3 +116,6 @@ models/perseverance.glb
 
 # Original BikeMesa sticker supplied by the project owner.
 bikes/bikemesa-sticker.png
+
+scenes/track20.cwscene
+hellfire/molten-basalt.png

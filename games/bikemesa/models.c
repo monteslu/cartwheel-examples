@@ -18,6 +18,7 @@
 
 #include "game.h"
 #include "cartwheel/platform.h"
+#include "cartwheel/debug.h"
 
 static t3_color lin(float r, float g, float b) {
   float c[3] = { r, g, b };
@@ -37,11 +38,12 @@ typedef struct model_t {
   t3_object *near_mesh[48], *far_mesh;
   int near_n;
   cw_node node, decal_receiver;
-  bool chocolate_pending, chocolate_stamped;
+  bool chocolate_pending, chocolate_stamped,scorch_pending,scorch_stamped;
   t3_vec3 chocolate_hits[4], chocolate_normals[4];
   int chocolate_hit_count, chocolate_hit_total;
 } model_t;
 static model_t MS[MAX_RIDERS];
+static int32_t scorch_stamps[MAX_RIDERS];
 static model_t *Mc = MS;
 static const track_desc *model_track;
 void models_set_track(const track_desc *t) { model_track = t; }
@@ -949,11 +951,14 @@ void models_far(int idx, bool far) {
 #include "djbike.inc"
 #include "penny.inc"
 #include "bigwheel.inc"
+#include "unicycle.inc"
 #include "bmx.inc"
 
 void models_build(cw_node parent) { models_build_rider(parent, 0); }
 
 void models_build_rider(cw_node parent, int idx) {
+  scorch_stamps[CW_CLAMP(idx,0,MAX_RIDERS-1)]=0;
+  cw_debug_field("hellfire.scorched",scorch_stamps,CW_DBG_I32,MAX_RIDERS);
   Mc = &MS[CW_CLAMP(idx, 0, MAX_RIDERS - 1)];
   rider_ix = (int)(Mc - MS);
   bool slim = slim_rider();
@@ -972,7 +977,7 @@ void models_build_rider(cw_node parent, int idx) {
   bike_fit fit = bike_fit_for(model);
   t3_geometry *spokes = geo_spokes(0.024f, model == BIKE_FOLDING ? .152f : fit.wheel_r - .045f,
                                     model == BIKE_FOLDING ? 16 : 32);
-  M.frame = model == BIKE_BIGWHEEL ? build_bigwheel_frame(&m,cyl,fit) : model == BIKE_BMX ? build_bmx_frame(&m,cyl,fit) : model == BIKE_PENNY ? build_penny_frame(&m,cyl,fit) : model == BIKE_DJ ? build_dj_frame(&m,cyl,fit) : model == BIKE_FOLDING ? build_frame(&m, cyl) : build_full_frame(&m, cyl, model, fit);
+  M.frame = model == BIKE_UNICYCLE ? build_unicycle_frame(&m,cyl,fit) : model == BIKE_BIGWHEEL ? build_bigwheel_frame(&m,cyl,fit) : model == BIKE_BMX ? build_bmx_frame(&m,cyl,fit) : model == BIKE_PENNY ? build_penny_frame(&m,cyl,fit) : model == BIKE_DJ ? build_dj_frame(&m,cyl,fit) : model == BIKE_FOLDING ? build_frame(&m, cyl) : build_full_frame(&m, cyl, model, fit);
   t3_object_add(M.root, M.frame);
   t3_release(M.frame);
   if(model==BIKE_PENNY||model==BIKE_BIGWHEEL) {
@@ -983,7 +988,7 @@ void models_build_rider(cw_node parent, int idx) {
   M.crank = build_crank(&m);
   t3_object_add(M.fork ? M.fork : M.frame, M.crank);
   t3_release(M.crank);
-  M.rear = model==BIKE_BIGWHEEL?build_bigwheel_rear(&m,cyl):build_wheel(&m, spokes, fit.wheel_r, model);
+  M.rear = model==BIKE_UNICYCLE?t3_group_new():model==BIKE_BIGWHEEL?build_bigwheel_rear(&m,cyl):build_wheel(&m, spokes, fit.wheel_r, model);
   if (model == BIKE_DJ) {
     M.front=t3_group_new();
     t3_geometry *small=geo_spokes(.024f,fit.front_r-.045f,32);
@@ -1026,7 +1031,7 @@ void models_build_rider(cw_node parent, int idx) {
   t3_release(M.front);
   M.rear_guard = t3_group_new();
   M.front_guard = t3_group_new();
-  if (model != BIKE_EBIKE && model != BIKE_PENNY && model != BIKE_BMX && model != BIKE_BIGWHEEL) {
+  if (model != BIKE_EBIKE && model != BIKE_PENNY && model != BIKE_BMX && model != BIKE_BIGWHEEL && model != BIKE_UNICYCLE) {
     mudguard(M.rear_guard, &m, (t3_vec2){ 0, 0 }, 0.35f, 2.3f);
     if(model != BIKE_DJ) mudguard(M.front_guard, &m, (t3_vec2){ 0, 0 }, 0.5f, 2.0f);
   }
@@ -1237,6 +1242,7 @@ static void neck_between(t3_vec3 a, t3_vec3 b) {
 
 void models_sync(const bike_pose *p) { models_sync_rider(0, p, p->z); }
 
+void models_scorch(int rider) { MS[CW_CLAMP(rider,0,MAX_RIDERS-1)].scorch_pending=true; }
 void models_chocolate(int rider) { MS[CW_CLAMP(rider,0,MAX_RIDERS-1)].chocolate_pending=true; }
 void models_chocolate_hit(int rider,t3_vec3 point,t3_vec3 normal) {
   model_t *m=&MS[CW_CLAMP(rider,0,MAX_RIDERS-1)];
@@ -1256,6 +1262,23 @@ void models_sync_rider(int idx, const bike_pose *p, float z) {
       t3_vec3 a=p->alien[i].p, b=M.root->position;
       M.alien[i]->position=neck_rot(inv,(t3_vec3){a.x-b.x,a.y-b.y,a.z-b.z});
       t3_object_set_quaternion(M.alien[i],t3_quat_multiply(inv,p->alien[i].q));
+    }
+  }
+  if(M.root&&M.scorch_pending&&!M.scorch_stamped) {
+    M.scorch_pending=false;M.scorch_stamped=true;scorch_stamps[idx]=1;
+    t3_object_update_world_matrix(M.root,true,true);
+    const int spots[]={RAG_HEAD,RAG_TORSO,RAG_FARM_L,RAG_FARM_R,RAG_SHIN_L,RAG_THIGH_R};
+    for(int j=0;j<6;j++) {
+      int limb=spots[j];
+      t3_vec3 at=p->ragdoll?p->limb3[limb].p:(t3_vec3){p->limb[limb].p.x,p->limb[limb].p.y,0};
+      if(!p->ragdoll)at.z=limb==RAG_FARM_R?-.22f:limb==RAG_FARM_L?.22f:0;
+      at.z+=.04f;
+      cw_node d=cw_node_new("Decal3D","Persistent charcoal");cw_node_add_child(M.node,d);
+      cw_node_set(d,"mode",cw_val_enum("MESH"));cw_node_set(d,"target",cw_val_string("../Skin"));
+      cw_node_set(d,"blend",cw_val_enum("MIX"));cw_node_set(d,"color",cw_val_color(.012f,.009f,.007f,.92f));
+      cw_node_set(d,"size",cw_val_vec3(j==0?.32f:.44f,j==0?.30f:.56f,.85f));
+      cw_node_set(d,"normal_fade",cw_val_float(0));cw_node_set(d,"edge_fade",cw_val_float(.18f));
+      cw_node_set(d,"max_triangles",cw_val_int(512));cw_node3d_set_position(d,at);
     }
   }
   if(M.root&&M.chocolate_hit_count) {
@@ -1360,20 +1383,21 @@ static t3_vec3 penny_joint(t3_vec3 a,t3_vec3 b,t3_vec3 hint,float bone) {
   return (t3_vec3){mid.x+v.x*h,mid.y+v.y*h,mid.z+v.z*h};
 }
 static void penny_steer(const bike_pose *p) {
-  if(!M.fork || p->ragdoll)return;
   int model=selected_bike[(int)(Mc-MS)];
+  t3_object *steered=M.fork?M.fork:model==BIKE_UNICYCLE?M.frame:NULL;
+  if(!steered || p->ragdoll)return;
   bike_fit fit=bike_fit_for(model);
   t3_quat pitch=t3_quat_from_axis_angle((t3_vec3){0,0,1},cw_atan2(p->frame.q.s,p->frame.q.c));
   t3_quat turn=t3_quat_from_axis_angle((t3_vec3){0,1,0},p->steering);
   t3_quat q=t3_quat_multiply(pitch,turn);
-  M.fork->position=(t3_vec3){p->front.p.x,p->front.p.y,0};
-  t3_object_set_quaternion(M.fork,q);
+  steered->position=(t3_vec3){p->front.p.x,p->front.p.y,0};
+  t3_object_set_quaternion(steered,q);
   t3_object_set_quaternion(M.front,t3_quat_multiply(q,t3_quat_from_axis_angle((t3_vec3){0,0,1},p->crank)));
   for(int side=0;side<2;side++) {
     float sign=side?-1:1;
     int ua=side?RAG_UARM_R:RAG_UARM_L,fa=side?RAG_FARM_R:RAG_FARM_L;
     int th=side?RAG_THIGH_R:RAG_THIGH_L,sn=side?RAG_SHIN_R:RAG_SHIN_L;
-    if(!p->hands_free) {
+    if(!p->hands_free && model!=BIKE_UNICYCLE) {
       t3_vec3 a={p->limb[ua].p.x,p->limb[ua].p.y,sign*.20f};
       t3_vec3 v=neck_rot(q,(t3_vec3){fit.bars.x,fit.bars.y,sign*.245f});
       t3_vec3 b={p->front.p.x+v.x,p->front.p.y+v.y,v.z};
@@ -1391,6 +1415,26 @@ static void penny_steer(const bike_pose *p) {
       dj_arm_segment(M.limb[th],hip,knee,sign*.10f);dj_arm_segment(M.limb[sn],knee,foot,sign*.12f);
       M.foot[side]->position=foot;t3_object_set_quaternion(M.foot[side],q);
     }
+  }
+}
+/* Unicyclists counterbalance with their arms out, never grasping phantom
+ * handlebars. IK keeps the elbows softly bent as cadence and lean shift. */
+static void unicycle_balance(const bike_pose *p) {
+  if(selected_bike[(int)(Mc-MS)]!=BIKE_UNICYCLE || p->ragdoll || p->hands_free)return;
+  t3_quat pitch=t3_quat_from_axis_angle((t3_vec3){0,0,1},cw_atan2(p->frame.q.s,p->frame.q.c));
+  for(int side=0;side<2;side++) {
+    float sign=side?-1:1;
+    int ua=side?RAG_UARM_R:RAG_UARM_L,fa=side?RAG_FARM_R:RAG_FARM_L;
+    t3_vec3 shoulder={p->limb[ua].p.x,p->limb[ua].p.y,sign*.20f};
+    float sway=.04f*sinf(p->crank)+p->lean*.07f;
+    t3_vec3 reach=neck_rot(pitch,(t3_vec3){.28f,-.06f+sign*sway,sign*.43f});
+    t3_vec3 hand={shoulder.x+reach.x,shoulder.y+reach.y,shoulder.z+reach.z};
+    /* Elbow stays behind the hand, with a soft downward bend. */
+    t3_vec3 bend=neck_rot(pitch,(t3_vec3){-.10f,-.20f,sign*.36f});
+    t3_vec3 hint={shoulder.x+bend.x,shoulder.y+bend.y,shoulder.z+bend.z};
+    t3_vec3 elbow=penny_joint(shoulder,hand,hint,.3f);
+    dj_arm_segment(M.limb[ua],shoulder,elbow,sign*.20f);
+    dj_arm_segment(M.limb[fa],elbow,hand,sign*.22f);
   }
 }
 static void models_sync_rider_(const bike_pose *p, float z) {
@@ -1472,7 +1516,7 @@ static void models_sync_rider_(const bike_pose *p, float z) {
                (t3_vec3){ head.p.x - 0.01f * head.q.c + 0.06f * head.q.s,
                            head.p.y - 0.01f * head.q.s - 0.06f * head.q.c, 0 });
   if (M.cap) put(M.cap, p->cap);
-  if(!person_only[(int)(Mc-MS)]) {dj_hands(p);penny_steer(p);}
+  if(!person_only[(int)(Mc-MS)]) {dj_hands(p);penny_steer(p);unicycle_balance(p);}
 }
 
 void models_forget(void) {

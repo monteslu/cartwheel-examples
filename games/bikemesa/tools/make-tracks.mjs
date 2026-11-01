@@ -76,6 +76,8 @@ export const THEMES = {
     amb: [1, 0.75, 0.55], hemi: 0.4, tonemap: 'AGX', exposure: 1.0, grade: 'mars' },
   circus: { tod: 16.2, lat: 30, north: 75, sun: 5.0, sky: 1.0, mie: 0.8, fog: 0.0025, fogh: 0.06, ground: [0.35, 0.16, 0.25],
     amb: [1, 0.85, 0.75], hemi: 0.45, tonemap: 'AGX', exposure: 1.05, grade: 'beach' },
+  hellfire: { tod: 23.5, lat: 35, north: 70, sun: 0, sky: .08, mie: .1, fog: .003, fogh: .012, ground: [.045,.018,.025],
+    amb: [.45,.35,.6], hemi: .65, tonemap: 'AGX', exposure: 1.2, grade: null },
   nightburbs: { tod: 23.5, lat: 35, north: 70, sun: 0, sky: 0.12, mie: 0.1, fog: 0.002, fogh: 0.035, ground: [0.025,0.045,0.085],
     amb: [0.38,0.53,0.85], hemi: 0.8, tonemap: 'AGX', exposure: 1.25, grade: null },
   stuntshow: { tod: 15.3, lat: 35, north: 70, sun: 5.5, sky: 1.0, mie: 0.25, fog: 0.003, fogh: 0.04, ground: [0.12, 0.16, 0.24],
@@ -270,13 +272,30 @@ export const TRACKS = [
     ['pit', 22, -3], ['landing', 26, 4], ['flat', 20], ['finish'], ['flat', 60],
   ] },
 
+  { name: 'Hellfire', theme: 'hellfire', par: 58, ready: true, music: 'music_scary', pieces: [
+    ['flat',28], ['slope',22,-3], ['flat',30], ['check'],
+    ['boost',18], ['flat',10], ['kicker',10,2.4], ['pit',14,-2], ['landing',22,3],
+    ['flat',30], ['check'], ['rollers',3,.8,12], ['flat',22], ['check'],
+    ['boost',20], ['flat',10], ['kicker',12,3], ['pit',18,-3], ['landing',26,4],
+    ['flat',30], ['check'],
+    // The caldera: a long descent, low causeways and three separate lava leaps.
+    ['slope',60,-5], ['rollers',4,.65,16], ['flat',20], ['check'],
+    ['boost',24], ['flat',24], ['kicker',12,2.8], ['pit',16,-2], ['landing',24,3],
+    ['slope',50,3], ['rollers',3,.55,18], ['flat',24], ['check'],
+    // The host's terrace and a second ravine, with room to recover between lips.
+    ['slope',44,-3], ['flat',24], ['boost',24], ['flat',24], ['kicker',12,3],
+    ['pit',18,-3], ['landing',26,3], ['flat',30], ['check'],
+    ['rollers',4,.7,16], ['slope',46,3], ['flat',24], ['check'],
+    ['boost',24], ['flat',24], ['kicker',12,2.8], ['pit',16,-2], ['landing',24,3],
+    ['slope',42,-3], ['flat',36], ['finish'], ['flat',60],
+  ] },
 ];
 
 // ── sampling ────────────────────────────────────────────────────────────
 function build(track) {
   const pieces = [[]];
   const checks = [], boosts = [], kickers = [], bridges = [], ice = [], movers = [], highs = [], loops = [], pinches = [], corkscrews = [];
-  const ramps = track.ramps || [];
+  const ramps = (track.ramps || []).map(r=>[...r]);
   let x = -24, y = 0, finish = null; // a flat run-up behind the start line (x = 0)
   const cur = () => pieces[pieces.length - 1];
   const put = (px, py) => { const c = cur(); const last = c[c.length - 1]; if (!last || px - last[0] > 1e-4) c.push([+px.toFixed(4), +py.toFixed(4)]); };
@@ -371,7 +390,7 @@ function writeScene(n, t, b) {
 [node name="Track" type="Node3D"]
 
 [node name="Sky" parent="." type="ProceduralSky"]
-${['neon','nightburbs'].includes(t.theme) ? 'sun = ""' : 'sun = "../Sun"'}
+${['neon','nightburbs','hellfire'].includes(t.theme) ? 'sun = ""' : 'sun = "../Sun"'}
 time_of_day = ${th.tod}
 latitude = ${th.lat}
 declination = 12
@@ -385,7 +404,7 @@ env_update_angle = 2
 
 [node name="Sun" parent="." type="DirectionalLight3D"]
 position = vec3(0, 0, 0)
-${t.theme === 'nightburbs' ? 'rotation = vec3(-0.65, -0.4, 0)\ncolor = color(0.48, 0.65, 1, 1)\nenergy = 1.4\n' : t.theme === 'neon' ? 'rotation = vec3(-0.65, -0.4, 0)\ncolor = color(0.55, 0.7, 1, 1)\nenergy = 0.7\n' : ''}shadow = true
+${t.theme === 'hellfire' ? 'rotation = vec3(-0.6, -0.4, 0)\ncolor = color(0.45, 0.55, 0.8, 1)\nenergy = 2.2\n' : t.theme === 'nightburbs' ? 'rotation = vec3(-0.65, -0.4, 0)\ncolor = color(0.48, 0.65, 1, 1)\nenergy = 1.4\n' : t.theme === 'neon' ? 'rotation = vec3(-0.65, -0.4, 0)\ncolor = color(0.55, 0.7, 1, 1)\nenergy = 0.7\n' : ''}shadow = true
 shadow_size = 2048
 shadow_extent = 16
 shadow_far = 120
@@ -401,7 +420,7 @@ hemi_energy = ${th.hemi}
 density = ${th.fog}
 height_falloff = ${th.fogh}
 base_height = ${(b.minY - 10).toFixed(1)}
-use_sky_color = ${t.theme === 'nightburbs' ? 'false\ncolor = color(0.04, 0.07, 0.12, 1)' : t.theme === 'stuntshow' ? 'false\ncolor = color(0.36, 0.5, 0.68, 1)' : 'true'}
+use_sky_color = ${t.theme === 'hellfire' ? 'false\ncolor = color(0.11, 0.045, 0.035, 1)' : t.theme === 'nightburbs' ? 'false\ncolor = color(0.04, 0.07, 0.12, 1)' : t.theme === 'stuntshow' ? 'false\ncolor = color(0.36, 0.5, 0.68, 1)' : 'true'}
 ${t.theme === 'scary' ? 'volumetric = true\nvolumetric_distance = 48\nvolumetric_ambient = 1.3\nvolumetric_albedo = color(0.8, 0.85, 1, 1)\n' : ''}sun_scatter = 0.35
 sun_g = 0.8
 max_opacity = 0.7
@@ -412,7 +431,7 @@ sky_distance = 500
 ${t.theme === 'neon' ? 'depth_prepass = true\n' : ''}tonemap = ${th.tonemap}
 exposure = ${th.exposure}
 bloom = true
-bloom_intensity = ${t.theme === 'nightburbs' ? .12 : .06}
+bloom_intensity = ${t.theme === 'hellfire' ? .22 : t.theme === 'nightburbs' ? .12 : .06}
 bloom_threshold = 1
 bloom_knee = 0.6
 ssao = true

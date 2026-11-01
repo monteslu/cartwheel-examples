@@ -17,7 +17,7 @@
 #define GAME_TITLE "BikeMesa"
 
 #define TICK_HZ 60
-#define BIKEMESA_TRACKS_MAX 19
+#define BIKEMESA_TRACKS_MAX 20
 #define MAX_POPUPS 16
 #define TRACK_HALF_W 2.0f   /* the riding surface spans z -W..W */
 /* four lanes across it: lane 0 at the back (-z),
@@ -166,6 +166,8 @@ static const t3_vec3 ALIEN_HOME[ALIEN_PARTS] = {
 typedef struct bike_pose {
   cw_xform2 frame, rear, front;
   float crank, lean, steering;
+  float world_time; /* recorded simulation clock for replayed hazards */
+  bool burning;
   float z;                   /* riding: the lane's depth the rider is drawn at (main.c fills it in) */
   cw_xform2 limb[10];        /* RAG_*: the riding pose, in the frame's plane */
   cw_xform2 cap;             /* the cap on the head */
@@ -178,7 +180,7 @@ typedef struct bike_pose {
 enum { RAG_TORSO, RAG_HEAD, RAG_UARM_L, RAG_FARM_L, RAG_UARM_R, RAG_FARM_R, RAG_THIGH_L, RAG_SHIN_L, RAG_THIGH_R, RAG_SHIN_R, RAG_COUNT };
 
 #define MAX_RIDERS 4
-enum { BIKE_FOLDING, BIKE_CRUISER, BIKE_EBIKE, BIKE_DJ, BIKE_PENNY, BIKE_BMX, BIKE_BIGWHEEL, BIKE_MODEL_COUNT };
+enum { BIKE_FOLDING, BIKE_CRUISER, BIKE_EBIKE, BIKE_DJ, BIKE_PENNY, BIKE_BMX, BIKE_BIGWHEEL, BIKE_UNICYCLE, BIKE_MODEL_COUNT };
 #define BIKE_COLOR_COUNT 8
 static const float BIKE_PAINT[BIKE_COLOR_COUNT][3] = {
   {.05f,.34f,.16f},{.72f,.035f,.035f},{.055f,.19f,.68f},{.95f,.67f,.035f},
@@ -191,6 +193,7 @@ static inline int bike_default_color(int model) {
   case BIKE_CRUISER: case BIKE_DJ: case BIKE_BIGWHEEL: return 1; /* red */
   case BIKE_EBIKE: return 7; /* white */
   case BIKE_BMX: return 2; /* blue */
+  case BIKE_UNICYCLE: return 4; /* orange */
   case BIKE_PENNY: return 6; /* black */
   default: return 0; /* Brompton green */
   }
@@ -204,6 +207,10 @@ typedef struct bike_fit {
 /* Frame-local contact and rider points are shared by physics and drawing. */
 static inline bike_fit bike_fit_for(int model) {
   switch (model) {
+  case BIKE_UNICYCLE: return (bike_fit){ .wheel_r=.3048f, .front_r=.3048f,
+    .rear_axle={0,0},.front_axle={0,0},
+    .hip={0,.73f},.shoulder={.03f,1.25f},.head={.13f,1.50f},
+    .bars={.24f,.98f},.saddle={0,.655f} };
   case BIKE_BIGWHEEL: return (bike_fit){ .wheel_r=.1524f,.front_r=.3302f,
     .rear_axle={-.94f,-.1778f},.front_axle={0,0},
     .hip={-.65f,.11f},.shoulder={-.70f,.63f},.head={-.64f,.88f},
@@ -370,3 +377,12 @@ void bike_finish_tumble(void);
 
 int bike_rider_for_body(cw_body3d body);
 int bike_chocolate_raycast(t3_vec3 origin, t3_vec3 delta, cw_ray_hit3d *hit);
+
+/* Hellfire eruption positions are shared by simulation and rendering. */
+bool bike_hellfire_ball(int i,t3_vec3 *at,float *warning);
+bool bike_hellfire_ball_at(int i,float time,t3_vec3 *at,float *warning);
+void view_hellfire_pose(float time,const bike_pose *pose,int rider);
+bool bike_hellfire_burn(int rider,t3_vec3 *at);
+bool bike_hellfire_lava(float x,float z,float *height);
+float bike_hellfire_time(void);
+void models_scorch(int rider);

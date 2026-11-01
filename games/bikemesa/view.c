@@ -22,6 +22,9 @@
 #include "cartwheel/quality.h"
 #include "cartwheel/stream.h"
 #include "game.h"
+#include "cartwheel/resource.h"
+#include "cartwheel/shading.h"
+#include "cartwheel/render3d.h"
 
 /* Scenic residency only: no physics, checkpoint or gameplay objects stream. */
 static cw_stream *city_stream;
@@ -109,6 +112,8 @@ static const theme THEMES[] = {
     { 0.5f, 0.9f, 0.75f }, { 1, 0.5f, 0.8f }, 3, 0.45f },
   { "toybox", TEX_WOOD, TEX_WOOD, TEX_ROCK, { 1, 0.8f, 0.5f }, { 0.3f, 0.5f, 0.8f }, { 0.55f, 0.65f, 0.85f },
     { 0.6f, 0.7f, 0.9f }, { 0.9f, 0.6f, 0.25f }, 2, 0.6f },
+  { "hellfire", TEX_ROCK,TEX_ROCK,TEX_ROCK,{.20f,.15f,.23f},{.12f,.08f,.15f},{.12f,.08f,.16f},
+    {0,0,0},{0,0,0},3,.9f },
   { "nightburbs", TEX_ASPHALT,TEX_CONCRETE,TEX_GRASS,{.40f,.45f,.55f},{.27f,.31f,.40f},{.15f,.25f,.22f},
     {.12f,.23f,.18f},{.18f,.30f,.22f},3,.8f },
   { "stuntshow", TEX_ASPHALT, TEX_CONCRETE, TEX_GRASS, { 0.82f, 0.84f, 0.9f }, { 0.57f, 0.59f, 0.64f }, { 0.5f, 0.6f, 0.5f },
@@ -116,7 +121,7 @@ static const theme THEMES[] = {
 
 };
 /* themes where nothing grows along the track */
-static bool barren(const theme *th) { return !strcmp(th->name, "moon") || !strcmp(th->name, "mars"); }
+static bool barren(const theme *th) { return !strcmp(th->name,"hellfire") || !strcmp(th->name, "moon") || !strcmp(th->name, "mars"); }
 
 static const theme *theme_for(const char *name) {
   for (int i = 0; i < (int)CW_ARRAY_LEN(THEMES); i++)
@@ -734,6 +739,7 @@ static float bank_y(float x, float z, int kind) {
   near = track_height_at(x, &f);
   if (!f) near = ground_at(x);
   float base = near + (ground_at(x) - near) * cw_clampf(d / 4, 0, 1);
+  if (kind == 5) return !f ? base-4.5f : base-.15f-3.1f*cw_smoothstep(0,5,d);
   if (kind == 4) return base-.12f;
   if (kind == 3) return base - .08f - 3.5f * cw_clampf(d / 4, 0, 1);
   if (kind == 2) return near + (ground_at(x) - near) * cw_clampf(d / 1.2f, 0, 1) - 1.8f * cw_clampf(d / 1.2f, 0, 1);
@@ -2582,7 +2588,7 @@ static bool still_ok(t3_object *o) {
     if (whimsy_motion_list[i].object == &m->base) return false;
   return true;
 }
-static void merge_still(t3_object *root, int a, int b, bool city) {
+static void merge_still(t3_object *root, int a, int b, int spatial) {
   typedef struct { t3_material *m; unsigned mask; bool cast, recv; int chunk, depth, n, first; } run;
   int nc = b - a;
   if (nc <= 0) return;
@@ -2595,8 +2601,16 @@ static void merge_still(t3_object *root, int a, int b, bool city) {
     if (!still_ok(o)) continue;
     t3_mesh *m = (t3_mesh *)o;
     /* City blocks need tight bounds: a 256m batch spans most of the course. */
-    int chunk = (int)floorf(o->position.x / (city ? 32.0f : STILL_CHUNK));
-    int depth = city ? (int)floorf(o->position.z / 24.0f) : 0;
+    t3_vec3 center=o->position;
+    if(spatial==2) {
+      /* Recent dense scenery contains meshes with world-baked vertices. Their
+       * object origin is zero: bin the actual bounds, not that shared origin. */
+      if(!m->geometry->has_bounding_sphere)t3_geometry_compute_bounding_sphere(m->geometry);
+      t3_object_update_matrix(o);
+      center=t3_vec3_apply_mat4(m->geometry->bounding_sphere.center,&o->matrix);
+    }
+    int chunk = (int)floorf(center.x / (spatial==1 ? 32.0f : spatial==2 ? 48.0f : STILL_CHUNK));
+    int depth = spatial ? (int)floorf(center.z / (spatial==1 ? 24.0f : 48.0f)) : 0;
     unsigned mask = geo_merge_mask(m->geometry);
     int r = 0;
     while (r < nr && !(runs[r].m == m->materials[0] && runs[r].mask == mask && runs[r].cast == o->cast_shadow &&
@@ -2686,14 +2700,15 @@ static void fog_build(cw_node parent, const theme *th, int track_index) {
       cw_node_add_child(parent, n);
     }
   }
-  if (strcmp(th->name, "scary")) return;
+  bool volcanic=!strcmp(th->name,"hellfire");
+  if (strcmp(th->name, "scary") && !volcanic) return;
   mist = cw_node_new("FogVolume3D", "Mist");
-  mist_density = 0.35f;
+  mist_density = volcanic ? .045f : 0.35f;
   cw_node_set(mist, "shape", cw_val_enum("BOX"));
   cw_node_set(mist, "size", cw_val_vec3(90, 4, 46));
   cw_node_set(mist, "density", cw_val_float(mist_density));
-  cw_node_set(mist, "albedo", cw_val_color(0.7f, 0.74f, 0.85f, 1));
-  cw_node_set(mist, "emission", cw_val_color(0.05f, 0.06f, 0.08f, 1));
+  cw_node_set(mist, "albedo", volcanic ? cw_val_color(.45f,.14f,.08f,1) : cw_val_color(0.7f, 0.74f, 0.85f, 1));
+  cw_node_set(mist, "emission", volcanic ? cw_val_color(.16f,.025f,.004f,1) : cw_val_color(0.05f, 0.06f, 0.08f, 1));
   cw_node_set(mist, "height_falloff", cw_val_float(0.6f));
   cw_node_set(mist, "edge_fade", cw_val_float(0.35f));
   cw_node_set(mist, "noise", cw_val_float(0.75f));
@@ -2735,6 +2750,7 @@ static cw_node particles(cw_node parent, const char *name, const char *const *kv
 #include "liberty.inc"
 #include "autumn.inc"
 #include "nightburbs.inc"
+#include "hellfire.inc"
 
 void view_build(cw_node parent, const track_desc *t, int track_index) {
   discovery_parent=parent;
@@ -2743,7 +2759,7 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
   chocolate_marks=0;cw_debug_i32("chocolate.marks",&chocolate_marks);
   const theme *th = theme_for(t->theme);
   S = (uint32_t)(track_index + 1) * 2654435761u + 11;
-  bank_kind = !strcmp(th->name,"nightburbs") ? 4 : !strcmp(th->name, "stuntshow") ? 3 : th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0;
+  bank_kind = !strcmp(th->name,"hellfire") ? 5 : !strcmp(th->name,"nightburbs") ? 4 : !strcmp(th->name, "stuntshow") ? 3 : th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0;
   t3_object *root = t3_group_new();
   ground_build(t);
   ribbon(root, t, th);
@@ -2751,7 +2767,7 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
   bank(root, t, th);
   markers(root, t);
   int still0 = root->child_count;
-  if (strcmp(th->name, "stuntshow") && strcmp(th->name,"nightburbs")) {
+  if (strcmp(th->name, "stuntshow") && strcmp(th->name,"nightburbs") && strcmp(th->name,"hellfire")) {
     landforms(root, t, th, !backdrop_build(parent, t, track_index));
     if (strcmp(th->name, "neon")) fill(root, t, th);
     props(root, t, th);
@@ -2762,10 +2778,11 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
   stuntshow_build(parent, root, t);
   autumn_build(root,t);
   nightburbs_build(parent,root,t);
+  hellfire_build(parent,root,t);
   chocolate_colliders_build(root,chocolate_first,t);
   loose_toys_build(root,t);
   chocolate_fx_build(root,t);
-  merge_still(root, still0, root->child_count, !strcmp(th->name, "neon"));
+  merge_still(root, still0, root->child_count, !strcmp(th->name, "neon") ? 1 : !strcmp(th->name,"hellfire") ? 2 : 0);
   fog_build(parent, th, track_index);
   ice_patches(root, t);
   planks_build(root);
@@ -2954,7 +2971,7 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
                          : !strcmp(th->name, "desert") ? sand_kv : !strcmp(th->name, "jungle") || !strcmp(th->name, "neon") ? fireflies_kv
                          : motes_kv;
   motes = particles(parent, "Weather", wx);
-  if (!strcmp(th->name,"stuntshow")||!strcmp(th->name,"nightburbs")) cw_node_set(motes,"emitting",cw_val_bool(false));
+  if (!strcmp(th->name,"hellfire")||!strcmp(th->name,"stuntshow")||!strcmp(th->name,"nightburbs")) cw_node_set(motes,"emitting",cw_val_bool(false));
   wx_dy = wx == snow_kv ? 8 : wx == rain_kv ? 11 : wx == stars_kv ? 10 : wx == leaves_kv ? 5 : wx == gulls_kv || wx == bats_kv ? 7 : 3;
   wx_dz = wx == stars_kv ? -45 : wx == devils_kv ? -9 : wx == gulls_kv ? -8 : -2;
 
@@ -2963,6 +2980,7 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
 
 /* one fixed tick: wind, and the motes riding along with the camera's area */
 void view_tick(float rider_x, float rider_y, float speed, bool grounded) {
+  hellfire_tick(rider_x);
   wind_t++; /* the grass is posed for the frame, the tufts in view only (view_grass) */
   if (n_tufts) { /* wind.hash: every 64th tuft's pose (the wind's math on this host; which tufts are in view is not hashed) */
     float m[16];
@@ -2974,7 +2992,7 @@ void view_tick(float rider_x, float rider_y, float speed, bool grounded) {
     wind_hash = h;
   }
   if (cw_node_valid(motes)) cw_node3d_set_position(motes, (t3_vec3){ rider_x + 12, rider_y + wx_dy, wx_dz });
-  if (cw_node_valid(mist)) cw_node3d_set_position(mist, (t3_vec3){ rider_x + 18, rider_y + 1.2f, -14 }); /* its wisps are the world's: only the box moves */
+  if (cw_node_valid(mist)) cw_node3d_set_position(mist, (t3_vec3){ rider_x + 18, rider_y + (hell_live?-1.2f:1.2f), -14 }); /* its wisps are the world's: only the box moves */
   if (cw_node_valid(coast_fog[0])) {
     bool quality = cw_gfx_get(CW_GFX_EFFECTS) >= 1 && fx_views <= 2;
     for (int j = 0; j < 2; j++) {
@@ -3035,6 +3053,8 @@ void view_grass(const cw_node *cameras, int n) {
 }
 
 void view_forget(void) {
+
+  hellfire_forget();
   memset(forest_deer,0,sizeof forest_deer);
   memset(forest_legs,0,sizeof forest_legs);
   chocolate_track=NULL;chocolate_parent=(cw_node){0};
