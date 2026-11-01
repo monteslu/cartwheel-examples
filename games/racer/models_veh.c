@@ -399,12 +399,10 @@ static void build_longhaul(kit *k) {
     /* windscreen post */
     mb_tube(mt, V(sx * 0.5f, 0.2f, 0.74f), V(sx * 0.46f, 0.98f, 0.62f), 0.03f, 7, C_STEEL);
   }
-  /* cab: back wall, floor, seat, windscreen glass and a sun visor */
+  /* cab: back wall, floor, seat, an open windscreen frame (the glass was opaque: it hid the driver and left the hands on show) and a sun visor */
   mb_rbox(&k->m[S_PAINT], xf_at(0, 0.02f, -0.2f), 1.0f, 0.62f, 0.1f, 0.04f, 1, PAINT_TOP);
   mb_rbox(&k->m[S_DARK], xf_at(0, -0.15f, 0.34f), 0.9f, 0.06f, 0.9f, 0.02f, 1, VINYL);
   seat(k, V(0, 0.28f, 0.34f), 0.4f, 0.46f);
-  mb_quad(&k->m[S_GLASS], V(-0.46f, 0.98f, 0.62f), V(-0.5f, 0.2f, 0.74f), V(0.5f, 0.2f, 0.74f), V(0.46f, 0.98f, 0.62f), C_WHITE);
-  mb_quad(&k->m[S_GLASS], V(0.46f, 0.98f, 0.62f), V(0.5f, 0.2f, 0.74f), V(-0.5f, 0.2f, 0.74f), V(-0.46f, 0.98f, 0.62f), C_WHITE);
   mb_tube(mt, V(-0.46f, 0.98f, 0.62f), V(0.46f, 0.98f, 0.62f), 0.03f, 7, C_STEEL);
   mb_rbox(pm, xf_rot(0, 1.02f, 0.66f, 0.3f, 0, 0), 1.04f, 0.04f, 0.3f, 0.015f, 1, C_WHITE);
   t3_vec3 rl[3] = { V(0.5f, 0.3f, -0.25f), V(0.46f, 1.05f, -0.2f), V(-0.46f, 1.05f, -0.2f) };

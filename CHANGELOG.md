@@ -3,6 +3,10 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.16.22 (2026-11-01)
+
+- **racer**: The truck's windscreen is an open frame: the opaque glass hid its driver and left only the wheel and hands on show
+
 ## v0.16.21 (2026-11-01)
 
 - **racer**: An open helmet's dust wrap is dull cloth lying flat on the face (in v0.16.20 it stuck out in the suit's colour like a beak)
