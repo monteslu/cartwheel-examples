@@ -252,8 +252,11 @@ static void do_wallu(walker *w, const piece *pc) {
   /* on the wall: alpha 0 straight up, pi/2 along it, pi straight down */
 #define WALLU_F(al) add(mul(y, cw_cos(al)), mul(rh, -side * cw_sin(al)))
 #define WALLU_R(al) add(mul(rh, cw_cos(al)), mul(y, side * cw_sin(al)))
+  /* with no run along the top the two quarters are one arc, so the turn does not ease off at its peak */
+  const bool one_arc = pc->e < 0.5f;
   struct { float len, a0, a1; } run[5] = {
-    { pc->c, 0, 0 }, { pc->d, 0, half_pi }, { pc->e, half_pi, half_pi }, { pc->d, half_pi, 2 * half_pi }, { pc->c, 2 * half_pi, 2 * half_pi },
+    { pc->c, 0, 0 }, { one_arc ? 2 * pc->d : pc->d, 0, one_arc ? 2 * half_pi : half_pi }, { pc->e, half_pi, half_pi },
+    { one_arc ? 0 : pc->d, half_pi, 2 * half_pi }, { pc->c, 2 * half_pi, 2 * half_pi },
   };
   for (int k = 0; k < 5; k++) {
     if (run[k].len < 0.5f) continue;

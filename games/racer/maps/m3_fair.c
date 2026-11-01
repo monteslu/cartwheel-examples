@@ -65,11 +65,14 @@ static const piece SPEC[] = {
   ITEMS(),
   LOOP(24, -1),
   ASTRAIGHT(40),
-  /* the wall: the road curls up onto a great painted wall, climbs it, arcs over and along it and comes back down to
-   * the ground going the other way (P_WALLU, dress_wall_turn). As wide as the level U-turn it took the place of */
-  WALLU(70, 1, 10, 94, 96),
-  ATURN(20, 90),
-  ATURN(-20, 90),
+  /* the course pinches in to the wall: the two long sides are about 190 m apart, the U only about 40 */
+  ATURN(45, 90),
+  ATURN(-45, 90),
+  /* the wall: the road curls up onto a great painted wall, climbs it, whips over in a tight upside-down U and comes
+   * straight back down to the ground going the other way (P_WALLU, dress_wall_turn) */
+  WALLU(70, 1, 14, 34, 0),
+  ATURN(-45, 90),
+  ATURN(45, 90),
   ASTRAIGHT(100),
   ASLOPE(50, 0),
   ASTRAIGHT(60),
@@ -1787,7 +1790,7 @@ static void quad2(pm *b, t3_vec3 p0, t3_vec3 p1, t3_vec3 p2, t3_vec3 p3, pcol c)
 static void dress_wall_turn(pmc *st, gcells *chase[3], const track *t) {
   if (P.wall_top <= 0) return;
   const t3_vec3 n = P.wall_n, x = P.wall_side, back = v3mul(n, -1);
-  const float margin = 16.0f, step = THIN ? 44.0f : 22.0f;
+  const float margin = 26.0f, step = THIN ? 44.0f : 22.0f;
   const float x0 = P.wall_x0 - margin, x1 = P.wall_x1 + margin, top = P.wall_top + 14.0f;
   const float behind = 1.2f; /* the board stands just behind the road's underside */
   pcol boards[3] = { hex(0xa8382b), hex(0xd8c9a2), hex(0x2f6f73) };
