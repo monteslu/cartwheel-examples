@@ -32,6 +32,7 @@
 #include "cartwheel/debug.h"
 #include "cartwheel/math.h"
 #include "cartwheel/platform.h"
+#include "cartwheel/prompt.h"
 #include "cartwheel/quality.h"
 #include "cartwheel/quality_menu.h"
 #include "cartwheel/render2d.h"
@@ -113,7 +114,7 @@ static struct {
   /* floating callouts over the arena (render only): power-ups, knockouts */
   struct { int x, y, kind, who, age; } pops[16];
   int npops;
-  cw_action a_left, a_right, a_up, a_down, a_bomb, a_act, a_start, a_cancel, a_pause, a_pick;
+  cw_action a_left, a_right, a_up, a_down, a_bomb, a_act, a_start, a_cancel, a_pause, a_pick, a_settings;
   cw_action k2_left, k2_right, k2_up, k2_down, k2_bomb, k2_act;
   /* dev aids, read once at start */
   bool cam_close;           /* BOMBERDUDE_CAM_CLOSE: the camera close on player 1 */
@@ -202,13 +203,19 @@ static void audio_init(void) {
   }
 }
 
-/* ── devices: whichever was used last drives the prompts ──────────── */
+/* ── devices: the engine says which one each player used last ──────── */
 
-enum { DEV_MOUSE, DEV_PAD, DEV_KEYS, DEV_TOUCH };
-#define POINTER (last_device == DEV_MOUSE || last_device == DEV_TOUCH)
-static int last_device = DEV_PAD;
-static bool device_used;   /* any device actually used yet */
-static int32_t input_mode; /* debug field input.mode: 0 mouse, 1 pad, 2 keys, 3 touch */
+/* P1's device, as the engine's prompts see it (cartwheel/prompt.h): it picks
+ * the prompts, the touch controls and whether the pointer drives the menus.
+ * Asked once a frame in update (prompts are presentation, never the fixed
+ * tick); input.mode publishes it (0 mouse, 1 pad, 2 keys, 3 touch). */
+static cw_prompt_device p1_device = CW_PROMPT_PAD;
+static int32_t input_mode = 1; /* debug field input.mode: 0 mouse, 1 pad, 2 keys, 3 touch */
+/* a pad or the keyboard reads glyphs; the mouse and touch click or tap what they see */
+#define GLYPHS (p1_device == CW_PROMPT_PAD || p1_device == CW_PROMPT_KEYBOARD)
+#define ON_TOUCH (p1_device == CW_PROMPT_TOUCH)
+/* the pointer drives the menus: P1 clicks or taps (now, or as the device in use), or the mouse just moved */
+#define POINTER (!GLYPHS || mouse_moved || pointer_now)
 /* The one switch for this game's own on-screen touch controls (wasmcart's
  * doctrine: a host may draw its own overlay from the manifest; a game that
  * draws its own keeps them behind a switch). BOMBERDUDE_TOUCH_CONTROLS=0 or the
@@ -216,39 +223,35 @@ static int32_t input_mode; /* debug field input.mode: 0 mouse, 1 pad, 2 keys, 3 
 static bool touch_controls = true;
 static uint32_t prev_mouse_buttons;
 static float prev_mx, prev_my;
-static bool mouse_clicked, mouse_right_clicked, mouse_moved;
+static bool mouse_clicked, mouse_right_clicked, mouse_moved, pointer_now;
 
-static void read_devices(void) {
+static void read_mouse(void) {
   const cw_raw_input *in = cw_input_raw();
   mouse_clicked = (in->mouse_buttons & 1) && !(prev_mouse_buttons & 1);
   mouse_right_clicked = (in->mouse_buttons & 2) && !(prev_mouse_buttons & 2);
-  mouse_moved = in->mouse_x != prev_mx || in->mouse_y != prev_my;
-  if (mouse_clicked || mouse_right_clicked || (mouse_moved && in->mouse_present && prev_mx + prev_my != 0)) last_device = DEV_MOUSE;
+  mouse_moved = (in->mouse_x != prev_mx || in->mouse_y != prev_my) && in->mouse_present && prev_mx + prev_my != 0;
   prev_mouse_buttons = in->mouse_buttons;
   prev_mx = in->mouse_x;
   prev_my = in->mouse_y;
-  for (int i = 0; i < CW_MAX_PADS; i++) {
-    const cw_pad_state *p = &in->pads[i];
-    if (p->connected && (p->buttons || fabsf(p->axes[CW_AXIS_LX]) > 0.4f || fabsf(p->axes[CW_AXIS_LY]) > 0.4f)) last_device = DEV_PAD;
+  pointer_now = mouse_clicked || mouse_right_clicked || in->mouse_from_touch;
+  for (int t = 0; t < CW_MAX_TOUCHES; t++) pointer_now |= in->touches[t].active || in->touches[t].tapped;
+}
+static void read_device(void) {
+  /* a touch-first device (a phone, a coarse-pointer browser) starts on touch
+   * before its first tap. The hosts report pad 0 as connected with no pad in
+   * hand, and the engine prefers a connected pad, so until P1 presses a pad
+   * button or a key a touch-first device is held on touch */
+  static bool held, pressed;
+  if (!pressed) {
+    const cw_raw_input *in = cw_input_raw();
+    for (int i = 0; i < CW_MAX_PADS; i++) pressed |= in->pads[i].pressed != 0;
+    for (int k = 0; k < CW_KEY_COUNT && !pressed; k++) pressed |= in->keys_pressed[k] != 0;
+    bool hold = !pressed && cw_platform_touch_primary();
+    if (hold != held) cw_prompt_force_device(0, hold ? CW_PROMPT_TOUCH : CW_PROMPT_NONE);
+    held = hold;
   }
-  for (int k = 0; k < CW_KEY_COUNT; k++)
-    if (in->keys_pressed[k]) {
-      last_device = DEV_KEYS;
-      break;
-    }
-  if (in->mouse_from_touch) last_device = DEV_TOUCH; /* cw_app_desc.touch_pointer: a finger is the mouse in the menus */
-  for (int t = 0; t < CW_MAX_TOUCHES; t++)
-    if (in->touches[t].active || in->touches[t].tapped) last_device = DEV_TOUCH;
-  if (!device_used) {
-    bool any = mouse_clicked || mouse_right_clicked || in->mouse_from_touch;
-    for (int i = 0; i < CW_MAX_PADS; i++) any |= in->pads[i].connected && in->pads[i].buttons;
-    for (int k = 0; k < CW_KEY_COUNT && !any; k++) any |= in->keys_pressed[k];
-    for (int t = 0; t < CW_MAX_TOUCHES && !any; t++) any |= in->touches[t].active || in->touches[t].tapped;
-    if (any) device_used = true;
-    /* a touch-first device (a phone, a coarse-pointer browser) starts in touch mode */
-    else if (cw_platform_touch_primary()) last_device = DEV_TOUCH;
-  }
-  input_mode = last_device;
+  p1_device = cw_prompt_device_of(0);
+  input_mode = p1_device == CW_PROMPT_PAD ? 1 : p1_device == CW_PROMPT_KEYBOARD ? 2 : p1_device == CW_PROMPT_TOUCH ? 3 : 0;
 }
 
 /* ── on-screen touch controls (logical window coordinates) ──────────
@@ -481,6 +484,26 @@ static void enter_arena_select(void) {
 /* ── debug channel ──────────────────────────────────────────────────── */
 
 static int pending_arena = -1;
+/* bind <action> <bindings>: replace an action's bindings (cartwheel/input.h
+ * binding text, "pad:north, key:v"), as a player rebinding a control would;
+ * every prompt shows the new binding from that frame (tests of the prompts) */
+static void cmd_bind(int argc, const char **argv, cw_reply *r) {
+  if (argc < 3) {
+    cw_reply_error(r, "usage: bind <action> <bindings>");
+    return;
+  }
+  cw_action a = cw_action_find(argv[1]);
+  char list[160] = "";
+  for (int i = 2; i < argc; i++) snprintf(list + strlen(list), sizeof list - strlen(list), "%s%s", i > 2 ? " " : "", argv[i]);
+  cw_action_clear_bindings(a);
+  if (!cw_action_bind_text(a, list)) {
+    cw_reply_error(r, "bind: no action %s or bad bindings \"%s\"", argv[1], list);
+    return;
+  }
+  cw_reply_printf(r, "{\"action\":\"%s\",\"bindings\":", argv[1]);
+  cw_reply_str(r, list);
+  cw_reply_raw(r, "}");
+}
 static void cmd_arena(int argc, const char **argv, cw_reply *r) {
   int n = argc > 1 ? atoi(argv[1]) : 0;
   if (n < 1 || n > ARENAS) {
@@ -532,6 +555,7 @@ static void init(void *u) {
   G.a_cancel = cw_action_find("cancel");
   G.a_pause = cw_action_find("pause");
   G.a_pick = cw_action_find("pick");
+  G.a_settings = cw_action_find("settings");
   touch_layout();
   G.k2_left = cw_action_find("k2_left");
   G.k2_right = cw_action_find("k2_right");
@@ -586,6 +610,7 @@ static void init(void *u) {
   cw_debug_i32("save.cleared", &dbg_cleared);
   cw_debug_bytes("save.bytes", &SAVE, sizeof SAVE);
   cw_debug_command("arena", "arena <1..8>: start a Battle round there now", cmd_arena);
+  cw_debug_command("bind", "bind <action> <bindings>: replace an action's bindings (binding text, as input.cfg writes it)", cmd_bind);
   cw_debug_command("touch_controls", "touch_controls <0|1>: this game's own on-screen touch controls", cmd_touch_controls);
   cw_debug_i32("input.mode", &input_mode);
   if (getenv("BOMBERDUDE_TOUCH_CONTROLS") && !atoi(getenv("BOMBERDUDE_TOUCH_CONTROLS"))) touch_controls = false;
@@ -809,7 +834,7 @@ static void fixed(void *u, double dt) {
   (void)dt;
   G.ticks++;
   G.state_ticks++;
-  read_devices();
+  read_mouse();
   touch_layout();
   for (int i = 0; i < SFX_COUNT; i++)
     if (A.cooldown[i] > 0) A.cooldown[i]--;
@@ -888,7 +913,7 @@ static void fixed(void *u, double dt) {
       G.wins_needed = CW_CLAMP(G.wins_needed + dx, 1, 5);
       sfx(SFX_MOVE, 0.6f);
     }
-    /* another pad pressing (A) joins its own slot as a player */
+    /* another pad pressing south joins its own slot as a player */
     bool joined = false;
     for (int p = 1; p < MAXP; p++)
       if (cw_action_just_pressed(p, G.a_bomb)) {
@@ -1076,6 +1101,7 @@ static void fixed(void *u, double dt) {
 
 static void gfx_input(void);
 static void update(void *u, double dt) {
+  read_device();
   (void)u;
   (void)dt;
   gfx_input();
@@ -1132,10 +1158,17 @@ static void chip(const char *s, float cx, float y, float size, float alpha) {
   round_rect(cw_rect_make(cx - mm.width * 0.5f - padx, y - pady, mm.width + 2 * padx, mm.height + 2 * pady), size * 0.7f,
              rgba(0.08f, 0.04f, 0.12f, 0.55f * alpha));
 }
-static void prompt_line(const char *s, float W, float y, float size) {
-  chip(s, W * 0.5f, y, size, 1);
-  text(s, 0, y, size, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, W);
+/* a centred line on a dark chip, with button prompts in it ({bomb}, {left|right}:
+ * cartwheel/prompt.h) drawn for P1's device; alpha fades both */
+static void prompt_line_a(const char *s, float W, float y, float size, float alpha) {
+  cw_font f = size < 20 ? font_ui_bold : font_ui;
+  cw_vec2 m = cw_prompt_text_size(f, s, 0, size);
+  float padx = size * 0.8f, pady = size * 0.3f;
+  round_rect(cw_rect_make(W * 0.5f - m.x * 0.5f - padx, y - pady, m.x + 2 * padx, m.y + 2 * pady), size * 0.7f,
+             rgba(0.08f, 0.04f, 0.12f, 0.55f * alpha));
+  cw_prompt_text(f, s, 0, cw_v2(W * 0.5f, y), size, rgba(1, 1, 1, alpha), CW_ALIGN_CENTER);
 }
+static void prompt_line(const char *s, float W, float y, float size) { prompt_line_a(s, W, y, size, 1); }
 
 static void star(float x, float y, float r, cw_color fill, float rot) {
   cw_vec2 p[10];
@@ -1204,27 +1237,23 @@ static void face(float x, float y, float r, int kind, int team, bool ko, float a
 
 static const char *menu_prompt(void) {
   switch (G.state) {
-  case GS_TITLE:
-    return last_device == DEV_TOUCH ? "tap to choose" : last_device == DEV_MOUSE ? "click to choose" : last_device == DEV_PAD ? "stick / d-pad: choose   (A): go"
-                                                                              : "arrows / WASD: choose   Enter / Space: go";
+  case GS_TITLE: return GLYPHS ? "{left|right|up|down} choose   {bomb} go" : ON_TOUCH ? "tap to choose" : "click to choose";
   case GS_PLAYERS:
-    return last_device == DEV_TOUCH ? "tap a card: who plays it (P1: the critter)   tap FIGHT to go"
-         : last_device == DEV_MOUSE ? "click a card: who plays it   right click: critter   click FIGHT to go"
-         : last_device == DEV_PAD   ? "up / down: a player   left / right: CPU / pad / off   (X): critter   (A): go   (B): back   pads 2-4: (A) joins"
-                                    : "up / down: a player   left / right: CPU / player / off   X: critter   Enter / Space: go   Esc: back";
-  case GS_ARENA:
-    return last_device == DEV_TOUCH ? "tap an arena" : last_device == DEV_MOUSE ? "click an arena" : last_device == DEV_PAD ? "d-pad: choose   (A): go   (B): back"
-                                                                              : "arrows: choose   Enter / Space: go   Esc: back";
-  case GS_PODIUM: return last_device == DEV_TOUCH ? "tap to continue" : last_device == DEV_MOUSE ? "click to continue" : last_device == DEV_PAD ? "(A) to continue" : "Enter / Space to continue";
+    return ON_TOUCH ? "tap a card: who plays it (P1: the critter)   tap FIGHT to go"
+         : !GLYPHS  ? "click a card: who plays it   right click: critter   click FIGHT to go"
+         : p1_device == CW_PROMPT_PAD
+           ? "{up|down} a player   {left|right} CPU / pad / off   {pick} critter   {bomb} go   {cancel} back   pads 2-4: {bomb} joins"
+           : "{up|down} a player   {left|right} CPU / player / off   {pick} critter   {bomb} go   {cancel} back";
+  case GS_ARENA: return GLYPHS ? "{left|right|up|down} choose   {bomb} go   {cancel} back" : ON_TOUCH ? "tap an arena" : "click an arena";
+  case GS_PODIUM: return GLYPHS ? "{bomb} to continue" : ON_TOUCH ? "tap to continue" : "click to continue";
   default: return "";
   }
 }
 
 /* the controls, shown on the title and in the pause menu */
 static const char *controls_line(void) {
-  if (last_device == DEV_TOUCH) return "move: the stick (left thumb, anywhere)    BOMB and ACTION: the buttons (right thumb)";
-  return last_device == DEV_PAD ? "move: stick / d-pad    bomb: (A)    detonate / stop a kick: (B) or (X)    pause: START"
-                                : "move: WASD / arrows    bomb: Space / Z / Enter    detonate / stop a kick: X / E / Shift    pause: Esc";
+  if (ON_TOUCH) return "move: the stick (left thumb, anywhere)    BOMB and ACTION: the buttons (right thumb)";
+  return "move: {left|right|up|down}    bomb: {bomb}    detonate / stop a kick: {act}    pause: {pause}";
 }
 
 static void glow_cursor(cw_rect r, float s, float rad, bool dim) {
@@ -1260,7 +1289,7 @@ static void draw_title(float W, float H, float s) {
     bold(ITEMS[i], r.x, r.y + 6 * s, 25 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, r.w);
     text(SUBS[i], r.x, r.y + 37 * s, 13 * s, rgba(1, 0.92f, 0.8f, 0.9f), CW_ALIGN_CENTER, r.w);
   }
-  prompt_line(controls_line(), W, H * 0.375f, 15 * s);
+  prompt_line(controls_line(), W, H * 0.375f, 16 * s);
   prompt_line(menu_prompt(), W, H * 0.935f, 17 * s);
 }
 
@@ -1290,8 +1319,8 @@ static void draw_players(float W, float H, float s) {
   panel(wr, 1, rgba(1, 1, 1, 0.7f), rgba(0.9f, 0.3f, 0.25f, 0.92f));
   snprintf(buf, sizeof buf, "FIGHT!   first to %d", G.wins_needed);
   bold(buf, wr.x, wr.y + 7 * s, 26 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, wr.w);
-  prompt_line(controls_line(), W, H * 0.4f, 14 * s);
-  prompt_line(menu_prompt(), W, H * 0.955f - 8 * s, 14 * s);
+  prompt_line(controls_line(), W, H * 0.4f + 12 * s, 16 * s); /* clear of the cards */
+  prompt_line(menu_prompt(), W, H * 0.955f - 10 * s, 16 * s);
 }
 
 static void draw_arena_select(float W, float H, float s) {
@@ -1457,8 +1486,7 @@ static void draw_hud(float W, float H, float s) {
   if (G.state == GS_PLAY && G.S.tick < 240) {
     const char *how = controls_line();
     float a = cw_clampf((240 - G.S.tick) / 30.0f, 0, 1);
-    chip(how, W * 0.5f, H * 0.93f, 15 * s, a);
-    text(how, 0, H * 0.93f, 15 * s, rgba(1, 1, 1, a), CW_ALIGN_CENTER, W);
+    prompt_line_a(how, W, H * 0.93f, 16 * s, a);
   }
 }
 
@@ -1589,8 +1617,8 @@ static void draw_podium(float W, float H, float s) {
   if (t > 120) prompt_line(menu_prompt(), W, H * 0.93f, 16 * s);
 }
 
-/* the graphics settings from the pause screen (cartwheel/quality_menu.h): Y,
- * G or a tap opens the page, which owns the presses while it is open (the
+/* the graphics settings from the pause screen (cartwheel/quality_menu.h): the
+ * settings action or a tap opens the page, which owns the presses while it is open (the
  * pause menu's tick leaves them alone). Render-only, so it is read in
  * update, never in the simulation; the choice is kept in the save */
 static cw_rect gfx_rect(float W, float H) {
@@ -1612,8 +1640,7 @@ static void gfx_input(void) {
   }
   if (G.state_ticks < 5) return;
   const cw_raw_input *in = cw_input_raw();
-  bool hit = in->keys_pressed[10]; /* G */
-  for (int i = 0; i < CW_MAX_PADS; i++) hit |= (in->pads[i].pressed & (1u << CW_PAD_NORTH)) != 0;
+  bool hit = any_pressed(G.a_settings, -1);
   cw_vec2 cs = cw_r2d_canvas_size();
   if ((in->mouse_pressed & 1) && in_rect(mouse_canvas(), gfx_rect(cs.x, cs.y))) hit = true;
   if (!hit) return;
@@ -1641,7 +1668,8 @@ static void draw_gfx(float W, float H, float s) {
   gfx_res_suffix(buf, sizeof buf); /* the render resolution: the host sets it */
   float sz = fit_title(buf, 22 * s, r.w - 16 * s);
   bold(buf, r.x, r.y + 10 * s + (22 * s - sz) * 0.5f, sz, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, r.w);
-  text(last_device == DEV_TOUCH ? "tap for settings" : "Y / G for settings", r.x, r.y + r.h + 4 * s, 15 * s, rgba(1, 1, 1, 0.7f), CW_ALIGN_CENTER, r.w);
+  cw_prompt_text(font_ui_bold, ON_TOUCH ? "tap for settings" : "{settings} settings", 0, cw_v2(r.x + r.w * 0.5f, r.y + r.h + 4 * s), 16 * s,
+                 rgba(1, 1, 1, 0.8f), CW_ALIGN_CENTER);
 }
 
 static void draw_pause(float W, float H, float s) {
@@ -1671,7 +1699,7 @@ static void render(void *u, double alpha) {
   case GS_INTRO:
   case GS_PLAY:
     draw_hud(W, H, s);
-    if (last_device == DEV_TOUCH && touch_controls) draw_touch(W, H, s);
+    if (ON_TOUCH && touch_controls) draw_touch(W, H, s);
     break;
   case GS_PAUSE:
     draw_hud(W, H, s);
