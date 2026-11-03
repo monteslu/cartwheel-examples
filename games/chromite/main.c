@@ -26,6 +26,7 @@
 
 #include "cartwheel/debug.h"
 #include "cartwheel/platform.h"
+#include "cartwheel/prompt.h"
 #include "cartwheel/quality.h"
 #include "cartwheel/render2d.h"
 #include "cartwheel/resource.h"
@@ -102,8 +103,13 @@ static int32_t cheat_level, cheat_boss, cheat_gallery, cheat_blasts;
 static int32_t dbg_skill, dbg_hi0, dbg_armed;
 static uint32_t dbg_mouse;
 static bool device_used;
+/* the control scheme (input.mode): moving the mouse makes the ship follow it,
+ * a finger shows the touch controls. This picks how the ship is steered, so it
+ * is the game's own; the prompts ask the engine (cartwheel/prompt.h). */
 enum { DEV_MOUSE, DEV_PAD, DEV_KEYS, DEV_TOUCH };
 static int last_device = DEV_KEYS;
+/* P1's device for the prompts, from the engine (asked once a frame in update) */
+static cw_prompt_device p1_device = CW_PROMPT_KEYBOARD;
 
 /* ── touch controls (logical window coordinates) ───────────────────── */
 
@@ -651,6 +657,7 @@ static void sync_hook(cw_tree *t, double alpha, void *u) {
 }
 
 static void update(void *u, double dt) {
+  p1_device = cw_prompt_device_of(0);
   (void)u;
   (void)dt;
   cw_quality_auto_measure(G.state == GS_PLAY);
@@ -684,6 +691,48 @@ static void heading(const char *s, float x, float y, float size, float alpha, cw
 static void spaced(const char *s, float x, float y, float size, cw_color c, cw_text_align al, float wrap) {
   text(font_ui, s, x, y, size, c, al, wrap, size * 0.35f);
 }
+/* a spaced line with button prompts in it ({fire}, {up|down}: cartwheel/prompt.h),
+ * centred in [x, x + wrap]: the words as spaced() draws them, each {...} the
+ * engine's glyph for that action's binding on P1's device (cw_prompt_actions) */
+static float pspaced_run(const char *s, float x, float y, float size, cw_color c, bool draw) {
+  cw_text_style st = { .size = size, .letter_spacing = size * 0.35f };
+  float lh = cw_font_measure(font_ui, "Ag", &st).height, gap = size * 0.5f, w = 0;
+  float sp = cw_font_measure(font_ui, "a a", &st).width - cw_font_measure(font_ui, "aa", &st).width;
+  char buf[160];
+  for (const char *p = s; *p;) {
+    const char *o = strchr(p, '{');
+    size_t n = o ? (size_t)(o - p) : strlen(p);
+    if (n) {
+      snprintf(buf, sizeof buf, "%.*s", (int)n, p);
+      if (draw) spaced(buf, x + w, y, size, c, CW_ALIGN_LEFT, 0);
+      w += cw_font_measure(font_ui, buf, &st).width;
+      for (size_t t = n; t > 0 && buf[t - 1] == ' '; t--) w += sp; /* the measure drops trailing spaces */
+    }
+    if (!o) break;
+    const char *e = strchr(o, '}');
+    if (!e) break;
+    cw_action acts[4];
+    int na = 0;
+    for (const char *q = o + 1; q < e && na < 4;) {
+      const char *bar = memchr(q, '|', (size_t)(e - q));
+      size_t k = bar ? (size_t)(bar - q) : (size_t)(e - q);
+      snprintf(buf, sizeof buf, "%.*s", (int)k, q);
+      acts[na++] = cw_action_find(buf);
+      q += k + (bar ? 1 : 0);
+    }
+    float gs = size * 1.2f;
+    cw_vec2 g = cw_prompt_actions_size(acts, na, 0, gs);
+    if (draw) cw_prompt_actions(acts, na, 0, cw_v2(x + w + gap * 0.5f, y + (lh - g.y) * 0.5f), gs, rgba(0.86f, 0.9f, 0.96f, c.a));
+    w += g.x + gap;
+    p = e + 1;
+  }
+  return w;
+}
+static void pspaced(const char *s, float x, float y, float size, cw_color c, float wrap) {
+  float w = pspaced_run(s, 0, 0, size, c, false);
+  pspaced_run(s, x + (wrap - w) * 0.5f, y, size, c, true);
+}
+static bool prompt_touch(void) { return p1_device == CW_PROMPT_TOUCH; }
 
 /* a vertical gradient quad */
 static void vgrad(cw_rect r, cw_color top, cw_color bot) {
@@ -731,8 +780,8 @@ static void draw_hud(float W, float H, float s) {
   if (S->mode == PLAY_LEVEL_OVER) heading("LEVEL COMPLETE", 0, H * 0.32f, 46 * s, cw_clampf((500 - S->success) / 30.0f, 0, 1), CW_ALIGN_CENTER, W);
   if (S->mode == PLAY_DEAD) heading("GAME OVER", 0, H * 0.36f, 60 * s, cw_clampf((50 - S->hero_death) / 30.0f, 0, 1), CW_ALIGN_CENTER, W);
   if (h->armed > 0)
-    spaced(input_mode == DEV_PAD ? "self-destruct armed : (b) again" : "self-destruct armed : again to fire", 0, H * 0.62f, 18 * s,
-           rgba(1, 0.3f, 0.2f, 0.6f + 0.4f * sinf(frame_t * 20)), CW_ALIGN_CENTER, W);
+    pspaced(prompt_touch() ? "self-destruct armed : again to fire" : "self-destruct armed : {item} again", 0, H * 0.62f, 18 * s,
+            rgba(1, 0.3f, 0.2f, 0.6f + 0.4f * sinf(frame_t * 20)), W);
   if (S->past_warn > 0.05f && S->mode == PLAY_ON) {
     cw_r2d_set_blend(CW_BLEND_ADD);
     vgrad(cw_rect_make(0, H - 90 * s, W, 90 * s), rgba(0.6f, 0.02f, 0.02f, 0), rgba(0.6f * S->past_warn, 0.03f, 0.02f, 0.5f * (0.6f + 0.4f * sinf(frame_t * 18))));
@@ -799,8 +848,8 @@ static void draw_title(float W, float H, float s) {
     snprintf(b, sizeof b, "%8d", SAVE.hi[SAVE.skill][i]);
     text(font_title, b, tx, ty + (22 + i * 19) * s, 15 * s, i == 0 ? rgba(1, 0.42f, 0.38f, 1) : rgba(0.6f, 0.64f, 0.72f, 0.85f - i * 0.12f), CW_ALIGN_LEFT, 0, 2 * s);
   }
-  const char *h = input_mode == DEV_TOUCH ? "tap to launch" : input_mode == DEV_PAD ? "d-pad : choose      (a) : launch" : "arrows : choose      enter / space : launch";
-  spaced(h, 0, H * 0.94f, 13 * s, rgba(0.5f, 0.56f, 0.7f, 0.55f + 0.25f * sinf(frame_t * 2.5f)), CW_ALIGN_CENTER, W);
+  const char *h = prompt_touch() ? "tap to launch" : "{up|down} : choose      {fire} : launch";
+  pspaced(h, 0, H * 0.935f, 16 * s, rgba(0.5f, 0.56f, 0.7f, 0.55f + 0.25f * sinf(frame_t * 2.5f)), W);
   /* the original's ticker */
   float tw = W * 3, off = fmodf(frame_t * 90 * s, tw * 0.5f);
   spaced("do not allow -any- enemies to get past", W - off, H * 0.89f, 15 * s, rgba(0.35f, 0.4f, 0.85f, 0.85f), CW_ALIGN_LEFT, 0);
@@ -809,8 +858,7 @@ static void draw_title(float W, float H, float s) {
 static void draw_pause(float W, float H, float s) {
   cw_r2d_rect(cw_rect_make(0, 0, W, H), rgba(0.0f, 0.01f, 0.03f, 0.55f));
   heading("PAUSED", 0, H * 0.36f, 52 * s, 1, CW_ALIGN_CENTER, W);
-  spaced(input_mode == DEV_PAD ? "(a) resume      back : end the game" : input_mode == DEV_TOUCH ? "tap to resume" : "space : resume      backspace : end the game", 0,
-         H * 0.5f, 15 * s, rgba(0.7f, 0.76f, 0.88f, 0.9f), CW_ALIGN_CENTER, W);
+  pspaced(prompt_touch() ? "tap to resume" : "{fire} : resume      {back} : end the game", 0, H * 0.5f, 16 * s, rgba(0.7f, 0.76f, 0.88f, 0.9f), W);
 }
 
 static void draw_over(float W, float H, float s) {
@@ -828,7 +876,7 @@ static void draw_over(float W, float H, float s) {
     snprintf(b, sizeof b, "rank %d", G.rank);
     spaced(b, 0, H * 0.6f, 16 * s, rgba(1, 0.7f, 0.5f, a), CW_ALIGN_CENTER, W);
   }
-  spaced(input_mode == DEV_TOUCH ? "tap to continue" : "press fire to continue", 0, H * 0.82f, 14 * s, rgba(0.5f, 0.56f, 0.72f, a * 0.8f), CW_ALIGN_CENTER, W);
+  pspaced(prompt_touch() ? "tap to continue" : "press {fire} to continue", 0, H * 0.82f, 16 * s, rgba(0.5f, 0.56f, 0.72f, a * 0.8f), W);
 }
 
 static void render(void *u, double alpha) {
