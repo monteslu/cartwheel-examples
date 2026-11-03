@@ -34,6 +34,7 @@
 #include "cartwheel/input.h"
 #include "cartwheel/math.h"
 #include "cartwheel/platform.h"
+#include "cartwheel/prompt.h"
 #include "cartwheel/quality.h"
 #include "cartwheel/quality_menu.h"
 #include "cartwheel/render2d.h"
@@ -200,7 +201,7 @@ static struct {
   cw_font f_title, f_hud, f_small;
   cw_action a_start, a_back, m_left, m_right, m_up, m_down, m_ok, a_fwd, a_brake, a_left, a_right, a_pup, a_pdn, a_drift, a_item, a_trick;
   int device;
-  bool device_used;
+  bool pointer_now; /* this tick: a click, a tap, a finger or the mouse moving */
   uint32_t prev_buttons;
   float prev_mx, prev_my;
   uint64_t click_frame;
@@ -251,36 +252,45 @@ static void sfx_move(void) { audio_ui(AUI_MOVE); }
 static void sfx_ok(void) { audio_ui(AUI_SELECT); }
 static void sfx_back(void) { audio_ui(AUI_BACK); }
 
-/* which device the player used last drives the prompts */
+/* P1's device, as the engine's prompts see it (cartwheel/prompt.h), in
+ * U.device (debug field ui.device: 0 mouse, 1 pad, 2 keys, 3 touch). Asked
+ * once a frame from ui_render (prompts are presentation, never the fixed
+ * tick). A phone starts on touch before its first tap: the hosts report pad 0
+ * as connected with no pad in hand, and the engine prefers a connected pad,
+ * so until P1 presses a pad button or a key a touch-first device is held on
+ * touch (a tap is the engine's own touch switch). */
+static void read_device(void) {
+  static bool held, pressed;
+  if (!pressed) {
+    const cw_raw_input *in = cw_input_raw();
+    for (int i = 0; i < CW_MAX_PADS; i++) pressed |= in->pads[i].pressed != 0;
+    for (int k = 0; k < CW_KEY_COUNT && !pressed; k++) pressed |= in->keys_pressed[k] != 0;
+    bool hold = !pressed && cw_platform_touch_primary();
+    if (hold != held) cw_prompt_force_device(0, hold ? CW_PROMPT_TOUCH : CW_PROMPT_NONE);
+    held = hold;
+  }
+  cw_prompt_device d = cw_prompt_device_of(0);
+  U.device = d == CW_PROMPT_PAD ? DEV_PAD : d == CW_PROMPT_KEYBOARD ? DEV_KEYS : d == CW_PROMPT_TOUCH ? DEV_TOUCH : DEV_MOUSE;
+}
+/* the pointer and whether anything was pressed, each tick */
 static void read_devices(void) {
   const cw_raw_input *in = cw_input_raw();
-  int before = U.device, now = -1;
   bool pressed_mouse = (in->mouse_pressed & 1) != 0;
   N.moved = in->mouse_x != U.prev_mx || in->mouse_y != U.prev_my;
-  if (pressed_mouse || (N.moved && in->mouse_present && U.prev_mx + U.prev_my != 0)) now = in->mouse_from_touch ? DEV_TOUCH : DEV_MOUSE;
+  U.pointer_now = pressed_mouse || in->mouse_from_touch || (N.moved && in->mouse_present && U.prev_mx + U.prev_my != 0);
   U.prev_mx = in->mouse_x;
   U.prev_my = in->mouse_y;
   bool padany = false, keyany = false;
   for (int i = 0; i < CW_MAX_PADS; i++) {
     const cw_pad_state *p = &in->pads[i];
     if (p->connected && (p->buttons || fabsf(p->axes[CW_AXIS_LX]) > 0.4f || fabsf(p->axes[CW_AXIS_LY]) > 0.4f || p->axes[CW_AXIS_RT] > 0.4f ||
-                         p->axes[CW_AXIS_LT] > 0.4f)) {
-      now = DEV_PAD;
+                         p->axes[CW_AXIS_LT] > 0.4f))
       padany = true;
-    }
   }
-  for (int k = 0; k < CW_KEY_COUNT; k++)
-    if (in->keys_pressed[k]) {
-      now = DEV_KEYS;
-      keyany = true;
-      break;
-    }
+  for (int k = 0; k < CW_KEY_COUNT && !keyany; k++) keyany = in->keys_pressed[k] != 0;
   bool touchany = false;
-  for (int t = 0; t < CW_MAX_TOUCHES; t++)
-    if (in->touches[t].active || in->touches[t].tapped) now = DEV_TOUCH, touchany = true;
-  if (now >= 0) U.device_used = true, U.device = now;
-  else if (!U.device_used) U.device = cw_platform_touch_primary() ? DEV_TOUCH : DEV_PAD;
-  (void)before;
+  for (int t = 0; t < CW_MAX_TOUCHES; t++) touchany |= in->touches[t].active || in->touches[t].tapped;
+  U.pointer_now |= touchany;
   /* a click is seen once per rendered frame however many ticks that frame has */
   uint64_t fr = cw_frame_index();
   N.click = false;
@@ -290,7 +300,8 @@ static void read_devices(void) {
   N.any = padany || keyany || touchany || N.click;
 }
 
-static bool pointer_mode(void) { return U.device == DEV_MOUSE || U.device == DEV_TOUCH; }
+/* the pointer drives the menus: P1's device is the mouse or touch, or it is being used this tick */
+static bool pointer_mode(void) { return U.device == DEV_MOUSE || U.device == DEV_TOUCH || U.pointer_now; }
 static bool in_rect(cw_vec2 m, cw_rect r) { return m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h; }
 
 /* ── drawing helpers ────────────────────────────────────────────────── */
@@ -305,12 +316,78 @@ static float tx_asc(cw_font f, float size) {
   cw_text_style st = { .size = size };
   return cw_font_measure(f, " ", &st).ascent;
 }
+/* ── button prompts in text ─────────────────────────────────────────
+ * Any text may carry {action} markup ("{m_ok} choose", "{steer_l|steer_r}
+ * steer"): the words keep this UI's look (tx_o's outline and shadow) and each
+ * {...} is the engine's glyph for that action's binding on the player's
+ * device (cartwheel/prompt.h, cw_prompt_actions), in its light fill so it
+ * reads on dark slabs and on the mustard chips alike. prompt_player picks
+ * whose device and bindings (per-seat text sets it, then puts back 0). */
+static int prompt_player;
+static float tx_plain_w(cw_font f, const char *s, float size) {
+  cw_text_style st = { .size = size };
+  float w = cw_font_measure(f, s, &st).width;
+  size_t n = strlen(s);
+  if (n && s[n - 1] == ' ') { /* the measure drops trailing spaces */
+    float sp = cw_font_measure(f, "a a", &st).width - cw_font_measure(f, "aa", &st).width;
+    for (; n > 0 && s[n - 1] == ' '; n--) w += sp;
+  }
+  return w;
+}
+/* the actions of one {a|b|...} (up to 4); returns how many */
+static int prompt_acts(const char *o, const char *e, cw_action *acts) {
+  int na = 0;
+  char nm[48];
+  for (const char *q = o + 1; q < e && na < 4;) {
+    const char *bar = memchr(q, '|', (size_t)(e - q));
+    size_t k = bar ? (size_t)(bar - q) : (size_t)(e - q);
+    snprintf(nm, sizeof nm, "%.*s", (int)k, q);
+    acts[na] = cw_action_find(nm);
+    if (acts[na] < 0) cw_error("racer: no action \"%s\" in the prompt \"%s\"", nm, o);
+    na++;
+    q += k + (bar ? 1 : 0);
+  }
+  return na;
+}
+static void tx_o(cw_font f, const char *s, float x, float cy, float size, cw_color c, txopt o);
+/* lay out (and with draw, draw) text with markup from its left edge; returns its width */
+static float tx_prompt_run(cw_font f, const char *s, float x, float cy, float size, cw_color c, txopt o, bool draw) {
+  float w = 0, gap = size * 0.25f, gs = size * 1.05f;
+  char buf[256];
+  for (const char *p = s; *p;) {
+    const char *op = strchr(p, '{');
+    size_t n = op ? (size_t)(op - p) : strlen(p);
+    if (n) {
+      snprintf(buf, sizeof buf, "%.*s", (int)n, p);
+      if (draw) tx_o(f, buf, x + w, cy, size, c, (txopt){ .align = CW_ALIGN_LEFT, .outline = o.outline, .no_shadow = o.no_shadow });
+      w += tx_plain_w(f, buf, size);
+    }
+    if (!op) break;
+    const char *e = strchr(op, '}');
+    if (!e) break;
+    cw_action acts[4];
+    int na = prompt_acts(op, e, acts);
+    cw_vec2 g = cw_prompt_actions_size(acts, na, prompt_player, gs);
+    if (draw) cw_prompt_actions(acts, na, prompt_player, cw_v2(x + w + gap * 0.5f, cy - g.y * 0.5f), gs, rgba(1, 1, 1, c.a));
+    w += g.x + gap;
+    p = e + 1;
+  }
+  return w;
+}
 static float tx_width(cw_font f, const char *s, float size) {
+  if (strchr(s, '{')) return tx_prompt_run(f, s, 0, 0, size, rgba(1, 1, 1, 1), (txopt){ 0 }, false);
   cw_text_style st = { .size = size };
   return cw_font_measure(f, s, &st).width;
 }
 /* text with its cap-height centred on cy (so rows of different fonts line up) */
 static void tx_o(cw_font f, const char *s, float x, float cy, float size, cw_color c, txopt o) {
+  if (strchr(s, '{')) { /* button prompts in it */
+    float w = tx_prompt_run(f, s, 0, 0, size, c, o, false);
+    if (o.align == CW_ALIGN_RIGHT) x -= w;
+    else if (o.align == CW_ALIGN_CENTER) x -= w * 0.5f;
+    tx_prompt_run(f, s, x, cy, size, c, o, true);
+    return;
+  }
   cw_text_style st = { .size = size, .color = c };
   st.outline_width = o.outline > 0 ? o.outline : size * 0.075f + 0.8f;
   st.outline_color = rgba(0.05f, 0.03f, 0.04f, c.a * 0.95f);
@@ -731,6 +808,7 @@ static void draw_battle_results(float W, float H, float s);
 /* ── the screen flow ────────────────────────────────────────────────── */
 
 void ui_init(void) {
+  U.device = DEV_PAD; /* until the first frame asks the engine */
   U.a_start = cw_action_find("start");
   U.a_back = cw_action_find("back");
   U.m_left = cw_action_find("m_left");
@@ -1085,6 +1163,7 @@ void ui_fixed(void) {
 }
 
 void ui_render(float W, float H) {
+  read_device();
   U.time = (float)U.ticks / 60.0f;
   hud_draw(W, H);
   scr_draw(W, H);

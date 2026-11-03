@@ -76,27 +76,11 @@ static void draw_pad_icon(cw_vec2 c, float w, cw_color col, float s) {
   cw_r2d_circle(cw_v2(c.x + w * 0.12f, c.y + h * 0.18f), w * 0.09f, 12, INK);
   cw_r2d_rect(cw_rect_make(c.x - w * 0.24f - w * 0.02f, c.y + h * 0.1f, w * 0.04f, w * 0.13f), INK);
   cw_r2d_rect(cw_rect_make(c.x - w * 0.31f, c.y + h * 0.145f, w * 0.14f, w * 0.04f), INK);
-  static const cw_color BC[4] = { { 0.4f, 0.85f, 0.35f, 1 }, { 0.95f, 0.3f, 0.25f, 1 }, { 0.3f, 0.55f, 0.95f, 1 }, { 1.0f, 0.82f, 0.2f, 1 } };
+  /* the face buttons in one ink: no maker's colours */
   static const float bx[4] = { 0, 1, -1, 0 }, by[4] = { 1, 0, 0, -1 };
-  for (int i = 0; i < 4; i++) cw_r2d_circle(cw_v2(c.x + w * 0.24f + bx[i] * w * 0.08f, c.y - h * 0.05f + by[i] * w * 0.08f), w * 0.04f, 8, BC[i]);
+  for (int i = 0; i < 4; i++) cw_r2d_circle(cw_v2(c.x + w * 0.24f + bx[i] * w * 0.08f, c.y - h * 0.05f + by[i] * w * 0.08f), w * 0.04f, 8, INK);
 }
 
-/* a button chip: a round face button, a key cap or a trigger */
-static void chip(cw_vec2 c, const char *label, cw_color col, float h, float s, bool round) {
-  float w = fmaxf(h, tx_width(U.f_hud, label, h * 0.62f) + h * 0.5f);
-  cw_rect r = cw_rect_make(c.x, c.y - h * 0.5f, w, h);
-  if (round) {
-    cw_r2d_circle(cw_v2(c.x + h * 0.5f, c.y), h * 0.5f + 1.5f * s, 18, INK);
-    cw_r2d_circle(cw_v2(c.x + h * 0.5f, c.y), h * 0.5f - 0.5f, 18, col);
-    tx_o(U.f_hud, label, c.x + h * 0.5f, c.y, h * 0.6f, INK, (txopt){ .align = CW_ALIGN_CENTER, .outline = 0.01f, .no_shadow = true });
-  } else {
-    cw_r2d_round_rect(cw_rect_make(r.x - 1.5f * s, r.y - 1.5f * s, r.w + 3 * s, r.h + 3 * s), h * 0.22f, 4, INK);
-    cw_r2d_round_rect(r, h * 0.2f, 4, col);
-    cw_r2d_round_rect(cw_rect_make(r.x + 1.5f * s, r.y + 1.5f * s, r.w - 3 * s, r.h * 0.55f), h * 0.18f, 4, rgba(1, 1, 1, 0.22f));
-    tx_o(U.f_hud, label, r.x + r.w * 0.5f, c.y - h * 0.02f, h * 0.55f, INK, (txopt){ .align = CW_ALIGN_CENTER, .outline = 0.01f, .no_shadow = true });
-  }
-}
-static float chip_w(const char *label, float h) { return fmaxf(h, tx_width(U.f_hud, label, h * 0.62f) + h * 0.5f); }
 
 /* ── shared screen pieces ───────────────────────────────────────────── */
 
@@ -1071,7 +1055,7 @@ static void draw_title(float W, float H, float s) {
     float t = clamp01(((float)U.ticks - 25) / 20.0f);
     para(cw_rect_make(W * 0.5f - 250 * s, ly + logo_size * 0.62f, 500 * s, 34 * s), 12 * s, alpha(rgba(0.1f, 0.07f, 0.09f, 0.88f), t));
     tx(U.f_hud, "Loops, jumps and junk. Eight tracks.", W * 0.5f, ly + logo_size * 0.62f + 17 * s, 20 * s, alpha(CREAM, t), CW_ALIGN_CENTER);
-    const char *p = dev_hint("Press START", "Press ENTER", "Click to start", "Tap to start");
+    const char *p = dev_hint("Press {m_ok}", "Press {m_ok}", "Click to start", "Tap to start");
     float blink = 0.8f + 0.2f * cw_sin(U.time * 4.5f);
     float py = H * (por ? 0.7f : 0.78f);
     float bw = fmaxf(tx_width(U.f_title, p, 36 * s) + 90 * s, 300 * s);
@@ -1090,7 +1074,7 @@ static void draw_title(float W, float H, float s) {
     float ap = clamp01(((float)U.mt - (float)i * 4) / 18.0f);
     draw_button(list_rect_n(i, n, W, H, por ? 0.36f : 0.335f), TITLE_ITEMS[i], U.sel == i, true, s, ap);
   }
-  hint_line(W, H, s, dev_hint("D-pad move   (A) choose   (B) back", "Arrows move   Enter choose   Esc back", "Click to choose", "Tap to choose"));
+  hint_line(W, H, s, dev_hint("{m_up|m_down} move   {m_ok} choose   {back} back", "{m_up|m_down} move   {m_ok} choose   {back} back", "Click to choose", "Tap to choose"));
 }
 
 /* ── drawing: join ──────────────────────────────────────────────────── */
@@ -1119,10 +1103,12 @@ static void draw_join(float W, float H, float s) {
     float tx_x = por ? r.x + r.w * 0.58f : r.x + r.w * 0.5f;
     float ty = por ? r.y + r.h * 0.45f : r.y + r.h * 0.66f;
     tx(U.f_small, dev, tx_x, ty, 20 * s, DIM, CW_ALIGN_CENTER);
-    const char *st = on ? (i == 0 ? "READY" : "JOINED") : present ? dev_hint("Press (A) to join", "Press (A) to join", "Press (A) to join", "Press (A) to join") : "Plug one in";
+    const char *st = on ? (i == 0 ? "READY" : "JOINED") : present ? "Press {m_ok} to join" : "Plug one in";
     float blink = on ? 1 : present ? 0.55f + 0.45f * cw_sin(U.time * 6) : 0.5f;
+    prompt_player = i; /* this seat's pad */
     tx(U.f_hud, st, tx_x, ty + 34 * s, 22 * s, alpha(on ? LIME : present ? MUSTARD : DIM, blink), CW_ALIGN_CENTER);
-    if (on && i > 0) tx(U.f_small, "(B) leave", tx_x, ty + 60 * s, 16 * s, DIM, CW_ALIGN_CENTER);
+    if (on && i > 0) tx(U.f_small, "{back} leave", tx_x, ty + 60 * s, 16 * s, DIM, CW_ALIGN_CENTER);
+    prompt_player = 0;
   }
   cw_rect cr = join_continue(W, H);
   bool can = n >= 2;
@@ -1256,8 +1242,10 @@ static void draw_vpanel(int i, int n, float W, float H, float s) {
   /* ready */
   cw_rect rb = SHIFT(l.ready);
   slab(rb, 10 * sp, ready ? LIME : (i == 0 && pointer_mode() && in_rect(N.m, l.ready)) ? alpha(MUSTARD, 0.95f) : alpha(MUSTARD, 0.85f), sp);
-  const char *rl = ready ? "READY!" : (i == 0 ? dev_hint("(A) READY", "ENTER: READY", "READY", "READY") : "(A) READY");
+  const char *rl = ready ? "READY!" : (i == 0 ? dev_hint("{m_ok} READY", "{m_ok} READY", "READY", "READY") : "{m_ok} READY");
+  prompt_player = i; /* this seat's pad */
   tx_o(U.f_title, rl, rb.x + rb.w * 0.5f + 4 * sp, rb.y + rb.h * 0.5f, 18 * sp, INK, (txopt){ .align = CW_ALIGN_CENTER, .outline = 0.01f, .no_shadow = true });
+  prompt_player = 0;
 #undef SHIFT
 }
 
@@ -1273,8 +1261,9 @@ static void draw_vehicle(float W, float H, float s) {
   }
   draw_button(back_button_rect(W, H), "BACK", false, true, s * 0.8f, 1);
   hint_line(W, H, s,
-            n > 1 ? "Left / right: ride    Up / down: paint    (A) ready    (B) undo"
-                  : dev_hint("D-pad: ride and paint    (A) ready    (B) back", "Arrows: ride and paint   Enter: ready   Esc: back", "Click a ride, a paint, then READY", "Tap a ride, a paint, then READY"));
+            n > 1 ? "{m_left|m_right} ride    {m_up|m_down} paint    {m_ok} ready    {back} undo"
+                  : dev_hint("{m_left|m_right|m_up|m_down} ride and paint    {m_ok} ready    {back} back", "{m_left|m_right|m_up|m_down} ride and paint    {m_ok} ready    {back} back",
+                             "Click a ride, a paint, then READY", "Tap a ride, a paint, then READY"));
 }
 
 /* ── drawing: map select ────────────────────────────────────────────── */
@@ -1386,7 +1375,7 @@ static void draw_map(float W, float H, float s) {
   bool sf = U.mapfocus == 0 || U.mapfocus == nr + 1;
   draw_button(m.start, U.gmode == RM_TRIAL ? "START TRIAL" : "START RACE", sf, true, s * 0.82f, clamp01(((float)U.mt - 22) / 14.0f));
   draw_button(back_button_rect(W, H), "BACK", false, true, s * 0.8f, 1);
-  hint_line(W, H, s, dev_hint("D-pad: choose   (A) go   down: options   (B) back", "Arrows choose   Enter: go   Down: options   Esc: back", "Click a track, again to go", "Tap a track, then START"));
+  hint_line(W, H, s, dev_hint("{m_left|m_right|m_up|m_down} choose   {m_ok} go   {m_down} options   {back} back", "{m_left|m_right|m_up|m_down} choose   {m_ok} go   {m_down} options   {back} back", "Click a track, again to go", "Tap a track, then START"));
 }
 
 /* ── drawing: options and the controls page ─────────────────────────── */
@@ -1440,7 +1429,7 @@ static void draw_options(float W, float H, float s) {
       tri(cw_v2(r.x + r.w - 22 * s, r.y + r.h * 0.5f), 9 * s, 0, sel ? INK : MUSTARD);
     }
   }
-  hint_line(W, H, s, dev_hint("D-pad: move and adjust   (A) choose   (B) back", "Arrows: move and adjust   Enter: choose   Esc: back", "Click to choose, drag the bars", "Tap to choose, drag the bars"));
+  hint_line(W, H, s, dev_hint("{m_left|m_right|m_up|m_down} move and adjust   {m_ok} choose   {back} back", "{m_left|m_right|m_up|m_down} move and adjust   {m_ok} choose   {back} back", "Click to choose, drag the bars", "Tap to choose, drag the bars"));
   /* what an assist does, for the row picked */
   if (U.opt_sel == OI_ASSIST_STEER || U.opt_sel == OI_ASSIST_GAS || U.opt_sel == OI_VOICE) {
     const char *d = U.opt_sel == OI_VOICE ? "The voice that calls the race: the countdown, your place, the hits, the big air."
@@ -1451,25 +1440,55 @@ static void draw_options(float W, float H, float s) {
   }
 }
 
+/* one row of the controls screen: the actions (one, or a pair as "a|b") and what they do */
 typedef struct ctl_row {
-  const char *chips[3];
+  const char *acts;
   const char *what;
 } ctl_row;
+
+/* the glyphs of a row's actions as bound on a pad (pad) or the keyboard: each
+ * binding of that kind (up to two) as the engine draws it, or a pair as one
+ * stick, d-pad or two keycaps; returns the width drawn. They follow the
+ * bindings, so a rebinding shows here too. */
+static float ctl_glyphs(const char *acts, bool pad, float x, float cy, float h, float maxw) {
+  float w = 0, gap = h * 0.25f;
+  const char *bar = strchr(acts, '|');
+  if (bar) { /* a pair: drawn for a stand-in player on that device (player 4, who has no prompts on this screen) */
+    char a[32], b[32];
+    snprintf(a, sizeof a, "%.*s", (int)(bar - acts), acts);
+    snprintf(b, sizeof b, "%s", bar + 1);
+    cw_action pr[2] = { cw_action_find(a), cw_action_find(b) };
+    cw_prompt_force_device(3, pad ? CW_PROMPT_PAD : CW_PROMPT_KEYBOARD);
+    cw_vec2 g = cw_prompt_actions_size(pr, 2, 3, h);
+    if (g.x <= maxw) cw_prompt_actions(pr, 2, 3, cw_v2(x, cy - g.y * 0.5f), h, rgba(1, 1, 1, 1)), w = g.x;
+    cw_prompt_force_device(3, CW_PROMPT_NONE);
+    return w;
+  }
+  cw_binding bs[CW_INPUT_MAX_BINDINGS];
+  int n = cw_action_bindings(cw_action_find(acts), bs, CW_INPUT_MAX_BINDINGS), shown = 0;
+  for (int i = 0; i < n && shown < 2; i++) {
+    bool on_pad = bs[i].kind == CW_BIND_PAD_BUTTON || bs[i].kind == CW_BIND_PAD_AXIS;
+    if (pad ? !on_pad : bs[i].kind != CW_BIND_KEY) continue;
+    cw_vec2 g = cw_prompt_binding_size(bs[i], h);
+    if (w + g.x > maxw) break;
+    cw_prompt_binding(bs[i], cw_v2(x + w, cy - g.y * 0.5f), h, rgba(1, 1, 1, 1));
+    w += g.x + gap;
+    shown++;
+  }
+  return w;
+}
 
 static void draw_controls(float W, float H, float s) {
   backdrop(W, H, s, 0.88f);
   header(W, H, s, "CONTROLS", NULL);
   bool por = is_portrait(W, H);
-  static const ctl_row PADROWS[] = {
-    { { "A", "RT" }, "Accelerate" }, { { "B", "LT" }, "Brake and reverse" }, { { "STICK" }, "Steer, and tilt in the air" }, { { "LB", "RB" }, "Drift: hold to slide, let go for a boost" },
-    { { "X" }, "Use your item" }, { { "Y" }, "Do a trick in the air" }, { { "R-STICK" }, "Look behind" }, { { "BACK" }, "Hold to get back on the track" }, { { "START" }, "Pause" },
+  static const ctl_row ROWS[] = {
+    { "thr_fwd", "Accelerate" }, { "thr_back", "Brake and reverse" }, { "steer_l|steer_r", "Steer" }, { "pitch_up|pitch_dn", "Tilt in the air" },
+    { "drift", "Drift: hold to slide, let go for a boost" }, { "item", "Use your item" }, { "trick", "Do a trick in the air" }, { "look", "Look behind" },
+    { "reset", "Hold to get back on the track" }, { "start", "Pause" },
   };
-  static const ctl_row KEYROWS[] = {
-    { { "W", "UP" }, "Accelerate" }, { { "S", "DOWN" }, "Brake and reverse" }, { { "A D", "LEFT RIGHT" }, "Steer" }, { { "R", "F" }, "Tilt in the air" },
-    { { "SHIFT" }, "Drift: hold to slide, let go for a boost" }, { { "E", "CTRL" }, "Use your item" }, { { "Q" }, "Do a trick in the air" }, { { "C" }, "Look behind" },
-    { { "BACKSPACE" }, "Hold to get back on the track" }, { { "ESC", "P" }, "Pause" },
-  };
-  int np = (int)(sizeof PADROWS / sizeof PADROWS[0]), nk = (int)(sizeof KEYROWS / sizeof KEYROWS[0]);
+  const ctl_row *PADROWS = ROWS, *KEYROWS = ROWS;
+  int np = (int)(sizeof ROWS / sizeof ROWS[0]), nk = np;
   float gx = W * 0.03f, gw = W * 0.94f, gap = 14 * s;
   float y0 = 96 * s, hh = H - y0 - 104 * s;
   cw_rect pr, kr;
@@ -1496,25 +1515,13 @@ static void draw_controls(float W, float H, float s) {
       float cy = top + (float)i * rh + rh * 0.5f;
       float x = r.x + 18 * s;
       float ch = rh * 0.74f;
-      for (int c = 0; c < 3 && rows[i].chips[c]; c++) {
-        const char *lb = rows[i].chips[c];
-        bool round = !side && strlen(lb) == 1;
-        static const cw_color BC[4] = { { 0.4f, 0.85f, 0.35f, 1 }, { 0.95f, 0.3f, 0.25f, 1 }, { 0.3f, 0.55f, 0.95f, 1 }, { 1.0f, 0.82f, 0.2f, 1 } };
-        cw_color col = CREAM;
-        if (round) col = lb[0] == 'A' ? BC[0] : lb[0] == 'B' ? BC[1] : lb[0] == 'X' ? BC[2] : BC[3];
-        else if (!side) col = rgba(0.75f, 0.78f, 0.85f, 1);
-        else col = rgba(0.92f, 0.9f, 0.84f, 1);
-        float cwv = chip_w(lb, ch);
-        if (x + cwv > r.x + cwid) break;
-        chip(cw_v2(x, cy), lb, col, ch, s, round);
-        x += cwv + 6 * s;
-      }
+      ctl_glyphs(rows[i].acts, !side, x, cy, ch, r.x + cwid - x);
       tx_fit(U.f_hud, rows[i].what, r.x + cwid + 8 * s, cy, 17 * s, r.w - cwid - 24 * s, CREAM, CW_ALIGN_LEFT);
     }
   }
   tx_fit(U.f_small, "Players 2 to 4 each use a gamepad. On a touch screen: left thumb steers, the buttons on the right do the rest.", W * 0.5f, H - 74 * s, 17 * s, W * 0.94f,
          alpha(CREAM, 0.85f), CW_ALIGN_CENTER);
-  hint_line(W, H, s, dev_hint("(A) or (B) to go back", "Any key to go back", "Click to go back", "Tap to go back"));
+  hint_line(W, H, s, dev_hint("{m_ok} or {back} to go back", "Any key to go back", "Click to go back", "Tap to go back"));
 }
 
 /* ── drawing: pause ─────────────────────────────────────────────────── */
@@ -1547,7 +1554,7 @@ static void draw_pause(float W, float H, float s) {
   for (int i = 0; i < 5; i++)
     draw_button(list_rect(i, W, H, is_portrait(W, H) ? 0.3f : 0.3f), i == 1 && game_is_trial() ? "RETRY" : i == 1 && game_sim()->battle ? "RESTART BATTLE" : PAUSE_ITEMS[i], U.sel == i, true, s,
                 clamp01(((float)U.mt - (float)i * 3) / 14.0f));
-  hint_line(W, H, s, dev_hint("D-pad move   (A) choose   START resume", "Arrows move   Enter choose   Esc resume", "Click to choose", "Tap to choose"));
+  hint_line(W, H, s, dev_hint("{m_up|m_down} move   {m_ok} choose   {start} resume", "{m_up|m_down} move   {m_ok} choose   {start} resume", "Click to choose", "Tap to choose"));
 }
 
 /* ── drawing: results ───────────────────────────────────────────────── */
@@ -1744,7 +1751,7 @@ static void draw_results(float W, float H, float s) {
     for (int i = 0; i < nb; i++)
       draw_button(res_button_n(i, nb, W, H), U.cup.on ? CL[i] : BL[i], U.sel == i && t > 110, true, s * 0.8f, clamp01(((float)t - 130 - (float)i * 4) / 14.0f));
   } else {
-    tx(U.f_hud, dev_hint("(A) to see the results", "Enter to see the results", "Click to see the results", "Tap to see the results"), W * 0.5f, H - 50 * s, 22 * s, alpha(CREAM, 0.5f + 0.4f * cw_sin(U.time * 5)),
+    tx(U.f_hud, dev_hint("{m_ok} to see the results", "{m_ok} to see the results", "Click to see the results", "Tap to see the results"), W * 0.5f, H - 50 * s, 22 * s, alpha(CREAM, 0.5f + 0.4f * cw_sin(U.time * 5)),
        CW_ALIGN_CENTER);
   }
 }

@@ -235,7 +235,7 @@ static void draw_trial_results(float W, float H, float s) {
   /* the buttons */
   static const char *const BL[3] = { "RETRY", "NEXT MAP", "MENU" };
   for (int i = 0; i < 3; i++) draw_button(res_button(i, W, H), BL[i], U.sel == i && t > 14, true, s * 0.8f, clamp01(((float)t - 14 - (float)i * 4) / 12.0f));
-  tx(U.f_small, dev_hint("(X) also retries", "E also retries", "", "ITEM also retries"), W * 0.5f, H - 11 * s, 14 * s, alpha(DIM, 0.85f), CW_ALIGN_CENTER);
+  tx(U.f_small, dev_hint("{item} also retries", "{item} also retries", "", "ITEM also retries"), W * 0.5f, H - 11 * s, 14 * s, alpha(DIM, 0.85f), CW_ALIGN_CENTER);
 }
 
 /* ── the trial's HUD panels ─────────────────────────────────────────── */
@@ -299,7 +299,7 @@ static void hud_trial(const hv *g) {
       tx(U.f_small, "set a time to make one", cx, y + 44 * s, hpx(14, s, 10), alpha(DIM, 0.85f), CW_ALIGN_CENTER);
     }
     /* the retry button, in reach of a thumb */
-    tx(U.f_small, dev_hint("(X) RETRY", "E: RETRY", "", "ITEM: RETRY"), cx, y + h + 14 * s, hpx(15, s, 11), alpha(CREAM, 0.7f), CW_ALIGN_CENTER);
+    tx(U.f_small, dev_hint("{item} RETRY", "{item} RETRY", "", "ITEM: RETRY"), cx, y + h + 14 * s, hpx(15, s, 11), alpha(CREAM, 0.7f), CW_ALIGN_CENTER);
   }
 }
 
@@ -719,7 +719,7 @@ static void draw_cup(float W, float H, float s) {
   bool sf = U.cup_focus == 0 || U.cup_focus == nr + 1;
   draw_button(l.start, open ? "START CUP" : "LOCKED", sf, open, s * 0.82f, clamp01(((float)U.mt - 22) / 14.0f));
   draw_button(back_button_rect(W, H), "BACK", false, true, s * 0.8f, 1);
-  hint_line(W, H, s, dev_hint("D-pad: choose   (A) go   down: options   (B) back", "Arrows choose   Enter: go   Down: options   Esc: back", "Click a cup, again to go", "Tap a cup, then START CUP"));
+  hint_line(W, H, s, dev_hint("{m_left|m_right|m_up|m_down} choose   {m_ok} go   {m_down} options   {back} back", "{m_left|m_right|m_up|m_down} choose   {m_ok} go   {m_down} options   {back} back", "Click a cup, again to go", "Tap a cup, then START CUP"));
 }
 
 /* ── the standings between races and the final ─────────────────────── */

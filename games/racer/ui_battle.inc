@@ -1076,7 +1076,7 @@ static void draw_arena_mode(float W, float H, float s) {
     }
   }
   draw_button(back_button_rect(W, H), "BACK", false, true, s * 0.8f, 1);
-  hint_line(W, H, s, dev_hint("D-pad: choose   (A) go   (B) back", "Arrows choose   Enter: go   Esc: back", "Click a round, again to go", "Tap a round"));
+  hint_line(W, H, s, dev_hint("{m_left|m_right|m_up|m_down} choose   {m_ok} go   {back} back", "{m_left|m_right|m_up|m_down} choose   {m_ok} go   {back} back", "Click a round, again to go", "Tap a round"));
 }
 
 /* ── the arena select ─────────────────────────────────────────────────── */
@@ -1264,7 +1264,7 @@ static void draw_arena(float W, float H, float s) {
   bool sf = U.bt.focus == 0 || U.bt.focus == BO_KINDS + 1;
   draw_button(l.start, U.bt.mode == AM_BALLOON ? "START BATTLE" : "START", sf, true, s * 0.82f, clamp01(((float)U.mt - 22) / 14.0f));
   draw_button(back_button_rect(W, H), "BACK", false, true, s * 0.8f, 1);
-  hint_line(W, H, s, dev_hint("D-pad: choose   (A) go   down: options   (B) back", "Arrows choose   Enter: go   Down: options   Esc: back", "Click an arena, again to go", "Tap an arena, then START"));
+  hint_line(W, H, s, dev_hint("{m_left|m_right|m_up|m_down} choose   {m_ok} go   {m_down} options   {back} back", "{m_left|m_right|m_up|m_down} choose   {m_ok} go   {m_down} options   {back} back", "Click an arena, again to go", "Tap an arena, then START"));
 }
 
 /* ── the results ──────────────────────────────────────────────────────── */
@@ -1354,7 +1354,7 @@ static void draw_battle_results(float W, float H, float s) {
     tx(U.f_hud, why, W * 0.5f, r.y + r.h + 16 * s, 18 * s, alpha(CREAM, head), CW_ALIGN_CENTER);
   }
   if (panel <= 0) {
-    tx(U.f_hud, dev_hint("(A) to see the results", "Enter to see the results", "Click to see the results", "Tap to see the results"), W * 0.5f, H - 50 * s, 22 * s, alpha(CREAM, 0.5f + 0.4f * cw_sin(U.time * 5)),
+    tx(U.f_hud, dev_hint("{m_ok} to see the results", "{m_ok} to see the results", "Click to see the results", "Tap to see the results"), W * 0.5f, H - 50 * s, 22 * s, alpha(CREAM, 0.5f + 0.4f * cw_sin(U.time * 5)),
        CW_ALIGN_CENTER);
     return;
   }
