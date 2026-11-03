@@ -21,6 +21,7 @@
 
 #include "cartwheel/debug.h"
 #include "cartwheel/platform.h"
+#include "cartwheel/prompt.h"
 #include "cartwheel/quality.h"
 #include "cartwheel/quality_menu.h"
 #include "cartwheel/render2d.h"
@@ -72,7 +73,7 @@ static struct {
   int32_t state, state_ticks, ticks, level, cursor;
   sim S, prev;
   cw_node scene, camera, sky, sun;
-  cw_action a_left, a_right, a_up, a_down, a_jump, a_brace, a_silk, a_start, a_back, a_pause;
+  cw_action a_left, a_right, a_up, a_down, a_jump, a_brace, a_silk, a_start, a_back, a_pause, a_settings;
   bool stopmotion;
   int32_t locked_bumps;
   uint32_t state_hash;
@@ -82,11 +83,16 @@ static struct {
 } G;
 
 static int32_t input_mode, dbg_unlocked, dbg_cleared;
-static bool device_used;
-enum { DEV_MOUSE, DEV_PAD, DEV_KEYS, DEV_TOUCH };
-static int last_device = DEV_MOUSE;
+/* P1's device, as the engine's prompts see it (cartwheel/prompt.h): it picks
+ * the prompts and the touch controls. Asked once a frame in update (prompts
+ * are presentation, never the fixed tick); input.mode publishes it (0 mouse,
+ * 1 pad, 2 keys, 3 touch). */
+static cw_prompt_device p1_device = CW_PROMPT_MOUSE;
 static uint32_t prev_mouse;
 static bool mouse_clicked;
+/* a pad or the keyboard reads glyphs; the mouse and touch click or tap what they see */
+static bool glyphs(void) { return p1_device == CW_PROMPT_PAD || p1_device == CW_PROMPT_KEYBOARD; }
+static bool on_touch(void) { return p1_device == CW_PROMPT_TOUCH; }
 
 /* ── on-screen touch controls (logical window coordinates) ─────────── */
 
@@ -150,26 +156,27 @@ static void touch_layout(void) {
   }
 }
 
-static void read_devices(void) {
+static void read_mouse(void) {
   const cw_raw_input *in = cw_input_raw();
-  int before = last_device;
   mouse_clicked = (in->mouse_buttons & 1) && !(prev_mouse & 1);
-  if (mouse_clicked) last_device = in->mouse_from_touch ? DEV_TOUCH : DEV_MOUSE;
   prev_mouse = in->mouse_buttons;
-  for (int i = 0; i < CW_MAX_TOUCHES; i++)
-    if (in->touches[i].active) last_device = DEV_TOUCH;
-  for (int i = 0; i < CW_MAX_PADS; i++) {
-    const cw_pad_state *p = &in->pads[i];
-    if (p->connected && (p->buttons || fabsf(p->axes[CW_AXIS_LX]) > 0.3f || fabsf(p->axes[CW_AXIS_LY]) > 0.3f)) last_device = DEV_PAD;
+}
+static void read_device(void) {
+  /* a phone starts on touch before its first tap. The hosts report pad 0 as
+   * connected with no pad in hand, and the engine prefers a connected pad, so
+   * until P1 presses a pad button or a key a touch-first device is held on
+   * touch (a tap is the engine's own touch switch) */
+  static bool held, pressed;
+  if (!pressed) {
+    const cw_raw_input *in = cw_input_raw();
+    for (int i = 0; i < CW_MAX_PADS; i++) pressed |= in->pads[i].pressed != 0;
+    for (int k = 0; k < CW_KEY_COUNT && !pressed; k++) pressed |= in->keys_pressed[k] != 0;
+    bool hold = !pressed && cw_platform_touch_primary();
+    if (hold != held) cw_prompt_force_device(0, hold ? CW_PROMPT_TOUCH : CW_PROMPT_NONE);
+    held = hold;
   }
-  for (int k = 0; k < CW_KEY_COUNT; k++)
-    if (in->keys_pressed[k]) {
-      last_device = DEV_KEYS;
-      break;
-    }
-  if (last_device != before) device_used = true;
-  if (!device_used) last_device = cw_platform_touch_primary() ? DEV_TOUCH : DEV_MOUSE;
-  input_mode = last_device;
+  p1_device = cw_prompt_device_of(0);
+  input_mode = p1_device == CW_PROMPT_PAD ? 1 : p1_device == CW_PROMPT_KEYBOARD ? 2 : p1_device == CW_PROMPT_TOUCH ? 3 : 0;
 }
 
 /* ── audio (optional: the game runs silent if the files are missing) ── */
@@ -253,6 +260,26 @@ static void start_level(int level) {
   G.new_best = 0;
 }
 
+/* bind <action> <bindings>: replace an action's bindings (cartwheel/input.h
+ * binding text, "pad:north, key:v"), as a player rebinding a control would;
+ * every prompt shows the new binding from that frame (tests of the prompts) */
+static void cmd_bind(int argc, const char **argv, cw_reply *r) {
+  if (argc < 3) {
+    cw_reply_error(r, "usage: bind <action> <bindings>");
+    return;
+  }
+  cw_action a = cw_action_find(argv[1]);
+  char list[160] = "";
+  for (int i = 2; i < argc; i++) snprintf(list + strlen(list), sizeof list - strlen(list), "%s%s", i > 2 ? " " : "", argv[i]);
+  cw_action_clear_bindings(a);
+  if (!cw_action_bind_text(a, list)) {
+    cw_reply_error(r, "bind: no action %s or bad bindings \"%s\"", argv[1], list);
+    return;
+  }
+  cw_reply_printf(r, "{\"action\":\"%s\",\"bindings\":", argv[1]);
+  cw_reply_str(r, list);
+  cw_reply_raw(r, "}");
+}
 /* Inspection command: defer scene replacement to the fixed tick. Does not
  * unlock levels or write progression data. */
 static int pending_level=-1;
@@ -313,6 +340,7 @@ static void init(void *u) {
   G.a_start = cw_action_find("start");
   G.a_back = cw_action_find("back");
   G.a_pause = cw_action_find("pause");
+  G.a_settings = cw_action_find("settings");
   touch_layout();
   audio_init();
   font_ui = cw_font_load("fonts/PatrickHand-Regular.ttf", NULL);
@@ -325,6 +353,7 @@ static void init(void *u) {
 
   G.stopmotion = true;
   cw_debug_command("level", "level <1..5>: inspect a playable level without changing unlocks",cmd_level);
+  cw_debug_command("bind", "bind <action> <bindings>: replace an action's bindings (binding text, as input.cfg writes it)", cmd_bind);
   cw_debug_i32("game.state", &G.state);
   cw_debug_i32("game.level", &G.level);
   cw_debug_i32("ticks", &G.ticks);
@@ -394,7 +423,7 @@ static void fixed(void *u, double dt) {
   if(pending_level>=0){int level=pending_level;pending_level=-1;start_level(level);}
   G.ticks++;
   G.state_ticks++;
-  read_devices();
+  read_mouse();
   touch_live = G.state == GS_PLAY;
   touch_layout();
   for (int i = 0; i < SFX_COUNT; i++)
@@ -533,6 +562,7 @@ static void sync_hook(cw_tree *t, double alpha, void *u) {
 
 static void gfx_input(void);
 static void update(void *u, double dt) {
+  read_device();
   gfx_input();
   cw_quality_auto_measure(G.state == GS_PLAY); /* the preset steps down when play runs slow */
   (void)u;
@@ -579,6 +609,51 @@ static void text(const char *s, float x, float y, float size, cw_color c, cw_tex
   cw_text_style st = { .size = size, .color = c, .align = al, .wrap_width = wrap };
   cw_r2d_text(font_ui, s, cw_v2(x, y), &st);
 }
+/* text with button prompts in it ({jump}, {left|right}: cartwheel/prompt.h)
+ * for P1's device, centred in [x, x + wrap]. The paper look keeps its ink:
+ * the words are drawn as text() draws them and each {action} as the
+ * engine's glyph in its light fill (cw_prompt_actions), laid out here, so a
+ * glyph reads as rings and dots on the paper instead of an inked blob. */
+static float ptext_run(const char *s, float x, float y, float size, cw_color c, bool draw) {
+  cw_text_style st = { .size = size, .color = c };
+  float lh = cw_font_measure(font_ui, "Ag", &st).height, gap = size * 0.25f;
+  float space = cw_font_measure(font_ui, "a a", &st).width - cw_font_measure(font_ui, "aa", &st).width;
+  cw_color fill = rgba(1, 1, 1, c.a);
+  float w = 0;
+  char buf[160];
+  for (const char *p = s; *p;) {
+    const char *o = strchr(p, '{');
+    size_t n = o ? (size_t)(o - p) : strlen(p);
+    if (n) { /* a run of words */
+      snprintf(buf, sizeof buf, "%.*s", (int)n, p);
+      float tw = cw_font_measure(font_ui, buf, &st).width;
+      for (size_t t = n; t > 0 && buf[t - 1] == ' '; t--) tw += space; /* the measure drops trailing spaces */
+      if (draw) cw_r2d_text(font_ui, buf, cw_v2(x + w, y), &st);
+      w += tw;
+    }
+    if (!o) break;
+    const char *e = strchr(o, '}');
+    if (!e) break;
+    cw_action acts[4];
+    int na = 0;
+    for (const char *q = o + 1; q < e && na < 4;) { /* {a} or {a|b} or {a|b|c|d} */
+      const char *bar = memchr(q, '|', (size_t)(e - q));
+      size_t k = bar ? (size_t)(bar - q) : (size_t)(e - q);
+      snprintf(buf, sizeof buf, "%.*s", (int)k, q);
+      acts[na++] = cw_action_find(buf);
+      q += k + (bar ? 1 : 0);
+    }
+    cw_vec2 g = cw_prompt_actions_size(acts, na, 0, size);
+    if (draw) cw_prompt_actions(acts, na, 0, cw_v2(x + w + gap * 0.5f, y + (lh - g.y) * 0.5f), size, fill);
+    w += g.x + gap;
+    p = e + 1;
+  }
+  return w;
+}
+static void ptext(const char *s, float x, float y, float size, cw_color c, float wrap) {
+  float w = ptext_run(s, 0, 0, size, c, false);
+  ptext_run(s, x + (wrap - w) * 0.5f, y, size, c, true);
+}
 static void title_text(const char *s, float x, float y, float size, cw_color c, cw_text_align al, float wrap) {
   cw_text_style st = { .size = size, .color = c, .align = al, .wrap_width = wrap, .outline_width = size * 0.06f,
                        .outline_color = rgba(0.2f, 0.12f, 0.06f, c.a) };
@@ -586,7 +661,7 @@ static void title_text(const char *s, float x, float y, float size, cw_color c, 
 }
 
 static const char *prompt_go(void) {
-  return input_mode == DEV_TOUCH ? "tap to climb" : input_mode == DEV_PAD ? "press (A) to climb" : input_mode == DEV_KEYS ? "press Space to climb" : "click to climb";
+  return glyphs() ? "press {jump} to climb" : on_touch() ? "tap to climb" : "click to climb";
 }
 
 static void draw_forecast(float W, float s) {
@@ -703,11 +778,12 @@ static void draw_hud(float W, float H, float s) {
   else if (S->weather == WX_WARN)
     title_text(S->L->theme == THEME_WINTER ? "snow's coming - hold tight!" : "rain's coming - hold tight!", 0, H * 0.18f, 30 * s, rgba(1, 0.85f, 0.5f, 1), CW_ALIGN_CENTER, W);
   if (S->ev_check || (S->checkpoint > 0 && G.state_ticks % 600 < 0)) (void)0;
-  if (input_mode == DEV_TOUCH) draw_touch();
+  if (on_touch()) draw_touch();
   else if (G.state_ticks < 600) {
-    const char *h = input_mode == DEV_PAD ? "stick: climb   (A) jump   (B) hold   (X) silk up" : "WASD: climb   Space: jump   Shift: hold   E: silk up";
-    torn(cw_rect_make(W * 0.5f - 270 * s, H - 54 * s, 540 * s, 40 * s), rgba(1, 0.98f, 0.92f, 0.85f), 8);
-    text(h, W * 0.5f - 270 * s, H - 48 * s, 22 * s, rgba(0.25f, 0.2f, 0.15f, 1), CW_ALIGN_CENTER, 540 * s);
+    const char *h = "{left|right|up|down} climb   {jump} jump   {brace} hold   {silk} silk up";
+    float hw = ptext_run(h, 0, 0, 22 * s, rgba(0, 0, 0, 1), false) + 40 * s;
+    torn(cw_rect_make(W * 0.5f - hw * 0.5f, H - 54 * s, hw, 40 * s), rgba(1, 0.98f, 0.92f, 0.85f), 8);
+    ptext(h, 0, H - 48 * s, 22 * s, rgba(0.25f, 0.2f, 0.15f, 1), W);
   }
 }
 
@@ -717,7 +793,7 @@ static void draw_title(float W, float H, float s) {
   text("a paper spider, a long wet climb", 0, H * 0.1f + 114 * s, 26 * s, rgba(0.3f, 0.22f, 0.15f, 1), CW_ALIGN_CENTER, W);
   float p = 0.6f + 0.4f * cw_sin(frame_t * 3);
   torn(cw_rect_make(W * 0.5f - 130 * s, H * 0.82f, 260 * s, 46 * s), rgba(1, 0.98f, 0.92f, 0.6f + 0.3f * p), 2);
-  text(prompt_go(), 0, H * 0.82f + 7 * s, 28 * s, rgba(0.25f, 0.18f, 0.12f, 1), CW_ALIGN_CENTER, W);
+  ptext(prompt_go(), 0, H * 0.82f + 7 * s, 28 * s, rgba(0.25f, 0.18f, 0.12f, 1), W);
 }
 
 static void draw_select(float W, float H, float s) {
@@ -745,12 +821,12 @@ static void draw_select(float W, float H, float s) {
   }
   const level_def *L = &LEVELS[G.cursor];
   text(L->blurb, 0, H * 0.36f + W / 6.2f * 1.25f + 24 * s, 26 * s, rgba(0.2f, 0.15f, 0.1f, 1), CW_ALIGN_CENTER, W);
-  text(input_mode == DEV_TOUCH ? "tap a spout" : input_mode == DEV_PAD ? "left / right, (A) to climb" : "left / right, Enter or click to climb", 0, H * 0.9f, 22 * s,
-       rgba(0.3f, 0.25f, 0.2f, 1), CW_ALIGN_CENTER, W);
+  ptext(glyphs() ? "{left|right} choose, {jump} to climb" : on_touch() ? "tap a spout" : "click a spout to climb", 0, H * 0.9f, 22 * s,
+        rgba(0.3f, 0.25f, 0.2f, 1), W);
 }
 
-/* the graphics settings from the pause card (cartwheel/quality_menu.h): Y or
- * G opens the page (a click on the card already means resume or quit),
+/* the graphics settings from the pause card (cartwheel/quality_menu.h): the
+ * settings action opens the page (a click on the card already means resume or quit),
  * which owns the presses while it is open (the pause tick leaves them
  * alone). Render-only, so it is read in update, never in the simulation;
  * the choice is kept in the save. Touch players keep Auto */
@@ -766,22 +842,21 @@ static void gfx_input(void) {
   }
   if (G.state_ticks < 5) return;
   const cw_raw_input *in = cw_input_raw();
-  bool hit = in->keys_pressed[10]; /* G */
-  for (int i = 0; i < CW_MAX_PADS; i++) hit |= (in->pads[i].pressed & (1u << CW_PAD_NORTH)) != 0;
-  if (hit) cw_quality_menu_open();
+  (void)in;
+  if (pressed(G.a_settings)) cw_quality_menu_open();
 }
 
 static void draw_pause(float W, float H, float s) {
   cw_r2d_rect(cw_rect_make(0, 0, W, H), rgba(0.1f, 0.08f, 0.06f, 0.35f));
   torn(cw_rect_make(W * 0.5f - 170 * s, H * 0.3f, 340 * s, H * 0.4f), rgba(1, 0.97f, 0.88f, 0.97f), 11);
   title_text("paused", 0, H * 0.32f, 48 * s, rgba(0.95f, 0.55f, 0.3f, 1), CW_ALIGN_CENTER, W);
-  text(input_mode == DEV_PAD ? "(A) resume    Back: quit" : input_mode == DEV_KEYS ? "Space: resume    Esc: quit" : "tap the top: resume", 0, H * 0.45f, 24 * s,
-       rgba(0.25f, 0.2f, 0.15f, 1), CW_ALIGN_CENTER, W);
-  if (input_mode == DEV_TOUCH || input_mode == DEV_MOUSE) text("tap here: quit to spouts", 0, H * 0.6f, 24 * s, rgba(0.6f, 0.2f, 0.1f, 1), CW_ALIGN_CENTER, W);
+  ptext(glyphs() ? "{jump} resume    {back} quit" : "tap the top: resume", 0, H * 0.45f, 24 * s, rgba(0.25f, 0.2f, 0.15f, 1), W);
+  if (!glyphs()) text("tap here: quit to spouts", 0, H * 0.6f, 24 * s, rgba(0.6f, 0.2f, 0.1f, 1), CW_ALIGN_CENTER, W);
   char buf[64];
-  snprintf(buf, sizeof buf, input_mode == DEV_TOUCH ? "graphics: %s" : "graphics: %s   (Y / G for settings)", cw_quality_label());
+  snprintf(buf, sizeof buf, "graphics: %s", cw_quality_label());
   for (char *c = buf; *c; c++) *c = (char)(*c >= 'A' && *c <= 'Z' ? *c + 32 : *c);
-  text(buf, 0, H * 0.52f, 18 * s, rgba(0.4f, 0.3f, 0.2f, 1), CW_ALIGN_CENTER, W);
+  if (!on_touch()) snprintf(buf + strlen(buf), sizeof buf - strlen(buf), "   ({settings} settings)");
+  ptext(buf, 0, H * 0.52f, 18 * s, rgba(0.4f, 0.3f, 0.2f, 1), W);
 }
 
 static void draw_win(float W, float H, float s) {
@@ -794,7 +869,7 @@ static void draw_win(float W, float H, float s) {
   snprintf(b, sizeof b, "time %d:%02d%s\ndewdrops %d of %d, flies %d of 3\nwashed down %d, held on %d", t / 60, t % 60, G.new_best ? "  (best!)" : "", S->dews,
            S->L->n_dews, S->flies, S->washes + S->knocks, S->braced_waves);
   text(b, 0, H * 0.24f + 80 * s, 26 * s, rgba(0.25f, 0.2f, 0.15f, in), CW_ALIGN_CENTER, W);
-  text(prompt_go(), 0, H * 0.24f + 200 * s, 22 * s, rgba(0.4f, 0.3f, 0.2f, in), CW_ALIGN_CENTER, W);
+  ptext(prompt_go(), 0, H * 0.24f + 200 * s, 22 * s, rgba(0.4f, 0.3f, 0.2f, in), W);
 }
 
 static void render(void *u, double alpha) {
