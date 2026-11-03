@@ -47,7 +47,7 @@ prompts (`cartwheel/prompt.h`, and the "Showing controls" section of the engine'
 8. Every pad has four face buttons, a d-pad, two shoulders, Start and Back. Sticks and analog triggers are not always
    there: anything a game needs must also have a binding on a button or the d-pad.
 
-CI runs `tools/check-prompts.mjs` (shipped in the SDK) over the games listed in `PROMPT_GAMES` in
-`.github/workflows/ci.yml`. It fails on text such as `A:`, `(B)`, `press X`, `LB`, `RT`; a line that really means
+CI runs `tools/check-prompts.mjs` (shipped in the SDK) over every game, listed in `PROMPT_GAMES` in
+`.github/workflows/ci.yml` (a new game goes on that list). It fails on text such as `A:`, `(B)`, `press X`, `LB`, `RT`; a line that really means
 it carries `prompt-ok: <reason>` on it or just above. It cannot see letters drawn in art or in code, so review those
 by hand. Glyphs need at least 16 canvas pixels at a pixel scale of 1 (18 or more for anything read in motion).
