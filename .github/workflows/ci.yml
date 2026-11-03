@@ -21,7 +21,7 @@ env:
   GAMES: bikemesa bomberdude chromite derby pugball racer spout
   # the games whose prompts pass the engine's button prompt check (tools/check-prompts.mjs, in the SDK):
   # no button letters or controller colours, every prompt drawn by cartwheel/prompt.h
-  PROMPT_GAMES: bikemesa pugball bomberdude derby spout
+  PROMPT_GAMES: bikemesa pugball bomberdude derby spout racer chromite
   # pushes replay each game's first SLICE frames on every platform and API and
   # hold them to Linux x64 GL's state, bit for bit; the full replays run nightly
   SLICE: 200
