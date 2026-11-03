@@ -400,7 +400,7 @@ static bool touch_controls = true;
 static int TOUCH_STICK = -1, TOUCH_JUMP = -1, TOUCH_BOOST = -1, TOUCH_SLIDE = -1, TOUCH_CAM = -1;
 static uint32_t prev_mouse_buttons;
 static float prev_mx, prev_my;
-static bool mouse_clicked, mouse_moved;
+static bool mouse_clicked, mouse_moved, pointer_now;
 
 static void read_mouse(void) {
   const cw_raw_input *in = cw_input_raw();
@@ -411,6 +411,8 @@ static void read_mouse(void) {
   prev_mouse_buttons = in->mouse_buttons;
   prev_mx = in->mouse_x;
   prev_my = in->mouse_y;
+  pointer_now = mouse_clicked || in->mouse_from_touch;
+  for (int t = 0; t < CW_MAX_TOUCHES; t++) pointer_now |= in->touches[t].active || in->touches[t].tapped;
 }
 static void read_device(void) {
   /* a phone starts on touch before its first tap. The hosts report pad 0 as
@@ -432,8 +434,8 @@ static void read_device(void) {
 static bool on_touch(void) { return p1_device == CW_PROMPT_TOUCH; }
 /* a pad or the keyboard reads glyphs; the mouse and touch click or tap what they see */
 static bool shows_glyphs(void) { return p1_device == CW_PROMPT_PAD || p1_device == CW_PROMPT_KEYBOARD; }
-/* the pointer drives the menus: P1 clicks or taps, or the mouse just moved */
-static bool pointer_menus(void) { return !shows_glyphs() || mouse_moved; }
+/* the pointer drives the menus: P1 clicks or taps (now, or as the device in use), or the mouse just moved */
+static bool pointer_menus(void) { return !shows_glyphs() || mouse_moved || pointer_now; }
 static cw_vec2 mouse_canvas(void) {
   const cw_raw_input *in = cw_input_raw();
   return cw_r2d_window_to_canvas(cw_v2(in->mouse_x, in->mouse_y));
