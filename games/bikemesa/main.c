@@ -7,8 +7,8 @@
  *             (crash: the rider tumbles, back at the last checkpoint) ->
  *             finish: time, medal, tricks, best
  *   input     gamepad first, nothing past a d-pad, four face buttons, Start
- *             and Select needed ((A) pedal, (B) brake / back-pedal, (X) hop,
- *             left / right lean, (Y) + a direction poses, Select checkpoint,
+ *             and Back needed (south pedal, east brake / back-pedal, west hop,
+ *             left / right lean, north + a direction poses, Back checkpoint,
  *             Start pause; assets/input.cfg), keyboard (Z X C, arrows, A S D,
  *             R, Esc), on-screen touch
  *             controls from the first frame on phones (a floating lean stick;
@@ -33,6 +33,7 @@
 #include "cartwheel/pipeline.h"
 #include "cartwheel/decals.h"
 #include "cartwheel/platform.h"
+#include "cartwheel/prompt.h"
 #include "cartwheel/quality.h"
 #include "cartwheel/quality_menu.h"
 #include "cartwheel/render2d.h"
@@ -166,7 +167,7 @@ static struct {
   int pause_cursor;
   /* render only */
   /* actions */
-  cw_action a_up, a_down, a_pedal, a_brake, a_back, a_fwd, a_reset, a_pause, a_hop, a_pose, a_pose_hands, a_pose_feet, a_pose_super, m_left, m_right, m_up, m_down, m_ok, m_back;
+  cw_action a_up, a_down, a_pedal, a_brake, a_back, a_fwd, a_reset, a_pause, a_hop, a_pose, a_pose_hands, a_pose_feet, a_pose_super, m_left, m_right, m_up, m_down, m_ok, m_back, a_retry, a_settings;
 } G;
 
 /* the replay rings: each rider's every ride / crash tick's pose (presentation only) */
@@ -176,7 +177,7 @@ enum { SLOT_OUT, SLOT_RIDER, SLOT_BIKE, SLOT_COLOR, SLOT_READY };
 static int TOUCH_HOP = -1, TOUCH_PEDAL = -1, TOUCH_BRAKE = -1, TOUCH_STICK = -1, TOUCH_RESET = -1, TOUCH_PAUSE = -1, TOUCH_POSE[3] = { -1, -1, -1 };
 
 /* ── autopilot (bikemesa_auto): a session played with no one at the pads ──
- * It presses (A) through each screen as it comes up, however many frames a
+ * It presses south through each screen as it comes up, however many frames a
  * host spends loading first, and pedals the race. BIKEMESA_PLAYERS (2-4, a
  * native run's environment) has pads 2-4 join on the player select and race
  * too: the split screen without anyone at the pads. */
@@ -192,7 +193,7 @@ static void autopilot_filter(cw_raw_input *in, uint64_t frame, void *user) {
   memset(in->keys_pressed, 0, sizeof in->keys_pressed);
   in->mouse_buttons = in->mouse_pressed = 0;
   int phase = G.state_ticks % 20;
-  uint32_t tap = phase == 12 || phase == 13 ? 1u << CW_PAD_SOUTH : 0; /* (A) down for two ticks every 20 */
+  uint32_t tap = phase == 12 || phase == 13 ? 1u << CW_PAD_SOUTH : 0; /* south down for two ticks every 20 */
   for (int p = 0; p < auto_players(); p++) {
     in->pads[p].connected = true;
     switch (G.state) {
@@ -258,39 +259,45 @@ static void music_play(const char *name) {
   A.music_name = name;
 }
 
-/* ── input devices: whichever was used last drives the prompts ─────── */
+/* ── input devices: the engine says which one each player used last ── */
 
-enum { DEV_MOUSE, DEV_PAD, DEV_KEYS, DEV_TOUCH };
-static int last_device = DEV_MOUSE;
+/* P1's device, as the engine's prompts see it (cartwheel/prompt.h): it picks
+ * the prompts and whether the touch controls show. Asked once a frame in
+ * update (prompts are presentation, never the fixed tick) and kept here for
+ * the touch buzz and the debug field input.mode (0 mouse, 1 pad, 2 keyboard,
+ * 3 touch). */
+static cw_prompt_device p1_device = CW_PROMPT_MOUSE;
 static int32_t input_mode;
-static bool device_used;
 static uint32_t prev_mouse_buttons;
 static bool mouse_clicked;
 
-static void read_devices(void) {
+static void read_mouse(void) {
   const cw_raw_input *in = cw_input_raw();
-  int before = last_device;
   mouse_clicked = (in->mouse_buttons & 1) && !(prev_mouse_buttons & 1);
   prev_mouse_buttons = in->mouse_buttons;
-  if (mouse_clicked) last_device = in->mouse_from_touch ? DEV_TOUCH : DEV_MOUSE;
-  for (int i = 0; i < CW_MAX_TOUCHES; i++)
-    if (in->touches[i].active) last_device = DEV_TOUCH;
-  for (int i = 0; i < CW_MAX_PADS; i++) {
-    const cw_pad_state *p = &in->pads[i];
-    if (!p->connected) continue;
-    if (p->buttons || fabsf(p->axes[CW_AXIS_LX]) > 0.3f || fabsf(p->axes[CW_AXIS_LY]) > 0.3f || p->axes[CW_AXIS_RT] > 0.3f ||
-        p->axes[CW_AXIS_LT] > 0.3f)
-      last_device = DEV_PAD;
+}
+static void read_device(void) {
+  /* a phone starts on touch before its first tap. The hosts report pad 0 as
+   * connected with no pad in hand, and the engine prefers a connected pad, so
+   * until P1 presses a pad button or a key a touch-first device is held on
+   * touch (a tap is the engine's own touch switch) */
+  static bool held, pressed;
+  if (!pressed) {
+    const cw_raw_input *in = cw_input_raw();
+    for (int i = 0; i < CW_MAX_PADS; i++) pressed |= in->pads[i].pressed != 0;
+    for (int k = 0; k < CW_KEY_COUNT && !pressed; k++) pressed |= in->keys_pressed[k] != 0;
+    bool hold = !pressed && cw_platform_touch_primary();
+    if (hold != held) cw_prompt_force_device(0, hold ? CW_PROMPT_TOUCH : CW_PROMPT_NONE);
+    held = hold;
   }
-  for (int k = 0; k < CW_KEY_COUNT; k++)
-    if (in->keys_pressed[k]) {
-      last_device = DEV_KEYS;
-      break;
-    }
-  if (last_device != before) device_used = true;
-  /* a phone or tablet shows its touch controls from the first frame */
-  if (!device_used) last_device = cw_platform_touch_primary() ? DEV_TOUCH : DEV_MOUSE;
-  input_mode = last_device;
+  p1_device = cw_prompt_device_of(0);
+  input_mode = p1_device == CW_PROMPT_PAD ? 1 : p1_device == CW_PROMPT_KEYBOARD ? 2 : p1_device == CW_PROMPT_TOUCH ? 3 : 0;
+}
+static bool on_touch(void) { return p1_device == CW_PROMPT_TOUCH; }
+/* a player on a pad or the keyboard reads glyphs; the mouse and touch click or tap what they see */
+static bool shows_glyphs(int player) {
+  cw_prompt_device d = player == 0 ? p1_device : cw_prompt_device_of(player);
+  return d == CW_PROMPT_PAD || d == CW_PROMPT_KEYBOARD;
 }
 
 static cw_vec2 mouse_canvas(void) {
@@ -630,7 +637,7 @@ static float dbg_crank, dbg_steering, dbg_bike_angle;
 static int32_t dbg_hops, dbg_loops, dbg_pose, dbg_poses, dbg_quality;
 
 /* ── local multiplayer: the riders, their lanes and views ────────────────
- * Pads 2-4 join on the player select with (A) and leave with (B); the
+ * Pads 2-4 join on the player select with south and leave with east; the
  * keyboard (and touch) is P1's. Each rider has a bike in the one
  * world on a lane of its own across the track (a collision layer: riders in
  * one lane bump, in different lanes pass through), a camera and a view of
@@ -686,7 +693,7 @@ static void set_lane_now(int lane) {
 static void lane_input(void) {
   const bike_state *b = bike_get();
   int ly = cw_action_pressed(PL, G.a_up) ? -1 : cw_action_pressed(PL, G.a_down) ? 1 : 0; /* up: a lane further back */
-  if (cw_action_pressed(PL, G.a_pose)) ly = 0; /* (Y) + up is a pose */
+  if (cw_action_pressed(PL, G.a_pose)) ly = 0; /* north + up is a pose */
   if (!ly) { P->prev_ly = 0; return; }
   if (ly == P->prev_ly || P->lane_t > 0 || !b->alive) return;
   /* Keep a press made during a jump or the previous lane change pending until
@@ -877,6 +884,26 @@ static void cmd_chocolate(int argc,const char **argv,cw_reply *r) {
   }
   cw_decal_stats st;cw_decals_get_stats(cw_scene_app_tree(),&st);
   cw_reply_printf(r,"{\"decals\":%d,\"mesh_decals\":%d,\"triangles\":%d,\"pieces\":%d}",st.decals,st.mesh_decals,st.mesh_triangles,st.mesh_pieces);
+}
+/* bind <action> <bindings>: replace an action's bindings (cartwheel/input.h
+ * binding text, "pad:north, key:v"), as a player rebinding a control would;
+ * every prompt shows the new binding from that frame (tests of the prompts) */
+static void cmd_bind(int argc, const char **argv, cw_reply *r) {
+  if (argc < 3) {
+    cw_reply_error(r, "usage: bind <action> <bindings>");
+    return;
+  }
+  cw_action a = cw_action_find(argv[1]);
+  char list[160] = "";
+  for (int i = 2; i < argc; i++) snprintf(list + strlen(list), sizeof list - strlen(list), "%s%s", i > 2 ? " " : "", argv[i]);
+  cw_action_clear_bindings(a);
+  if (!cw_action_bind_text(a, list)) {
+    cw_reply_error(r, "bind: no action %s or bad bindings \"%s\"", argv[1], list);
+    return;
+  }
+  cw_reply_printf(r, "{\"action\":\"%s\",\"bindings\":", argv[1]);
+  cw_reply_str(r, list);
+  cw_reply_raw(r, "}");
 }
 /* players n: riders in the next race (a test's way in to 3 and 4; riders without a pad idle) */
 static void cmd_players(int argc, const char **argv, cw_reply *r) {
@@ -1341,7 +1368,7 @@ static void touch_haptics(void) {
   int n = touch_table((float)ww, (float)wh, t);
   for (int i = 0; i < n; i++) {
     bool on = cw_touch_control_active(*t[i].id);
-    if (on && !was[i] && last_device == DEV_TOUCH) cw_platform_vibrate(12);
+    if (on && !was[i] && on_touch()) cw_platform_vibrate(12);
     was[i] = on;
   }
 }
@@ -1397,6 +1424,8 @@ static void init(void *u) {
   G.a_up = cw_action_find("dir_up");
   G.a_down = cw_action_find("dir_down");
   G.a_pause = cw_action_find("pause");
+  G.a_retry = cw_action_find("retry");
+  G.a_settings = cw_action_find("settings");
   G.m_left = cw_action_find("m_left");
   G.m_right = cw_action_find("m_right");
   G.m_up = cw_action_find("m_up");
@@ -1488,6 +1517,7 @@ static void init(void *u) {
   cw_debug_field("sweep.fail", dbg_sweep_fail, CW_DBG_I32, 5);
   cw_debug_command("chocolate", "chocolate [crash|ride [1|2]]: inspect decals or exercise either river",cmd_chocolate);
   cw_debug_command("players", "players <1..4>: riders in the next race (split screen)", cmd_players);
+  cw_debug_command("bind", "bind <action> <bindings>: replace an action's bindings (binding text, as input.cfg writes it)", cmd_bind);
   cw_debug_command("bike_pick", "bike_pick <0..6> <0..7>: inspect a frame and paint", cmd_bike_pick);
   cw_debug_command("progress", "progress [show | preset <n>]: the save data", cmd_progress);
   cw_tree_add_hook(cw_scene_app_tree(), 2, 0, frame_hook, NULL);
@@ -1517,8 +1547,8 @@ static bike_input autopilot(void) {
 
 static float act(cw_action a) { return cw_action_strength(PL, a); }
 
-/* the pose held: (Y) + a direction pressed picks it (left no-hands, right
- * no-feet, up superman) and it holds while (Y) does; LB / RB / both and the
+/* the pose held: north + a direction pressed picks it (left no-hands, right
+ * no-feet, up superman) and it holds while north does; the shoulders, one or both and the
  * keys A / S / D pick and hold it directly */
 static int pose_held_p[MAX_RIDERS];
 #define pose_held pose_held_p[PL]
@@ -1528,7 +1558,7 @@ static int read_pose(void) {
   if (hands) return POSE_NO_HANDS;
   if (feet) return POSE_NO_FEET;
   if (!cw_action_pressed(PL, G.a_pose)) return pose_held = POSE_NONE;
-  if (!pose_held) { /* the direction pressed with (Y), or already held as (Y) goes down */
+  if (!pose_held) { /* the direction pressed with north, or already held as north goes down */
     bool fresh = cw_action_just_pressed(PL, G.a_pose);
     if (cw_action_just_pressed(PL, G.m_left) || (fresh && cw_action_pressed(PL, G.m_left))) pose_held = POSE_NO_HANDS;
     else if (cw_action_just_pressed(PL, G.m_right) || (fresh && cw_action_pressed(PL, G.m_right))) pose_held = POSE_NO_FEET;
@@ -1537,7 +1567,7 @@ static int read_pose(void) {
   return pose_held;
 }
 
-/* (A) pedals, (B) brakes, left / right lean on the ground and in the air alike */
+/* south pedals, east brakes, left / right lean on the ground and in the air alike */
 static bike_input player_input(void) {
   bike_input in = { 0 };
   in.pedal = act(G.a_pedal);
@@ -1851,7 +1881,7 @@ static void pick_track(int i) {
 
 /* split screen: the rider down. The tumble (down_ticks), then its slow
  * motion replay in the rider's own view while the others ride on (any of
- * (A), pedal or checkpoint skips it), then back on at the checkpoint */
+ * south, pedal or checkpoint skips it), then back on at the checkpoint */
 static void rider_replay(void) {
   if (P->down_ticks > 0) {
     if (--P->down_ticks > 0) return;
@@ -1951,7 +1981,7 @@ static void mp_tick(void) {
 }
 
 /* the player select: each player picks a rider, then a bike, then is ready;
- * pads 2-4 join with (A) and leave with (B) from the rider pick, P1's (B)
+ * pads 2-4 join with south and leave with east from the rider pick, P1's east
  * there goes back to the title. P1 has the keyboard, and alone on the
  * screen the mouse and taps too. Everyone ready: P1 picks the track. */
 static cw_rect color_swatch_rect(int i,float x,float y,float width,float scale) {
@@ -2059,7 +2089,7 @@ static void fixed(void *u, double dt) {
   (void)dt;
   G.ticks++;
   G.state_ticks++;
-  read_devices();
+  read_mouse();
   touch_layout();
   touch_haptics();
   gfx_input();
@@ -2273,7 +2303,7 @@ static void fixed(void *u, double dt) {
       bool retry_hit = mouse_clicked && in_rect(m, finish_action_rect(0, W, H, s));
       bool bike_hit = mouse_clicked && in_rect(m, finish_action_rect(1, W, H, s));
       bool next_hit = mouse_clicked && in_rect(m, finish_action_rect(2, W, H, s));
-      if (retry_hit || cw_action_just_pressed(0, G.a_pause) || cw_input_raw()->keys_pressed[21 /* R */]) {
+      if (retry_hit || cw_action_just_pressed(0, G.a_retry)) {
         start_track(G.track - 1);
         return;
       }
@@ -2318,6 +2348,7 @@ static void fixed(void *u, double dt) {
 }
 
 static void update(void *u, double dt) {
+  read_device();
   dbg_quality = (int32_t)cw_quality_get();
   cw_quality_auto_measure(G.state == GS_RIDE && !G.paused); /* the preset steps down when play runs slow */
   (void)u;
@@ -2387,45 +2418,64 @@ static void chip(const char *s, float cx, float y, float size, float alpha) {
              rgba(0.04f, 0.04f, 0.06f, 0.55f * alpha));
 }
 
+/* text with button prompts in it ({pedal}, {m_ok}: cartwheel/prompt.h), for
+ * `player`'s device, placed as text() places it (x the box's left; centred or
+ * right-aligned within wrap) */
+static cw_vec2 ptext(const char *s, int player, float x, float y, float size, cw_color c, cw_text_align align, float wrap) {
+  float px = align == CW_ALIGN_CENTER ? x + wrap * 0.5f : align == CW_ALIGN_RIGHT ? x + wrap : x;
+  return cw_prompt_text(size < 20 ? font_ui_bold : font_ui, s, player, cw_v2(px, y), size, c, align);
+}
+/* a dark chip behind a centred prompt line */
+static void pchip(const char *s, int player, float cx, float y, float size, float alpha) {
+  cw_vec2 m = cw_prompt_text_size(size < 20 ? font_ui_bold : font_ui, s, player, size);
+  float padx = size * 0.8f, pady = size * 0.32f;
+  round_rect(cw_rect_make(cx - m.x * 0.5f - padx, y - pady, m.x + 2 * padx, m.y + 2 * pady), size * 0.7f,
+             rgba(0.04f, 0.04f, 0.06f, 0.55f * alpha));
+}
+
 static void fmt_time(char *out, size_t n, int ticks) {
   int cs = ticks * 100 / TICK_HZ;
   snprintf(out, n, "%d:%02d.%02d", cs / 6000, cs / 100 % 60, cs % 100);
 }
 
+/* P1's prompt line for the screen. A pad or a keyboard shows its glyphs
+ * (the engine draws each action's binding on that device); the mouse and
+ * touch say what to click or tap. The keyboard's poses are three keys, a
+ * pad's one held button and a direction, so riding has a line for each. */
 static const char *prompt(void) {
-  if (G.state == GS_TITLE)
-    return last_device == DEV_TOUCH ? "tap to ride" : last_device == DEV_MOUSE ? "click to ride" : last_device == DEV_PAD ? "press (A) to ride" : "press Enter to ride";
+  bool glyphs = shows_glyphs(0), touch = on_touch();
+  if (G.state == GS_TITLE) return glyphs ? "press {m_ok} to ride" : touch ? "tap to ride" : "click to ride";
   if (G.state == GS_CHARACTER)
-    return last_device == DEV_TOUCH ? "tap the arrows, then select" : last_device == DEV_MOUSE ? "click the arrows, then select"
-         : last_device == DEV_PAD ? "left / right: choose   (A): select   (B): back"
-                                  : "left / right: choose   Enter: select   Esc: back";
+    return glyphs ? "{m_left|m_right} choose   {m_ok} select   {m_back} back" : touch ? "tap the arrows, then select" : "click the arrows, then select";
   if (G.state == GS_SELECT)
-    return last_device == DEV_TOUCH ? "tap a track or change bike" : last_device == DEV_MOUSE ? "click a track or change bike"
-         : last_device == DEV_PAD ? "d-pad: choose   (A): ride   (B): change bike"
-                                  : "arrows: choose   Enter: ride   Esc: change bike";
-  if ((G.state == GS_RIDE || G.state == GS_COUNT) && !G.paused)
-    return last_device == DEV_TOUCH ? ""
-         : last_device == DEV_PAD ? "(A) pedal  (B) brake  left / right: lean  (X) hop  (Y) + left / right / up: pose  SELECT: checkpoint"
-                                  : "Z: pedal  X: brake  Left / Right: lean  C: hop  A / S / D: pose  R: checkpoint";
+    return glyphs ? "{m_left|m_right|m_up|m_down} choose   {m_ok} ride   {m_back} change bike"
+         : touch  ? "tap a track or change bike"
+                  : "click a track or change bike";
+  if ((G.state == GS_RIDE || G.state == GS_COUNT) && !G.paused) {
+    if (touch) return "";
+    return p1_device == CW_PROMPT_PAD
+             ? "{pedal} pedal  {brake} brake  {lean_back|lean_fwd} lean  {hop} hop  {pose} + a direction: pose  {reset} checkpoint"
+             : "{pedal} pedal  {brake} brake  {lean_back|lean_fwd} lean  {hop} hop  {pose_hands} {pose_feet} {pose_superman} poses  {reset} checkpoint";
+  }
   return "";
 }
 
 /* the controls for the device in use, two lines on a panel */
 static void controls_card(float x, float y, float w, float s) {
   const char *a, *b;
-  if (last_device == DEV_TOUCH) {
+  if (on_touch()) {
     a = "left thumb: drag left / right to lean, up / down to change lane";
     b = "right thumb: PEDAL   BRAKE (stopped: back-pedal)   HOP   hold a pose";
-  } else if (last_device == DEV_PAD) {
-    a = "(A) pedal   (B) brake / back-pedal   (X) hop   left / right: lean, flip   up / down: lane";
-    b = "hold (Y) + left / right / up, or LB / RB / both: the poses   SELECT: checkpoint";
+  } else if (p1_device == CW_PROMPT_PAD) {
+    a = "{pedal} pedal   {brake} brake / back-pedal   {hop} hop   {lean_back|lean_fwd} lean, flip   {dir_up|dir_down} lane";
+    b = "hold {pose} + a direction, or {pose_hands} {pose_feet} or both: the poses   {reset} checkpoint";
   } else {
-    a = "Z: pedal   X: brake / back-pedal   C: hop   Left / Right: lean, flip   Up / Down: lane";
-    b = "hold A: no-hander   S: no-footer   D: superman   R: checkpoint   Esc: pause";
+    a = "{pedal} pedal   {brake} brake / back-pedal   {hop} hop   {lean_back|lean_fwd} lean, flip   {dir_up|dir_down} lane";
+    b = "hold {pose_hands} no-hander   {pose_feet} no-footer   {pose_superman} superman   {reset} checkpoint   {pause} pause";
   }
   round_rect(cw_rect_make(x, y, w, 58 * s), 12 * s, rgba(0.05f, 0.05f, 0.08f, 0.72f));
-  text(a, x, y + 8 * s, 16 * s, rgba(1, 1, 1, 0.95f), CW_ALIGN_CENTER, w);
-  text(b, x, y + 31 * s, 16 * s, rgba(1, 0.85f, 0.6f, 0.95f), CW_ALIGN_CENTER, w);
+  ptext(a, 0, x, y + 8 * s, 16 * s, rgba(1, 1, 1, 0.95f), CW_ALIGN_CENTER, w);
+  ptext(b, 0, x, y + 31 * s, 16 * s, rgba(1, 0.85f, 0.6f, 0.95f), CW_ALIGN_CENTER, w);
 }
 
 /* each rider's colour (as their bike's paint) */
@@ -2440,9 +2490,9 @@ static void draw_joins(float x, float y, float s) {
     int pad = cw_input_player_pad(p);
     if (pad < 0 || !cw_input_raw()->pads[pad].connected || G.slot[p] != SLOT_OUT || players_set) continue;
     char b[40];
-    snprintf(b, sizeof b, "P%d: (A) to join", p + 1);
+    snprintf(b, sizeof b, "P%d: {m_ok} to join", p + 1);
     round_rect(cw_rect_make(x, y, 186 * s, 28 * s), 8 * s, rgba(0.05f, 0.05f, 0.08f, 0.75f));
-    text(b, x, y + 4 * s, 16 * s, rider_col(p, 1), CW_ALIGN_CENTER, 186 * s);
+    ptext(b, p, x, y + 4 * s, 16 * s, rider_col(p, 1), CW_ALIGN_CENTER, 186 * s);
     y += 34 * s;
   }
 }
@@ -2453,8 +2503,8 @@ static void draw_title(float W, float H, float s) {
   text("ride hard. land clean. fly further.", 0, H * 0.12f + 128 * s, 22 * s, rgba(1, 0.95f, 0.88f, 0.95f), CW_ALIGN_CENTER, W);
   float pulse = 0.65f + 0.35f * cw_sin(G.ticks * 0.08f);
   const char *p = prompt();
-  chip(p, W * 0.5f, H * 0.82f, 24 * s, pulse);
-  text(p, 0, H * 0.82f, 24 * s, rgba(1, 1, 1, pulse), CW_ALIGN_CENTER, W);
+  pchip(p, 0, W * 0.5f, H * 0.82f, 24 * s, pulse);
+  ptext(p, 0, 0, H * 0.82f, 24 * s, rgba(1, 1, 1, pulse), CW_ALIGN_CENTER, W);
   controls_card(W * 0.5f - 340 * s, H * 0.885f, 680 * s, s);
 }
 
@@ -2492,8 +2542,8 @@ static void draw_carousel(float W, float H, float s) {
          rgba(1, 0.8f, 0.43f, 1), CW_ALIGN_CENTER, r.w);
   }
   const char *p = prompt();
-  chip(p, W * 0.5f, H * 0.96f, 18 * s, 1);
-  text(p, 0, H * 0.96f, 18 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, W);
+  pchip(p, 0, W * 0.5f, H * 0.96f, 18 * s, 1);
+  ptext(p, 0, 0, H * 0.96f, 18 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, W);
   draw_joins(W - 200 * s, 14 * s, s);
 }
 
@@ -2521,9 +2571,9 @@ static void draw_player_views(float W, float H, float s) {
       chip(b, r.x + r.w * 0.5f, r.y + r.h - 76 * k, 24 * k, 1);
       text(b, r.x, r.y + r.h - 76 * k, 24 * k, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, r.w);
     }
-    const char *hint = st == SLOT_READY ? "(B) change" : v == 0 ? "(A) select   (B) back" : st == SLOT_RIDER ? "(A) select   (B) leave" : "(A) select   (B) back";
-    if (v == 0 && last_device == DEV_KEYS) hint = st == SLOT_READY ? "Esc: change" : "Enter: select   Esc: back";
-    text(hint, r.x, r.y + r.h - 36 * k, 18 * k, rgba(1, 0.85f, 0.6f, 0.95f), CW_ALIGN_CENTER, r.w);
+    const char *hint = st == SLOT_READY ? "{m_back} change" : v == 0 ? "{m_ok} select   {m_back} back" : st == SLOT_RIDER ? "{m_ok} select   {m_back} leave" : "{m_ok} select   {m_back} back";
+    if (v == 0 && on_touch()) hint = ""; /* a phone plays alone: this screen is for pads */
+    ptext(hint, v, r.x, r.y + r.h - 36 * k, fmaxf(18 * k, 16 * s), rgba(1, 0.85f, 0.6f, 0.95f), CW_ALIGN_CENTER, r.w);
   }
   if (NRID == 3) { /* the free quadrant */
     cw_rect q = cw_rect_make(W * 0.5f, 0, W * 0.5f, H * 0.5f);
@@ -2531,7 +2581,7 @@ static void draw_player_views(float W, float H, float s) {
     title_text("CHOOSE YOUR RIDERS", q.x, q.y + 30 * s, 30 * s, rgba(1, 0.62f, 0.15f, 1), CW_ALIGN_CENTER, q.w);
     text("everyone ready: P1 picks the track", q.x, q.y + 80 * s, 17 * s, rgba(1, 1, 1, 0.85f), CW_ALIGN_CENTER, q.w);
     draw_joins(q.x + q.w * 0.5f - 93 * s, q.y + 130 * s, s);
-  } else if (NRID == 2) draw_joins(W - 200 * s, H * 0.5f + 14 * s, s * 0.9f);
+  } else if (NRID == 2) draw_joins(W - 200 * s, H * 0.5f + 14 * s, s);
 }
 
 static void medal_dot(float x, float y, float r, int medal, float a) {
@@ -2594,8 +2644,8 @@ static void draw_select(float W, float H, float s) {
     }
   }
   const char *p = prompt();
-  chip(p, W * 0.5f, H * 0.88f, 20 * s, 1);
-  text(p, 0, H * 0.88f, 20 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, W);
+  pchip(p, 0, W * 0.5f, H * 0.88f, 20 * s, 1);
+  ptext(p, 0, 0, H * 0.88f, 20 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, W);
   cw_rect bikes = change_bike_rect(W, H, s);
   round_rect(bikes, 10 * s, rgba(0.15f, 0.19f, 0.24f, 0.94f));
   text("CHANGE BIKE", bikes.x, bikes.y + 9 * s, 19 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, bikes.w);
@@ -2623,7 +2673,7 @@ static void arrow(float x, float y, float r, int dir, cw_color c) {
 }
 
 static void draw_touch(float W, float H, float s) {
-  if (last_device != DEV_TOUCH) return;
+  if (!on_touch()) return;
   int ww, wh;
   cw_window_size(&ww, &wh);
   float kx = W / (float)ww, ky = H / (float)wh, k = (float)wh / 540.0f;
@@ -2798,7 +2848,7 @@ static void draw_hud(float W, float H, float s, bool shared) {
   /* left: checkpoints, crashes; right: score */
   bool checkpoint_notice=P->banner_ticks>0&&!strcmp(P->banner,"CHECKPOINT");
   float notice_alpha=checkpoint_notice?fminf(1,P->banner_ticks/15.f):0;
-  float checkpoint_x=(last_device==DEV_TOUCH?112:18)*s;
+  float checkpoint_x=(on_touch()?112:18)*s;
   snprintf(b, sizeof b, "CHECKPOINT %d/%d", P->checkpoint, G.t ? G.t->check_count : 0);
   /* Confirm progress where its counter already lives, leaving the riding view
    * clear. Keep the same duration and each rider's own notification state. */
@@ -2809,9 +2859,9 @@ static void draw_hud(float W, float H, float s, bool shared) {
   }
   text(b, checkpoint_x, 16*s, 17*s, rgba(1,.85f+.15f*notice_alpha,.4f+.4f*notice_alpha,1),CW_ALIGN_LEFT,0);
   snprintf(b, sizeof b, "WIPEOUTS %d", P->crashes);
-  text(b, (last_device == DEV_TOUCH ? 112 : 18) * s, 40 * s, 17 * s, rgba(1, 0.6f, 0.55f, 1), CW_ALIGN_LEFT, 0);
+  text(b, (on_touch() ? 112 : 18) * s, 40 * s, 17 * s, rgba(1, 0.6f, 0.55f, 1), CW_ALIGN_LEFT, 0);
   snprintf(b, sizeof b, "%d", P->score);
-  num(b, 0, 14 * s, 34 * s, rgba(1, 0.75f, 0.25f, 1), CW_ALIGN_RIGHT, W - (last_device == DEV_TOUCH ? 120 : 20) * s);
+  num(b, 0, 14 * s, 34 * s, rgba(1, 0.75f, 0.25f, 1), CW_ALIGN_RIGHT, W - (on_touch() ? 120 : 20) * s);
   /* the combo: its multiplier and the window running out */
   if (P->combo > 1 && P->combo_ticks > 0) {
     float k = P->combo_ticks / (float)COMBO_WINDOW;
@@ -2879,8 +2929,8 @@ static void draw_hud(float W, float H, float s, bool shared) {
     return;
   }
   if (*p && G.ride_ticks < 600) {
-    chip(p, W * 0.5f, H - 80 * s, 16 * s, 1);
-    text(p, 0, H - 80 * s, 16 * s, rgba(1, 1, 1, 0.9f), CW_ALIGN_CENTER, W);
+    pchip(p, 0, W * 0.5f, H - 80 * s, 16 * s, 1);
+    ptext(p, 0, 0, H - 80 * s, 16 * s, rgba(1, 1, 1, 0.9f), CW_ALIGN_CENTER, W);
   }
   draw_touch(W, H, s);
 
@@ -2911,17 +2961,16 @@ static void draw_finish(float W, float H, float s) {
     round_rect(retry, 14 * s, rgba(0.25f, 0.25f, 0.3f, 0.95f));
     round_rect(bikes, 14 * s, rgba(0.22f, 0.30f, 0.38f, 0.95f));
     round_rect(next, 14 * s, rgba(1, 0.5f, 0.12f, 0.95f));
-    const char *rl = last_device == DEV_PAD ? "START RETRY" : last_device == DEV_KEYS ? "R  RETRY" : "RETRY";
-    const char *bl = last_device == DEV_PAD ? "(B) BIKES" : last_device == DEV_KEYS ? "ESC BIKES" : "BIKES";
-    const char *nl = last_device == DEV_PAD ? "(A) TRACKS" : last_device == DEV_KEYS ? "ENTER TRACKS" : "TRACKS";
-    text(rl, retry.x, retry.y + 12 * s, 17 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, retry.w);
-    text(bl, bikes.x, bikes.y + 12 * s, 17 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, bikes.w);
-    text(nl, next.x, next.y + 12 * s, 17 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, next.w);
+    bool g = shows_glyphs(0);
+    const char *rl = g ? "{retry} RETRY" : "RETRY", *bl = g ? "{m_back} BIKES" : "BIKES", *nl = g ? "{m_ok} TRACKS" : "TRACKS";
+    ptext(rl, 0, retry.x, retry.y + 12 * s, 17 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, retry.w);
+    ptext(bl, 0, bikes.x, bikes.y + 12 * s, 17 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, bikes.w);
+    ptext(nl, 0, next.x, next.y + 12 * s, 17 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, next.w);
   }
 }
 
-/* the graphics settings from the pause screen (cartwheel/quality_menu.h): Y,
- * G or a tap opens the page; it owns the frame's presses while it is open
+/* the graphics settings from the pause screen (cartwheel/quality_menu.h): the
+ * settings action or a tap opens the page; it owns the frame's presses while it is open
  * (gfx_frame: the pause menu leaves them alone). Render-only: nothing it
  * changes reaches the simulation. Kept in the save (QUALITY_SAVE). */
 static cw_rect gfx_rect(float W, float H) {
@@ -2947,8 +2996,8 @@ static void gfx_input(void) {
     return;
   }
   const cw_raw_input *in = cw_input_raw();
-  bool hit = in->keys_pressed[10]; /* G */
-  for (int i = 0; i < CW_MAX_PADS; i++) hit |= (in->pads[i].pressed & (1u << CW_PAD_NORTH)) != 0;
+  bool hit = false;
+  for (int p = 0; p < MAX_RIDERS; p++) hit |= cw_action_just_pressed(p, G.a_settings); /* any player's */
   cw_vec2 cs = cw_r2d_canvas_size();
   if ((in->mouse_pressed & 1) && in_rect(mouse_canvas(), gfx_rect(cs.x, cs.y))) hit = true;
   if (!hit) return;
@@ -2977,7 +3026,7 @@ static void draw_gfx(float W, float H, float s) {
   gfx_res_suffix(buf, sizeof buf); /* the render resolution: the host sets it */
   float sz = fit_text(buf, 18 * s, r.w - 14 * s);
   text(buf, r.x, r.y + 9 * s + (18 * s - sz) * 0.5f, sz, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, r.w);
-  text(last_device == DEV_TOUCH ? "tap for settings" : "Y / G for settings", r.x, r.y + r.h + 2 * s, 13 * s, rgba(1, 1, 1, 0.8f), CW_ALIGN_CENTER, r.w);
+  ptext(on_touch() ? "tap for settings" : "{settings} settings", 0, r.x, r.y + r.h + 2 * s, 16 * s, rgba(1, 1, 1, 0.8f), CW_ALIGN_CENTER, r.w);
 }
 
 static void draw_pause(float W, float H, float s) {
@@ -3009,7 +3058,7 @@ static void render(void *u, double alpha) {
       cw_r2d_rect(cw_rect_make(0, 0, W, H * 0.11f), rgba(0, 0, 0, 0.85f));
       cw_r2d_rect(cw_rect_make(0, H * 0.89f, W, H * 0.11f), rgba(0, 0, 0, 0.85f));
       if ((P->replay_t / 20) & 1) title_text("REPLAY", 24 * s, 14 * s, 26 * s, rgba(1, 0.3f, 0.25f, 1), CW_ALIGN_LEFT, 0);
-      text(last_device == DEV_TOUCH ? "tap to skip" : "any button to skip", 0, H * 0.91f, 16 * s, rgba(1, 1, 1, 0.8f), CW_ALIGN_CENTER, W);
+      text(on_touch() ? "tap to skip" : "any button to skip", 0, H * 0.91f, 16 * s, rgba(1, 1, 1, 0.8f), CW_ALIGN_CENTER, W);
       if (P->banner_ticks > 0) title_text(P->banner, 0, H * 0.3f, 84 * s, rgba(1, 0.75f, 0.2f, 1), CW_ALIGN_CENTER, W);
     } else if (NRID > 1) {
       /* a HUD in each rider's view */
@@ -3028,7 +3077,7 @@ static void render(void *u, double alpha) {
           if ((P->replay_t / 20) & 1) title_text("REPLAY", 24 * k, 8 * k, 26 * k, rgba(1, 0.3f, 0.25f, 1), CW_ALIGN_LEFT, 0);
           snprintf(b, sizeof b, "P%d", v + 1);
           title_text(b, 0, 8 * k, 26 * k, rider_col(v, 1), CW_ALIGN_RIGHT, r.w - 24 * k);
-          text(v == 0 && last_device == DEV_KEYS ? "Enter to skip" : "(A) to skip", 0, r.h * 0.91f, 16 * k, rgba(1, 1, 1, 0.8f), CW_ALIGN_CENTER, r.w);
+          ptext("{m_ok} to skip", v, 0, r.h * 0.91f, fmaxf(16 * k, 16 * s), rgba(1, 1, 1, 0.8f), CW_ALIGN_CENTER, r.w);
           if (P->banner_ticks > 0) title_text(P->banner, 0, r.h * 0.3f, 84 * k, rgba(1, 0.75f, 0.2f, 1), CW_ALIGN_CENTER, r.w);
         } else draw_hud(r.w, r.h, k, NRID == 3);
         cw_r2d_pop_clip();
@@ -3044,9 +3093,9 @@ static void render(void *u, double alpha) {
       float a = cw_clampf(G.state_ticks / 30.0f, 0, 1);
       draw_results(cw_rect_make(W * 0.5f - 250 * s, H * 0.16f, 500 * s, (110 + NRID * 46) * s), s, a);
       if (G.state_ticks > 60) {
-        const char *rl = last_device == DEV_PAD ? "(START) RETRY      (A) TRACKS" : "R  RETRY      Enter  TRACKS";
-        chip(rl, W * 0.5f, H * 0.16f + (130 + NRID * 46) * s, 20 * s, a);
-        text(rl, 0, H * 0.16f + (130 + NRID * 46) * s, 20 * s, rgba(1, 1, 1, a), CW_ALIGN_CENTER, W);
+        const char *rl = "{retry} RETRY      {m_ok} TRACKS";
+        pchip(rl, 0, W * 0.5f, H * 0.16f + (130 + NRID * 46) * s, 20 * s, a);
+        ptext(rl, 0, 0, H * 0.16f + (130 + NRID * 46) * s, 20 * s, rgba(1, 1, 1, a), CW_ALIGN_CENTER, W);
       }
     } else if (G.state == GS_FINISH && NRID==1 && (strcmp(G.t->theme,"toybox") || G.state_ticks>=420)) draw_finish(W, H, s);
     if (G.paused) draw_pause(W, H, s);

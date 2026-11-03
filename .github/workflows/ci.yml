@@ -19,6 +19,9 @@ env:
   CW_RENDER_SCALE: 1 # the games' own 960x540 instead of 1080p: software rendering is slow
   CW_RUN_TIMEOUT_MS: 3600000 # one native run
   GAMES: bikemesa bomberdude chromite derby pugball racer spout
+  # the games whose prompts pass the engine's button prompt check (tools/check-prompts.mjs, in the SDK):
+  # no button letters or controller colours, every prompt drawn by cartwheel/prompt.h
+  PROMPT_GAMES: bikemesa
   # pushes replay each game's first SLICE frames on every platform and API and
   # hold them to Linux x64 GL's state, bit for bit; the full replays run nightly
   SLICE: 200
@@ -46,6 +49,8 @@ jobs:
           key: deps-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/deps.lock', 'scripts/fetch-deps.sh') }}
       - name: Fetch the SDKs
         run: scripts/fetch-deps.sh
+      - name: Button prompts (check-prompts)
+        run: node deps/cartwheel-sdk/linux-x64/tools/check-prompts.mjs $(for g in $PROMPT_GAMES; do printf 'games/%s ' $g; done)
       - name: Build the carts (GL and WebGPU in one cart each)
         run: RELEASE=1 TARGETS=cart-wgpu scripts/build.sh $GAMES
       - name: Collect carts

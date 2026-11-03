@@ -328,7 +328,9 @@ node deps/cartwheel-engine/tools/with-gpu-suite.mjs derby-split-bench node tests
 `main`, on pull requests and by hand (workflow_dispatch). Every job builds
 against the pinned SDKs.
 
-- **Carts**: the six dual carts.
+- **Carts**: the dual carts, after the button prompt check
+  (`tools/check-prompts.mjs` from the SDK) over the games in `PROMPT_GAMES`:
+  their prompts name actions and let the engine draw each button (AGENTS.md).
 - **Gates** (nightly, and by hand): each game's `_auto` gate in full,
   natively on GL and then on WebGPU, with Mesa's software renderers at the
   games' own 960x540 (`CW_RENDER_SCALE=1`): hours of software rendering. The
