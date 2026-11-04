@@ -3,6 +3,17 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.17.0 (2026-11-03)
+
+- **All games**: Controls are shown with the engine's button prompts (engine v0.30.0). On a pad a four-dot diamond marks the face button to press, with shoulder, trigger and stick pictures for the rest; on a keyboard it shows the key; on a touch screen it shows touch until a pad or key is used. Prompts follow whichever device each player last used and follow rebinding
+- **BikeMesa**: On the finish screen Esc goes back to the bikes, as its label says, instead of retrying
+- **pugball**: The pads 2 to 4 join line shows the pad's buttons; a first tap or click picks the menu item under it
+- **bomberdude**: The controls line on the players screen no longer overlaps the player cards
+- **derby**: Each join plate shows its own seat's buttons
+- **spout**: On the pause card the quit prompt shows Backspace, the key that quits (Esc resumes)
+- **racer**: The controls screen shows your actual bindings, so a rebound action shows its new button; the pad picture's face buttons are one colour
+- **chromite**: The title, pause, game over and self-destruct lines show button prompts
+
 ## v0.16.23 (2026-11-01)
 
 - **BikeMesa**: Reloading tracks no longer runs the cart out of memory: each load left a whole rider behind (about 8 MB on the first track), which crashed the game after about 84 loads. The log and a `mem` debug command now show memory at each load
