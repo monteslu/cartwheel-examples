@@ -265,7 +265,9 @@ static void music_play(const char *name) {
  * the prompts and whether the touch controls show. Asked once a frame in
  * update (prompts are presentation, never the fixed tick) and kept here for
  * the touch buzz and the debug field input.mode (0 mouse, 1 pad, 2 keyboard,
- * 3 touch). */
+ * 3 touch). A line whose actions differ between pad and keyboard asks the
+ * engine again when it draws: the device can change between update and draw,
+ * and a keyboard-only action drawn for a pad shows nothing. */
 static cw_prompt_device p1_device = CW_PROMPT_MOUSE;
 static int32_t input_mode;
 static uint32_t prev_mouse_buttons;
@@ -2453,7 +2455,7 @@ static const char *prompt(void) {
                   : "click a track or change bike";
   if ((G.state == GS_RIDE || G.state == GS_COUNT) && !G.paused) {
     if (touch) return "";
-    return p1_device == CW_PROMPT_PAD
+    return cw_prompt_device_of(0) == CW_PROMPT_PAD
              ? "{pedal} pedal  {brake} brake  {lean_back|lean_fwd} lean  {hop} hop  {pose} + a direction: pose  {reset} checkpoint"
              : "{pedal} pedal  {brake} brake  {lean_back|lean_fwd} lean  {hop} hop  {pose_hands} {pose_feet} {pose_superman} poses  {reset} checkpoint";
   }
@@ -2466,7 +2468,7 @@ static void controls_card(float x, float y, float w, float s) {
   if (on_touch()) {
     a = "left thumb: drag left / right to lean, up / down to change lane";
     b = "right thumb: PEDAL   BRAKE (stopped: back-pedal)   HOP   hold a pose";
-  } else if (p1_device == CW_PROMPT_PAD) {
+  } else if (cw_prompt_device_of(0) == CW_PROMPT_PAD) {
     a = "{pedal} pedal   {brake} brake / back-pedal   {hop} hop   {lean_back|lean_fwd} lean, flip   {dir_up|dir_down} lane";
     b = "hold {pose} + a direction, or {pose_hands} {pose_feet} or both: the poses   {reset} checkpoint";
   } else {
