@@ -3,6 +3,10 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.17.1 (2026-11-03)
+
+- **All games**: Engine v0.30.1: the analog stick prompt is a picture of a thumbstick, with the other stick shown smaller beside it, instead of a ring and dot that read as an eye. Single-letter keys are drawn larger so they read in small hint text
+
 ## v0.17.0 (2026-11-03)
 
 - **All games**: Controls are shown with the engine's button prompts (engine v0.30.0). On a pad a four-dot diamond marks the face button to press, with shoulder, trigger and stick pictures for the rest; on a keyboard it shows the key; on a touch screen it shows touch until a pad or key is used. Prompts follow whichever device each player last used and follow rebinding
