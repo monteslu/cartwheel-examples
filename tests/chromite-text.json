@@ -29,6 +29,18 @@
       "name": "autopilot",
       "frames": 2400,
       "app": "chromite_auto"
+    },
+    {
+      "name": "settings",
+      "frames": 80,
+      "app": "chromite",
+      "input": "chromite-text-settings.json"
+    },
+    {
+      "name": "over",
+      "frames": 840,
+      "app": "chromite",
+      "input": "chromite-text-over.json"
     }
   ]
 }

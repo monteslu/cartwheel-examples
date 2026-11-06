@@ -42,8 +42,9 @@ static const float SKILL_BASE[SKILLS] = { 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f, 0.
 /* ── save ───────────────────────────────────────────────────────────── */
 
 #define SAVE_MAGIC 0x4d524843u /* 'CHRM' */
-#define SAVE_VERSION 2
-/* version 2: the graphics word in 4 bytes (cw_quality_saved is 30 bits since Very Low); version 1 kept one byte */
+#define SAVE_VERSION 3
+/* version 3: the text size and text background; version 2: the graphics word in 4 bytes (cw_quality_saved is
+ * 30 bits since Very Low); version 1 kept one byte */
 typedef struct save_data {
   uint32_t magic;
   uint16_t version, size;
@@ -52,6 +53,7 @@ typedef struct save_data {
   int32_t best_level;
   uint8_t skill, start_level, quality_v1, pad;
   uint32_t quality; /* cw_quality_saved(), 0 = none chosen */
+  uint8_t text_size, text_bg, pad2[2]; /* cw_text_scale_saved() (0 = none chosen), cw_text_backdrop_get() */
   uint32_t checksum;
 } save_data;
 static save_data SAVE;
@@ -71,6 +73,8 @@ static void save_reset(void) {
   SAVE.checksum = save_sum();
 }
 static void save_write(void) {
+  SAVE.text_size = cw_text_scale_saved();
+  SAVE.text_bg = (uint8_t)cw_text_backdrop_get();
   SAVE.checksum = save_sum();
   cw_save_commit();
 }
@@ -82,13 +86,27 @@ static bool save_from_v1(void) {
   if (SAVE.quality != sum) return false;
   SAVE.quality = SAVE.quality_v1; /* an old word reads as before */
   SAVE.quality_v1 = 0;
+  SAVE.text_size = SAVE.text_bg = SAVE.pad2[0] = SAVE.pad2[1] = 0;
+  SAVE.version = SAVE_VERSION;
+  SAVE.size = sizeof SAVE;
+  SAVE.checksum = save_sum();
+  return true;
+}
+/* a version 2 save: the same fields up to the graphics word, its checksum where the text bytes now are */
+static bool save_from_v2(void) {
+  enum { V2_SIZE = offsetof(save_data, text_size) + sizeof(uint32_t) };
+  if (SAVE.magic != SAVE_MAGIC || SAVE.version != 2 || SAVE.size != V2_SIZE) return false;
+  uint32_t stored, sum = cw_hash32(&SAVE.hi, offsetof(save_data, text_size) - offsetof(save_data, hi), CW_HASH32_INIT) ^ (2u | (uint32_t)V2_SIZE << 16);
+  memcpy(&stored, &SAVE.text_size, sizeof stored);
+  if (stored != sum) return false;
+  SAVE.text_size = SAVE.text_bg = SAVE.pad2[0] = SAVE.pad2[1] = 0;
   SAVE.version = SAVE_VERSION;
   SAVE.size = sizeof SAVE;
   SAVE.checksum = save_sum();
   return true;
 }
 static void save_check(void) {
-  if (save_from_v1()) return;
+  if (save_from_v1() || save_from_v2()) return;
   if (SAVE.magic != SAVE_MAGIC || SAVE.version != SAVE_VERSION || SAVE.size != sizeof SAVE || SAVE.checksum != save_sum()) save_reset();
 }
 
@@ -352,6 +370,8 @@ static void init(void *u) {
   (void)u;
   save_check();
   cw_quality_restore(SAVE.quality);
+  cw_text_scale_restore(SAVE.text_size); /* the player's text size and text background */
+  cw_text_backdrop_set(SAVE.text_bg <= CW_TEXT_BACKDROP_PANEL ? (cw_text_backdrop)SAVE.text_bg : CW_TEXT_BACKDROP_OFF);
   if (!cw_input_load_bindings_asset("input.cfg")) cw_warn("chromite: input.cfg had errors");
   cw_input_commit_defaults();
   G.a_left = cw_action_find("left");
@@ -472,47 +492,62 @@ static void record_score(void) {
   save_write();
 }
 
+/* the title menu's layout, from the size its words draw at (drawn below; the pointer here shares it) */
+enum { MENU_N = 6 };
+typedef struct title_geo {
+  float x0, y0, pitch, bar_h, lh, panel_w; /* the menu: rows from y0, a bar per row */
+  int first, n;                            /* the rows shown (a long menu scrolls with the choice) */
+  float hs_y, hs_head, hs_pitch;           /* the high scores, bottom left */
+  float ticker_y, prompt_y;
+} title_geo;
+static title_geo title_layout(float W, float H, float s);
+static title_geo title_drawn; /* the last drawn layout: the pointer reads it (prompts are measured only while drawing) */
+static void menu_step(int dx) {
+  int max_level = SAVE.best_level < MAX_START_LEVEL ? SAVE.best_level : MAX_START_LEVEL;
+  if (G.cursor == 1) SAVE.skill = (uint8_t)((SAVE.skill + dx + SKILLS) % SKILLS);
+  if (G.cursor == 2) SAVE.start_level = (uint8_t)(1 + (SAVE.start_level - 1 + dx + max_level) % max_level);
+  if (G.cursor == 3) {
+    cw_quality_cycle(), SAVE.quality = cw_quality_saved();
+    if (tex_stale()) load_world(G.variation);
+  }
+  if (G.cursor == 4) dx < 0 ? cw_text_scale_cycle_back() : cw_text_scale_cycle();
+  if (G.cursor == 5) {
+    cw_text_backdrop_cycle();
+    if (dx < 0) cw_text_backdrop_cycle(); /* three settings: twice forward is one back */
+  }
+  if (G.cursor) sfx(SFX_SELECT, 0.5f), save_write();
+}
+
 static void title_input(void) {
-  /* the menu: start, skill, start level, graphics */
+  /* the menu: start, skill, start level, graphics, text size, text background */
   int dy = (pressed(G.a_down) ? 1 : 0) - (pressed(G.a_up) ? 1 : 0);
   int dx = (pressed(G.a_right) ? 1 : 0) - (pressed(G.a_left) ? 1 : 0);
-  if (dy) G.cursor = (G.cursor + dy + 4) % 4, sfx(SFX_SELECT, 0.5f);
-  if (dx) {
-    int max_level = SAVE.best_level < MAX_START_LEVEL ? SAVE.best_level : MAX_START_LEVEL;
-    if (G.cursor == 1) SAVE.skill = (uint8_t)((SAVE.skill + dx + SKILLS) % SKILLS);
-    if (G.cursor == 2) SAVE.start_level = (uint8_t)(1 + (SAVE.start_level - 1 + dx + max_level) % max_level);
-    if (G.cursor == 3) cw_quality_cycle(), SAVE.quality = cw_quality_saved();
-    if (G.cursor == 3 && tex_stale()) load_world(G.variation);
-    if (G.cursor) sfx(SFX_SELECT, 0.5f), save_write();
-  }
+  if (dy) G.cursor = (G.cursor + dy + MENU_N) % MENU_N, sfx(SFX_SELECT, 0.5f);
+  if (dx) menu_step(dx);
   /* the pointer: hovering a line chooses it, a click on it acts (on skill
    * and level, a click steps the value) */
   bool click = false;
   if (input_mode == DEV_MOUSE || input_mode == DEV_TOUCH) {
     cw_vec2 cs = cw_r2d_canvas_size(), m = cw_r2d_window_to_canvas(cw_v2(cw_input_raw()->mouse_x, cw_input_raw()->mouse_y));
-    float sc = cs.y / 540.0f, y0 = cs.y * 0.55f, x0 = cs.x * 0.36f;
-    for (int i = 0; i < 4; i++)
-      if (m.x > x0 - 30 * sc && m.x < x0 + cs.x * 0.3f && m.y > y0 + i * 34 * sc - 4 * sc && m.y < y0 + i * 34 * sc + 26 * sc) {
+    title_geo g = title_drawn;
+    float sc = cs.y / 540.0f;
+    for (int k = 0; k < g.n; k++) {
+      int i = g.first + k;
+      float y = g.y0 - 3 * sc + k * g.pitch;
+      if (m.x > g.x0 - 30 * sc && m.x < g.x0 - 30 * sc + g.panel_w && m.y > y && m.y < y + g.bar_h) {
         if (G.cursor != i && input_mode == DEV_MOUSE) G.cursor = i, sfx(SFX_SELECT, 0.3f);
         if (mouse_clicked) G.cursor = i, click = true;
       }
+    }
     if (click && (G.cursor == 1 || G.cursor == 2)) {
-      int max_level = SAVE.best_level < MAX_START_LEVEL ? SAVE.best_level : MAX_START_LEVEL;
-      if (G.cursor == 1) SAVE.skill = (uint8_t)((SAVE.skill + 1) % SKILLS);
-      else SAVE.start_level = (uint8_t)(1 + SAVE.start_level % max_level);
-      save_write();
-      sfx(SFX_SELECT, 0.5f);
+      menu_step(1);
       click = false;
     }
   }
   bool go = pressed(G.a_start) || pressed(G.a_fire) || click || (mouse_clicked && input_mode == DEV_TOUCH && G.cursor == 0);
   if (G.state_ticks > 20 && go) {
-    if (G.cursor == 3) {
-      cw_quality_cycle();
-      SAVE.quality = cw_quality_saved();
-      save_write();
-      if (tex_stale()) load_world(G.variation);
-      sfx(SFX_SELECT, 0.5f);
+    if (G.cursor >= 3) {
+      menu_step(1);
     } else if (G.cursor == 1 || G.cursor == 2) {
       G.cursor = 0;
     } else {
@@ -757,6 +792,41 @@ static void pspaced(const char *s, float x, float y, float size, cw_color c, flo
   float w = pspaced_run(s, 0, 0, size, c, false);
   pspaced_run(s, x + (wrap - w) * 0.5f, y, size, c, true);
 }
+/* a prompt line that breaks at its wide gaps (three spaces or more) into as
+ * many centred lines as it needs to fit [x, x + wrap]; returns its height */
+static float pspaced_block(const char *s, float x, float y, float size, cw_color c, float wrap, bool draw) {
+  char line[192] = "", cand[192];
+  float lh = spaced_size("Ag", size).y, h = 0;
+  int gap_n = 0; /* the gap before this piece, kept when the line holds both */
+  for (const char *p = s; *p;) {
+    const char *g = strstr(p, "   ");
+    size_t n = g ? (size_t)(g - p) : strlen(p);
+    snprintf(cand, sizeof cand, "%s%.*s%.*s", line, line[0] ? gap_n : 0, "                ", (int)n, p);
+    if (line[0] && pspaced_run(cand, 0, 0, size, c, false) > wrap) {
+      if (draw) pspaced(line, x, y + h, size, c, wrap);
+      h += lh * 1.15f;
+      snprintf(line, sizeof line, "%.*s", (int)n, p);
+    } else
+      memcpy(line, cand, sizeof line);
+    p += n;
+    for (gap_n = 0; *p == ' '; p++) gap_n += gap_n < 16;
+  }
+  if (line[0]) {
+    if (draw) pspaced(line, x, y + h, size, c, wrap);
+    h += lh;
+  }
+  return h;
+}
+/* mono or heading text's size as drawn */
+static cw_vec2 mono_size(const char *s, float size, float spacing) {
+  cw_text_style st = { .size = size, .letter_spacing = spacing };
+  cw_text_metrics m = cw_font_measure(font_title, s, &st);
+  return cw_v2(m.width, m.height);
+}
+static float heading_h(const char *s, float size, float wrap) {
+  cw_text_style st = { .size = size, .letter_spacing = size * 0.32f, .wrap_width = wrap, .outline_width = size * 0.03f };
+  return cw_font_measure(font_ui, s, &st).height;
+}
 static bool prompt_touch(void) { return p1_device == CW_PROMPT_TOUCH; }
 
 /* a vertical gradient quad */
@@ -784,11 +854,15 @@ static void draw_hud(float W, float H, float s) {
   spaced("shields", 4 * s, H - 8 * s - sh.y, lab, rgba(0.55f, 0.68f, 0.95f, 0.85f), CW_ALIGN_LEFT, 0);
   spaced("damage", W - 4 * s - dm.x, H - 8 * s - dm.y, lab, rgba(0.95f, 0.55f, 0.5f, 0.85f), CW_ALIGN_LEFT, 0);
   /* score and level, top left; reserve ships, top right */
-  hgrad(cw_rect_make(0, 0, 330 * s, 70 * s), rgba(0.01f, 0.015f, 0.025f, 0.6f), rgba(0.01f, 0.015f, 0.025f, 0));
+  char lv[64];
   snprintf(b, sizeof b, "%08lld", (long long)S->score);
+  snprintf(lv, sizeof lv, "level %d   %s", S->level, SKILL_NAME[SAVE.skill]);
+  cw_vec2 sc = mono_size(b, 26 * s, 3 * s), ls = spaced_size(lv, 14 * s);
+  float ly = 14 * s + fmaxf(32 * s, sc.y + 2 * s); /* the level line under the score, by its measured height */
+  hgrad(cw_rect_make(0, 0, fmaxf(330 * s, 28 * s + fmaxf(sc.x, ls.x) + 80 * s), fmaxf(70 * s, ly + ls.y + 10 * s)), rgba(0.01f, 0.015f, 0.025f, 0.6f),
+        rgba(0.01f, 0.015f, 0.025f, 0));
   text(font_title, b, 26 * s, 14 * s, 26 * s, rgba(0.8f, 0.86f, 0.95f, 0.95f), CW_ALIGN_LEFT, 0, 3 * s);
-  snprintf(b, sizeof b, "level %d   %s", S->level, SKILL_NAME[SAVE.skill]);
-  spaced(b, 28 * s, 46 * s, 14 * s, rgba(0.5f, 0.58f, 0.72f, 0.85f), CW_ALIGN_LEFT, 0);
+  spaced(lv, 28 * s, ly, 14 * s, rgba(0.5f, 0.58f, 0.72f, 0.85f), CW_ALIGN_LEFT, 0);
   /* the boss: a hairline gauge across the top */
   if (S->boss_hp >= 0) {
     float bw = W * 0.36f, bx = (W - bw) * 0.5f, by = 22 * s;
@@ -799,22 +873,23 @@ static void draw_hud(float W, float H, float s) {
     spaced("hostile command craft", 0, by + 10 * s, 14 * s, rgba(0.9f, 0.45f, 0.4f, 0.8f), CW_ALIGN_CENTER, W);
   }
   /* messages, in the original's spaced lowercase */
-  if (G.state_ticks < 260 && S->mode == PLAY_ON) {
+  if (G.state_ticks < 260 && S->mode == PLAY_ON && G.state != GS_PAUSE) { /* not behind the pause screen */
     float a = cw_clampf(G.state_ticks / 30.0f, 0, 1) * cw_clampf((260 - G.state_ticks) / 50.0f, 0, 1);
     snprintf(b, sizeof b, "LEVEL %d", S->level);
     heading(b, 0, H * 0.3f, 54 * s, a, CW_ALIGN_CENTER, W);
-    spaced("do not allow -any- enemies to get past", 0, H * 0.3f + 74 * s, 17 * s, rgba(0.7f, 0.76f, 0.88f, a), CW_ALIGN_CENTER, W);
+    spaced("do not allow -any- enemies to get past", 16 * s, H * 0.3f + fmaxf(74 * s, heading_h(b, 54 * s, 0) + 12 * s), 17 * s, rgba(0.7f, 0.76f, 0.88f, a),
+           CW_ALIGN_CENTER, W - 32 * s);
   }
   if (S->mode == PLAY_LEVEL_OVER) heading("LEVEL COMPLETE", 0, H * 0.32f, 46 * s, cw_clampf((500 - S->success) / 30.0f, 0, 1), CW_ALIGN_CENTER, W);
   if (S->mode == PLAY_DEAD) heading("GAME OVER", 0, H * 0.36f, 60 * s, cw_clampf((50 - S->hero_death) / 30.0f, 0, 1), CW_ALIGN_CENTER, W);
   if (h->armed > 0)
-    pspaced(prompt_touch() ? "self-destruct armed : again to fire" : "self-destruct armed : {item} again", 0, H * 0.62f, 18 * s,
-            rgba(1, 0.3f, 0.2f, 0.6f + 0.4f * sinf(frame_t * 20)), W);
+    pspaced_block(prompt_touch() ? "self-destruct armed :   again to fire" : "self-destruct armed :   {item} again", 16 * s, H * 0.62f, 18 * s,
+                  rgba(1, 0.3f, 0.2f, 0.6f + 0.4f * sinf(frame_t * 20)), W - 32 * s, true);
   if (S->past_warn > 0.05f && S->mode == PLAY_ON) {
     cw_r2d_set_blend(CW_BLEND_ADD);
     vgrad(cw_rect_make(0, H - 90 * s, W, 90 * s), rgba(0.6f, 0.02f, 0.02f, 0), rgba(0.6f * S->past_warn, 0.03f, 0.02f, 0.5f * (0.6f + 0.4f * sinf(frame_t * 18))));
     cw_r2d_set_blend(CW_BLEND_ALPHA);
-    spaced("enemy getting past", 0, H - 36 * s, 15 * s, rgba(1, 0.3f, 0.25f, S->past_warn), CW_ALIGN_CENTER, W);
+    spaced("enemy getting past", 0, H - 14 * s - spaced_size("enemy getting past", 15 * s).y, 15 * s, rgba(1, 0.3f, 0.25f, S->past_warn), CW_ALIGN_CENTER, W);
   }
 }
 
@@ -845,66 +920,133 @@ static void draw_touch(void) {
 
 /* the title: the 3D logo is world.c's; this draws the menu under it as the
  * original did, wide-spaced lowercase with a light bar sweeping the choice */
-static void draw_title(float W, float H, float s) {
-  char lines[4][64];
+/* the menu's lines; tight: one space round the colons (a large text size on a narrow screen) */
+static bool menu_tight;
+static void menu_lines(char lines[MENU_N][64]) {
+  char bg[16];
+  const char *sep = menu_tight ? " : " : "   :   ";
+  snprintf(bg, sizeof bg, "%s", cw_text_backdrop_label());
   snprintf(lines[0], 64, "new game");
-  snprintf(lines[1], 64, "skill   :   %s", SKILL_NAME[SAVE.skill]);
-  snprintf(lines[2], 64, "level   :   %d", SAVE.start_level);
-  snprintf(lines[3], 64, "graphics   :   %s", cw_quality_label());
-  for (char *c = lines[3]; *c; c++) *c = (char)(*c >= 'A' && *c <= 'Z' ? *c + 32 : *c);
-  float y0 = H * 0.55f, x0 = W * 0.36f;
-  vgrad(cw_rect_make(x0 - 30 * s, y0 - 18 * s, W * 0.34f, 4 * 34 * s + 28 * s), rgba(0.0f, 0.0f, 0.01f, 0.55f), rgba(0.0f, 0.0f, 0.01f, 0.35f));
-  for (int i = 0; i < 4; i++) {
+  snprintf(lines[1], 64, "skill%s%s", sep, SKILL_NAME[SAVE.skill]);
+  snprintf(lines[2], 64, "level%s%d", sep, SAVE.start_level);
+  snprintf(lines[3], 64, "graphics%s%s", sep, cw_quality_label());
+  snprintf(lines[4], 64, "text size%s%s", sep, cw_text_scale_label());
+  snprintf(lines[5], 64, "text background%s%s", sep, bg);
+  for (int i = 3; i < MENU_N; i++)
+    for (char *c = lines[i]; *c; c++) *c = (char)(*c >= 'A' && *c <= 'Z' ? *c + 32 : *c);
+}
+static const char *title_hint(void) { return prompt_touch() ? "tap to launch" : "{up|down} : choose      {fire} : launch"; }
+static title_geo title_layout(float W, float H, float s) {
+  title_geo g;
+  char lines[MENU_N][64];
+  g.lh = spaced_size("Ag", 17 * s).y;
+  g.pitch = fmaxf(34 * s, g.lh + 10 * s);
+  g.bar_h = g.pitch - 6 * s;
+  float maxw = 0, hs_right = 40 * s + mono_size("00000000", 15 * s, 2 * s).x;
+  for (int tight = 0; tight < 2; tight++) {
+    menu_tight = tight;
+    menu_lines(lines);
+    maxw = 0;
+    for (int i = 0; i < MENU_N; i++) maxw = fmaxf(maxw, spaced_size(lines[i], 17 * s).x);
+    if (W - 24 * s - maxw >= hs_right + 50 * s) break;
+  }
+  /* from the bottom up: the hint, the ticker, then the menu and the high scores above them */
+  float ph = pspaced_block(title_hint(), 0, 0, 16 * s, rgba(1, 1, 1, 1), W - 32 * s, false);
+  g.prompt_y = fminf(H * 0.935f, H - 6 * s - ph);
+  g.ticker_y = fminf(H * 0.89f, g.prompt_y - 4 * s - spaced_size("Ag", 15 * s).y);
+  float bottom = g.ticker_y - 10 * s;
+  g.hs_head = spaced_size("high scores", 14 * s).y;
+  g.hs_pitch = fmaxf(19 * s, mono_size("0", 15 * s, 2 * s).y);
+  g.hs_y = fminf(H * 0.7f, bottom - (fmaxf(22 * s, g.hs_head + 4 * s) + 5 * g.hs_pitch));
+  g.x0 = fmaxf(hs_right + 50 * s, fminf(W * 0.36f, W - 24 * s - maxw));
+  g.panel_w = fminf(W - (g.x0 - 30 * s) - 8 * s, fmaxf(W * 0.34f, maxw + 60 * s));
+  g.y0 = H * 0.55f;
+  if (g.y0 - 3 * s + MENU_N * g.pitch > bottom) g.y0 = fmaxf(H * 0.42f, bottom + 3 * s - MENU_N * g.pitch);
+  g.n = (int)((bottom + 3 * s - g.y0) / g.pitch);
+  g.n = g.n < 1 ? 1 : g.n > MENU_N ? MENU_N : g.n;
+  g.first = G.cursor - g.n + 1;
+  g.first = g.first < 0 ? 0 : g.first > MENU_N - g.n ? MENU_N - g.n : g.first;
+  return g;
+}
+static void draw_title(float W, float H, float s) {
+  char lines[MENU_N][64];
+  title_geo g = title_layout(W, H, s); /* picks menu_tight */
+  title_drawn = g;
+  menu_lines(lines);
+  float y0 = g.y0, x0 = g.x0, bx = x0 - 30 * s;
+  vgrad(cw_rect_make(bx, y0 - 18 * s, g.panel_w, g.n * g.pitch + 28 * s), rgba(0.0f, 0.0f, 0.01f, 0.55f), rgba(0.0f, 0.0f, 0.01f, 0.35f));
+  for (int k = 0; k < g.n; k++) {
+    int i = g.first + k;
     bool sel = i == G.cursor;
-    float y = y0 + i * 34 * s;
+    float y = y0 - 3 * s + k * g.pitch; /* the row's bar */
     if (sel) {
       /* the original's bar: bright at the left edge, fading right, with a glint sweeping it */
+      float bw = g.panel_w - 4 * s;
       cw_r2d_set_blend(CW_BLEND_ADD);
-      hgrad(cw_rect_make(0, y - 3 * s, x0 + W * 0.3f, 28 * s), rgba(0.1f, 0.18f, 0.6f, 0.0f), rgba(0.12f, 0.2f, 0.7f, 0.0f));
-      hgrad(cw_rect_make(x0 - 30 * s, y - 3 * s, W * 0.3f, 28 * s), rgba(0.25f, 0.35f, 0.95f, 0.75f), rgba(0.05f, 0.08f, 0.3f, 0.0f));
-      float gx = x0 - 30 * s + fmodf(frame_t * 0.7f, 1.0f) * W * 0.3f;
-      hgrad(cw_rect_make(gx - 40 * s, y - 3 * s, 40 * s, 28 * s), rgba(0.4f, 0.5f, 1, 0), rgba(0.5f, 0.6f, 1, 0.5f));
+      hgrad(cw_rect_make(bx, y, bw, g.bar_h), rgba(0.25f, 0.35f, 0.95f, 0.75f), rgba(0.05f, 0.08f, 0.3f, 0.0f));
+      float gx = bx + fmodf(frame_t * 0.7f, 1.0f) * bw;
+      hgrad(cw_rect_make(gx - 40 * s, y, 40 * s, g.bar_h), rgba(0.4f, 0.5f, 1, 0), rgba(0.5f, 0.6f, 1, 0.5f));
       cw_r2d_set_blend(CW_BLEND_ALPHA);
     }
-    spaced(lines[i], x0, y, 17 * s, sel ? rgba(1, 1, 1, 1) : rgba(0.62f, 0.68f, 0.8f, 0.85f), CW_ALIGN_LEFT, 0);
+    spaced(lines[i], x0, y + (g.bar_h - g.lh) * 0.5f, 17 * s, sel ? rgba(1, 1, 1, 1) : rgba(0.62f, 0.68f, 0.8f, 0.85f), CW_ALIGN_LEFT, 0);
+  }
+  /* more rows above or below: a small arrow at the panel's right edge */
+  float ax = bx + g.panel_w - 16 * s, t = 6 * s;
+  cw_color ac = rgba(0.62f, 0.68f, 0.82f, 0.9f);
+  if (g.first > 0) {
+    float y = y0 - 10 * s;
+    cw_r2d_fan(cw_v2(ax, y), (cw_vec2[]){ cw_v2(ax - t, y + t * 0.5f), cw_v2(ax, y - t * 0.5f), cw_v2(ax + t, y + t * 0.5f) }, 3, true, ac);
+  }
+  if (g.first + g.n < MENU_N) {
+    float y = y0 - 3 * s + g.n * g.pitch + 2 * s;
+    cw_r2d_fan(cw_v2(ax, y), (cw_vec2[]){ cw_v2(ax - t, y - t * 0.5f), cw_v2(ax + t, y - t * 0.5f), cw_v2(ax, y + t * 0.5f) }, 3, true, ac);
   }
   /* high scores, bottom left, as the original kept them */
-  float tx = 40 * s, ty = H * 0.7f;
-  spaced("high scores", tx, ty, 13 * s, rgba(0.62f, 0.68f, 0.82f, 0.9f), CW_ALIGN_LEFT, 0);
+  float tx = 40 * s, ty = g.hs_y;
+  spaced("high scores", tx, ty, 14 * s, rgba(0.62f, 0.68f, 0.82f, 0.9f), CW_ALIGN_LEFT, 0);
+  float ey = ty + fmaxf(22 * s, g.hs_head + 4 * s);
   for (int i = 0; i < 5; i++) {
     char b[48];
     snprintf(b, sizeof b, "%8d", SAVE.hi[SAVE.skill][i]);
-    text(font_title, b, tx, ty + (22 + i * 19) * s, 15 * s, i == 0 ? rgba(1, 0.42f, 0.38f, 1) : rgba(0.6f, 0.64f, 0.72f, 0.85f - i * 0.12f), CW_ALIGN_LEFT, 0, 2 * s);
+    text(font_title, b, tx, ey + i * g.hs_pitch, 15 * s, i == 0 ? rgba(1, 0.42f, 0.38f, 1) : rgba(0.6f, 0.64f, 0.72f, 0.85f - i * 0.12f), CW_ALIGN_LEFT, 0, 2 * s);
   }
-  const char *h = prompt_touch() ? "tap to launch" : "{up|down} : choose      {fire} : launch";
-  pspaced(h, 0, H * 0.935f, 16 * s, rgba(0.5f, 0.56f, 0.7f, 0.55f + 0.25f * sinf(frame_t * 2.5f)), W);
+  pspaced_block(title_hint(), 16 * s, g.prompt_y, 16 * s, rgba(0.5f, 0.56f, 0.7f, 0.55f + 0.25f * sinf(frame_t * 2.5f)), W - 32 * s, true);
   /* the original's ticker */
   float tw = W * 3, off = fmodf(frame_t * 90 * s, tw * 0.5f);
-  spaced("do not allow -any- enemies to get past", W - off, H * 0.89f, 15 * s, rgba(0.35f, 0.4f, 0.85f, 0.85f), CW_ALIGN_LEFT, 0);
+  spaced("do not allow -any- enemies to get past", W - off, g.ticker_y, 15 * s, rgba(0.35f, 0.4f, 0.85f, 0.85f), CW_ALIGN_LEFT, 0);
 }
 
 static void draw_pause(float W, float H, float s) {
   cw_r2d_rect(cw_rect_make(0, 0, W, H), rgba(0.0f, 0.01f, 0.03f, 0.55f));
   heading("PAUSED", 0, H * 0.36f, 52 * s, 1, CW_ALIGN_CENTER, W);
-  pspaced(prompt_touch() ? "tap to resume" : "{fire} : resume      {back} : end the game", 0, H * 0.5f, 16 * s, rgba(0.7f, 0.76f, 0.88f, 0.9f), W);
+  float y = H * 0.36f + fmaxf(H * 0.14f, heading_h("PAUSED", 52 * s, 0) + 16 * s);
+  pspaced_block(prompt_touch() ? "tap to resume" : "{fire} : resume      {back} : end the game", 16 * s, y, 16 * s, rgba(0.7f, 0.76f, 0.88f, 0.9f), W - 32 * s, true);
 }
 
+/* the results: each line under the last by its measured height */
 static void draw_over(float W, float H, float s) {
   float a = cw_clampf(G.state_ticks / 30.0f, 0, 1);
   cw_r2d_rect(cw_rect_make(0, 0, W, H), rgba(0, 0.005f, 0.02f, 0.55f * a));
   heading("GAME OVER", 0, H * 0.22f, 60 * s, a, CW_ALIGN_CENTER, W);
+  float y = H * 0.22f + fmaxf(H * 0.16f, heading_h("GAME OVER", 60 * s, 0) + 12 * s);
   char b[96];
   snprintf(b, sizeof b, "%08d", G.final_score);
-  text(font_title, b, 0, H * 0.38f, 34 * s, rgba(0.85f, 0.9f, 1, a), CW_ALIGN_CENTER, W, 6 * s);
+  text(font_title, b, 0, y, 34 * s, rgba(0.85f, 0.9f, 1, a), CW_ALIGN_CENTER, W, 6 * s);
+  y += fmaxf(H * 0.08f, mono_size(b, 34 * s, 6 * s).y + 4 * s);
   snprintf(b, sizeof b, "level %d", G.final_level);
-  spaced(b, 0, H * 0.46f, 14 * s, rgba(0.6f, 0.66f, 0.8f, a), CW_ALIGN_CENTER, W);
+  spaced(b, 0, y, 14 * s, rgba(0.6f, 0.66f, 0.8f, a), CW_ALIGN_CENTER, W);
+  y += fmaxf(H * 0.08f, spaced_size(b, 14 * s).y + 10 * s);
   const char *verdict = G.rank == 1 ? "new high score !" : G.rank > 1 ? "not bad !" : "loser";
-  spaced(verdict, 0, H * 0.54f, 24 * s, G.rank ? rgba(1, 0.55f, 0.4f, a) : rgba(0.55f, 0.6f, 0.75f, a), CW_ALIGN_CENTER, W);
+  spaced(verdict, 0, y, 24 * s, G.rank ? rgba(1, 0.55f, 0.4f, a) : rgba(0.55f, 0.6f, 0.75f, a), CW_ALIGN_CENTER, W);
+  y += fmaxf(H * 0.06f, spaced_size(verdict, 24 * s).y + 6 * s);
   if (G.rank > 1) {
     snprintf(b, sizeof b, "rank %d", G.rank);
-    spaced(b, 0, H * 0.6f, 16 * s, rgba(1, 0.7f, 0.5f, a), CW_ALIGN_CENTER, W);
+    spaced(b, 0, y, 16 * s, rgba(1, 0.7f, 0.5f, a), CW_ALIGN_CENTER, W);
+    y += spaced_size(b, 16 * s).y + 6 * s;
   }
-  pspaced(prompt_touch() ? "tap to continue" : "press {fire} to continue", 0, H * 0.82f, 16 * s, rgba(0.5f, 0.56f, 0.72f, a * 0.8f), W);
+  const char *p = prompt_touch() ? "tap to continue" : "press {fire} to continue";
+  float ph = pspaced_block(p, 16 * s, 0, 16 * s, rgba(1, 1, 1, 1), W - 32 * s, false);
+  pspaced_block(p, 16 * s, fmaxf(y + 10 * s, fminf(H * 0.82f, H - 8 * s - ph)), 16 * s, rgba(0.5f, 0.56f, 0.72f, a * 0.8f), W - 32 * s, true);
 }
 
 static void render(void *u, double alpha) {
