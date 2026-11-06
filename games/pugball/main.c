@@ -1486,6 +1486,29 @@ static cw_text_metrics measure_w(const char *s, float size, float wrap, cw_text_
 }
 static cw_text_metrics measure_bold(const char *s, float size) { return cw_font_measure(font_title, s, &(cw_text_style){ .size = size }); }
 static cw_text_metrics measure_digits(const char *s, float size) { return cw_font_measure(font_score, s, &(cw_text_style){ .size = size }); }
+/* cw_prompt_text_size for the layouts: prompts are measured while rendering
+ * only (the engine counts a prompt asked for in the fixed tick as an error),
+ * so the render keeps what it measured and the tick's hit tests reuse it */
+static bool g_rendering;
+static cw_vec2 psize(cw_font f, const char *s, int player, float size) {
+  enum { N = 128 };
+  static struct { char s[192]; float size; int player; cw_vec2 v; } cache[N];
+  static int next;
+  for (int i = 0; i < N; i++)
+    if (cache[i].size == size && cache[i].player == player && !strcmp(cache[i].s, s)) {
+      if (g_rendering) cache[i].v = cw_prompt_text_size(f, s, player, size);
+      return cache[i].v;
+    }
+  if (!g_rendering) { /* not measured yet: the text alone, glyph names and all */
+    cw_text_metrics m = cw_font_measure(f, s, &(cw_text_style){ .size = size });
+    return cw_v2(m.width, m.height);
+  }
+  cw_vec2 v = cw_prompt_text_size(f, s, player, size);
+  snprintf(cache[next].s, sizeof cache[next].s, "%s", s);
+  cache[next].size = size, cache[next].player = player, cache[next].v = v;
+  next = (next + 1) % N;
+  return v;
+}
 /* a prompt line broken into lines no wider than maxw: at the wide gaps between
  * its items ("   ") where it can, else between words */
 static const char *prompt_wrap(const char *s, int player, float size, float maxw) {
@@ -1515,7 +1538,7 @@ static const char *prompt_wrap(const char *s, int player, float size, float maxw
         for (int c = 0; c < wl[k] && l < sizeof line - 1; c++) line[l++] = w0[k][c];
       }
       line[l] = 0;
-      if (cw_prompt_text_size(f, line, player, size).x > maxw) break;
+      if (psize(f, line, player, size).x > maxw) break;
     }
     if (end < n) /* break at the last wide gap in the line, if there is one */
       for (int k = end - 1; k > start; k--)
@@ -1537,7 +1560,7 @@ static const char *prompt_wrap(const char *s, int player, float size, float maxw
 static float prompt_line_h_for(const char *s, int player, float W, float size) {
   cw_font f = ui_font(size);
   float drawn = cw_text_drawn_size(f, size), padx = drawn * 0.8f, pady = drawn * 0.3f;
-  return cw_prompt_text_size(f, prompt_wrap(s, player, size, W - 2 * padx - W * 0.04f), player, size).y + 2 * pady;
+  return psize(f, prompt_wrap(s, player, size, W - 2 * padx - W * 0.04f), player, size).y + 2 * pady;
 }
 static float prompt_line_h(const char *s, float W, float size) { return prompt_line_h_for(s, 0, W, size); }
 static const char *menu_prompt(void);
@@ -1684,7 +1707,9 @@ static sheet_layout sheet_layout_of(float W, float H) {
   /* the bottom: the menu prompt, the pads line, KICK OFF */
   L.prompt_bottom = H - 10 * s;
   float y = L.prompt_bottom - prompt_line_h(menu_prompt(), W, 16 * s) - 10 * s;
-  L.pads_line = shows_glyphs() && cw_prompt_device_of(1) == CW_PROMPT_PAD;
+  static bool pads_pad; /* P2 has a pad: asked of the prompts while rendering only, the tick reuses it */
+  if (g_rendering) pads_pad = cw_prompt_device_of(1) == CW_PROMPT_PAD;
+  L.pads_line = shows_glyphs() && pads_pad;
   float pads_h = L.pads_line ? prompt_line_h_for(sheet_pads_prompt(), 1, W, 16 * s) + 8 * s : 0;
   cw_text_metrics gm = measure_bold("KICK OFF THE CAT   5:00", 24 * s);
   float gw = fmaxf(340 * s, gm.width + 36 * s), gh = fmaxf(52 * s, gm.height + 16 * s);
@@ -1939,6 +1964,7 @@ static void fixed(void *u, double dt) {
   perf_tick_end();
 }
 static void fixed_body(void) {
+  g_rendering = false; /* prompts are measured in render only */
   G.ticks++;
   G.state_ticks++;
   read_mouse();
@@ -2326,7 +2352,7 @@ static void prompt_line_for(const char *s, int player, float W, float y, float s
   cw_font f = ui_font(size);
   float drawn = cw_text_drawn_size(f, size), padx = drawn * 0.8f, pady = drawn * 0.3f;
   s = prompt_wrap(s, player, size, W - 2 * padx - W * 0.04f); /* broken into lines to fit the canvas */
-  cw_vec2 m = cw_prompt_text_size(f, s, player, size);
+  cw_vec2 m = psize(f, s, player, size);
   round_rect(cw_rect_make(W * 0.5f - m.x * 0.5f - padx, y - pady, m.x + 2 * padx, m.y + 2 * pady), drawn * 0.7f, rgba(0.06f, 0.04f, 0.12f, 0.55f));
   ptext(s, player, 0, y, size, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, W);
 }
@@ -3204,6 +3230,7 @@ static void draw_pause(float W, float H, float s) {
 }
 
 static void render(void *u, double alpha) {
+  g_rendering = true;
   (void)u;
   (void)alpha;
   cw_r2d_begin(&(cw_r2d_pass_desc){ .clear = false });
@@ -3237,6 +3264,7 @@ static void render(void *u, double alpha) {
   }
   cw_quality_menu_draw(&(cw_quality_menu_style){ .font = font_ui, .accent = rgba(1, 0.85f, 0.3f, 1) });
   cw_r2d_end();
+  g_rendering = false;
   perf_frame(render_t0);
 }
 
