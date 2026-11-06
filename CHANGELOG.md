@@ -12,6 +12,8 @@ carts and desktop and Android builds are on its GitHub release. Entries name the
 - **All games**: Readable text: body text (HUD values, menus, hints) is at least 26 px at 1080 lines (2.4% of the screen height) and nothing is under 18 px, in split screen too. Each game's settings or pause menu has Text size (100% to 200%) and Text background (off, outline, panel) rows, kept in its save (older saves still load), and every screen lays out from the size its text draws at, so 200% keeps HUDs, menus and results apart
 - **bomberdude**: The player cards show bombs, fire and speed as icons with their numbers; at large text the cards go down both sides of the arena
 - **pugball**: Team names, the boost gauge and the camera chips are larger in every view, four-way split screen included; the team sheet and stadium select scroll at large text
+- **derby**: The HUD plates in split screen keep their text size and size themselves from it; the pause menu has Text size and Text background rows
+- **racer**: The speed, lap, place and battle readouts keep the body size in split screen; the options page has Text size and Text background rows and scrolls when they do not fit
 - **derby**: On Very Low and Low, where the floodlights cast no shadow, each car has a soft dark shadow under it, so no car looks as if it hovers
 - **chromite**: The reflection probe captures less often on Very Low and Low, so those presets cost less than High (Low cost more than High before)
 - **chromite**: The graphics setting is saved in full (it lost part of its value in one byte); older saves still load
