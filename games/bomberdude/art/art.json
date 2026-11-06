@@ -1,0 +1,25 @@
+{
+  "icon": "icon.png",
+  "cover": "cover.jpg",
+  "background": "background.jpg",
+  "logo": "logo.png",
+  "title": "title.jpg",
+  "screenshots": [
+    {
+      "path": "shot-1.jpg",
+      "label": "Four critters trade blasts across the meadow arena"
+    },
+    {
+      "path": "shot-2.jpg",
+      "label": "A smoky chase through the glowing Neon Nights arena"
+    },
+    {
+      "path": "shot-3.jpg",
+      "label": "Bombs tick among the candy blocks of Gumdrop Gardens"
+    },
+    {
+      "path": "shot-4.jpg",
+      "label": "Blasts crack the ice blocks on Frostbite Pond"
+    }
+  ]
+}

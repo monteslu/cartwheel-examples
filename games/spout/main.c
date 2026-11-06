@@ -537,6 +537,17 @@ static void sync_hook(cw_tree *t, double alpha, void *u) {
   frame_t = (G.ticks + a) / 60.0f;
   world_sync(&G.prev, &G.S, a, frame_t, G.stopmotion);
   world_camera(G.camera, &G.prev, &G.S, a, frame_t, G.state == GS_TITLE || G.state == GS_SELECT);
+#ifdef SPOUT_AUTOPILOT
+  { /* art captures: "dist dphi lift ahead" round the spout from the spider (radians, metres) */
+    const char *ac = getenv("SPOUT_ART_CAM");
+    float d, dp, lift, ahead, th;
+    if (ac && sscanf(ac, "%f %f %f %f", &d, &dp, &lift, &ahead) == 4 && cw_node_valid(G.camera)) {
+      t3_vec3 p = world_spider_pos(&G.prev, &G.S, a, &th);
+      cw_node3d_set_position(G.camera, (t3_vec3){ d * cw_sin(th + dp), p.y + lift, d * cw_cos(th + dp) });
+      cw_node3d_look_at(G.camera, (t3_vec3){ p.x * 0.6f, p.y + ahead, p.z * 0.6f }, (t3_vec3){ 0, 1, 0 });
+    }
+  }
+#endif
   /* rain greys the sky and dims the sun; the sun brings them back */
   static float gloom;
   float want = G.S.weather == WX_RAIN ? 1 : G.S.weather == WX_WARN ? 0.5f : 0;
@@ -878,6 +889,12 @@ static void render(void *u, double alpha) {
   cw_r2d_begin(&(cw_r2d_pass_desc){ .clear = false });
   cw_vec2 cs = cw_r2d_canvas_size();
   float W = cs.x, H = cs.y, s = H / 540.0f;
+#ifdef SPOUT_AUTOPILOT
+  if (getenv("SPOUT_NO_HUD")) { /* art captures: the 3D alone */
+    cw_r2d_end();
+    return;
+  }
+#endif
   if (G.state == GS_TITLE) draw_title(W, H, s);
   else if (G.state == GS_SELECT) draw_select(W, H, s);
   else {

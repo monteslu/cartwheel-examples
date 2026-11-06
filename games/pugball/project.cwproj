@@ -9,3 +9,7 @@ export.linux-arm64.platform = "linux-arm64"
 export.windows-x64.platform = "windows-x64"
 export.macos-arm64.platform = "macos"
 export.android-arm64.platform = "android-arm64"
+# launcher art and credits, packed into the cart (art/art.json)
+art = art
+description = "Pugs with jet packs push one very fat, very cross cat into the goal. Play exhibitions from one against one to three a side with players and computer pugs, or win the Pug Cup across five stadiums."
+author = "Luis Montes"

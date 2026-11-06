@@ -9,3 +9,8 @@ export.linux-arm64.platform = "linux-arm64"
 export.windows-x64.platform = "windows-x64"
 export.macos-arm64.platform = "macos"
 export.android-arm64.platform = "android-arm64"
+
+# launcher art and credits, packed into the cart (art/art.json)
+art = art
+description = "A vertical shooter over a chrome fortress. Fly a lone fighter through waves of enemy craft and their command ships, and do not let a single one get past."
+author = "Luis Montes"

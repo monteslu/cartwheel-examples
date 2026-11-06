@@ -1,0 +1,21 @@
+{
+  "icon": "icon.png",
+  "cover": "cover.jpg",
+  "background": "background.jpg",
+  "logo": "logo.png",
+  "title": "title.jpg",
+  "screenshots": [
+    {
+      "path": "shot-1.jpg",
+      "label": "The fighter fires up through a swarm of enemy craft over the fortress"
+    },
+    {
+      "path": "shot-2.jpg",
+      "label": "The fighter duels a hostile command craft, its health bar across the top"
+    },
+    {
+      "path": "shot-3.jpg",
+      "label": "Level five: a chain of enemy craft weaves down the deck while the fighter returns fire"
+    }
+  ]
+}

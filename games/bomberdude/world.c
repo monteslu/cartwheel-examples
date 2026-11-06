@@ -8,6 +8,7 @@
  * a squash when they drop a bomb, a victory hop, and a knockout tumble: the
  * body flies off the blast as a spinning rigid body that bounces on the
  * floor while its head, ears, paws and feet flop on damped springs. */
+#include <stdlib.h>
 #include <string.h>
 
 #include "cartwheel/math.h"
@@ -862,6 +863,18 @@ void world_title_pose(int ticks) {
     if (!W.on[i]) continue;
     critter *c = &W.ps[i].c;
     float ph = ticks * 0.08f - i * 0.9f, hop = fabsf(cw_sin(ph));
+#ifdef BOMBERDUDE_AUTOPILOT
+    if (getenv("BOMBERDUDE_ART_HOLD")) { /* art captures: all four standing on the grass, arms up */
+      hop = 0.55f + 0.25f * cw_sin(i * 2.1f);
+      c->root->position = (t3_vec3){ (i - 1.5f) * 1.3f, -0.3f, 7.6f };
+      t3_object_set_rotation(c->root, 0, cw_sin(i * 1.7f) * 0.3f, 0);
+      c->body->scale = (t3_vec3){ 1, 1, 1 };
+      t3_object_set_rotation(c->arm[0], 0, 0, -0.3f - hop * 1.6f);
+      t3_object_set_rotation(c->arm[1], 0, 0, 0.3f + hop * 1.6f);
+      c->lids[0]->visible = c->lids[1]->visible = false;
+      continue;
+    }
+#endif
     c->root->position = (t3_vec3){ (i - 1.5f) * 1.3f, hop * 0.35f - 0.3f, 7.6f };
     t3_object_set_rotation(c->root, 0, cw_sin(ticks * 0.02f + i) * 0.35f, cw_sin(ph) * 0.1f);
     c->body->scale = (t3_vec3){ 1 + (1 - hop) * 0.12f, 1 - (1 - hop) * 0.15f, 1 + (1 - hop) * 0.12f };

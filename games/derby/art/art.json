@@ -1,0 +1,25 @@
+{
+  "icon": "icon.png",
+  "cover": "cover.jpg",
+  "background": "background.jpg",
+  "logo": "logo.png",
+  "title": "title.jpg",
+  "screenshots": [
+    {
+      "path": "shot-1.jpg",
+      "label": "Six cars still running as the bout heats up under the floodlights"
+    },
+    {
+      "path": "shot-2.jpg",
+      "label": "A pile-up against the wall in front of a packed grandstand at dusk"
+    },
+    {
+      "path": "shot-3.jpg",
+      "label": "Steaming wrecks shove each other across the dirt at night"
+    },
+    {
+      "path": "shot-4.jpg",
+      "label": "The results table: hits dealt and taken, wrecks and points for every driver"
+    }
+  ]
+}

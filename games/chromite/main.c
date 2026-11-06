@@ -421,6 +421,9 @@ static void init(void *u) {
 #endif
   const char *sl = getenv("CHROMITE_START_LEVEL");
   if (sl && atoi(sl) >= 1) new_game(atoi(sl));
+#ifdef CHROMITE_AUTOPILOT
+  if (getenv("CHROMITE_BOSS")) cheat_boss = 1; /* art aid: straight to the level's command ship */
+#endif
 }
 
 static bool pressed(cw_action a) { return cw_action_just_pressed(0, a); }
@@ -902,6 +905,10 @@ static void render(void *u, double alpha) {
   cw_vec2 cs = cw_r2d_canvas_size();
   float W = cs.x, H = cs.y, s = H / 540.0f;
   if (G.state == GS_TITLE) draw_title(W, H, s);
+#ifdef CHROMITE_AUTOPILOT
+  else if (getenv("CHROMITE_NO_HUD")) { /* art aid: a clean look at the 3D */
+  }
+#endif
   else {
     draw_hud(W, H, s);
     if (input_mode == DEV_TOUCH && G.state == GS_PLAY) draw_touch();

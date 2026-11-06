@@ -1088,6 +1088,17 @@ static void camera_frame(double alpha) {
     eye = (t3_vec3){ at.x - 6, at.y + 9, 34 };
     at = (t3_vec3){ at.x, at.y + 6, -60 };
   }
+#ifdef BIKEMESA_AUTOPILOT
+  { /* art captures: "dx dy dz atY" from the bike, looking at it */
+    const char *ac = getenv("BIKEMESA_ART_CAM");
+    float dx, dy, dz, ay;
+    if (ac && sscanf(ac, "%f %f %f %f", &dx, &dy, &dz, &ay) == 4) {
+      const bike_state *bs = bike_get();
+      at = (t3_vec3){ bs->x, bs->y + ay, at.z };
+      eye = (t3_vec3){ at.x + dx, at.y + dy, at.z + dz };
+    }
+  }
+#endif
   if (P->shake > 0) {
     float k = 0.01f * P->shake;
     eye.x += k * cw_sin(G.ticks * 1.9f);
@@ -3051,6 +3062,12 @@ static void render(void *u, double alpha) {
   cw_r2d_begin(&(cw_r2d_pass_desc){ .clear = false });
   cw_vec2 cs = cw_r2d_canvas_size();
   float W = cs.x, H = cs.y, s = H / 540.0f;
+#ifdef BIKEMESA_AUTOPILOT
+  if (getenv("BIKEMESA_NO_HUD")) { /* art captures: the 3D alone */
+    cw_r2d_end();
+    return;
+  }
+#endif
   if (G.state == GS_TITLE) draw_title(W, H, s);
   else if (G.state == GS_CHARACTER && NRID > 1) draw_player_views(W, H, s);
   else if (G.state == GS_CHARACTER) draw_carousel(W, H, s);

@@ -13,6 +13,7 @@
  *               the bloom makes them glow)
  *   power-ups   a chrome core inside a lit ring and a halo
  *   the bomb    a widening violet ring from below the screen */
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -724,10 +725,20 @@ void world_camera(cw_node cam, const sim *S, float t, int state) {
   zoom = zoom * zoom;
   t3_vec3 eye = { W.cam_x, CAM_H - 6 * zoom, CAM_Z };
   t3_vec3 at = { W.cam_x * 0.5f, 0, CAM_AT_Z };
+  bool hud = state != 0;
+#ifdef CHROMITE_AUTOPILOT
+  /* art aid (the self-flying build only): CHROMITE_NO_HUD hides the 3D instruments, CHROMITE_EYE=x,y,z,tx,ty,tz holds the camera */
+  if (getenv("CHROMITE_NO_HUD")) hud = false;
+  const char *ev = getenv("CHROMITE_EYE");
+  if (ev && sscanf(ev, "%f,%f,%f,%f,%f,%f", &eye.x, &eye.y, &eye.z, &at.x, &at.y, &at.z) == 6 && getenv("CHROMITE_EYE_FOLLOW")) {
+    float f = (float)atof(getenv("CHROMITE_EYE_FOLLOW")) * S->h.x; /* the held camera slides sideways with the ship */
+    eye.x += f, at.x += f;
+  }
+#endif
   cw_node3d_set_position(cam, eye);
   cw_node3d_look_at(cam, at, (t3_vec3){ 0, 1, 0 });
   logo_sync(state == 0, t, eye, at, W.bomb_light);
   int ww, wh;
   cw_window_size(&ww, &wh);
-  hud3d_sync(S, t, eye, at, CAM_FOV, wh > 0 ? (float)ww / (float)wh : 16.0f / 9, state != 0);
+  hud3d_sync(S, t, eye, at, CAM_FOV, wh > 0 ? (float)ww / (float)wh : 16.0f / 9, hud);
 }

@@ -134,6 +134,7 @@ static void autopilot(cw_raw_input *in, uint64_t frame, void *user) {
   memset(in->keys, 0, sizeof in->keys);
   memset(in->keys_pressed, 0, sizeof in->keys_pressed);
   in->mouse_buttons = in->mouse_pressed = 0;
+  if (getenv("BOMBERDUDE_ART_HOLD")) return; /* art captures: stay on the title */
   for (int p = 0; p < 2; p++) {
     in->pads[p].connected = true;
     int cur = -1;
@@ -712,6 +713,10 @@ static void camera_tick(void) {
     at = (t3_vec3){ wx(G.S.p[0].x), 0.5f, wz(G.S.p[0].y) };
     eye = (t3_vec3){ at.x, at.y + 1.6f, at.z + 2.6f };
   }
+#ifdef BOMBERDUDE_AUTOPILOT
+  const char *art_cam = getenv("BOMBERDUDE_ART_CAM"); /* art captures: "eyeX eyeY eyeZ atX atY atZ" */
+  if (art_cam && sscanf(art_cam, "%f %f %f %f %f %f", &eye.x, &eye.y, &eye.z, &at.x, &at.y, &at.z) == 6) fast = true;
+#endif
   if (G.cam_snap || fast) {
     G.cam_at = at;
     G.cam_eye = eye;
@@ -1692,6 +1697,12 @@ static void render(void *u, double alpha) {
   cw_r2d_begin(&(cw_r2d_pass_desc){ .clear = false });
   cw_vec2 cs = cw_r2d_canvas_size();
   float W = cs.x, H = cs.y, s = H / 540.0f;
+#ifdef BOMBERDUDE_AUTOPILOT
+  if (getenv("BOMBERDUDE_NO_HUD")) { /* art captures: the 3D alone */
+    cw_r2d_end();
+    return;
+  }
+#endif
   switch (G.state) {
   case GS_TITLE: draw_title(W, H, s); break;
   case GS_PLAYERS: draw_players(W, H, s); break;

@@ -278,6 +278,7 @@ static void autopilot(cw_raw_input *in, uint64_t frame, void *user) {
   memset(in->keys, 0, sizeof in->keys);
   memset(in->keys_pressed, 0, sizeof in->keys_pressed);
   in->mouse_buttons = in->mouse_pressed = 0;
+  if (getenv("PUG_ART_HOLD")) return; /* art captures: stay on the title */
   for (int p = 0; p < 2; p++) {
     in->pads[p].connected = true;
     int cur = -1;
@@ -1228,6 +1229,16 @@ static void camera_tick(void) {
     eye = v3add(s->ball, (t3_vec3){ 2.6f, 1.2f, -4.4f });
     G.cam_snap = true;
   }
+#ifdef PUGBALL_AUTOPILOT
+  { /* art captures: PUG_ART_CAM "eyeX eyeY eyeZ atX atY atZ", or PUG_ART_CAT "dx dy dz atY" from the cat, looking at it */
+    const char *ac = getenv("PUG_ART_CAM"), *cc = getenv("PUG_ART_CAT");
+    t3_vec3 e, a;
+    float ay;
+    if (ac && sscanf(ac, "%f %f %f %f %f %f", &e.x, &e.y, &e.z, &a.x, &a.y, &a.z) == 6) eye = e, at = a, G.cam_snap = true;
+    else if (cc && sscanf(cc, "%f %f %f %f", &e.x, &e.y, &e.z, &ay) == 4)
+      eye = v3add(s->ball, e), at = v3add(s->ball, (t3_vec3){ 0, ay, 0 }), G.cam_snap = true;
+  }
+#endif
   /* the chase camera restarts behind the pug at every kickoff and after a celebration */
   if (!(me >= 0 && G.state == GS_MATCH && !(s->phase == PH_GOAL && s->phase_ticks < 170)) ||
       (s->phase == PH_KICKOFF && s->phase_ticks <= 1))
@@ -1802,6 +1813,9 @@ static void fixed_body(void) {
       else if (G.slot[i] >= SLOT_ROOKIE) in[i] = ai_think(&G.S, i, G.slot[i] - SLOT_ROOKIE, &G.ai[i]);
 #ifdef PUGBALL_DEMO_TEST
       if (i == 1) in[i] = (pin){ 0 }; /* the parked pug waits to be flattened */
+#endif
+#ifdef PUGBALL_AUTOPILOT
+      if (G.slot[i] == SLOT_HUMAN && getenv("PUG_ART_AIPLAY")) in[i] = ai_think(&G.S, i, 2, &G.ai[i]); /* art captures: the chase camera on a pug that plays itself */
 #endif
     }
     for (int i = 0; i < MAXP; i++) /* each human toggles their own ball cam */
@@ -2713,6 +2727,12 @@ static void render(void *u, double alpha) {
     cw_r2d_end();
     return;
   }
+#ifdef PUGBALL_AUTOPILOT
+  if (getenv("PUG_NO_HUD")) { /* art captures: the 3D alone */
+    cw_r2d_end();
+    return;
+  }
+#endif
   cw_vec2 cs = cw_r2d_canvas_size();
   float W = cs.x, H = cs.y, s = H / 540.0f;
   switch (G.state) {
