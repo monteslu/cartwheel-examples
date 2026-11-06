@@ -129,6 +129,7 @@ typedef struct save_data {
   uint32_t checksum;
   save_track tr[BIKEMESA_TRACKS_MAX];
   uint32_t quality; /* independent of track scores */
+  uint8_t text_size, text_bg, pad[2]; /* version 12: cw_text_scale_saved() (0 = none chosen), cw_text_backdrop_get() */
 } save_data;
 
 /* bike.c: the bicycle and its rider in a Box2D world (a crash: in crash.c's Box3D world) */

@@ -30,6 +30,30 @@
       "frames": 2420,
       "app": "bikemesa",
       "input": "bikemesa-ride.json"
+    },
+    {
+      "name": "rider",
+      "frames": 40,
+      "app": "bikemesa",
+      "input": "bikemesa-select.json"
+    },
+    {
+      "name": "pause-settings",
+      "frames": 1060,
+      "app": "bikemesa",
+      "input": "bikemesa-text-pause-settings.json"
+    },
+    {
+      "name": "split3",
+      "frames": 700,
+      "app": "bikemesa",
+      "input": "bikemesa-split3.json"
+    },
+    {
+      "name": "results2",
+      "frames": 2740,
+      "app": "bikemesa",
+      "input": "bikemesa-race2.json"
     }
   ]
 }

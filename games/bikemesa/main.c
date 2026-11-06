@@ -24,6 +24,7 @@
  * (fixed ticks, cartwheel/math.h, Box2D). The camera eases in the fixed tick
  * and is interpolated for drawing; the debug fields name the state the
  * gates compare across hosts. */
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -81,7 +82,9 @@ const track_desc *track_get(int i) { return i >= 0 && i < (int)CW_ARRAY_LEN(TRAC
 #define LAND_PERFECT 0.12f
 #define LAND_CLEAN 0.35f
 #define SAVE_MAGIC 0x534D4B42u /* 'BKMS' */
-#define SAVE_VERSION 11
+#define SAVE_VERSION 12
+#define SAVE_V11_SIZE 244 /* version 11: no text settings */
+_Static_assert(offsetof(save_data, text_size) == SAVE_V11_SIZE, "version 11 ended where the text settings start");
 #define SAVE_V3_SIZE 204
 #define SAVE_V8_SIZE 208
 #define SAVE_V9_SIZE 220
@@ -307,12 +310,26 @@ static cw_vec2 mouse_canvas(void) {
   return cw_r2d_window_to_canvas(cw_v2(in->mouse_x, in->mouse_y));
 }
 static bool in_rect(cw_vec2 m, cw_rect r) { return m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h; }
-enum { PAUSE_RESUME, PAUSE_CHECKPOINT, PAUSE_RESTART, PAUSE_BIKES, PAUSE_TRACKS, PAUSE_ITEMS };
-static cw_rect pause_rect(int i, float W, float H, float s) { return cw_rect_make(W * 0.5f - 150 * s, H * 0.27f + i * 50 * s, 300 * s, 44 * s); }
-static cw_rect change_bike_rect(float W, float H, float s) { return cw_rect_make(20 * s, H - 48 * s, 180 * s, 38 * s); }
-static cw_rect finish_action_rect(int i, float W, float H, float s) {
-  return cw_rect_make(W * 0.5f + (-220 + i * 150) * s, H * 0.72f, 140 * s, 50 * s);
+enum { PAUSE_RESUME, PAUSE_CHECKPOINT, PAUSE_RESTART, PAUSE_BIKES, PAUSE_TRACKS, PAUSE_GRAPHICS, PAUSE_TEXT_SIZE, PAUSE_TEXT_BG, PAUSE_ITEMS };
+/* the pause menu's layout, from the size its words draw at (drawn in the HUD section; the pointer here shares it):
+ * a long menu shows the rows that fit and scrolls with the choice */
+typedef struct pause_geo { float x, w, y0, h, pitch, title_y; int first, n; bool card; float card_y; } pause_geo;
+static pause_geo pause_layout(float W, float H, float s);
+static pause_geo pause_drawn; /* the last drawn layouts: the pointer reads them (prompts are measured only while drawing) */
+static cw_rect pause_rect(int i, float W, float H, float s) {
+  (void)W, (void)H, (void)s;
+  pause_geo g = pause_drawn;
+  int k = i - g.first;
+  if (k < 0 || k >= g.n) return cw_rect_make(-1e4f, -1e4f, 0, 0); /* scrolled away */
+  return cw_rect_make(g.x, g.y0 + k * g.pitch, g.w, g.h);
 }
+/* the track select's CHANGE BIKE button, bottom left, sized from its word */
+static cw_rect change_bike_rect(float W, float H, float s);
+/* the finish card (solo), from the size its words draw at; its three buttons take the pointer */
+typedef struct finish_geo { cw_rect card, btn[3]; float time_y, medal_y, medal_h, stats_y, score_y, hint_y; } finish_geo;
+static finish_geo finish_layout(float W, float H, float s);
+static finish_geo finish_drawn;
+static cw_rect finish_action_rect(int i, float W, float H, float s) { (void)W, (void)H, (void)s; return finish_drawn.btn[i]; }
 
 /* ── save data ──────────────────────────────────────────────────────── */
 
@@ -339,6 +356,8 @@ static void save_write(void) {
   if (q) {
     QUALITY_SAVE = (int32_t)q;
   }
+  SAVE.text_size = cw_text_scale_saved();
+  SAVE.text_bg = (uint8_t)cw_text_backdrop_get();
   SAVE.checksum = save_sum();
   cw_save_commit();
 }
@@ -387,6 +406,13 @@ static void save_check(void) {
     uint32_t old_quality;memcpy(&old_quality,(const uint8_t *)&SAVE+228,sizeof old_quality);
     memset(&SAVE.tr[18],0,sizeof SAVE.tr[18]);SAVE.quality=old_quality;
     SAVE.version=SAVE_VERSION;SAVE.size=(uint16_t)sizeof SAVE;SAVE.checksum=save_sum();
+  }
+  /* version 11 ended at the graphics word: the text settings start at their defaults (save_sum hashes by the saved size) */
+  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 11 && SAVE.size == SAVE_V11_SIZE && SAVE.checksum == save_sum()) {
+    SAVE.text_size = SAVE.text_bg = SAVE.pad[0] = SAVE.pad[1] = 0;
+    SAVE.version = SAVE_VERSION;
+    SAVE.size = (uint16_t)sizeof SAVE;
+    SAVE.checksum = save_sum();
   }
   if (SAVE.magic != SAVE_MAGIC || SAVE.version != SAVE_VERSION || SAVE.size != sizeof SAVE || SAVE.checksum != save_sum()) {
     if (SAVE.magic) cw_warn("bikemesa: save data rejected (magic %08x version %u), starting fresh", SAVE.magic, SAVE.version);
@@ -1408,6 +1434,8 @@ static void init(void *u) {
   cw_quality_full_resolution(true); /* Auto gives up detail, never pixels */
   cw_quality_restore(QUALITY_SAVE);
   cw_quality_auto(true, 0);
+  cw_text_scale_restore(SAVE.text_size); /* the player's text size and text background */
+  cw_text_backdrop_set(SAVE.text_bg <= CW_TEXT_BACKDROP_PANEL ? (cw_text_backdrop)SAVE.text_bg : CW_TEXT_BACKDROP_OFF);
   /* Native benchmark runs must not inherit a save or adapt mid-measurement. */
   const char *bench_quality = getenv("BIKEMESA_BENCH_QUALITY");
   if (bench_quality) {
@@ -1863,21 +1891,38 @@ static void menu_select(void) {
   G.select_cursor = c;
 }
 
+/* a larger text size than a tile holds (its number, its name and its time):
+ * the tiles keep the number, the stars and the medal, and the chosen track's
+ * name and time go on a line under the grid */
+static float tile_num_h(float s) { return cw_font_measure(font_num, "19", &(cw_text_style){ .size = 28 * s }).height; }
+static float tile_line_h(float size) { return cw_font_measure(size < 20 ? font_ui_bold : font_ui, "Ag", &(cw_text_style){ .size = size }).height; }
+static bool tiles_compact(float s) {
+  if (cw_text_scale() < 1.01f) return false;
+  return 4 * s + 0.85f * tile_num_h(s) + 2 * tile_line_h(15 * s) + 6 * s > 78 * s;
+}
 static cw_rect tile_rect(int i, float W, float H) {
   float s = H / 540.0f, tw = 166 * s, th = 78 * s, gap = 8 * s;
+  if (tiles_compact(s)) th = fmaxf(44 * s, tile_num_h(s) + 10 * s);
   int cols = 5;
   float x0 = (W - cols * tw - (cols - 1) * gap) * 0.5f, y0 = H * 0.17f;
   return cw_rect_make(x0 + (i % cols) * (tw + gap), y0 + (i / cols) * (th + gap), tw, th);
 }
 
+/* the rider / bike / colour choice's buttons, sized from their words */
 static cw_rect choice_rect(int i, float W, float H) {
   float s = H / 540.0f;
-  return cw_rect_make(W * 0.5f + (i ? 220 : -460) * s, H * 0.48f, 240 * s, 56 * s);
+  cw_text_metrics m = cw_font_measure(font_ui, "<  PREVIOUS", &(cw_text_style){ .size = 22 * s });
+  float w = fmaxf(240 * s, m.width + 30 * s), h = fmaxf(56 * s, m.height + 24 * s);
+  float x = i ? fminf(W * 0.5f + 220 * s, W - 12 * s - w) : fmaxf(12 * s, W * 0.5f - 460 * s);
+  return cw_rect_make(x, H * 0.48f, w, h);
 }
 
 static cw_rect confirm_rect(float W, float H) {
   float s = H / 540.0f;
-  return cw_rect_make(W * 0.5f + 240 * s, H * 0.67f, 180 * s, 50 * s);
+  cw_text_metrics m = cw_font_measure(font_ui, "SELECT", &(cw_text_style){ .size = 24 * s });
+  float w = fmaxf(180 * s, m.width + 40 * s), h = fmaxf(50 * s, m.height + 20 * s);
+  cw_rect c1 = choice_rect(1, W, H);
+  return cw_rect_make(fminf(W * 0.5f + 240 * s, W - 12 * s - w), fmaxf(H * 0.67f, c1.y + c1.h + 12 * s), w, h);
 }
 
 static void pick_track(int i) {
@@ -2209,6 +2254,26 @@ static void fixed(void *u, double dt) {
         for (int i = 0; i < PAUSE_ITEMS; i++)
           if (in_rect(m, pause_rect(i, W, H, s))) clicked = i;
       if (clicked >= 0) G.pause_cursor = clicked;
+      /* the settings rows stay in the menu: graphics opens its page, the text rows step (left / right too) */
+      int step = cw_action_just_pressed(0, G.m_right) - cw_action_just_pressed(0, G.m_left);
+      if ((ok || clicked >= 0) && G.pause_cursor >= PAUSE_GRAPHICS) step = 1;
+      if (G.pause_cursor == PAUSE_GRAPHICS && (ok || clicked >= 0)) {
+        game_sfx(SFX_SELECT, 1);
+        cw_quality_menu_open();
+        gfx_frame = cw_frame_index();
+        break;
+      }
+      if (G.pause_cursor >= PAUSE_TEXT_SIZE && step) {
+        if (G.pause_cursor == PAUSE_TEXT_SIZE) step > 0 ? cw_text_scale_cycle() : cw_text_scale_cycle_back();
+        else {
+          cw_text_backdrop_cycle();
+          if (step < 0) cw_text_backdrop_cycle(); /* three settings: twice forward is one back */
+        }
+        game_sfx(SFX_SELECT, 1);
+        save_write();
+        break;
+      }
+      if (G.pause_cursor >= PAUSE_GRAPHICS) ok = false, clicked = -1;
       if (ok || clicked >= 0) {
         game_sfx(SFX_SELECT, 1);
         G.paused = false;
@@ -2446,6 +2511,55 @@ static void pchip(const char *s, int player, float cx, float y, float size, floa
              rgba(0.04f, 0.04f, 0.06f, 0.55f * alpha));
 }
 
+static cw_font ui_font(float size) { return size < 20 ? font_ui_bold : font_ui; }
+/* a line's size as drawn (the player's text size included), wrapped at wrap when wrap > 0 */
+static cw_vec2 text_box(const char *s, float size, float wrap) {
+  cw_text_metrics m = cw_font_measure(ui_font(size), s, &(cw_text_style){ .size = size, .wrap_width = wrap });
+  return cw_v2(m.width, m.height);
+}
+static float line_h(float size) { return text_box("Ag", size, 0).y; }
+static float title_h(const char *s, float size) { return cw_font_measure(font_title, s, &(cw_text_style){ .size = size }).height; }
+static float num_h(const char *s, float size) { return cw_font_measure(font_num, s, &(cw_text_style){ .size = size }).height; }
+/* a prompt line broken at its gaps (two spaces or more) into as many centred
+ * lines as it needs to fit [x, x + wrap]; returns its height (its widest line in *wout) */
+static float pblock(const char *s, int player, float x, float y, float size, cw_color c, float wrap, bool draw, float *wout) {
+  char line[256] = "", cand[256];
+  float h = 0, widest = 0, gap = size * 0.15f;
+  int gap_n = 0; /* the gap before this piece, kept when the line holds both */
+  for (const char *p = s; *p;) {
+    const char *g = strstr(p, "  ");
+    size_t n = g ? (size_t)(g - p) : strlen(p);
+    snprintf(cand, sizeof cand, "%s%.*s%.*s", line, line[0] ? gap_n : 0, "                ", (int)n, p);
+    if (line[0] && cw_prompt_text_size(ui_font(size), cand, player, size).x > wrap) {
+      cw_vec2 m = cw_prompt_text_size(ui_font(size), line, player, size);
+      widest = fmaxf(widest, m.x);
+      if (draw) ptext(line, player, x, y + h, size, c, CW_ALIGN_CENTER, wrap);
+      h += m.y + gap;
+      snprintf(line, sizeof line, "%.*s", (int)n, p);
+    } else
+      memcpy(line, cand, sizeof line);
+    p += n;
+    for (gap_n = 0; *p == ' '; p++) gap_n += gap_n < 16;
+  }
+  if (line[0]) {
+    cw_vec2 m = cw_prompt_text_size(ui_font(size), line, player, size);
+    widest = fmaxf(widest, m.x);
+    if (draw) ptext(line, player, x, y + h, size, c, CW_ALIGN_CENTER, wrap);
+    h += m.y;
+  }
+  if (wout) *wout = widest;
+  return h;
+}
+/* a centred prompt block on its dark chip */
+static float pblock_chip(const char *s, int player, float x, float y, float size, cw_color c, float wrap, float alpha) {
+  float w, h = pblock(s, player, x, y, size, c, wrap, false, &w);
+  if (!*s) return 0;
+  float padx = size * 0.8f, pady = size * 0.32f, cx = x + wrap * 0.5f;
+  round_rect(cw_rect_make(cx - w * 0.5f - padx, y - pady, w + 2 * padx, h + 2 * pady), size * 0.7f, rgba(0.04f, 0.04f, 0.06f, 0.55f * alpha));
+  pblock(s, player, x, y, size, c, wrap, true, NULL);
+  return h;
+}
+
 static void fmt_time(char *out, size_t n, int ticks) {
   int cs = ticks * 100 / TICK_HZ;
   snprintf(out, n, "%d:%02d.%02d", cs / 6000, cs / 100 % 60, cs % 100);
@@ -2473,8 +2587,9 @@ static const char *prompt(void) {
   return "";
 }
 
-/* the controls for the device in use, two lines on a panel */
-static void controls_card(float x, float y, float w, float s) {
+/* the controls for the device in use, two lines on a panel (each wraps if it
+ * must); returns the card's height, drawn when draw */
+static float controls_card(float x, float y, float w, float s, bool draw) {
   const char *a, *b;
   if (on_touch()) {
     a = "left thumb: drag left / right to lean, up / down to change lane";
@@ -2486,9 +2601,14 @@ static void controls_card(float x, float y, float w, float s) {
     a = "{pedal} pedal   {brake} brake / back-pedal   {hop} hop   {lean_back|lean_fwd} lean, flip   {dir_up|dir_down} lane";
     b = "hold {pose_hands} no-hander   {pose_feet} no-footer   {pose_superman} superman   {reset} checkpoint   {pause} pause";
   }
-  round_rect(cw_rect_make(x, y, w, 58 * s), 12 * s, rgba(0.05f, 0.05f, 0.08f, 0.72f));
-  ptext(a, 0, x, y + 8 * s, 16 * s, rgba(1, 1, 1, 0.95f), CW_ALIGN_CENTER, w);
-  ptext(b, 0, x, y + 31 * s, 16 * s, rgba(1, 0.85f, 0.6f, 0.95f), CW_ALIGN_CENTER, w);
+  float ha = pblock(a, 0, 0, 0, 16 * s, rgba(1, 1, 1, 1), w - 20 * s, false, NULL);
+  float hb = pblock(b, 0, 0, 0, 16 * s, rgba(1, 1, 1, 1), w - 20 * s, false, NULL);
+  float h = 8 * s + ha + 3 * s + hb + 7 * s;
+  if (!draw) return h;
+  round_rect(cw_rect_make(x, y, w, h), 12 * s, rgba(0.05f, 0.05f, 0.08f, 0.72f));
+  pblock(a, 0, x + 10 * s, y + 8 * s, 16 * s, rgba(1, 1, 1, 0.95f), w - 20 * s, true, NULL);
+  pblock(b, 0, x + 10 * s, y + 8 * s + ha + 3 * s, 16 * s, rgba(1, 0.85f, 0.6f, 0.95f), w - 20 * s, true, NULL);
+  return h;
 }
 
 /* each rider's colour (as their bike's paint) */
@@ -2499,26 +2619,34 @@ static cw_color rider_col(int i, float a) {
 /* the player select: a tag per connected pad that has not joined, how to
  * join, stacked down from (x, y) */
 static void draw_joins(float x, float y, float s) {
+  float W = cw_r2d_canvas_size().x;
   for (int p = 1; p < MAX_RIDERS; p++) {
     int pad = cw_input_player_pad(p);
     if (pad < 0 || !cw_input_raw()->pads[pad].connected || G.slot[p] != SLOT_OUT || players_set) continue;
     char b[40];
     snprintf(b, sizeof b, "P%d: {m_ok} to join", p + 1);
-    round_rect(cw_rect_make(x, y, 186 * s, 28 * s), 8 * s, rgba(0.05f, 0.05f, 0.08f, 0.75f));
-    ptext(b, p, x, y + 4 * s, 16 * s, rider_col(p, 1), CW_ALIGN_CENTER, 186 * s);
-    y += 34 * s;
+    cw_vec2 m = cw_prompt_text_size(ui_font(16 * s), b, p, 16 * s);
+    float w = fmaxf(186 * s, m.x + 20 * s), h = fmaxf(28 * s, m.y + 8 * s), tx = fminf(x, W - 8 * s - w);
+    round_rect(cw_rect_make(tx, y, w, h), 8 * s, rgba(0.05f, 0.05f, 0.08f, 0.75f));
+    ptext(b, p, tx, y + (h - m.y) * 0.5f, 16 * s, rider_col(p, 1), CW_ALIGN_CENTER, w);
+    y += h + 6 * s;
   }
 }
 
 static void draw_title(float W, float H, float s) {
   float bob = 4 * s * cw_sin(G.ticks * 0.05f);
-  title_text(GAME_TITLE, 0, H * 0.12f + bob, 112 * s, rgba(1, 0.62f, 0.15f, 1), CW_ALIGN_CENTER, W);
-  text("ride hard. land clean. fly further.", 0, H * 0.12f + 128 * s, 22 * s, rgba(1, 0.95f, 0.88f, 0.95f), CW_ALIGN_CENTER, W);
+  cw_text_style ts = { .size = 112 * s, .color = rgba(1, 0.62f, 0.15f, 1), .align = CW_ALIGN_CENTER, .wrap_width = W, .fixed_size = true, /* the logo: art */
+                       .outline_width = 112 * s * 0.055f, .outline_color = rgba(0.08f, 0.04f, 0.06f, 1),
+                       .shadow_color = rgba(0, 0, 0, line_alpha(0.45f)), .shadow_offset = cw_v2(0, 112 * s * 0.06f), .shadow_spread = 112 * s * 0.09f };
+  cw_r2d_text(font_title, GAME_TITLE, cw_v2(0, H * 0.12f + bob), &ts);
+  text("ride hard. land clean. fly further.", 16 * s, H * 0.12f + 128 * s, 22 * s, rgba(1, 0.95f, 0.88f, 0.95f), CW_ALIGN_CENTER, W - 32 * s);
   float pulse = 0.65f + 0.35f * cw_sin(G.ticks * 0.08f);
+  /* from the bottom up: the controls card, then the prompt above it */
+  float cw = fminf(W - 24 * s, 680 * s), ch = controls_card(0, 0, cw, s, false), cy = fminf(H * 0.885f, H - 6 * s - ch);
   const char *p = prompt();
-  pchip(p, 0, W * 0.5f, H * 0.82f, 24 * s, pulse);
-  ptext(p, 0, 0, H * 0.82f, 24 * s, rgba(1, 1, 1, pulse), CW_ALIGN_CENTER, W);
-  controls_card(W * 0.5f - 340 * s, H * 0.885f, 680 * s, s);
+  float ph = pblock(p, 0, 0, 0, 24 * s, rgba(1, 1, 1, 1), W - 64 * s, false, NULL);
+  pblock_chip(p, 0, 32 * s, fminf(H * 0.82f, cy - 16 * s - ph), 24 * s, rgba(1, 1, 1, pulse), W - 64 * s, pulse);
+  controls_card(W * 0.5f - cw * 0.5f, cy, cw, s, true);
 }
 
 static void draw_color_swatches(int selected,float x,float y,float width,float scale) {
@@ -2539,24 +2667,24 @@ static void draw_carousel(float W, float H, float s) {
   title_text(rider ? "CHOOSE YOUR RIDER" : paint ? "PICK COLOR" : "CHOOSE YOUR BIKE", 0, H * 0.055f, 44 * s,
              rgba(1, 0.67f, 0.22f, 1), CW_ALIGN_CENTER, W);
   if(paint)draw_color_swatches(G.color[0],0,H*.055f+58*s,W,s);
+  const char *p = prompt();
+  float ph = pblock(p, 0, 0, 0, 18 * s, rgba(1, 1, 1, 1), W - 48 * s, false, NULL), py = H - 8 * s - ph;
   if (rider) {
-    text(name, 18 * s, H - 30 * s, 10 * s, rgba(1, 1, 1, 0.65f), CW_ALIGN_LEFT, 0);
+    text(name, 18 * s, py - 12 * s - line_h(14 * s), 14 * s, rgba(1, 1, 1, 0.65f), CW_ALIGN_LEFT, 0);
   } else {
     chip(name, W * 0.18f, H * 0.26f, 28 * s, 1);
     text(name, W * 0.02f, H * 0.26f, 28 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, W * 0.32f);
   }
   cw_rect confirm = confirm_rect(W, H);
   round_rect(confirm, 14 * s, rgba(1, 0.5f, 0.12f, 0.95f));
-  text("SELECT", confirm.x, confirm.y + 10 * s, 24 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, confirm.w);
+  text("SELECT", confirm.x, confirm.y + (confirm.h - line_h(24 * s)) * 0.5f, 24 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, confirm.w);
   for (int i = 0; i < 2; i++) {
     cw_rect r = choice_rect(i, W, H);
     round_rect(r, 13 * s, rgba(0.07f, 0.075f, 0.1f, 0.88f));
-    text(i ? "NEXT  >" : "<  PREVIOUS", r.x, r.y + 12 * s, 22 * s,
+    text(i ? "NEXT  >" : "<  PREVIOUS", r.x, r.y + (r.h - line_h(22 * s)) * 0.5f, 22 * s,
          rgba(1, 0.8f, 0.43f, 1), CW_ALIGN_CENTER, r.w);
   }
-  const char *p = prompt();
-  pchip(p, 0, W * 0.5f, H * 0.96f, 18 * s, 1);
-  ptext(p, 0, 0, H * 0.96f, 18 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, W);
+  pblock_chip(p, 0, 24 * s, py, 18 * s, rgba(1, 1, 1, 1), W - 48 * s, 1);
   draw_joins(W - 200 * s, 14 * s, s);
 }
 
@@ -2579,7 +2707,8 @@ static void draw_player_views(float W, float H, float s) {
     if (st == SLOT_READY) snprintf(b, sizeof b, "%s %s", COLOR_NAMES[G.color[v]], BIKE_NAMES[G.bike[v]]);
     else snprintf(b, sizeof b, "<   %s   >", name);
     if (st == SLOT_RIDER) {
-      text(name, r.x + 14 * k, r.y + r.h - 22 * k, 10 * k, rgba(1, 1, 1, 0.65f), CW_ALIGN_LEFT, 0);
+      float ns = fmaxf(14 * k, 13.5f * s); /* never under the body size */
+      text(name, r.x + 14 * k, r.y + r.h - 36 * k - 8 * k - line_h(ns), ns, rgba(1, 1, 1, 0.65f), CW_ALIGN_LEFT, 0);
     } else {
       chip(b, r.x + r.w * 0.5f, r.y + r.h - 76 * k, 24 * k, 1);
       text(b, r.x, r.y + r.h - 76 * k, 24 * k, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, r.w);
@@ -2622,15 +2751,25 @@ static void padlock(float x, float y, float sz, float a) {
   round_rect(cw_rect_make(x - sz * 0.06f, y + sz * 0.02f, sz * 0.12f, sz * 0.26f), sz * 0.05f, rgba(0.2f, 0.2f, 0.25f, a));
 }
 
+static cw_rect change_bike_rect(float W, float H, float s) {
+  (void)W;
+  cw_vec2 m = text_box("CHANGE BIKE", 19 * s, 0);
+  float w = fmaxf(180 * s, m.x + 24 * s), h = fmaxf(38 * s, m.y + 12 * s);
+  return cw_rect_make(20 * s, H - 10 * s - h, w, h);
+}
+
 static void draw_select(float W, float H, float s) {
   for (int p = 0; p < G.players && G.players > 1; p++) { /* who is racing */
     char b[8];
     snprintf(b, sizeof b, "P%d", p + 1);
-    float x = W - (G.players - p) * 58 * s - 8 * s;
-    round_rect(cw_rect_make(x, 14 * s, 50 * s, 30 * s), 8 * s, rider_col(p, 0.9f));
-    title_text(b, x, 17 * s, 22 * s, rgba(0.05f, 0.05f, 0.06f, 1), CW_ALIGN_CENTER, 50 * s);
+    float cw = fmaxf(50 * s, cw_font_measure(font_title, "P4", &(cw_text_style){ .size = 22 * s }).width + 12 * s);
+    float chh = fmaxf(30 * s, title_h("P4", 22 * s) + 4 * s);
+    float x = W - (G.players - p) * (cw + 8 * s) - 8 * s;
+    round_rect(cw_rect_make(x, 14 * s, cw, chh), 8 * s, rider_col(p, 0.9f));
+    title_text(b, x, 14 * s + (chh - title_h(b, 22 * s)) * 0.5f, 22 * s, rgba(0.05f, 0.05f, 0.06f, 1), CW_ALIGN_CENTER, cw);
   }
   title_text("PICK A TRACK", 0, H * 0.06f, 42 * s, rgba(1, 0.62f, 0.15f, 1), CW_ALIGN_CENTER, W);
+  bool compact = tiles_compact(s);
   for (int i = 0; i < TRACK_COUNT; i++) {
     cw_rect r = tile_rect(i, W, H);
     if (i == G.bump_tile && G.bump_ticks > 0) r.x += 6 * s * cw_sin(G.bump_ticks * 1.6f) * G.bump_ticks / 24.0f;
@@ -2645,23 +2784,41 @@ static void draw_select(float W, float H, float s) {
     char b[48];
     snprintf(b, sizeof b, "%d", i + 1);
     num(b, r.x + 10 * s, r.y + 4 * s, 28 * s, open ? rgba(1, 0.65f, 0.2f, 1) : rgba(0.5f, 0.5f, 0.5f, 1), CW_ALIGN_LEFT, 0);
-    text(TRACKS[i].name, r.x + 10 * s, r.y + 38 * s, 15 * s, open ? rgba(1, 1, 1, 1) : rgba(0.6f, 0.6f, 0.6f, 1), CW_ALIGN_LEFT, r.w - 20 * s);
+    if (!compact) text(TRACKS[i].name, r.x + 10 * s, r.y + fmaxf(38 * s, 4 * s + 0.85f * tile_num_h(s)), 15 * s, open ? rgba(1, 1, 1, 1) : rgba(0.6f, 0.6f, 0.6f, 1),
+                       CW_ALIGN_LEFT, r.w - 20 * s);
     if (!open) padlock(r.x + r.w - 26 * s, r.y + 22 * s, 28 * s, 1);
     else {
       for (int k = 0; k < 3; k++) star(r.x + r.w - 70 * s + k * 22 * s, r.y + 18 * s, 9 * s, SAVE.tr[i].stars > k, 1);
       if (SAVE.tr[i].best_ticks) {
+        float ty = r.y + r.h - fmaxf(24 * s, line_h(15 * s) + 4 * s);
         fmt_time(b, sizeof b, SAVE.tr[i].best_ticks);
-        text(b, r.x + 10 * s, r.y + r.h - 24 * s, 15 * s, rgba(0.85f, 0.95f, 1, 1), CW_ALIGN_LEFT, 0);
-        medal_dot(r.x + r.w - 22 * s, r.y + r.h - 16 * s, 10 * s, SAVE.tr[i].medal, 1);
-      } else text("new", r.x + 10 * s, r.y + r.h - 24 * s, 14 * s, rgba(0.7f, 1, 0.7f, 1), CW_ALIGN_LEFT, 0);
+        if (!compact) text(b, r.x + 10 * s, ty, 15 * s, rgba(0.85f, 0.95f, 1, 1), CW_ALIGN_LEFT, 0);
+        medal_dot(r.x + r.w - 22 * s, compact ? r.y + r.h - 12 * s : r.y + r.h - 16 * s, compact ? 7 * s : 10 * s, SAVE.tr[i].medal, 1);
+      } else if (!compact) text("new", r.x + 10 * s, r.y + r.h - fmaxf(24 * s, line_h(14 * s) + 4 * s), 14 * s, rgba(0.7f, 1, 0.7f, 1), CW_ALIGN_LEFT, 0);
     }
   }
   const char *p = prompt();
-  pchip(p, 0, W * 0.5f, H * 0.88f, 20 * s, 1);
-  ptext(p, 0, 0, H * 0.88f, 20 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, W);
   cw_rect bikes = change_bike_rect(W, H, s);
+  if (!compact) {
+    float ph = pblock(p, 0, 0, 0, 20 * s, rgba(1, 1, 1, 1), W - 32 * s, false, NULL);
+    pblock_chip(p, 0, 16 * s, fminf(H * 0.88f, bikes.y - 8 * s - ph), 20 * s, rgba(1, 1, 1, 1), W - 32 * s, 1);
+  } else {
+    /* the prompt beside the button, the chosen track's name and time above them */
+    float px = bikes.x + bikes.w + 20 * s, pw = W - 16 * s - px;
+    float ph = pblock(p, 0, 0, 0, 20 * s, rgba(1, 1, 1, 1), pw, false, NULL), py = bikes.y + bikes.h - ph - 4 * s;
+    pblock_chip(p, 0, px, py, 20 * s, rgba(1, 1, 1, 1), pw, 1);
+    int c = G.select_cursor;
+    char d[96], t[32] = "";
+    if (track_open(c) && SAVE.tr[c].best_ticks) fmt_time(t, sizeof t, SAVE.tr[c].best_ticks);
+    snprintf(d, sizeof d, "%d  %s%s%s%s", c + 1, TRACKS[c].name, track_open(c) ? "" : "  (locked)", *t ? "   best " : "", t);
+    float dh = text_box(d, 20 * s, W - 32 * s).y, dy = fminf(py, bikes.y) - 12 * s - dh;
+    cw_rect last = tile_rect(TRACK_COUNT - 1, W, H);
+    dy = fmaxf(dy, last.y + last.h + 14 * s);
+    chip(d, W * 0.5f, dy, 20 * s, 1);
+    text(d, 16 * s, dy, 20 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, W - 32 * s);
+  }
   round_rect(bikes, 10 * s, rgba(0.15f, 0.19f, 0.24f, 0.94f));
-  text("CHANGE BIKE", bikes.x, bikes.y + 9 * s, 19 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, bikes.w);
+  text("CHANGE BIKE", bikes.x, bikes.y + (bikes.h - line_h(19 * s)) * 0.5f, 19 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, bikes.w);
 }
 
 static bool project(t3_vec3 p, float W, float H, cw_vec2 *out) {
@@ -2685,6 +2842,12 @@ static void arrow(float x, float y, float r, int dir, cw_color c) {
   cw_r2d_polygon(t, 3, c);
 }
 
+/* a touch control's name: part of the control and sized to it (over the body floor), so it keeps its size */
+static void touch_label(const char *s, float x, float y, float size, cw_color c, float wrap) {
+  cw_text_style st = { .size = size, .color = c, .align = CW_ALIGN_CENTER, .wrap_width = wrap, .fixed_size = true,
+                       .outline_color = rgba(0.05f, 0.04f, 0.06f, line_alpha(0.85f * c.a)), .outline_width = size * 0.08f + 0.6f };
+  cw_r2d_text(ui_font(size), s, cw_v2(x, y), &st);
+}
 static void draw_touch(float W, float H, float s) {
   if (!on_touch()) return;
   int ww, wh;
@@ -2709,7 +2872,7 @@ static void draw_touch(float W, float H, float s) {
     arrow((c.x + R * 0.7f) * kx, c.y * ky, R * 0.2f * kx, 0, rgba(1, 1, 1, 0.7f));
     arrow(c.x * kx, (c.y - R * 0.7f) * ky, R * 0.14f * kx, 2, rgba(1, 1, 1, 0.5f)); /* up / down: lanes */
     arrow(c.x * kx, (c.y + R * 0.7f) * ky, R * 0.14f * kx, 3, rgba(1, 1, 1, 0.5f));
-    if (!on) text("LEAN", (c.x - R) * kx, (c.y + R + 6 * k) * ky, 16 * s, rgba(1, 1, 1, 0.75f), CW_ALIGN_CENTER, 2 * R * kx);
+    if (!on) touch_label("LEAN", (c.x - R) * kx, (c.y + R + 6 * k) * ky, 16 * s, rgba(1, 1, 1, 0.75f), 2 * R * kx);
   }
   for (int i = 0; i < n; i++) {
     bool on = cw_touch_control_active(*B[i].id);
@@ -2722,9 +2885,8 @@ static void draw_touch(float W, float H, float s) {
                rgba(c.r, c.g, c.b, on ? 0.65f : 0.18f));
     if (B[i].dir >= 0) {
       arrow(r.x + r.w * 0.5f, r.y + r.h * 0.42f, fminf(r.w, r.h) * 0.22f, B[i].dir, rgba(1, 1, 1, on ? 1 : 0.85f));
-      text(B[i].label, r.x, r.y + r.h - 34 * s, 16 * s, rgba(1, 1, 1, on ? 1 : 0.8f), CW_ALIGN_CENTER, r.w);
-    } else text(B[i].label, r.x, r.y + r.h * 0.5f - (B[i].dir == -2 ? 8 : 10) * s, (B[i].dir == -2 ? 13 : 18) * s, rgba(1, 1, 1, on ? 1 : 0.85f),
-                CW_ALIGN_CENTER, r.w);
+      touch_label(B[i].label, r.x, r.y + r.h - 34 * s, 16 * s, rgba(1, 1, 1, on ? 1 : 0.8f), r.w);
+    } else touch_label(B[i].label, r.x, r.y + r.h * 0.5f - (B[i].dir == -2 ? 8 : 10) * s, (B[i].dir == -2 ? 14 : 18) * s, rgba(1, 1, 1, on ? 1 : 0.85f), r.w);
   }
 }
 
@@ -2747,27 +2909,41 @@ static void draw_race_tag(float W, float H, float s) {
     text(b, 0, H * 0.42f, 22 * s, rgba(1, 0.9f, 0.5f, 1), CW_ALIGN_CENTER, W);
   }
 }
-/* the results: place, rider, time home (or not home), score, wipeouts */
-static void draw_results(cw_rect r, float s, float a) {
-  panel(r, a);
-  title_text("RESULTS", r.x, r.y + 10 * s, 40 * s, rgba(1, 0.65f, 0.2f, a), CW_ALIGN_CENTER, r.w);
+/* the results: place, rider, time home (or not home), score, wipeouts; the
+ * panel sized from its rows, centred from y; returns its bottom */
+static float draw_results(float W, float y0, float s, float a) {
   int order[MAX_RIDERS];
   race_order(order);
-  float y = r.y + 70 * s, row = 46 * s, fs = 26 * s;
+  float fs = 26 * s, row = fmaxf(46 * s, title_h("1ST", fs) + 10 * s), top = fmaxf(70 * s, 16 * s + title_h("RESULTS", 40 * s));
+  char nums[MAX_RIDERS][64];
+  float place_w = cw_font_measure(font_title, "4TH", &(cw_text_style){ .size = fs }).width;
+  float p_w = cw_font_measure(font_title, "P4", &(cw_text_style){ .size = fs }).width, nw = 0;
+  for (int k = 0; k < NRID; k++) {
+    const rider_t *q = &RD[order[k]];
+    char t[32];
+    if (q->finished) fmt_time(t, sizeof t, q->finish_ticks);
+    else snprintf(t, sizeof t, "--");
+    snprintf(nums[k], sizeof nums[k], "%s   %d   %dx", t, q->score, q->crashes);
+    nw = fmaxf(nw, cw_font_measure(font_num, nums[k], &(cw_text_style){ .size = fs * 0.9f }).width);
+  }
+  float w = fminf(W - 16 * s, fmaxf(500 * s, 20 * s + place_w + 24 * s + p_w + 30 * s + nw + 20 * s));
+  float lab = line_h(14 * s), h = top + NRID * row + lab + 14 * s;
+  cw_rect r = cw_rect_make(W * 0.5f - w * 0.5f, y0, w, h);
+  panel(r, a);
+  title_text("RESULTS", r.x, r.y + 10 * s, 40 * s, rgba(1, 0.65f, 0.2f, a), CW_ALIGN_CENTER, r.w);
+  float y = r.y + top, px = r.x + fmaxf(r.w * 0.24f, 20 * s + place_w + 24 * s);
   for (int k = 0; k < NRID; k++) {
     int i = order[k];
     const rider_t *q = &RD[i];
-    char b[64], t[32];
+    char b[16];
     title_text(ordinal(q->place ? q->place : k + 1), r.x + 20 * s, y, fs, rgba(1, 1, 1, a), CW_ALIGN_LEFT, 0);
     snprintf(b, sizeof b, "P%d", i + 1);
-    title_text(b, r.x + r.w * 0.24f, y, fs, rider_col(i, a), CW_ALIGN_LEFT, 0);
-    if (q->finished) fmt_time(t, sizeof t, q->finish_ticks);
-    else snprintf(t, sizeof t, "--");
-    snprintf(b, sizeof b, "%s   %d   %dx", t, q->score, q->crashes);
-    num(b, r.x, y + 2 * s, fs * 0.9f, rgba(1, 0.9f, 0.7f, a), CW_ALIGN_RIGHT, r.w - 20 * s);
+    title_text(b, px, y, fs, rider_col(i, a), CW_ALIGN_LEFT, 0);
+    num(nums[k], r.x, y + 2 * s, fs * 0.9f, rgba(1, 0.9f, 0.7f, a), CW_ALIGN_RIGHT, r.w - 20 * s);
     y += row;
   }
   text("time   score   wipeouts", r.x, y, 14 * s, rgba(1, 1, 1, 0.6f * a), CW_ALIGN_RIGHT, r.w - 20 * s);
+  return r.y + r.h;
 }
 
 /* ── the mini map: the course's line seen side on, the riders on it ──── */
@@ -2851,12 +3027,17 @@ static void draw_shared(cw_rect q, float s) {
 /* shared: the race clock and the track's name are on the shared quadrant (three players) */
 static void draw_hud(float W, float H, float s, bool shared) {
   char b[64];
+  /* s is the view's scale (smaller in a split screen); body text never goes under the body size */
+  float bs = fmaxf(s, 0.82f * cw_r2d_canvas_size().y / 540.0f);
+  float top = 0; /* the bottom of the top centre's lines */
   /* the clock, top centre */
   if (!shared) {
     fmt_time(b, sizeof b, G.ride_ticks);
     num(b, 0, 12 * s, 44 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, W);
+    float ny = 12 * s + fmaxf(50 * s, num_h(b, 44 * s));
     snprintf(b, sizeof b, "%s", G.t ? G.t->name : "");
-    text(b, 0, 62 * s, 16 * s, rgba(1, 0.9f, 0.75f, 0.9f), CW_ALIGN_CENTER, W);
+    text(b, 0, ny, 16 * bs, rgba(1, 0.9f, 0.75f, 0.9f), CW_ALIGN_CENTER, W);
+    top = ny + line_h(16 * bs);
   }
   /* left: checkpoints, crashes; right: score */
   bool checkpoint_notice=P->banner_ticks>0&&!strcmp(P->banner,"CHECKPOINT");
@@ -2865,23 +3046,25 @@ static void draw_hud(float W, float H, float s, bool shared) {
   snprintf(b, sizeof b, "CHECKPOINT %d/%d", P->checkpoint, G.t ? G.t->check_count : 0);
   /* Confirm progress where its counter already lives, leaving the riding view
    * clear. Keep the same duration and each rider's own notification state. */
+  float lh = line_h(17 * bs);
   if(checkpoint_notice) {
-    float width=cw_font_measure(17*s<20?font_ui_bold:font_ui,b,&(cw_text_style){.size=17*s}).width;
-    round_rect(cw_rect_make(checkpoint_x-6*s,13*s,width+12*s,25*s),5*s,rgba(.13f,.08f,.025f,.92f*notice_alpha));
-    round_rect(cw_rect_make(checkpoint_x-9*s,14*s,3*s,23*s),1.5f*s,rgba(1,.72f,.2f,notice_alpha));
+    float width=text_box(b,17*bs,0).x;
+    round_rect(cw_rect_make(checkpoint_x-6*s,13*s,width+12*s,lh+3*s),5*s,rgba(.13f,.08f,.025f,.92f*notice_alpha));
+    round_rect(cw_rect_make(checkpoint_x-9*s,14*s,3*s,lh+1*s),1.5f*s,rgba(1,.72f,.2f,notice_alpha));
   }
-  text(b, checkpoint_x, 16*s, 17*s, rgba(1,.85f+.15f*notice_alpha,.4f+.4f*notice_alpha,1),CW_ALIGN_LEFT,0);
+  text(b, checkpoint_x, 16*s, 17*bs, rgba(1,.85f+.15f*notice_alpha,.4f+.4f*notice_alpha,1),CW_ALIGN_LEFT,0);
   snprintf(b, sizeof b, "WIPEOUTS %d", P->crashes);
-  text(b, (on_touch() ? 112 : 18) * s, 40 * s, 17 * s, rgba(1, 0.6f, 0.55f, 1), CW_ALIGN_LEFT, 0);
+  text(b, checkpoint_x, 16 * s + fmaxf(24 * s, lh + 4 * s), 17 * bs, rgba(1, 0.6f, 0.55f, 1), CW_ALIGN_LEFT, 0);
   snprintf(b, sizeof b, "%d", P->score);
   num(b, 0, 14 * s, 34 * s, rgba(1, 0.75f, 0.25f, 1), CW_ALIGN_RIGHT, W - (on_touch() ? 120 : 20) * s);
   /* the combo: its multiplier and the window running out */
   if (P->combo > 1 && P->combo_ticks > 0) {
     float k = P->combo_ticks / (float)COMBO_WINDOW;
     snprintf(b, sizeof b, "COMBO x%d", P->combo);
-    title_text(b, 0, 86 * s, 24 * s, rgba(1, 0.55f + 0.1f * P->combo, 0.2f, 1), CW_ALIGN_CENTER, W);
-    round_rect(cw_rect_make(W * 0.5f - 90 * s, 118 * s, 180 * s, 7 * s), 3.5f * s, rgba(0, 0, 0, 0.45f));
-    round_rect(cw_rect_make(W * 0.5f - 90 * s, 118 * s, 180 * s * k, 7 * s), 3.5f * s, rgba(1, 0.7f, 0.2f, 0.95f));
+    float cy = fmaxf(86 * s, top + 6 * s), by = cy + fmaxf(32 * s, title_h(b, 24 * s) + 2 * s);
+    title_text(b, 0, cy, 24 * s, rgba(1, 0.55f + 0.1f * P->combo, 0.2f, 1), CW_ALIGN_CENTER, W);
+    round_rect(cw_rect_make(W * 0.5f - 90 * s, by, 180 * s, 7 * s), 3.5f * s, rgba(0, 0, 0, 0.45f));
+    round_rect(cw_rect_make(W * 0.5f - 90 * s, by, 180 * s * k, 7 * s), 3.5f * s, rgba(1, 0.7f, 0.2f, 0.95f));
   }
   /* the air's trick so far: its name and the points riding on the landing */
   if (P->pending > 0 && G.state == GS_RIDE) {
@@ -2897,7 +3080,8 @@ static void draw_hud(float W, float H, float s, bool shared) {
   /* speed */
   const bike_state *bk = bike_get();
   snprintf(b, sizeof b, "%d km/h", (int)(fabsf(bk->speed) * 3.6f));
-  text(b, 0, H - 44 * s, 18 * s, rgba(1, 1, 1, 0.85f), CW_ALIGN_CENTER, W);
+  float speed_y = fminf(H - 44 * s, H - 8 * s - line_h(18 * bs));
+  text(b, 0, speed_y, 18 * bs, rgba(1, 1, 1, 0.85f), CW_ALIGN_CENTER, W);
   /* trick popups over the rider */
   for (int i = 0; i < P->popup_count; i++) {
     const popup *p = &P->popups[i];
@@ -2928,8 +3112,11 @@ static void draw_hud(float W, float H, float s, bool shared) {
       if (!project((t3_vec3){ fx[i] + 1, gy, -TRACK_HALF_W - 0.45f }, W, H, &at2)) continue;
       float px = fabsf(at2.x - at.x), fs = cw_clampf(px * (i ? 0.4f : 0.42f), 12, 60);
       if (i) round_rect(cw_rect_make(at.x - fs * 2.0f, at.y - fs * 0.62f, fs * 4.0f, fs * 1.24f), fs * 0.2f, rgba(1, 1, 1, 0.95f));
-      outlined(font_title, i ? "FINISH" : "START", at.x - 150 * s, at.y - fs * 0.55f, fs, i ? rgba(0.05f, 0.05f, 0.06f, 1) : rgba(1, 1, 1, 1),
-               i ? rgba(1, 1, 1, 1) : rgba(0.02f, 0.2f, 0.06f, 1), fs * 0.06f, CW_ALIGN_CENTER, 300 * s);
+      cw_color line = i ? rgba(1, 1, 1, 1) : rgba(0.02f, 0.2f, 0.06f, 1);
+      line.a = line_alpha(line.a);
+      cw_text_style fst = { .size = fs, .color = i ? rgba(0.05f, 0.05f, 0.06f, 1) : rgba(1, 1, 1, 1), .align = CW_ALIGN_CENTER, .wrap_width = 300 * s,
+                            .outline_color = line, .outline_width = fs * 0.06f, .fixed_size = true }; /* the word painted on the flag: art */
+      cw_r2d_text(font_title, i ? "FINISH" : "START", cw_v2(at.x - 150 * s, at.y - fs * 0.55f), &fst);
     }
   }
   if (P->banner_ticks > 0 && !checkpoint_notice) {
@@ -2942,54 +3129,91 @@ static void draw_hud(float W, float H, float s, bool shared) {
     return;
   }
   if (*p && G.ride_ticks < 600) {
-    pchip(p, 0, W * 0.5f, H - 80 * s, 16 * s, 1);
-    ptext(p, 0, 0, H - 80 * s, 16 * s, rgba(1, 1, 1, 0.9f), CW_ALIGN_CENTER, W);
+    float ph = pblock(p, 0, 0, 0, 16 * bs, rgba(1, 1, 1, 1), W - 40 * s, false, NULL);
+    pblock_chip(p, 0, 20 * s, fminf(H - 80 * s, speed_y - 12 * s - ph), 16 * bs, rgba(1, 1, 1, 0.9f), W - 40 * s, 1);
   }
   draw_touch(W, H, s);
 
 }
 
+static const char *finish_label(int i) {
+  bool g = shows_glyphs(0);
+  return i == 0 ? (g ? "{retry} RETRY" : "RETRY") : i == 1 ? (g ? "{m_back} BIKES" : "BIKES") : (g ? "{m_ok} TRACKS" : "TRACKS");
+}
+static void finish_lines(char *time, char *stats, char *score, size_t n) {
+  char t[32];
+  fmt_time(t, sizeof t, G.ride_ticks);
+  snprintf(time, n, "%s%s", t, G.new_best ? "   NEW BEST!" : "");
+  snprintf(stats, n, "par %d s   tricks %d   flips %d   wipeouts %d", G.t ? G.t->par : 0, P->tricks, P->flips, P->crashes);
+  snprintf(score, n, "SCORE %d", P->score);
+}
+static const char *const FINISH_HINT = "third star: land a PERFECT frontflip, or a pose and a flip in one air";
+static bool finish_hint_on(void) { return G.stars < 3 && P->score >= STAR3 && !P->star3_trick; } /* the score is there; the trick is not */
+static finish_geo finish_layout(float W, float H, float s) {
+  finish_geo g;
+  char time[64], stats[64], score[64];
+  finish_lines(time, stats, score, sizeof time);
+  /* the buttons: each sized from its label, centred in a row */
+  float bw[3], bh = 50 * s, total = 0;
+  for (int i = 0; i < 3; i++) {
+    cw_vec2 m = cw_prompt_text_size(ui_font(17 * s), finish_label(i), 0, 17 * s);
+    bw[i] = fmaxf(140 * s, m.x + 24 * s), bh = fmaxf(bh, m.y + 24 * s), total += bw[i];
+  }
+  total += 20 * s;
+  float w = fminf(W - 16 * s, fmaxf(fmaxf(460 * s, total + 40 * s), text_box(time, 34 * s, 0).x + 40 * s));
+  float wrap = w - 20 * s;
+  float y = 14 * s + fmaxf(70 * s, title_h("FINISH!", 54 * s) + 4 * s);
+  g.time_y = y, y += fmaxf(52 * s, num_h(time, 34 * s) + 8 * s);
+  g.medal_h = fmaxf(40 * s, line_h(26 * s));
+  g.medal_y = y, y += g.medal_h + 10 * s;
+  g.stats_y = y, y += text_box(stats, 16 * s, wrap).y + 8 * s;
+  g.score_y = y, y += num_h(score, 32 * s) + 6 * s;
+  g.hint_y = y;
+  if (finish_hint_on()) y += text_box(FINISH_HINT, 14 * s, wrap).y;
+  float by = fmaxf(y + 12 * s, 0.52f * H), h = by + bh + 6 * s;
+  float top = fmaxf(8 * s, fminf(H * 0.2f, H - 8 * s - h));
+  g.card = cw_rect_make(W * 0.5f - w * 0.5f, top, w, fmaxf(h, H * 0.62f));
+  if (g.card.y + g.card.h > H - 8 * s) g.card.h = h;
+  g.time_y += top, g.medal_y += top, g.stats_y += top, g.score_y += top, g.hint_y += top;
+  float x = W * 0.5f - (total - 20 * s) * 0.5f - 10 * s;
+  for (int i = 0; i < 3; i++) g.btn[i] = cw_rect_make(x, top + by, bw[i], bh), x += bw[i] + 10 * s;
+  return g;
+}
 static void draw_finish(float W, float H, float s) {
   float a = cw_clampf(G.state_ticks / 30.0f, 0, 1);
-  cw_rect r = cw_rect_make(W * 0.5f - 230 * s, H * 0.2f, 460 * s, H * 0.62f);
+  finish_geo g = finish_layout(W, H, s);
+  finish_drawn = g;
+  cw_rect r = g.card;
+  char time[64], stats[64], score[64];
+  finish_lines(time, stats, score, sizeof time);
   panel(r, a);
   title_text("FINISH!", r.x, r.y + 14 * s, 54 * s, rgba(1, 0.65f, 0.2f, a), CW_ALIGN_CENTER, r.w);
-  char b[64], t[32];
-  fmt_time(t, sizeof t, G.ride_ticks);
-  snprintf(b, sizeof b, "%s%s", t, G.new_best ? "   NEW BEST!" : "");
-  num(b, r.x, r.y + 84 * s, 34 * s, rgba(1, 1, 1, a), CW_ALIGN_CENTER, r.w);
+  num(time, r.x, g.time_y, 34 * s, rgba(1, 1, 1, a), CW_ALIGN_CENTER, r.w);
   static const char *const MED[4] = { "", "BRONZE", "SILVER", "GOLD" };
-  medal_dot(r.x + r.w * 0.5f - 90 * s, r.y + 150 * s, 20 * s, G.medal, a);
-  text(MED[G.medal], r.x + r.w * 0.5f - 60 * s, r.y + 136 * s, 26 * s, rgba(1, 0.9f, 0.6f, a), CW_ALIGN_LEFT, 0);
-  snprintf(b, sizeof b, "par %d s   tricks %d   flips %d   wipeouts %d", G.t->par, P->tricks, P->flips, P->crashes);
-  text(b, r.x, r.y + 186 * s, 16 * s, rgba(0.85f, 0.9f, 1, a), CW_ALIGN_CENTER, r.w);
-  for (int k = 0; k < 3; k++) star(r.x + r.w * 0.5f + 60 * s + k * 30 * s, r.y + 150 * s, 13 * s, G.stars > k, a);
-  snprintf(b, sizeof b, "SCORE %d", P->score);
-  num(b, r.x, r.y + 214 * s, 32 * s, rgba(1, 0.75f, 0.25f, a), CW_ALIGN_CENTER, r.w);
-  if (G.stars < 3 && P->score >= STAR3 && !P->star3_trick) /* the score is there; the trick is not */
-    text("third star: land a PERFECT frontflip, or a pose and a flip in one air", r.x, r.y + 254 * s, 14 * s, rgba(1, 0.85f, 0.5f, a),
-         CW_ALIGN_CENTER, r.w);
+  /* the medal row: the medal, its name and the stars, centred as one */
+  float mw = text_box(MED[G.medal], 26 * s, 0).x, row = 40 * s + 10 * s + mw + 20 * s + 3 * 30 * s;
+  float mx = r.x + r.w * 0.5f - row * 0.5f, mc = g.medal_y + g.medal_h * 0.5f;
+  medal_dot(mx + 20 * s, mc, 20 * s, G.medal, a);
+  text(MED[G.medal], mx + 50 * s, mc - line_h(26 * s) * 0.5f, 26 * s, rgba(1, 0.9f, 0.6f, a), CW_ALIGN_LEFT, 0);
+  for (int k = 0; k < 3; k++) star(mx + 50 * s + mw + 20 * s + 15 * s + k * 30 * s, mc, 13 * s, G.stars > k, a);
+  text(stats, r.x + 10 * s, g.stats_y, 16 * s, rgba(0.85f, 0.9f, 1, a), CW_ALIGN_CENTER, r.w - 20 * s);
+  num(score, r.x, g.score_y, 32 * s, rgba(1, 0.75f, 0.25f, a), CW_ALIGN_CENTER, r.w);
+  if (finish_hint_on()) text(FINISH_HINT, r.x + 10 * s, g.hint_y, 14 * s, rgba(1, 0.85f, 0.5f, a), CW_ALIGN_CENTER, r.w - 20 * s);
   if (G.state_ticks > 60) {
-    cw_rect retry = finish_action_rect(0, W, H, s), bikes = finish_action_rect(1, W, H, s), next = finish_action_rect(2, W, H, s);
-    round_rect(retry, 14 * s, rgba(0.25f, 0.25f, 0.3f, 0.95f));
-    round_rect(bikes, 14 * s, rgba(0.22f, 0.30f, 0.38f, 0.95f));
-    round_rect(next, 14 * s, rgba(1, 0.5f, 0.12f, 0.95f));
-    bool g = shows_glyphs(0);
-    const char *rl = g ? "{retry} RETRY" : "RETRY", *bl = g ? "{m_back} BIKES" : "BIKES", *nl = g ? "{m_ok} TRACKS" : "TRACKS";
-    ptext(rl, 0, retry.x, retry.y + 12 * s, 17 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, retry.w);
-    ptext(bl, 0, bikes.x, bikes.y + 12 * s, 17 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, bikes.w);
-    ptext(nl, 0, next.x, next.y + 12 * s, 17 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, next.w);
+    static const float C[3][3] = { { 0.25f, 0.25f, 0.3f }, { 0.22f, 0.30f, 0.38f }, { 1, 0.5f, 0.12f } };
+    for (int i = 0; i < 3; i++) {
+      cw_rect b = g.btn[i];
+      round_rect(b, 14 * s, rgba(C[i][0], C[i][1], C[i][2], 0.95f));
+      cw_vec2 m = cw_prompt_text_size(ui_font(17 * s), finish_label(i), 0, 17 * s);
+      ptext(finish_label(i), 0, b.x, b.y + (b.h - m.y) * 0.5f, 17 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, b.w);
+    }
   }
 }
 
-/* the graphics settings from the pause screen (cartwheel/quality_menu.h): the
- * settings action or a tap opens the page; it owns the frame's presses while it is open
+/* the graphics settings from the pause menu (cartwheel/quality_menu.h): the
+ * settings action or the GRAPHICS row opens the page; it owns the frame's presses while it is open
  * (gfx_frame: the pause menu leaves them alone). Render-only: nothing it
  * changes reaches the simulation. Kept in the save (QUALITY_SAVE). */
-static cw_rect gfx_rect(float W, float H) {
-  float s = H / 540.0f;
-  return cw_rect_make(W - 236 * s, H * 0.27f, 224 * s, 40 * s);
-}
 static void gfx_input(void) {
   /* read in the fixed tick (the raw presses are there), once per frame however many ticks it runs */
   static uint64_t last_frame = UINT64_MAX;
@@ -3008,11 +3232,8 @@ static void gfx_input(void) {
     }
     return;
   }
-  const cw_raw_input *in = cw_input_raw();
   bool hit = false;
   for (int p = 0; p < MAX_RIDERS; p++) hit |= cw_action_just_pressed(p, G.a_settings); /* any player's */
-  cw_vec2 cs = cw_r2d_canvas_size();
-  if ((in->mouse_pressed & 1) && in_rect(mouse_canvas(), gfx_rect(cs.x, cs.y))) hit = true;
   if (!hit) return;
   cw_quality_menu_open();
   gfx_frame = last_frame;
@@ -3020,39 +3241,67 @@ static void gfx_input(void) {
 }
 /* " · 1080p": the render resolution beside the graphics preset (the host
  * sets it, RetroArch's Internal Resolution; read-only here) */
-/* a label's size so that it fits maxw (shrunk, never grown; text()'s font
- * for that size): the graphics line is longer at 1080p than at 540p */
-static float fit_text(const char *s, float size, float maxw) {
-  float w = cw_font_measure(size < 20 ? font_ui_bold : font_ui, s, &(cw_text_style){ .size = size }).width;
-  return w > maxw && w > 0 ? size * maxw / w : size;
-}
 static void gfx_res_suffix(char *buf, size_t cap) {
   size_t n = strlen(buf);
   snprintf(buf + n, cap > n ? cap - n : 0, " \xC2\xB7 %s", cw_render_res_label());
 }
-static void draw_gfx(float W, float H, float s) {
-  cw_rect r = gfx_rect(W, H);
-  round_rect(r, 12 * s, rgba(0.12f, 0.12f, 0.16f, 0.9f));
-  char buf[64];
-  snprintf(buf, sizeof buf, "GRAPHICS: %s", cw_quality_label());
-  for (char *c = buf; *c; c++) *c = (char)(*c >= 'a' && *c <= 'z' ? *c - 32 : *c);
-  gfx_res_suffix(buf, sizeof buf); /* the render resolution: the host sets it */
-  float sz = fit_text(buf, 18 * s, r.w - 14 * s);
-  text(buf, r.x, r.y + 9 * s + (18 * s - sz) * 0.5f, sz, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, r.w);
-  ptext(on_touch() ? "tap for settings" : "{settings} settings", 0, r.x, r.y + r.h + 2 * s, 16 * s, rgba(1, 1, 1, 0.8f), CW_ALIGN_CENTER, r.w);
+static void pause_item(int i, char *b, size_t n) {
+  static const char *const items[PAUSE_GRAPHICS] = { "RESUME", "CHECKPOINT", "RESTART", "CHANGE BIKE", "TRACKS" };
+  if (i < PAUSE_GRAPHICS) snprintf(b, n, "%s", items[i]);
+  else if (i == PAUSE_GRAPHICS) {
+    snprintf(b, n, "GRAPHICS: %s", cw_quality_label());
+    gfx_res_suffix(b, n); /* the render resolution: the host sets it */
+  } else if (i == PAUSE_TEXT_SIZE) snprintf(b, n, "TEXT SIZE: %s", cw_text_scale_label());
+  else snprintf(b, n, "TEXT BACKGROUND: %s", cw_text_backdrop_label());
+  for (char *c = b; *c; c++) *c = (char)(*c >= 'a' && *c <= 'z' ? *c - 32 : *c);
+}
+static pause_geo pause_layout(float W, float H, float s) {
+  pause_geo g;
+  float lh = line_h(22 * s), maxw = 0;
+  char b[64];
+  for (int i = 0; i < PAUSE_ITEMS; i++) pause_item(i, b, sizeof b), maxw = fmaxf(maxw, text_box(b, 22 * s, 0).x);
+  g.w = fminf(W - 16 * s, fmaxf(300 * s, maxw + 40 * s));
+  g.x = W * 0.5f - g.w * 0.5f;
+  g.h = fmaxf(34 * s, lh + 8 * s);
+  g.pitch = g.h + 6 * s;
+  g.title_y = H * 0.12f;
+  g.y0 = fmaxf(H * 0.24f, g.title_y + title_h("PAUSED", 56 * s) + 6 * s);
+  float bottom = H - 8 * s;
+  g.n = (int)((bottom - g.y0 + 6 * s) / g.pitch);
+  if (g.n < PAUSE_ITEMS) { /* move up under a higher title first */
+    g.title_y = 8 * s;
+    g.y0 = g.title_y + title_h("PAUSED", 56 * s) + 6 * s;
+    g.n = (int)((bottom - g.y0 + 6 * s) / g.pitch);
+  }
+  g.n = g.n < 1 ? 1 : g.n > PAUSE_ITEMS ? PAUSE_ITEMS : g.n;
+  g.first = G.pause_cursor - g.n + 1;
+  g.first = g.first < 0 ? 0 : g.first > PAUSE_ITEMS - g.n ? PAUSE_ITEMS - g.n : g.first;
+  /* the controls card under the menu, when there is room for it */
+  float cw = fminf(W - 24 * s, 640 * s);
+  g.card_y = g.y0 + g.n * g.pitch + 4 * s;
+  g.card = g.n == PAUSE_ITEMS && g.card_y + controls_card(0, 0, cw, s, false) <= bottom;
+  return g;
 }
 
 static void draw_pause(float W, float H, float s) {
+  pause_geo g = pause_layout(W, H, s);
+  pause_drawn = g;
   cw_r2d_rect(cw_rect_make(0, 0, W, H), rgba(0, 0, 0, 0.45f));
-  title_text("PAUSED", 0, H * 0.12f, 56 * s, rgba(1, 0.65f, 0.2f, 1), CW_ALIGN_CENTER, W);
-  static const char *const items[PAUSE_ITEMS] = { "RESUME", "CHECKPOINT", "RESTART", "CHANGE BIKE", "TRACKS" };
-  for (int i = 0; i < PAUSE_ITEMS; i++) {
-    cw_rect r = pause_rect(i, W, H, s);
-    round_rect(r, 14 * s, i == G.pause_cursor ? rgba(1, 0.5f, 0.12f, 0.95f) : rgba(0.12f, 0.12f, 0.16f, 0.9f));
-    text(items[i], r.x, r.y + 8 * s, 22 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, r.w);
+  title_text("PAUSED", 0, g.title_y, 56 * s, rgba(1, 0.65f, 0.2f, 1), CW_ALIGN_CENTER, W);
+  float lh = line_h(22 * s);
+  char b[64];
+  for (int k = 0; k < g.n; k++) {
+    int i = g.first + k;
+    cw_rect r = cw_rect_make(g.x, g.y0 + k * g.pitch, g.w, g.h);
+    round_rect(r, 14 * s, i == G.pause_cursor ? rgba(1, 0.5f, 0.12f, 0.95f) : i >= PAUSE_GRAPHICS ? rgba(0.1f, 0.14f, 0.2f, 0.9f) : rgba(0.12f, 0.12f, 0.16f, 0.9f));
+    pause_item(i, b, sizeof b);
+    text(b, r.x, r.y + (r.h - lh) * 0.5f, 22 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, r.w);
   }
-  controls_card(W * 0.5f - 320 * s, H * 0.27f + PAUSE_ITEMS * 50 * s + 10 * s, 640 * s, s);
-  draw_gfx(W, H, s);
+  /* more rows above or below: an arrow at the menu's edge */
+  if (g.first > 0) arrow(g.x + g.w + 16 * s, g.y0 + g.h * 0.5f, 9 * s, 2, rgba(1, 0.65f, 0.2f, 1));
+  if (g.first + g.n < PAUSE_ITEMS) arrow(g.x + g.w + 16 * s, g.y0 + (g.n - 1) * g.pitch + g.h * 0.5f, 9 * s, 3, rgba(1, 0.65f, 0.2f, 1));
+  float cw = fminf(W - 24 * s, 640 * s);
+  if (g.card) controls_card(W * 0.5f - cw * 0.5f, g.card_y, cw, s, true);
 }
 
 static void render(void *u, double alpha) {
@@ -3110,12 +3359,10 @@ static void render(void *u, double alpha) {
     } else draw_hud(W, H, s, false);
     if (G.state == GS_FINISH && NRID > 1 && (strcmp(G.t->theme,"toybox") || G.state_ticks>=420)) {
       float a = cw_clampf(G.state_ticks / 30.0f, 0, 1);
-      draw_results(cw_rect_make(W * 0.5f - 250 * s, H * 0.16f, 500 * s, (110 + NRID * 46) * s), s, a);
-      if (G.state_ticks > 60) {
-        const char *rl = "{retry} RETRY      {m_ok} TRACKS";
-        pchip(rl, 0, W * 0.5f, H * 0.16f + (130 + NRID * 46) * s, 20 * s, a);
-        ptext(rl, 0, 0, H * 0.16f + (130 + NRID * 46) * s, 20 * s, rgba(1, 1, 1, a), CW_ALIGN_CENTER, W);
-      }
+      const char *rl = "{retry} RETRY      {m_ok} TRACKS";
+      float ph = pblock(rl, 0, 0, 0, 20 * s, rgba(1, 1, 1, 1), W - 32 * s, false, NULL);
+      float bottom = draw_results(W, fminf(H * 0.16f, H - 8 * s - ph - 30 * s - (110 + NRID * 46) * s), s, a);
+      if (G.state_ticks > 60) pblock_chip(rl, 0, 16 * s, fminf(bottom + 20 * s, H - 8 * s - ph), 20 * s, rgba(1, 1, 1, a), W - 32 * s, a);
     } else if (G.state == GS_FINISH && NRID==1 && (strcmp(G.t->theme,"toybox") || G.state_ticks>=420)) draw_finish(W, H, s);
     if (G.paused) draw_pause(W, H, s);
     cw_quality_menu_draw(&(cw_quality_menu_style){ .font = font_ui, .accent = rgba(1, 0.65f, 0.2f, 1) });
