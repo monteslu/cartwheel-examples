@@ -39,6 +39,17 @@ node deps/cartwheel-sdk/linux-x64/tools/check-prompts.mjs games/<game>   # the b
   3 to 6 labelled screenshots, all real renders), the art, description and author keys in its `project.cwproj`, a line
   in `tests/quality-range-scenes.json` and `tests/quality-grounding.mjs`, and its name in `tests/cart-art.mjs`.
 
+## Readable text
+
+- Body text (HUD values, menus, hints, captions) is at least 26 px at 1080 lines (14 * s on the games' 540-line
+  canvas scale), nothing under 18 px; art text (a title logo) sets `.fixed_size`. Every gate runs with the engine's
+  `textFloor` check.
+- Lay text out from its measured size (cw_font_measure, cw_prompt_text_size, cw_text_drawn_size), never fixed offsets: the
+  player's Text size goes to 200%. Measure prompts in update or render, never in the fixed tick.
+- Each game keeps Text size and Text background rows in its own settings and `cw_text_scale_saved()` in its save.
+- `tests/<game>-text.json` lists the screens; `CW_PROJECT_ROOT=$PWD node deps/cartwheel-sdk/linux-x64/tools/check-text.mjs
+  tests/<game>-text.json --scales 1,2` (inside a GPU suite) checks them.
+
 ## Showing controls
 
 Every prompt that tells the player which button, key or touch control does something goes through the engine's
