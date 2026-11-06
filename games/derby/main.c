@@ -88,6 +88,9 @@ typedef struct save_data {
   uint32_t bouts, wins, wrecks;
   uint8_t colour, number, kind, pad; /* pad: version 1's graphics preset */
   uint8_t gfx[4];          /* the graphics settings (cw_quality_saved, little-endian) */
+  uint8_t text_scale;      /* Text size (cw_text_scale_saved; 0 = the default) */
+  uint8_t text_bg;         /* Text background (cw_text_backdrop: Off, Outline, Panel) */
+  uint8_t pad2[2];
 } save_data;
 static save_data SAVE;
 
@@ -124,6 +127,7 @@ static struct {
   char feed[96];
   cw_action a_fwd, a_back, a_left, a_right, a_hb, a_horn, a_look, a_start, a_esc, a_settings;
   cw_action m_left, m_right, m_up, m_down, m_ok;
+  bool open_gfx; /* the pause menu chose GRAPHICS: update opens the page */
 } G;
 
 /* one view's camera rig: a chase camera on springs, a spectator pick when
@@ -341,8 +345,9 @@ static bool any_pressed(cw_action a) {
 /* ── save data ──────────────────────────────────────────────────────── */
 
 #define SAVE_MAGIC 0x59425244u /* 'DRBY' */
-#define SAVE_VERSION 2
-#define SAVE_V1_SIZE offsetof(save_data, gfx) /* version 1 ended there */
+#define SAVE_VERSION 3
+#define SAVE_V1_SIZE offsetof(save_data, gfx)        /* version 1 ended there */
+#define SAVE_V2_SIZE offsetof(save_data, text_scale) /* version 2 there */
 static uint32_t sum_of(size_t size) {
   const uint8_t *b = (const uint8_t *)&SAVE + offsetof(save_data, bouts);
   uint32_t h = 2166136261u;
@@ -357,6 +362,8 @@ static void save_write(void) {
   uint32_t q = cw_quality_saved();
   if (q)
     for (int i = 0; i < 4; i++) SAVE.gfx[i] = (uint8_t)(q >> (8 * i));
+  SAVE.text_scale = cw_text_scale_saved();
+  SAVE.text_bg = (uint8_t)cw_text_backdrop_get();
   SAVE.checksum = save_sum();
   cw_save_commit();
 }
@@ -376,6 +383,14 @@ static void save_check(void) {
     memset(SAVE.gfx, 0, sizeof SAVE.gfx);
     SAVE.gfx[0] = SAVE.pad;
     SAVE.pad = 0;
+    SAVE.version = 2;
+    SAVE.size = (uint16_t)SAVE_V2_SIZE;
+    SAVE.checksum = sum_of(SAVE_V2_SIZE);
+  }
+  /* version 2 (no text settings): kept, the text settings at their defaults */
+  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 2 && SAVE.size == SAVE_V2_SIZE && SAVE.checksum == sum_of(SAVE_V2_SIZE)) {
+    SAVE.text_scale = 0, SAVE.text_bg = 0;
+    memset(SAVE.pad2, 0, sizeof SAVE.pad2);
     SAVE.version = SAVE_VERSION;
     SAVE.size = (uint16_t)sizeof SAVE;
     SAVE.checksum = save_sum();
@@ -689,6 +704,8 @@ static void init(void *u) {
   cw_quality_on_change(quality_changed, NULL);
   cw_quality_full_resolution(true); /* Auto gives up detail, never pixels */
   cw_quality_restore(gfx_saved()); /* the player's graphics settings, if they chose any; else Auto */
+  cw_text_scale_restore(SAVE.text_scale); /* the player's Text size and Text background */
+  cw_text_backdrop_set(SAVE.text_bg <= CW_TEXT_BACKDROP_PANEL ? (cw_text_backdrop)SAVE.text_bg : CW_TEXT_BACKDROP_OFF);
   cw_quality_auto(true, 0);
   scenery_density(cw_quality_density());
   if (!cw_input_load_bindings_asset("input.cfg")) cw_warn("derby: input.cfg had errors (see above)");
@@ -1072,10 +1089,9 @@ static void camera_tick(void) {
 
 /* ── layout shared by the update (mouse hit tests) and the HUD ─────── */
 
-static cw_rect title_button(int i, float W, float H) {
-  float s = H / 540.0f, w = 300 * s, h = 64 * s;
-  return cw_rect_make(W * 0.5f - w * 0.5f, H * 0.6f + i * (h + 14 * s), w, h);
-}
+static cw_rect title_button(int i, float W, float H); /* (laid out with the title, by measured text) */
+static cw_rect pause_row(int i, float W, float H);    /* (laid out with the pause screen) */
+#define PAUSE_N 5 /* RESUME, GRAPHICS, TEXT SIZE, TEXT BACKGROUND, QUIT TO TITLE */
 /* the on-screen pause button (mouse and touch), top left */
 static cw_rect pause_rect(float W, float H) {
   (void)W;
@@ -1195,16 +1211,28 @@ static void fixed(void *u, double dt) {
     break;
   }
   case GS_PAUSE: {
-    if (cw_quality_menu_is_open()) break; /* the graphics page has the presses */
-    if (dy) G.menu = (G.menu + dy + 2) % 2, sfx(SFX_MOVE, 0.5f);
+    if (cw_quality_menu_is_open() || G.open_gfx) break; /* the graphics page has the presses */
+    if (dy) G.menu = (G.menu + dy + PAUSE_N) % PAUSE_N, sfx(SFX_MOVE, 0.5f);
     int hover = -1;
-    for (int i = 0; i < 2; i++)
-      if (in_rect(m, title_button(i, cs.x, cs.y))) hover = i;
+    for (int i = 0; i < PAUSE_N; i++)
+      if (in_rect(m, pause_row(i, cs.x, cs.y))) hover = i;
     if (hover >= 0 && mouse_moved) G.menu = hover; /* moving the mouse is using it */
     bool pick = G.state_ticks > 5 && (any_pressed(G.m_ok) || (mouse_clicked && hover >= 0));
     if (pick && mouse_clicked && hover >= 0) G.menu = hover;
+    int dx = G.state_ticks > 5 ? (any_pressed(G.m_right) ? 1 : 0) - (any_pressed(G.m_left) ? 1 : 0) : 0;
     if (G.state_ticks > 5 && (any_pressed(G.a_start) || back || (pick && G.menu == 0))) G.state = GS_BOUT;
-    else if (pick && G.menu == 1) enter_title();
+    else if (pick && G.menu == 1) G.open_gfx = true; /* the graphics page opens in update (gfx_input) */
+    else if ((pick || dx) && G.menu == 2) { /* Text size: render-only, kept in the save */
+      if (dx < 0) cw_text_scale_cycle_back();
+      else cw_text_scale_cycle();
+      sfx(SFX_SELECT, 0.6f);
+      save_write();
+    } else if ((pick || dx) && G.menu == 3) { /* Text background */
+      cw_text_backdrop_cycle();
+      if (dx < 0) cw_text_backdrop_cycle(), cw_text_backdrop_cycle(); /* three steps: two forward is one back */
+      sfx(SFX_SELECT, 0.6f);
+      save_write();
+    } else if (pick && G.menu == 4) enter_title();
     break;
   }
   case GS_RESULTS:
@@ -1309,6 +1337,69 @@ static void stencil(const char *s, float x, float y, float size, cw_color c, cw_
                        .shadow_offset = cw_v2(size * 0.04f, size * 0.06f), .shadow_spread = size * 0.06f };
   cw_r2d_text(font_title, s, cw_v2(x, y), &st);
 }
+/* the title logo: art, drawn as asked (never the player's Text size) */
+static void logo(const char *s, float x, float y, float size, cw_color c, float wrap) {
+  cw_text_style st = { .size = size, .color = c, .align = CW_ALIGN_CENTER, .wrap_width = wrap, .outline_width = size * 0.05f, .fixed_size = true,
+                       .outline_color = stamped(rgba(0.04f, 0.03f, 0.02f, c.a)), .shadow_color = stamped(rgba(0.02f, 0.015f, 0.01f, 0.55f * c.a)),
+                       .shadow_offset = cw_v2(size * 0.04f, size * 0.06f), .shadow_spread = size * 0.06f };
+  cw_r2d_text(font_title, s, cw_v2(x, y), &st);
+}
+
+/* measuring (cw_font_measure grows with the player's Text size, as drawing does) */
+static cw_font small_font(void) { return CW_HANDLE_IS_NULL(font_small) ? font_hud : font_small; }
+static float tw(cw_font f, const char *s, float size) { return cw_font_measure(f, s, &(cw_text_style){ .size = size }).width; }
+static float tsz(cw_font f, float size) { return cw_text_drawn_size(f, size); } /* the size `size` draws at now */
+
+/* a hint with button prompts ({m_ok}, {thr_fwd}: cartwheel/prompt.h, for P1's
+ * device), broken at its triple spaces into lines that fit the canvas */
+#define HINT_LINES 6
+static int hint_lines(const char *s, float W, float size, char out[HINT_LINES][200], float *wmax, float *hsum) {
+  int n = 0;
+  *wmax = 0, *hsum = 0;
+  char line[200] = "";
+  const char *p = s;
+  while (*p && n < HINT_LINES) {
+    const char *e = strstr(p, "   ");
+    size_t len = e ? (size_t)(e - p) : strlen(p);
+    char cand[200];
+    snprintf(cand, sizeof cand, "%s%s%.*s", line, *line ? "   " : "", (int)len, p);
+    if (*line && cw_prompt_text_size(font_hud, cand, 0, size).x > W - 4 * size) {
+      snprintf(out[n++], 200, "%s", line);
+      snprintf(line, sizeof line, "%.*s", (int)len, p);
+    } else snprintf(line, sizeof line, "%s", cand);
+    p += len;
+    while (*p == ' ') p++;
+  }
+  if (*line && n < HINT_LINES) snprintf(out[n++], 200, "%s", line);
+  for (int i = 0; i < n; i++) {
+    cw_vec2 m = cw_prompt_text_size(font_hud, out[i], 0, size);
+    *wmax = fmaxf(*wmax, m.x), *hsum += m.y;
+  }
+  return n;
+}
+/* the height prompt_line takes (its band included) */
+static float prompt_height(const char *s, float W, float size) {
+  char l[HINT_LINES][200];
+  float w, h;
+  if (!*s || !hint_lines(s, W, size, l, &w, &h)) return 0;
+  return h + size * 0.6f;
+}
+/* a centred hint on a dark band; y is the top of its first line */
+static void prompt_line(const char *s, float W, float y, float size) {
+  char l[HINT_LINES][200];
+  float w, h;
+  int n = *s ? hint_lines(s, W, size, l, &w, &h) : 0;
+  if (!n) return;
+  cw_r2d_rect(cw_rect_make(W * 0.5f - w * 0.5f - size, y - size * 0.3f, w + 2 * size, h + size * 0.6f), rgba(0.04f, 0.03f, 0.02f, 0.6f));
+  for (int i = 0; i < n; i++) {
+    cw_prompt_text(font_hud, l[i], 0, cw_v2(W * 0.5f, y), size, rgba(1, 0.95f, 0.85f, 1), CW_ALIGN_CENTER);
+    y += cw_prompt_text_size(font_hud, l[i], 0, size).y;
+  }
+}
+/* the same, its band's bottom at `bottom` */
+static void prompt_bottom(const char *s, float W, float bottom, float size) {
+  prompt_line(s, W, bottom - prompt_height(s, W, size) + size * 0.3f, size);
+}
 
 /* a plate: a dark, slightly worn panel with a hard edge */
 static void plate(cw_rect r, float alpha, cw_color edge) {
@@ -1367,55 +1458,108 @@ static const char *prompt(void) {
   default: return "";
   }
 }
-/* a centred line on a dark band, with button prompts in it ({m_ok}, {thr_fwd}:
- * cartwheel/prompt.h) drawn for P1's device */
-static void prompt_line(const char *s, float W, float y, float size) {
-  cw_vec2 m = cw_prompt_text_size(font_hud, s, 0, size);
-  cw_r2d_rect(cw_rect_make(W * 0.5f - m.x * 0.5f - size, y - size * 0.3f, m.x + 2 * size, m.y + size * 0.6f), rgba(0.04f, 0.03f, 0.02f, 0.6f));
-  cw_prompt_text(font_hud, s, 0, cw_v2(W * 0.5f, y), size, rgba(1, 0.95f, 0.85f, 1), CW_ALIGN_CENTER);
-}
 
-static void draw_title(float W, float H, float s) {
-  hazard(cw_rect_make(W * 0.2f, H * 0.08f, W * 0.6f, 8 * s), 0.9f);
-  stencil(GAME_TITLE, 0, H * 0.115f, 112 * s, rgba(0.88f, 0.85f, 0.78f, 1), CW_ALIGN_CENTER, W);
-  hazard(cw_rect_make(W * 0.2f, H * 0.37f, W * 0.6f, 8 * s), 0.9f);
-  prompt_line("six bangers.  one dirt bowl.  last car running wins.", W, H * 0.45f, 17 * s);
-  static const char *const ITEMS[2] = { "QUICK MATCH", "POINTS FOR HITS" };
-  static const char *const SUBS[2] = { "you and five bangers: last car running", "three minutes: points for every hit" };
-  for (int i = 0; i < 2; i++) {
-    cw_rect r = title_button(i, W, H);
-    bool cur = G.menu == i;
-    if (cur) cw_r2d_rect(cw_rect_make(r.x - 6 * s, r.y - 6 * s, r.w + 12 * s, r.h + 12 * s), rgba(0.84f, 0.56f, 0.24f, 0.5f + 0.3f * cw_sin(G.ticks * 0.15f)));
-    plate(r, 1, cur ? rgba(0.84f, 0.56f, 0.24f, 1) : rgba(0.4f, 0.37f, 0.33f, 1));
-    stencil(ITEMS[i], r.x, r.y + 6 * s, 30 * s, cur ? rgba(0.95f, 0.78f, 0.5f, 1) : rgba(0.85f, 0.82f, 0.78f, 1), CW_ALIGN_CENTER, r.w);
-    small(SUBS[i], r.x, r.y + 40 * s, 14 * s, rgba(0.9f, 0.86f, 0.8f, 0.9f), CW_ALIGN_CENTER, r.w);
-  }
-  prompt_line(prompt(), W, H * 0.93f, 15 * s);
-  char buf[64];
-  /* the players: P1 always; another pad shows a join tag, a joined one splits the screen */
-  bool here[4] = { true, false, false, false }, others = false;
+/* the title, laid out from the size its text draws at: the hint at the
+ * bottom, the record over it, the two buttons, the join tags, the tag line,
+ * and the logo (art, drawn as asked) in what is left at the top */
+#define TITLE_ITEM 30.0f
+#define TITLE_SUB 14.0f
+static const char *const TITLE_ITEMS[2] = { "QUICK MATCH", "POINTS FOR HITS" };
+static const char *const TITLE_SUBS[2] = { "you and five bangers: last car running", "three minutes: points for every hit" };
+static const char *const TITLE_TAG = "six bangers.  one dirt bowl.  last car running wins.";
+typedef struct title_lay {
+  cw_rect button[2];
+  float record_y, tags_y, tags_h, tag_y, hazard2_y, logo_size;
+  bool tags;
+} title_lay;
+static void title_seats(bool here[4], bool *others) {
+  here[0] = true, *others = false;
   for (int p = 1; p < 4; p++) {
     int pad = cw_input_player_pad(p);
     here[p] = (pad >= 0 && cw_input_raw()->pads[pad].connected) || G.joined[p];
-    others |= here[p];
+    *others |= here[p];
   }
+}
+static title_lay title_layout(float W, float H) {
+  float s = H / 540.0f;
+  title_lay L = { 0 };
+  bool here[4];
+  title_seats(here, &L.tags);
+  float y = H - 6 * s - prompt_height(prompt(), W, 15 * s);
+  if (SAVE.bouts) y -= tsz(small_font(), 14 * s) + 6 * s, L.record_y = y;
+  y -= 10 * s;
+  float bh = 8 * s + tsz(font_title, TITLE_ITEM * s) + 2 * s + tsz(small_font(), TITLE_SUB * s) + 10 * s, gap = 14 * s, bw = 300 * s;
+  for (int i = 0; i < 2; i++) bw = fmaxf(bw, fmaxf(tw(font_title, TITLE_ITEMS[i], TITLE_ITEM * s), tw(small_font(), TITLE_SUBS[i], TITLE_SUB * s)) + 32 * s);
+  bw = fminf(bw, W - 24 * s);
+  float b0 = fminf(H * 0.6f, y - 2 * bh - gap);
+  for (int i = 0; i < 2; i++) L.button[i] = cw_rect_make(W * 0.5f - bw * 0.5f, b0 + i * (bh + gap), bw, bh);
+  y = b0 - 10 * s;
+  if (L.tags) {
+    L.tags_h = cw_font_measure(small_font(), "P1  IN", &(cw_text_style){ .size = 16 * s }).height + 12 * s;
+    L.tags_y = fminf(H * 0.505f, y - L.tags_h);
+    y = L.tags_y - 10 * s;
+  }
+  float band = prompt_height(TITLE_TAG, W, 17 * s);
+  L.tag_y = fminf(H * 0.45f, y - band + 17 * s * 0.3f);
+  L.hazard2_y = fminf(H * 0.37f, L.tag_y - 17 * s * 0.3f - 16 * s);
+  /* the logo between the two straps: as large as fits, up to its size */
+  float room = L.hazard2_y - H * 0.115f - 6 * s;
+  float h112 = cw_font_measure(font_title, GAME_TITLE, &(cw_text_style){ .size = 112 * s, .wrap_width = W, .fixed_size = true }).height;
+  L.logo_size = 112 * s * (h112 > room && h112 > 0 ? room / h112 : 1);
+  return L;
+}
+/* the buttons where the title last drew them (the layout measures prompts, which only render may do; the
+ * fixed tick hit-tests these) */
+static cw_rect title_drawn[2];
+static cw_rect title_button(int i, float W, float H) {
+  (void)W, (void)H;
+  return title_drawn[i & 1];
+}
+
+static void draw_title(float W, float H, float s) {
+  title_lay L = title_layout(W, H);
+  title_drawn[0] = L.button[0], title_drawn[1] = L.button[1];
+  hazard(cw_rect_make(W * 0.2f, H * 0.08f, W * 0.6f, 8 * s), 0.9f);
+  logo(GAME_TITLE, 0, H * 0.115f, L.logo_size, rgba(0.88f, 0.85f, 0.78f, 1), W);
+  hazard(cw_rect_make(W * 0.2f, L.hazard2_y, W * 0.6f, 8 * s), 0.9f);
+  prompt_line(TITLE_TAG, W, L.tag_y, 17 * s);
+  float ti = tsz(font_title, TITLE_ITEM * s);
+  for (int i = 0; i < 2; i++) {
+    cw_rect r = L.button[i];
+    bool cur = G.menu == i;
+    if (cur) cw_r2d_rect(cw_rect_make(r.x - 6 * s, r.y - 6 * s, r.w + 12 * s, r.h + 12 * s), rgba(0.84f, 0.56f, 0.24f, 0.5f + 0.3f * cw_sin(G.ticks * 0.15f)));
+    plate(r, 1, cur ? rgba(0.84f, 0.56f, 0.24f, 1) : rgba(0.4f, 0.37f, 0.33f, 1));
+    stencil(TITLE_ITEMS[i], r.x, r.y + 8 * s, TITLE_ITEM * s, cur ? rgba(0.95f, 0.78f, 0.5f, 1) : rgba(0.85f, 0.82f, 0.78f, 1), CW_ALIGN_CENTER, r.w);
+    small(TITLE_SUBS[i], r.x, r.y + 10 * s + ti, TITLE_SUB * s, rgba(0.9f, 0.86f, 0.8f, 0.9f), CW_ALIGN_CENTER, r.w);
+  }
+  prompt_bottom(prompt(), W, H - 6 * s, 15 * s);
+  char buf[64];
+  /* the players: P1 always; another pad shows a join tag, a joined one splits the screen */
+  bool here[4], others;
+  title_seats(here, &others);
   if (others) {
-    float tw = 120 * s, x0 = W * 0.5f - 2 * tw - 15 * s;
+    float tws = 120 * s;
+    for (int p = 0; p < 4; p++) {
+      snprintf(buf, sizeof buf, "P%d  {m_ok} JOIN", p + 1);
+      tws = fmaxf(tws, cw_prompt_text_size(small_font(), buf, p, 16 * s).x + 16 * s);
+    }
+    tws = fminf(tws, (W - 24 * s) / 4 - 10 * s);
+    float x0 = W * 0.5f - 2 * tws - 15 * s;
+    float tb = cw_font_measure(small_font(), "P1  IN", &(cw_text_style){ .size = 16 * s }).height;
     for (int p = 0; p < 4; p++) {
       if (!here[p]) continue;
-      cw_rect r = cw_rect_make(x0 + p * (tw + 10 * s), H * 0.505f, tw, 30 * s);
+      cw_rect r = cw_rect_make(x0 + p * (tws + 10 * s), L.tags_y, tws, L.tags_h);
       bool in = p == 0 || G.joined[p];
       cw_r2d_rect(r, in ? rgba(0.84f, 0.56f, 0.24f, 0.85f) : rgba(0.06f, 0.05f, 0.04f, 0.7f));
       snprintf(buf, sizeof buf, in ? "P%d  IN" : "P%d  {m_ok} JOIN", p + 1);
-      if (in) small(buf, r.x, r.y + 6 * s, 15 * s, rgba(0.08f, 0.06f, 0.04f, 1), CW_ALIGN_CENTER, r.w);
+      if (in) small(buf, r.x, r.y + (r.h - tb) * 0.5f, 16 * s, rgba(0.08f, 0.06f, 0.04f, 1), CW_ALIGN_CENTER, r.w);
       else /* the join button, drawn for that seat's pad */
-        cw_prompt_text(CW_HANDLE_IS_NULL(font_small) ? font_hud : font_small, buf, p, cw_v2(r.x + r.w * 0.5f, r.y + 6 * s), 16 * s,
-                       rgba(1, 0.95f, 0.85f, 0.85f), CW_ALIGN_CENTER);
+        cw_prompt_text(small_font(), buf, p, cw_v2(r.x + r.w * 0.5f, r.y + (r.h - tb) * 0.5f), 16 * s, rgba(1, 0.95f, 0.85f, 0.85f), CW_ALIGN_CENTER);
     }
   }
   if (SAVE.bouts) {
     snprintf(buf, sizeof buf, "bouts %u   wins %u   wrecks %u", SAVE.bouts, SAVE.wins, SAVE.wrecks);
-    small(buf, 0, H * 0.88f, 13 * s, rgba(0.9f, 0.85f, 0.75f, 0.8f), CW_ALIGN_CENTER, W);
+    small(buf, 0, L.record_y, 14 * s, rgba(0.9f, 0.85f, 0.75f, 0.8f), CW_ALIGN_CENTER, W);
   }
 }
 
@@ -1433,7 +1577,7 @@ static void touch_button(int id, float x, float y, float w, float h, const char 
   cw_rect r = cw_rect_make(a.x, a.y, b.x - a.x, b.y - a.y);
   cw_r2d_rect(cw_rect_make(r.x - 3, r.y - 3, r.w + 6, r.h + 6), rgba(0.02f, 0.02f, 0.02f, on ? 0.75f : 0.45f));
   cw_r2d_rect(r, rgba(c.r, c.g, c.b, on ? 0.85f : 0.38f));
-  stencil(label, r.x, r.y + r.h * 0.5f - r.h * 0.14f, fmaxf(13, r.h * 0.2f), rgba(1, 1, 1, 0.95f), CW_ALIGN_CENTER, r.w);
+  stencil(label, r.x, r.y + r.h * 0.5f - r.h * 0.14f, fmaxf(15 * cw_r2d_canvas_size().y / 540.0f, r.h * 0.2f), rgba(1, 1, 1, 0.95f), CW_ALIGN_CENTER, r.w);
 }
 static void draw_touch(float s) {
   if (TOUCH_STICK < 0) return;
@@ -1450,44 +1594,61 @@ static void draw_touch(float s) {
   cw_r2d_circle_lines(cc, r, 3 * s, 40, rgba(1, 1, 1, on ? 0.8f : 0.45f));
   cw_vec2 v = on ? cw_touch_stick_value(TOUCH_STICK) : cw_v2(0, 0);
   cw_r2d_circle(cw_v2(cc.x + v.x * r, cc.y), r * 0.42f, 28, rgba(0.84f, 0.56f, 0.24f, on ? 0.9f : 0.5f));
-  if (!on) small("steer", cc.x - r, cc.y + r + 6 * s, 13 * s, rgba(1, 1, 1, 0.8f), CW_ALIGN_CENTER, r * 2);
+  if (!on) small("steer", cc.x - r, cc.y + r + 6 * s, 14 * s, rgba(1, 1, 1, 0.8f), CW_ALIGN_CENTER, r * 2);
   touch_button(TOUCH_GAS, W - 170 * k, H - 230 * k, 150 * k, 200 * k, "GAS", rgba(0.3f, 0.65f, 0.25f, 1));
   touch_button(TOUCH_BRAKE, W - 330 * k, H - 150 * k, 140 * k, 120 * k, "BRAKE", rgba(0.75f, 0.2f, 0.12f, 1));
   touch_button(TOUCH_HB, W - 330 * k, H - 290 * k, 140 * k, 110 * k, "SLIDE", rgba(0.85f, 0.6f, 0.12f, 1));
 }
 
 /* the field: everyone's number and engine, wrecks struck through; the
- * humans tagged P1-P4 */
-static void field_list(float lx, float ly, float s) {
+ * humans tagged P1-P4 (left of x). Laid out from the size its text draws at;
+ * returns its height */
+#define FIELD_TEXT 15.0f
+#define TAG_TEXT 14.0f
+static float field_row_h(float s) { return tsz(font_hud, FIELD_TEXT * s) + 10 * s; }
+static float field_height(float s) {
+  int k = 0;
+  for (int i = 0; i < MAXC; i++) k += G.S.c[i].on;
+  return k * (field_row_h(s) + 4 * s);
+}
+static float field_bar = 92; /* the engine bars' length (canvas units at 540 lines; shorter where the room is tight) */
+static float field_tag_w(float s) { return tw(small_font(), "P4", TAG_TEXT * s) + 8 * s; }
+static float field_width(float s) {
+  bool pts = G.S.rule == RULE_POINTS;
+  return 10 * s + tw(font_hud, "#88", FIELD_TEXT * s) + 8 * s + (pts ? 50 * s : field_bar * s) + 8 * s + (pts ? tw(font_hud, "888", FIELD_TEXT * s) + 8 * s : 0);
+}
+static float field_list(float lx, float ly, float s) {
   const sim *S = &G.S;
   char buf[96];
-  {
-    int k = 0;
-    for (int i = 0; i < MAXC; i++) {
-      const car *c = &S->c[i];
-      if (!c->on) continue;
-      float y = ly + k * 30 * s;
-      cw_rect r = cw_rect_make(lx, y, 156 * s, 26 * s);
-      cw_r2d_rect(r, rgba(0.06f, 0.05f, 0.04f, 0.72f));
-      cw_r2d_rect(cw_rect_make(r.x, r.y, 6 * s, r.h), paint_col(i, 1));
-      snprintf(buf, sizeof buf, "#%d", G.look[i].number);
-      text(buf, r.x + 10 * s, r.y + 3 * s, 15 * s, rgba(1, 0.95f, 0.85f, c->wrecked ? 0.45f : 1), CW_ALIGN_LEFT, 0);
-      if (S->rule == RULE_POINTS) {
-        snprintf(buf, sizeof buf, "%d", c->points);
-        text(buf, r.x, r.y + 3 * s, 15 * s, rgba(0.84f, 0.56f, 0.24f, 1), CW_ALIGN_RIGHT, r.w - 8 * s);
-      }
-      float bw = S->rule == RULE_POINTS ? 50 * s : 92 * s;
-      cw_rect bar = cw_rect_make(r.x + 52 * s, r.y + 9 * s, bw, 9 * s);
-      cw_r2d_rect(bar, rgba(0, 0, 0, 0.8f));
-      cw_r2d_rect(cw_rect_make(bar.x + 1, bar.y + 1, (bar.w - 2) * cw_clampf(c->hp / 100, 0, 1), bar.h - 2), hp_col(c->hp, 1));
-      if (c->wrecked) cw_r2d_line(cw_v2(r.x + 4, r.y + r.h * 0.5f), cw_v2(r.x + r.w - 4, r.y + r.h * 0.5f), 2.5f * s, rgba(0.95f, 0.25f, 0.12f, 0.9f));
-      if (G.human_of[i] >= 0) {
-        snprintf(buf, sizeof buf, "P%d", G.human_of[i] + 1);
-        small(buf, r.x - 22 * s, r.y + 4 * s, 13 * s, rgba(0.84f, 0.56f, 0.24f, 1), CW_ALIGN_LEFT, 0);
-      }
-      k++;
+  float rh = field_row_h(s), fh = tsz(font_hud, FIELD_TEXT * s), th = tsz(small_font(), TAG_TEXT * s), w = field_width(s);
+  float bx = 10 * s + tw(font_hud, "#88", FIELD_TEXT * s) + 8 * s;
+  int k = 0;
+  for (int i = 0; i < MAXC; i++) {
+    const car *c = &S->c[i];
+    if (!c->on) continue;
+    float y = ly + k * (rh + 4 * s);
+    cw_rect r = cw_rect_make(lx, y, w, rh);
+    cw_r2d_rect(r, rgba(0.06f, 0.05f, 0.04f, 0.72f));
+    cw_r2d_rect(cw_rect_make(r.x, r.y, 6 * s, r.h), paint_col(i, 1));
+    snprintf(buf, sizeof buf, "#%d", G.look[i].number);
+    text(buf, r.x + 10 * s, r.y + (rh - fh) * 0.5f, FIELD_TEXT * s, rgba(1, 0.95f, 0.85f, c->wrecked ? 0.45f : 1), CW_ALIGN_LEFT, 0);
+    if (S->rule == RULE_POINTS) {
+      snprintf(buf, sizeof buf, "%d", c->points);
+      text(buf, r.x, r.y + (rh - fh) * 0.5f, FIELD_TEXT * s, rgba(0.84f, 0.56f, 0.24f, 1), CW_ALIGN_RIGHT, r.w - 8 * s);
     }
+    float bw = S->rule == RULE_POINTS ? 50 * s : field_bar * s;
+    cw_rect bar = cw_rect_make(r.x + bx, r.y + (rh - 9 * s) * 0.5f, bw, 9 * s);
+    cw_r2d_rect(bar, rgba(0, 0, 0, 0.8f));
+    cw_r2d_rect(cw_rect_make(bar.x + 1, bar.y + 1, (bar.w - 2) * cw_clampf(c->hp / 100, 0, 1), bar.h - 2), hp_col(c->hp, 1));
+    if (c->wrecked) cw_r2d_line(cw_v2(r.x + 4, r.y + r.h * 0.5f), cw_v2(r.x + r.w - 4, r.y + r.h * 0.5f), 2.5f * s, rgba(0.95f, 0.25f, 0.12f, 0.9f));
+    if (G.human_of[i] >= 0) {
+      snprintf(buf, sizeof buf, "P%d", G.human_of[i] + 1);
+      float tgw = field_tag_w(s);
+      small(buf, r.x - 4 * s - tgw, r.y + (rh - th) * 0.5f, TAG_TEXT * s, rgba(0.84f, 0.56f, 0.24f, 1), CW_ALIGN_RIGHT, tgw);
+    }
+    k++;
   }
+  return k * (rh + 4 * s);
 }
 
 /* the arena from above in r (z up the screen): the wall, the cars as
@@ -1522,23 +1683,39 @@ static void mini_map(cw_rect r, float s) {
       if (human) {
         cw_r2d_polygon_lines(q, 4, 2 * s, c->wrecked ? rgba(0.5f, 0.48f, 0.45f, 1) : rgba(1, 0.95f, 0.85f, 1));
         snprintf(buf, sizeof buf, "P%d", G.human_of[i] + 1);
-        small(buf, o.x - 30 * s, o.y - 26 * s, 13 * s, c->wrecked ? rgba(0.6f, 0.58f, 0.55f, 1) : rgba(1, 0.95f, 0.85f, 1), CW_ALIGN_CENTER, 60 * s);
+        small(buf, o.x - 30 * s, o.y - tsz(small_font(), 14 * s) - 10 * s, 14 * s, c->wrecked ? rgba(0.6f, 0.58f, 0.55f, 1) : rgba(1, 0.95f, 0.85f, 1), CW_ALIGN_CENTER, 60 * s);
       } else
         cw_r2d_line(o, cw_v2(o.x + f.x, o.y + f.y), 1.5f * s, rgba(0.1f, 0.1f, 0.1f, 0.8f)); /* which way it faces */
     }
 }
 
-/* the clock and the running count (or the mode, on points) in a plate */
+
+/* the clock and the running count (or the mode, on points) in a plate, its
+ * size from its text */
+#define CLOCK_TEXT 24.0f
+#define CLOCK_LABEL 17.0f
+static void clock_strings(char *clock, char *label) {
+  const sim *S = &G.S;
+  int secs = (S->clock + 59) / 60;
+  sprintf(clock, "%d:%02d", secs / 60, secs % 60);
+  sprintf(label, "%d LEFT", S->alive);
+}
+static cw_vec2 clock_plate_size(float s) {
+  char a[16], b[16];
+  clock_strings(a, b);
+  return cw_v2(fmaxf(160 * s, 10 * s + tw(font_hud, "0:00", CLOCK_TEXT * s) + 18 * s + tw(font_title, b, CLOCK_LABEL * s) + 10 * s),
+               fmaxf(36 * s, fmaxf(tsz(font_hud, CLOCK_TEXT * s), tsz(font_title, CLOCK_LABEL * s)) + 12 * s));
+}
 static void clock_plate(cw_rect top, float s) {
   const sim *S = &G.S;
-  char buf[32];
+  char buf[16], label[16];
+  clock_strings(buf, label);
   plate(top, 1, rgba(0.4f, 0.37f, 0.33f, 1));
   int secs = (S->clock + 59) / 60;
-  snprintf(buf, sizeof buf, "%d:%02d", secs / 60, secs % 60);
-  text(buf, top.x + 10 * s, top.y + top.h * 0.5f - 13 * s, 24 * s,
+  text(buf, top.x + 10 * s, top.y + (top.h - tsz(font_hud, CLOCK_TEXT * s)) * 0.5f, CLOCK_TEXT * s,
        secs <= 20 && S->phase == PH_GO && (G.ticks / 20) % 2 ? rgba(1, 0.4f, 0.2f, 1) : rgba(1, 0.95f, 0.85f, 1), CW_ALIGN_LEFT, 0);
-  snprintf(buf, sizeof buf, "%d LEFT", S->alive);
-  stencil(buf, top.x, top.y + top.h * 0.5f - 10 * s, 17 * s, rgba(0.84f, 0.56f, 0.24f, 1), CW_ALIGN_RIGHT, top.w - 10 * s);
+  stencil(label, top.x, top.y + (top.h - tsz(font_title, CLOCK_LABEL * s)) * 0.5f, CLOCK_LABEL * s, rgba(0.84f, 0.56f, 0.24f, 1), CW_ALIGN_RIGHT,
+          top.w - 10 * s);
 }
 
 /* the splitscreen HUD. Each view: its player's plate (tag, number, speed,
@@ -1546,13 +1723,23 @@ static void clock_plate(cw_rect top, float s) {
  * HITS) and WRECKED when that car is out. Shared: two players, the clock
  * where the views meet; three, the spare top right quadrant holds the clock,
  * the mode, the cars running, the standings and the map; four, a small clock
- * where the four views meet. */
+ * where the four views meet. The plates keep the body text size in every
+ * split (their size comes from their text, not from the view). */
+#define SPLIT_TAG 20.0f
+#define SPLIT_NUM 18.0f
+#define SPLIT_MPH 15.0f
+#define SPLIT_LABEL 14.0f
 static void draw_split_hud(float W, float H, float s) {
   const sim *S = &G.S;
   const cw_view *vs = NULL;
   int n = cw_pipeline_views(cw_pipeline_of(cw_scene_app_tree()), &vs);
   char buf[64];
-  float sv = s * (n > 2 || vs[0].h < 1 ? 0.72f : 0.85f);
+  float row1 = fmaxf(tsz(font_title, SPLIT_TAG * s), fmaxf(tsz(font_hud, SPLIT_NUM * s), tsz(small_font(), SPLIT_MPH * s)));
+  float lab = tsz(small_font(), SPLIT_LABEL * s), barh = 12 * s;
+  float ph = 8 * s + row1 + 4 * s + lab + 4 * s + barh + 8 * s;
+  float wc = fmaxf(150 * s, tw(font_title, "P4", SPLIT_TAG * s) + 8 * s + tw(font_hud, "#88", SPLIT_NUM * s) + 12 * s +
+                                tw(small_font(), "188 MPH", SPLIT_MPH * s));
+  wc = fmaxf(wc, tw(small_font(), "WRECKED", SPLIT_LABEL * s));
   for (int v = 0; v < n; v++) {
     cw_rect R = cw_rect_make(vs[v].x * W, vs[v].y * H, vs[v].w * W, vs[v].h * H);
     int me = car_of_view(v);
@@ -1560,47 +1747,63 @@ static void draw_split_hud(float W, float H, float s) {
     const car *c = &S->c[me];
     /* bottom left, or bottom right in a right-hand view: clear of the clock where the views meet */
     bool right = R.x > 1 && R.w < W * 0.75f;
-    cw_rect pr = cw_rect_make(right ? R.x + R.w - 272 * sv : R.x + 10 * sv, R.y + R.h - 88 * sv, 262 * sv, 78 * sv);
+    float pw = fminf(44 * s + wc + 10 * s, R.w - 20 * s);
+    cw_rect pr = cw_rect_make(right ? R.x + R.w - pw - 10 * s : R.x + 10 * s, R.y + R.h - ph - 10 * s, pw, ph);
     plate(pr, 1, paint_col(me, 1));
-    car_diagram(pr.x + 24 * sv, pr.y + pr.h * 0.5f, sv * 0.85f, me);
-    float tx = pr.x + 50 * sv, tw = pr.w - 58 * sv;
+    car_diagram(pr.x + 22 * s, pr.y + pr.h * 0.5f, fminf(0.61f * s, (ph - 12 * s) / 70), me);
+    float tx = pr.x + 44 * s, tw_ = pr.w - 54 * s, y1 = pr.y + 8 * s;
     snprintf(buf, sizeof buf, "P%d", v + 1);
-    stencil(buf, tx, pr.y + 6 * sv, 26 * sv, rgba(0.95f, 0.78f, 0.5f, 1), CW_ALIGN_LEFT, 0);
+    stencil(buf, tx, y1 + row1 - tsz(font_title, SPLIT_TAG * s), SPLIT_TAG * s, rgba(0.95f, 0.78f, 0.5f, 1), CW_ALIGN_LEFT, 0);
+    float nx = tx + tw(font_title, buf, SPLIT_TAG * s) + 8 * s;
     snprintf(buf, sizeof buf, "#%d", G.look[me].number);
-    text(buf, tx + 46 * sv, pr.y + 6 * sv, 24 * sv, rgba(1, 0.95f, 0.85f, 1), CW_ALIGN_LEFT, 0);
+    text(buf, nx, y1 + row1 - tsz(font_hud, SPLIT_NUM * s), SPLIT_NUM * s, rgba(1, 0.95f, 0.85f, 1), CW_ALIGN_LEFT, 0);
     float mph = fabsf(car_speed(c)) * 2.237f;
     snprintf(buf, sizeof buf, "%d MPH", (int)(mph + 0.5f));
-    small(buf, tx, pr.y + 12 * sv, 15 * sv, rgba(1, 0.95f, 0.85f, 1), CW_ALIGN_RIGHT, tw);
-    small(c->wrecked ? "WRECKED" : "ENGINE", tx, pr.y + 38 * sv, 11 * sv, rgba(0.9f, 0.85f, 0.75f, 1), CW_ALIGN_LEFT, 0);
-    cw_rect bar = cw_rect_make(tx, pr.y + 54 * sv, tw, 14 * sv);
+    small(buf, tx, y1 + row1 - tsz(small_font(), SPLIT_MPH * s), SPLIT_MPH * s, rgba(1, 0.95f, 0.85f, 1), CW_ALIGN_RIGHT, tw_);
+    float y2 = y1 + row1 + 4 * s;
+    small(c->wrecked ? "WRECKED" : "ENGINE", tx, y2, SPLIT_LABEL * s, rgba(0.9f, 0.85f, 0.75f, 1), CW_ALIGN_LEFT, 0);
+    cw_rect bar = cw_rect_make(tx, y2 + lab + 4 * s, tw_, barh);
     cw_r2d_rect(bar, rgba(0.02f, 0.02f, 0.02f, 0.9f));
     cw_r2d_rect(cw_rect_make(bar.x + 2, bar.y + 2, (bar.w - 4) * cw_clampf(c->hp / 100, 0, 1), bar.h - 4), hp_col(c->hp, 1));
     if (S->rule == RULE_POINTS) {
       snprintf(buf, sizeof buf, "%d PTS", c->points);
-      text(buf, pr.x, pr.y - 24 * sv, 18 * sv, rgba(0.84f, 0.56f, 0.24f, 1), CW_ALIGN_LEFT, 0);
+      text(buf, pr.x, pr.y - tsz(font_hud, 16 * s) - 6 * s, 16 * s, rgba(0.84f, 0.56f, 0.24f, 1), CW_ALIGN_LEFT, 0);
     }
     if (c->wrecked && S->phase == PH_GO) {
       float a = cw_clampf(c->wreck_ticks / 20.0f, 0, 1);
-      stencil("WRECKED", R.x, R.y + R.h * 0.36f, 48 * sv, rgba(0.95f, 0.3f, 0.15f, a), CW_ALIGN_CENTER, R.w);
+      stencil("WRECKED", R.x, R.y + R.h * 0.3f, 36 * s, rgba(0.95f, 0.3f, 0.15f, a), CW_ALIGN_CENTER, R.w);
     }
   }
+  cw_vec2 cp = clock_plate_size(s);
   if (n == 3) {
-    /* the top right quadrant: the bout at a glance */
+    /* the top right quadrant: the bout at a glance. The clock and the map on
+     * the right, the standings on the left (the mode and the count over them
+     * when there is room) */
     cw_rect Q = cw_rect_make(W * 0.5f, 0, W * 0.5f, H * 0.5f);
     cw_r2d_rect(Q, rgba(0.07f, 0.06f, 0.05f, 1));
-    float pad = 14 * s, col = Q.w * 0.5f;
-    clock_plate(cw_rect_make(Q.x + pad, Q.y + pad, col - pad * 1.5f, 40 * s), s);
-    stencil(S->rule == RULE_POINTS ? "POINTS FOR HITS" : "QUICK MATCH", Q.x + pad, Q.y + pad + 50 * s, 17 * s, rgba(0.88f, 0.85f, 0.78f, 0.9f),
-            CW_ALIGN_LEFT, 0);
-    snprintf(buf, sizeof buf, "%d OF %d CARS RUNNING", S->alive, S->ncars);
-    small(buf, Q.x + pad, Q.y + pad + 74 * s, 13 * s, rgba(0.9f, 0.86f, 0.8f, 0.9f), CW_ALIGN_LEFT, 0);
-    field_list(Q.x + pad + 24 * s * 0.75f, Q.y + pad + 98 * s, s * 0.75f);
-    mini_map(cw_rect_make(Q.x + col, Q.y + pad, col - pad, Q.h - 2 * pad), s);
+    float pad = 12 * s, col = Q.w * 0.5f;
+    cw_rect top = cw_rect_make(Q.x + Q.w - pad - cp.x, Q.y + pad, cp.x, cp.y);
+    clock_plate(top, s);
+    float y = Q.y + pad, lx = Q.x + pad + field_tag_w(s);
+    float mode = tsz(font_title, 17 * s), count = tsz(small_font(), 14 * s);
+    if (y + mode + 6 * s + count + 10 * s + field_height(s) <= Q.y + Q.h - pad) {
+      stencil(S->rule == RULE_POINTS ? "POINTS FOR HITS" : "QUICK MATCH", Q.x + pad, y, 17 * s, rgba(0.88f, 0.85f, 0.78f, 0.9f), CW_ALIGN_LEFT, 0);
+      snprintf(buf, sizeof buf, "%d OF %d CARS RUNNING", S->alive, S->ncars);
+      small(buf, Q.x + pad, y + mode + 6 * s, 14 * s, rgba(0.9f, 0.86f, 0.8f, 0.9f), CW_ALIGN_LEFT, 0);
+      y += mode + 6 * s + count + 10 * s;
+    }
+    field_bar = 92;
+    float over = lx + field_width(s) + pad - top.x; /* the list stops short of the clock: shorter bars */
+    if (over > 0) field_bar = fmaxf(36, 92 - over / s);
+    field_list(lx, y, s);
+    float mx = fmaxf(Q.x + col, lx + field_width(s) + pad);
+    field_bar = 92;
+    mini_map(cw_rect_make(mx, top.y + top.h + 8 * s, Q.x + Q.w - pad - mx, Q.y + Q.h - pad - (top.y + top.h + 8 * s)), s);
   } else if (n == 4) {
-    clock_plate(cw_rect_make(W * 0.5f - 80 * s, H * 0.5f - 18 * s, 160 * s, 36 * s), s);
+    clock_plate(cw_rect_make(W * 0.5f - cp.x * 0.5f, H * 0.5f - cp.y * 0.5f, cp.x, cp.y), s);
   } else {
     bool stacked = vs[1].y > 0;
-    clock_plate(cw_rect_make(W * 0.5f - 90 * s, stacked ? H * 0.5f - 20 * s : 6 * s, 180 * s, 40 * s), s);
+    clock_plate(cw_rect_make(W * 0.5f - cp.x * 0.5f, stacked ? H * 0.5f - cp.y * 0.5f : 6 * s, cp.x, cp.y), s);
   }
 }
 
@@ -1611,45 +1814,59 @@ static void draw_hud(float W, float H, float s) {
   bool touch = touch_controls && on_touch();
   bool split = nviews > 1;
   if (split) draw_split_hud(W, H, s), me = -1; /* the per-view plates stand in for P1's */
-  /* top centre: running cars and the clock */
+  float plate_top = H; /* where the player's plate starts (the countdown's hint stays above it) */
+  /* top centre: running cars and the clock, the plate as wide as its text */
   if (!split) {
-  cw_rect top = cw_rect_make(W * 0.5f - 130 * s, 8 * s, 260 * s, 52 * s);
-  plate(top, 1, rgba(0.4f, 0.37f, 0.33f, 1));
-  int secs = (S->clock + 59) / 60;
-  snprintf(buf, sizeof buf, "%d:%02d", secs / 60, secs % 60);
-  text(buf, top.x + 12 * s, top.y + 8 * s, 30 * s, secs <= 20 && S->phase == PH_GO && (G.ticks / 20) % 2 ? rgba(1, 0.4f, 0.2f, 1) : rgba(1, 0.95f, 0.85f, 1),
-       CW_ALIGN_LEFT, 0);
-  if (S->rule == RULE_LAST_RUNNING) snprintf(buf, sizeof buf, "%d RUNNING", S->alive);
-  else snprintf(buf, sizeof buf, "POINTS");
-  stencil(buf, top.x, top.y + 12 * s, 22 * s, rgba(0.84f, 0.56f, 0.24f, 1), CW_ALIGN_RIGHT, top.w - 12 * s);
+    int secs = (S->clock + 59) / 60;
+    char lab[32];
+    if (S->rule == RULE_LAST_RUNNING) snprintf(lab, sizeof lab, "%d RUNNING", S->alive);
+    else snprintf(lab, sizeof lab, "POINTS");
+    float ch = tsz(font_hud, 30 * s), lh = tsz(font_title, 22 * s);
+    float w = fmaxf(260 * s, 12 * s + tw(font_hud, "0:00", 30 * s) + 20 * s + tw(font_title, lab, 22 * s) + 12 * s), h = fmaxf(52 * s, fmaxf(ch, lh) + 18 * s);
+    cw_rect top = cw_rect_make(W * 0.5f - w * 0.5f, 8 * s, w, h);
+    plate(top, 1, rgba(0.4f, 0.37f, 0.33f, 1));
+    snprintf(buf, sizeof buf, "%d:%02d", secs / 60, secs % 60);
+    text(buf, top.x + 12 * s, top.y + (h - ch) * 0.5f, 30 * s,
+         secs <= 20 && S->phase == PH_GO && (G.ticks / 20) % 2 ? rgba(1, 0.4f, 0.2f, 1) : rgba(1, 0.95f, 0.85f, 1), CW_ALIGN_LEFT, 0);
+    stencil(lab, top.x, top.y + (h - lh) * 0.5f, 22 * s, rgba(0.84f, 0.56f, 0.24f, 1), CW_ALIGN_RIGHT, top.w - 12 * s);
   }
-  /* the player's plate: number, engine bar, the car from above */
+  /* the player's plate: number, speed, engine bar, the car from above; its
+   * size from its text */
   if (me >= 0) {
     const car *c = &S->c[me];
-    float px = touch ? 84 * s : 12 * s, py = touch ? 10 * s : H - 112 * s;
-    cw_rect pr = cw_rect_make(px, py, 250 * s, 100 * s);
+    float row1 = fmaxf(tsz(font_title, 30 * s), tsz(font_hud, 30 * s)), lab = tsz(small_font(), 14 * s), barh = 18 * s;
+    float ph = fmaxf(100 * s, 8 * s + row1 + 4 * s + lab + 4 * s + barh + 10 * s);
+    float mw = tw(small_font(), "MPH", 14 * s);
+    float wc = fmaxf(170 * s, tw(font_title, "#88", 30 * s) + 16 * s + tw(font_hud, "188", 30 * s) + 6 * s + mw);
+    wc = fmaxf(wc, tw(small_font(), "WRECKED", 14 * s));
+    float px = touch ? 84 * s : 12 * s, py = touch ? 10 * s : H - ph - 12 * s;
+    cw_rect pr = cw_rect_make(px, py, 64 * s + wc + 16 * s, ph);
+    if (!touch) plate_top = py;
     plate(pr, 1, paint_col(me, 1));
-    car_diagram(pr.x + 32 * s, pr.y + 50 * s, s, me);
+    car_diagram(pr.x + 32 * s, pr.y + ph * 0.5f, s, me);
+    float x0 = pr.x + 64 * s, y1 = pr.y + 8 * s;
     snprintf(buf, sizeof buf, "#%d", G.look[me].number);
-    stencil(buf, pr.x + 64 * s, pr.y + 6 * s, 30 * s, rgba(1, 0.95f, 0.85f, 1), CW_ALIGN_LEFT, 0);
-    small(c->wrecked ? "WRECKED" : "ENGINE", pr.x + 64 * s, pr.y + 44 * s, 13 * s, rgba(0.9f, 0.85f, 0.75f, 1), CW_ALIGN_LEFT, 0);
-    cw_rect bar = cw_rect_make(pr.x + 64 * s, pr.y + 64 * s, 170 * s, 18 * s);
+    stencil(buf, x0, y1, 30 * s, rgba(1, 0.95f, 0.85f, 1), CW_ALIGN_LEFT, 0);
+    float mph = fabsf(car_speed(c)) * 2.237f;
+    snprintf(buf, sizeof buf, "%d", (int)(mph + 0.5f));
+    text(buf, x0, y1 + row1 - tsz(font_hud, 30 * s), 30 * s, rgba(1, 0.95f, 0.85f, 1), CW_ALIGN_RIGHT, wc - mw - 6 * s);
+    small("MPH", x0, y1 + row1 - lab - 2 * s, 14 * s, rgba(0.9f, 0.85f, 0.75f, 0.9f), CW_ALIGN_RIGHT, wc);
+    float y2 = y1 + row1 + 4 * s;
+    small(c->wrecked ? "WRECKED" : "ENGINE", x0, y2, 14 * s, rgba(0.9f, 0.85f, 0.75f, 1), CW_ALIGN_LEFT, 0);
+    cw_rect bar = cw_rect_make(x0, y2 + lab + 4 * s, wc, barh);
     cw_r2d_rect(bar, rgba(0.02f, 0.02f, 0.02f, 0.9f));
     float k = cw_clampf(c->hp / 100, 0, 1);
     cw_r2d_rect(cw_rect_make(bar.x + 2, bar.y + 2, (bar.w - 4) * k, bar.h - 4), hp_col(c->hp, 1));
     for (int t = 1; t < 10; t++) cw_r2d_rect(cw_rect_make(bar.x + bar.w * t / 10, bar.y, 1.5f, bar.h), rgba(0, 0, 0, 0.6f));
-    float mph = fabsf(car_speed(c)) * 2.237f;
-    snprintf(buf, sizeof buf, "%d", (int)(mph + 0.5f));
-    text(buf, pr.x + 150 * s, pr.y + 8 * s, 30 * s, rgba(1, 0.95f, 0.85f, 1), CW_ALIGN_RIGHT, 84 * s);
-    small("MPH", pr.x + 150 * s, pr.y + 42 * s, 12 * s, rgba(0.9f, 0.85f, 0.75f, 0.9f), CW_ALIGN_RIGHT, 84 * s);
     if (S->rule == RULE_POINTS) {
       snprintf(buf, sizeof buf, "%d PTS", c->points);
-      text(buf, pr.x, pr.y - 28 * s, 20 * s, rgba(0.84f, 0.56f, 0.24f, 1), CW_ALIGN_LEFT, 0);
+      float py2 = touch ? pr.y + ph + 6 * s : pr.y - tsz(font_hud, 20 * s) - 8 * s;
+      text(buf, pr.x, py2, 20 * s, rgba(0.84f, 0.56f, 0.24f, 1), CW_ALIGN_LEFT, 0);
     }
   }
   /* the field: everyone's number and engine, wrecks struck through */
-  float lx = W - 168 * s, ly = 70 * s;
-  if (touch) ly = 8 * s, lx = W - 168 * s;
+  float lx = W - field_width(s) - 12 * s, ly = 70 * s;
+  if (touch) ly = 8 * s;
   if (!split && (!touch || G.state == GS_PAUSE)) field_list(lx, ly, s);
   /* the countdown */
   if (S->phase == PH_COUNTDOWN) {
@@ -1659,7 +1876,7 @@ static void draw_hud(float W, float H, float s) {
     stencil(buf, 0, H * 0.2f, 110 * s * pop, rgba(0.84f, 0.56f, 0.24f, 1 - f * 0.3f), CW_ALIGN_CENTER, W);
     const char *how = split ? "" : touch ? "left thumb: steer   right thumb: gas, brake, slide"
                     : "{thr_fwd} gas   {thr_back} brake / reverse   {steer_l|steer_r} steer   {handbrake} handbrake   {horn} horn   {look} look back";
-    if (*how) prompt_line(how, W, H * 0.62f, 16 * s);
+    if (*how) prompt_line(how, W, fminf(H * 0.62f, plate_top - 10 * s - prompt_height(how, W, 16 * s) + 16 * s * 0.3f), 16 * s);
   } else if (S->phase == PH_GO && S->phase_ticks < 50) {
     float f = S->phase_ticks / 50.0f;
     stencil("WRECK 'EM!", 0, H * 0.2f, 84 * s * (1 + 0.3f * (1 - f)), rgba(0.84f, 0.56f, 0.24f, 1 - f), CW_ALIGN_CENTER, W);
@@ -1669,7 +1886,7 @@ static void draw_hud(float W, float H, float s) {
     hazard(cw_rect_make(0, H * 0.3f, W, 8 * s), a * 0.9f);
     stencil("WRECKED", 0, H * 0.31f + 10 * s, 70 * s, rgba(0.95f, 0.3f, 0.15f, a), CW_ALIGN_CENTER, W);
     hazard(cw_rect_make(0, H * 0.31f + 92 * s, W, 8 * s), a * 0.9f);
-    if (S->c[me].wreck_ticks > 150) prompt_line("watching the rest of the bout", W, H * 0.52f, 14 * s);
+    if (S->c[me].wreck_ticks > 150) prompt_line("watching the rest of the bout", W, H * 0.31f + 112 * s, 14 * s);
   }
   if (S->phase == PH_OVER) {
     float a = cw_clampf(S->phase_ticks / 15.0f, 0, 1);
@@ -1682,15 +1899,18 @@ static void draw_hud(float W, float H, float s) {
     stencil(head, 0, H * 0.24f, 66 * s, rgba(0.84f, 0.56f, 0.24f, a), CW_ALIGN_CENTER, W);
     if (S->winner >= 0) {
       snprintf(buf, sizeof buf, "#%d %s takes it", G.look[S->winner].number, driver(S->winner));
-      prompt_line(buf, W, H * 0.38f, 18 * s);
+      prompt_line(buf, W, H * 0.24f + tsz(font_title, 66 * s) + 14 * s, 18 * s);
     }
   }
   if (G.feed_ticks > 0) {
     float a = cw_clampf(G.feed_ticks / 20.0f, 0, 1);
-    cw_text_style st = { .size = 18 * s };
+    /* clear of the standings on the right (and so of the left side too: it is centred) */
+    float fw = split || touch ? W - 60 * s : W - 2 * (field_width(s) + field_tag_w(s) + 24 * s);
+    cw_text_style st = { .size = 18 * s, .wrap_width = fw };
     cw_text_metrics mm = cw_font_measure(font_hud, G.feed, &st);
-    cw_r2d_rect(cw_rect_make(W * 0.5f - mm.width * 0.5f - 14 * s, H * 0.14f - 4 * s, mm.width + 28 * s, mm.height + 8 * s), rgba(0.55f, 0.12f, 0.05f, 0.75f * a));
-    text(G.feed, 0, H * 0.14f, 18 * s, rgba(1, 0.92f, 0.75f, a), CW_ALIGN_CENTER, W);
+    float fy = fmaxf(H * 0.14f, split ? 0 : 8 * s + fmaxf(52 * s, fmaxf(tsz(font_hud, 30 * s), tsz(font_title, 22 * s)) + 18 * s) + 10 * s);
+    cw_r2d_rect(cw_rect_make(W * 0.5f - mm.width * 0.5f - 14 * s, fy - 4 * s, mm.width + 28 * s, mm.height + 8 * s), rgba(0.55f, 0.12f, 0.05f, 0.75f * a));
+    text(G.feed, (W - fw) * 0.5f, fy, 18 * s, rgba(1, 0.92f, 0.75f, a), CW_ALIGN_CENTER, fw);
   }
   if (touch && G.state == GS_BOUT) draw_touch(s);
   /* a pause button for the mouse and touch (pads and keys have Start / Esc) */
@@ -1729,38 +1949,91 @@ static void draw_results(float W, float H, float s) {
         order[b] = t;
       }
     }
-  float tw = 600 * s, rh = 34 * s, x = (W - tw) * 0.5f, y = H * 0.26f;
-  plate(cw_rect_make(x - 12 * s, y - 36 * s, tw + 24 * s, rh * m + 48 * s), in, rgba(0.4f, 0.37f, 0.33f, 1));
+  /* the columns from their measured widths */
   static const char *const HEAD[4] = { "DEALT", "TAKEN", "WRECKS", "POINTS" };
-  for (int c = 0; c < 4; c++) small(HEAD[c], x + 290 * s + c * 78 * s, y - 30 * s, 14 * s, rgba(0.84f, 0.56f, 0.24f, in), CW_ALIGN_CENTER, 78 * s);
+  float rt = tsz(font_hud, 18 * s), ht = tsz(small_font(), 14 * s), rh = rt + 16 * s;
+  float rankw = tw(font_hud, "8.", 18 * s) + 12 * s, namew = 0, colw = 78 * s;
+  for (int r = 0; r < m; r++) {
+    snprintf(buf, sizeof buf, "#%d %s", G.look[order[r]].number, driver(order[r]));
+    namew = fmaxf(namew, tw(font_hud, buf, 18 * s) + 20 * s);
+  }
+  for (int c = 0; c < 4; c++) colw = fmaxf(colw, fmaxf(tw(small_font(), HEAD[c], 14 * s), tw(font_hud, "8888", 18 * s)) + 14 * s);
+  float tw_ = rankw + 16 * s + namew + 4 * colw;
+  if (tw_ < 600 * s) namew += 600 * s - tw_, tw_ = 600 * s;
+  float x = (W - tw_) * 0.5f, cx = x + rankw + 16 * s + namew;
+  float hy = fmaxf(H * 0.26f - 30 * s, H * 0.07f + tsz(font_title, 56 * s) + 16 * s), y = hy + fmaxf(30 * s, ht + 12 * s);
+  plate(cw_rect_make(x - 12 * s, hy - 6 * s, tw_ + 24 * s, (y - hy) + rh * m + 18 * s), in, rgba(0.4f, 0.37f, 0.33f, 1));
+  for (int c = 0; c < 4; c++) small(HEAD[c], cx + c * colw, hy, 14 * s, rgba(0.84f, 0.56f, 0.24f, in), CW_ALIGN_CENTER, colw);
   for (int r = 0; r < m; r++) {
     int i = order[r];
     const car *c = &S->c[i];
-    float yy = y + r * rh;
+    float yy = y + r * rh, ty = yy + (rh - rt) * 0.5f;
     snprintf(buf, sizeof buf, "%d.", r + 1);
-    text(buf, x, yy + 4 * s, 18 * s, rgba(1, 0.95f, 0.85f, in), CW_ALIGN_LEFT, 0);
-    cw_r2d_rect(cw_rect_make(x + 34 * s, yy + 6 * s, 8 * s, 20 * s), paint_col(i, in));
+    text(buf, x, ty, 18 * s, rgba(1, 0.95f, 0.85f, in), CW_ALIGN_LEFT, 0);
+    cw_r2d_rect(cw_rect_make(x + rankw, yy + (rh - 20 * s) * 0.5f, 8 * s, 20 * s), paint_col(i, in));
     snprintf(buf, sizeof buf, "#%d %s", G.look[i].number, driver(i));
-    text(buf, x + 50 * s, yy + 4 * s, 18 * s, G.human_of[i] >= 0 ? rgba(0.84f, 0.56f, 0.24f, in) : rgba(1, 0.95f, 0.85f, in), CW_ALIGN_LEFT, 0);
+    text(buf, x + rankw + 16 * s, ty, 18 * s, G.human_of[i] >= 0 ? rgba(0.84f, 0.56f, 0.24f, in) : rgba(1, 0.95f, 0.85f, in), CW_ALIGN_LEFT, 0);
     int vals[4] = { (int)(c->dealt + 0.5f), (int)(c->taken + 0.5f), c->wrecks, c->points };
     for (int k = 0; k < 4; k++) {
       snprintf(buf, sizeof buf, "%d", vals[k]);
-      text(buf, x + 290 * s + k * 78 * s, yy + 4 * s, 18 * s, rgba(1, 0.95f, 0.85f, in), CW_ALIGN_CENTER, 78 * s);
+      text(buf, cx + k * colw, ty, 18 * s, rgba(1, 0.95f, 0.85f, in), CW_ALIGN_CENTER, colw);
     }
   }
-  if (G.state_ticks > 120) prompt_line(prompt(), W, H * 0.92f, 16 * s);
+  if (G.state_ticks > 120) prompt_bottom(prompt(), W, H - 8 * s, 16 * s);
 }
 
-/* the graphics preset on the pause screen (cartwheel/quality.h): the settings
- * action or a tap steps Low, Medium, High, Ultra. Render-only, so it is read in
- * update, never in the simulation; the choice is kept in the save */
-static cw_rect gfx_rect(float W, float H) {
-  float s = H / 540.0f;
-  return cw_rect_make(W * 0.5f - 170 * s, H * 0.44f, 340 * s, 46 * s);
+/* the pause screen: RESUME, GRAPHICS (the graphics page, cartwheel/quality_menu.h;
+ * the settings action opens it too), TEXT SIZE, TEXT BACKGROUND, QUIT TO TITLE.
+ * Render-only settings, kept in the save. Laid out from the size its text
+ * draws at, so the player's Text size grows it and nothing overlaps. */
+static void upper(char *b) {
+  for (char *c = b; *c; c++) *c = (char)(*c >= 'a' && *c <= 'z' ? *c - 32 : *c);
+}
+static void pause_label(int i, char *buf, size_t cap) {
+  switch (i) {
+  case 0: snprintf(buf, cap, "RESUME"); break;
+  case 1: /* the preset and " · 1080p", the render resolution (the host sets it; read-only here) */
+    snprintf(buf, cap, "GRAPHICS: %s", cw_quality_label());
+    upper(buf);
+    {
+      size_t n = strlen(buf);
+      snprintf(buf + n, cap > n ? cap - n : 0, " \xC2\xB7 %s", cw_render_res_label());
+    }
+    break;
+  case 2: snprintf(buf, cap, "TEXT SIZE: %s", cw_text_scale_label()); break;
+  case 3: snprintf(buf, cap, "TEXT BACKGROUND: %s", cw_text_backdrop_label()), upper(buf); break;
+  default: snprintf(buf, cap, "QUIT TO TITLE"); break;
+  }
+}
+#define PAUSE_ROW_SIZE 24.0f /* the rows' text, in canvas units at 540 lines */
+#define PAUSE_HEAD_SIZE 60.0f
+static const char *pause_hint(void) {
+  return glyphs() ? "{m_up|m_down} move   {m_left|m_right} change   {m_ok} choose   {start} resume" : on_touch() ? "tap to choose" : "click to choose";
+}
+/* the rows' rects (the heading above them, the hint under them), centred on the canvas */
+static float pause_head_y(float W, float H, cw_rect *rows) {
+  float s = H / 540.0f, rh = tsz(font_title, PAUSE_ROW_SIZE * s) + 16 * s, gap = 8 * s, w = 300 * s;
+  char buf[96];
+  for (int i = 0; i < PAUSE_N; i++) {
+    pause_label(i, buf, sizeof buf);
+    w = fmaxf(w, tw(font_title, buf, PAUSE_ROW_SIZE * s) + 40 * s);
+  }
+  w = fminf(w, W - 24 * s);
+  float head = tsz(font_title, PAUSE_HEAD_SIZE * s), hint = prompt_height(pause_hint(), W, 16 * s);
+  float total = head + 14 * s + PAUSE_N * rh + (PAUSE_N - 1) * gap + 18 * s + hint;
+  float y0 = fmaxf(6 * s, (H - total) * 0.5f), y = y0 + head + 14 * s;
+  for (int i = 0; i < PAUSE_N && rows; i++) rows[i] = cw_rect_make(W * 0.5f - w * 0.5f, y + i * (rh + gap), w, rh);
+  return y0;
+}
+static cw_rect pause_drawn[PAUSE_N]; /* where render last drew the rows (the fixed tick hit-tests these) */
+static cw_rect pause_row(int i, float W, float H) {
+  (void)W, (void)H;
+  return pause_drawn[i < 0 ? 0 : i >= PAUSE_N ? PAUSE_N - 1 : i];
 }
 static void gfx_input(void) {
   if (G.state != GS_PAUSE) {
     cw_quality_menu_close();
+    G.open_gfx = false;
     return;
   }
   if (cw_quality_menu_is_open()) { /* the graphics page (cartwheel/quality_menu.h) owns the presses */
@@ -1772,51 +2045,31 @@ static void gfx_input(void) {
     return;
   }
   if (G.state_ticks < 5) return;
-  const cw_raw_input *in = cw_input_raw();
-  bool hit = any_pressed(G.a_settings);
-  cw_vec2 cs = cw_r2d_canvas_size();
-  if ((in->mouse_pressed & 1) && in_rect(mouse_canvas(), gfx_rect(cs.x, cs.y))) hit = true;
+  bool hit = any_pressed(G.a_settings) || G.open_gfx;
+  G.open_gfx = false;
   if (!hit) return;
+  G.menu = 1;
   cw_quality_menu_open();
   sfx(SFX_SELECT, 0.6f);
 }
-/* " · 1080p": the render resolution beside the graphics preset (the host
- * sets it, RetroArch's Internal Resolution; read-only here) */
-/* a label's size so that it fits maxw (shrunk, never grown): the graphics
- * line is longer at 1080p than at 540p, MEDIUM longer than LOW */
-static float fit_title(const char *s, float size, float maxw) {
-  float w = cw_font_measure(font_title, s, &(cw_text_style){ .size = size }).width;
-  return w > maxw && w > 0 ? size * maxw / w : size;
-}
-static void gfx_res_suffix(char *buf, size_t cap) {
-  size_t n = strlen(buf);
-  snprintf(buf + n, cap > n ? cap - n : 0, " \xC2\xB7 %s", cw_render_res_label());
-}
-static void draw_gfx(float W, float H, float s) {
-  cw_rect r = gfx_rect(W, H);
-  plate(r, 1, rgba(0.4f, 0.37f, 0.33f, 1));
-  char buf[64];
-  snprintf(buf, sizeof buf, "GRAPHICS: %s", cw_quality_label());
-  for (char *c = buf; *c; c++) *c = (char)(*c >= 'a' && *c <= 'z' ? *c - 32 : *c);
-  gfx_res_suffix(buf, sizeof buf); /* the render resolution: the host sets it */
-  float sz = fit_title(buf, 24 * s, r.w - 16 * s);
-  stencil(buf, r.x, r.y + 10 * s + (24 * s - sz) * 0.5f, sz, rgba(0.85f, 0.82f, 0.78f, 1), CW_ALIGN_CENTER, r.w);
-  cw_prompt_text(font_hud, on_touch() ? "tap for settings" : "{settings} settings", 0, cw_v2(r.x + r.w * 0.5f, r.y + r.h + 4 * s), 16 * s,
-                 rgba(0.85f, 0.82f, 0.78f, 0.85f), CW_ALIGN_CENTER);
-}
 
 static void draw_pause(float W, float H, float s) {
-  cw_r2d_rect(cw_rect_make(0, 0, W, H), rgba(0.03f, 0.02f, 0.01f, 0.5f));
-  stencil("PAUSED", 0, H * 0.3f, 70 * s, rgba(0.84f, 0.56f, 0.24f, 1), CW_ALIGN_CENTER, W);
-  static const char *const ITEMS[2] = { "RESUME", "QUIT TO TITLE" };
-  for (int i = 0; i < 2; i++) {
-    cw_rect r = title_button(i, W, H);
-    plate(r, 1, G.menu == i ? rgba(0.84f, 0.56f, 0.24f, 1) : rgba(0.4f, 0.37f, 0.33f, 1));
-    stencil(ITEMS[i], r.x, r.y + 14 * s, 28 * s, G.menu == i ? rgba(0.95f, 0.78f, 0.5f, 1) : rgba(0.85f, 0.82f, 0.78f, 1), CW_ALIGN_CENTER, r.w);
+  cw_r2d_rect(cw_rect_make(0, 0, W, H), rgba(0.03f, 0.02f, 0.01f, 0.62f));
+  cw_rect rows[PAUSE_N];
+  float y0 = pause_head_y(W, H, rows);
+  memcpy(pause_drawn, rows, sizeof rows);
+  stencil("PAUSED", 0, y0, PAUSE_HEAD_SIZE * s, rgba(0.84f, 0.56f, 0.24f, 1), CW_ALIGN_CENTER, W);
+  char buf[96];
+  float th = tsz(font_title, PAUSE_ROW_SIZE * s);
+  for (int i = 0; i < PAUSE_N; i++) {
+    cw_rect r = rows[i];
+    bool cur = G.menu == i;
+    plate(r, 1, cur ? rgba(0.84f, 0.56f, 0.24f, 1) : rgba(0.4f, 0.37f, 0.33f, 1));
+    pause_label(i, buf, sizeof buf);
+    stencil(buf, r.x, r.y + (r.h - th) * 0.5f, PAUSE_ROW_SIZE * s, cur ? rgba(0.95f, 0.78f, 0.5f, 1) : rgba(0.85f, 0.82f, 0.78f, 1), CW_ALIGN_CENTER, r.w);
   }
-  const char *how = glyphs() ? "{m_up|m_down} move   {m_ok} choose   {start} resume" : on_touch() ? "tap to choose" : "click to choose";
-  prompt_line(how, W, H * 0.9f, 16 * s);
-  draw_gfx(W, H, s);
+  cw_rect last = rows[PAUSE_N - 1];
+  prompt_line(pause_hint(), W, last.y + last.h + 18 * s + 16 * s * 0.3f, 16 * s);
 }
 
 static void render(void *u, double alpha) {
@@ -1830,9 +2083,8 @@ static void render(void *u, double alpha) {
   switch (no_hud ? -1 : (int)G.state) {
   case GS_TITLE: draw_title(W, H, s); break;
   case GS_BOUT: draw_hud(W, H, s); break;
-  case GS_PAUSE:
-    draw_hud(W, H, s);
-    draw_pause(W, H, s);
+  case GS_PAUSE: /* the pause screen over the arena alone (its rows would cross the HUD at a large Text size); the graphics page alone */
+    if (!cw_quality_menu_is_open()) draw_pause(W, H, s);
     break;
   case GS_RESULTS: draw_results(W, H, s); break;
   default: break;
