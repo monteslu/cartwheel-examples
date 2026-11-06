@@ -4,6 +4,6 @@
   { "name": "derby", "app": "derby_auto", "frames": 900, "maxVeryLow": 0.64, "maxLow": 0.81 },
   { "name": "pugball", "app": "pugball_auto", "frames": 900, "maxVeryLow": 0.55, "maxLow": 0.71 },
   { "name": "bomberdude", "app": "bomberdude_auto", "frames": 900, "maxVeryLow": 0.73, "maxLow": 0.85 },
-  { "name": "chromite", "app": "chromite_auto", "frames": 900, "maxVeryLow": 0.9, "maxLow": 1 },
+  { "name": "chromite", "app": "chromite_auto", "frames": 900, "maxVeryLow": 0.6, "maxLow": 0.97 },
   { "name": "spout", "app": "spout_auto", "frames": 900, "maxVeryLow": 0.84, "maxLow": 0.93 }
 ]

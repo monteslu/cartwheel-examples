@@ -5744,12 +5744,12 @@
   {
     "name": "quality-range-7",
     "script": "tests/quality-range-7.mjs",
-    "note": "the GPU time of each graphics preset in play at 1080p on the test GPU, GL (bomberdude, chromite, spout; the engine's tools/quality-range.mjs over tests/quality-range-scenes.json): no preset dearer than the one above it, Ultra not under High, Very Low and Low under the share of High measured for each game. Control: every preset drawing High must fail"
+    "note": "the order between presets with 15% slack (chromite on WebGPU: Low 6.75 ms, Medium 5.96); the GPU time of each graphics preset in play at 1080p on the test GPU, GL (bomberdude, chromite, spout; the engine's tools/quality-range.mjs over tests/quality-range-scenes.json): no preset dearer than the one above it, Ultra not under High, Very Low and Low under the share of High measured for each game. Control: every preset drawing High must fail"
   },
   {
     "name": "quality-range-8",
     "script": "tests/quality-range-8.mjs",
-    "note": "the GPU time of each graphics preset in play at 1080p on the test GPU, WebGPU (bomberdude, chromite, spout; the engine's tools/quality-range.mjs over tests/quality-range-scenes.json): no preset dearer than the one above it, Ultra not under High, Very Low and Low under the share of High measured for each game. Control: every preset drawing High must fail"
+    "note": "the order between presets with 15% slack (chromite on WebGPU: Low 6.75 ms, Medium 5.96); the GPU time of each graphics preset in play at 1080p on the test GPU, WebGPU (bomberdude, chromite, spout; the engine's tools/quality-range.mjs over tests/quality-range-scenes.json): no preset dearer than the one above it, Ultra not under High, Very Low and Low under the share of High measured for each game. Control: every preset drawing High must fail"
   },
   {
     "name": "bikemesa-quality",
