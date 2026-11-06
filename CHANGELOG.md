@@ -3,6 +3,13 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.18.1 (2026-11-06)
+
+- **All games**: Engine v0.34.3. Control hints for movement show the d-pad, with the arms to press solid, wherever the d-pad and the left stick both move: steering, leaning, moving and the menus. A single direction lights its one arm. Actions only a stick does still show the stick
+- **All games**: The graphics page keeps every row on screen at 200% text, the Resolution row included: its names and values are laid out from their measured widths
+- **racer**: No more graphics errors on WebGPU at Very Low while the camera is under the water on the flooded track
+- **racer**: Tilting in the air also takes the d-pad up and down, so the controls page shows the d-pad for it like every other movement
+
 ## v0.18.0 (2026-11-06)
 
 - **All games**: Engine v0.34.1. A Very Low graphics preset below Low, for handhelds and older laptops. It keeps the full resolution and gives up what costs most: the sun's shadow only, with small objects left out, no multisampling, bloom, ambient occlusion or volumetric fog, fewer particles and less grass, and a cheaper lighting model. Low and Medium also drop the 4x multisampling. The resolution setting is its own choice now: picking a preset no longer resets it
