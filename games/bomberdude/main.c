@@ -405,6 +405,13 @@ static cw_node find_type(cw_node n, const char *type) {
   }
 }
 
+/* Low and Very Low draw the arena after a depth prepass: the crates, walls and grass stack several deep over the
+ * meadow, and the prepass shades each pixel once (the same picture; from Medium up the scene as authored) */
+static void scene_prepass(void) {
+  cw_node post = cw_node_valid(G.scene) ? find_type(G.scene, "PostProcess") : (cw_node){ 0 };
+  if (cw_node_valid(post)) cw_node_set(post, "depth_prepass", cw_val_bool(cw_gfx_effective(CW_GFX_EFFECTS) <= CW_QUALITY_LOW));
+}
+
 static void load_scene(int index) {
   cw_tree *t = cw_scene_app_tree();
   fx_reset();
@@ -424,6 +431,7 @@ static void load_scene(int index) {
   G.camera = find_type(G.scene, "Camera3D");
   G.arena = index;
   G.cam_snap = true;
+  scene_prepass();
 }
 
 /* a round: the arena rebuilt, seeded by the round so every round differs */
@@ -543,6 +551,7 @@ static cw_font font_ui, font_ui_bold, font_title;
 static void quality_changed(cw_quality q, void *u) {
   (void)q, (void)u;
   scenery_density(cw_quality_density());
+  scene_prepass();
 }
 
 static void init(void *u) {
