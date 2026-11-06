@@ -189,7 +189,7 @@ static void perf_tick_end(void) {
 /* the graphics preset (cartwheel/quality.h): the engine caps the post and
  * shadows and steps down on a slow machine (never in a deterministic run,
  * where every host must draw the same frame); the game thins its grass and
- * crowd by the preset's density. perf.tier: 0 at High, 1 Medium, 2 Low */
+ * crowd by the preset's density. perf.tier: 0 at High, 1 Medium, 2 Low, 3 Very Low */
 static cw_node find_type(cw_node n, const char *type);
 static int quality_tier;
 static void apply_quality(void) {

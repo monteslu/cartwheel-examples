@@ -42,14 +42,16 @@ static const float SKILL_BASE[SKILLS] = { 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f, 0.
 /* ── save ───────────────────────────────────────────────────────────── */
 
 #define SAVE_MAGIC 0x4d524843u /* 'CHRM' */
-#define SAVE_VERSION 1
+#define SAVE_VERSION 2
+/* version 2: the graphics word in 4 bytes (cw_quality_saved is 30 bits since Very Low); version 1 kept one byte */
 typedef struct save_data {
   uint32_t magic;
   uint16_t version, size;
   int32_t hi[SKILLS][5];
   int32_t hi_level[SKILLS][5];
   int32_t best_level;
-  uint8_t skill, start_level, quality, pad;
+  uint8_t skill, start_level, quality_v1, pad;
+  uint32_t quality; /* cw_quality_saved(), 0 = none chosen */
   uint32_t checksum;
 } save_data;
 static save_data SAVE;
@@ -72,7 +74,21 @@ static void save_write(void) {
   SAVE.checksum = save_sum();
   cw_save_commit();
 }
+/* a version 1 save: the same fields up to the graphics byte, its checksum where the graphics word now is */
+static bool save_from_v1(void) {
+  enum { V1_SIZE = offsetof(save_data, quality) + sizeof(uint32_t) };
+  if (SAVE.magic != SAVE_MAGIC || SAVE.version != 1 || SAVE.size != V1_SIZE) return false;
+  uint32_t sum = cw_hash32(&SAVE.hi, offsetof(save_data, quality) - offsetof(save_data, hi), CW_HASH32_INIT) ^ (1u | (uint32_t)V1_SIZE << 16);
+  if (SAVE.quality != sum) return false;
+  SAVE.quality = SAVE.quality_v1; /* an old word reads as before */
+  SAVE.quality_v1 = 0;
+  SAVE.version = SAVE_VERSION;
+  SAVE.size = sizeof SAVE;
+  SAVE.checksum = save_sum();
+  return true;
+}
 static void save_check(void) {
+  if (save_from_v1()) return;
   if (SAVE.magic != SAVE_MAGIC || SAVE.version != SAVE_VERSION || SAVE.size != sizeof SAVE || SAVE.checksum != save_sum()) save_reset();
 }
 

@@ -187,7 +187,7 @@ static mat_set SETS[MT_KINDS];
 static int SIZES[MT_KINDS] = { 512, 512, 1024, 512 };
 static int built_quality = -1;
 static void sizes_for_quality(void) {
-  static const int CRAFT[CW_QUALITY_COUNT] = { 256, 512, 1024, 1024 }, DECK[CW_QUALITY_COUNT] = { 512, 1024, 2048, 2048 };
+  static const int CRAFT[CW_QUALITY_COUNT] = { 256, 256, 512, 1024, 1024 }, DECK[CW_QUALITY_COUNT] = { 512, 512, 1024, 2048, 2048 };
   int q = (int)cw_quality_get();
   SIZES[MT_CHROME] = SIZES[MT_RUST] = SIZES[MT_GRATE] = CRAFT[q];
   SIZES[MT_DECK] = DECK[q];

@@ -1391,7 +1391,7 @@ static void init(void *u) {
   (void)u;
   TRACK_COUNT = visible_tracks();
   save_check();
-  ground_setting = cw_quality_lever_add("Distant ground", GROUND_DETAIL, 2, (const uint8_t[CW_QUALITY_COUNT]){ 0, 0, 1, 1 });
+  ground_setting = cw_quality_lever_add("Distant ground", GROUND_DETAIL, 2, (cw_quality_lever_presets){ .very_low = 0, .low = 0, .medium = 0, .high = 1, .ultra = 1 });
   cw_quality_on_change(quality_changed, NULL);
   /* the player's graphics settings, if they chose any; else Auto */
   cw_quality_full_resolution(true); /* Auto gives up detail, never pixels */

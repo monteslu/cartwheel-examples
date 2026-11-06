@@ -1201,14 +1201,14 @@ void scenery_floodlights(float strength) {
   scenery_flood_quality();
 }
 /* the floodlights at the graphics settings: Shadows picks how many corner
- * lamps cast (two, four on Ultra); effects detail Low lights every other side
+ * lamps cast (two, four on Ultra); effects detail Low and Very Low light every other side
  * lamp at twice the energy (fewer lights a pixel loops, the same light on the
  * pitch) */
 void scenery_flood_quality(void) {
   if (!SC.ready || !cw_node_valid(SC.flood_light[0])) return;
-  static const int SHADOWS[4] = { 1, 1, 1, 2 };
-  int rank = SHADOWS[CW_CLAMP(cw_gfx_get(CW_GFX_SHADOWS), 0, 3)];
-  bool half = cw_gfx_get(CW_GFX_EFFECTS) == 0;
+  static const int SHADOWS[5] = { 1, 1, 1, 1, 2 }; /* Minimal, Low, Medium, High, Ultra */
+  int rank = SHADOWS[CW_CLAMP(cw_gfx_get(CW_GFX_SHADOWS), 0, 4)];
+  bool half = cw_gfx_get(CW_GFX_EFFECTS) <= CW_QUALITY_LOW;
   for (int k = 0; k < FLOODS; k++) {
     flood_at f = flood_place(k);
     bool on = !half || (k & 1) == 0 || k >= 4; /* the corners stay */

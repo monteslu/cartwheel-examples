@@ -2704,7 +2704,7 @@ static void fog_build(cw_node parent, const theme *th, int track_index) {
 /* views: the views drawn (0: as before); the graphics settings are read here */
 void view_fx(int views) {
   if (views > 0) fx_views = views;
-  bool vol = cw_gfx_get(CW_GFX_EFFECTS) >= 1 && fx_views <= 2;
+  bool vol = cw_gfx_get(CW_GFX_EFFECTS) >= CW_QUALITY_MEDIUM && fx_views <= 2;
   if (cw_node_valid(hfog) && hfog_vol) cw_node_set(hfog, "volumetric", cw_val_bool(vol));
   if (cw_node_valid(mist)) cw_node_set(mist, "density", cw_val_float(vol ? mist_density : 0));
   if (!vol) for (int i = 0; i < 2; i++)
@@ -2976,7 +2976,7 @@ void view_tick(float rider_x, float rider_y, float speed, bool grounded) {
   if (cw_node_valid(motes)) cw_node3d_set_position(motes, (t3_vec3){ rider_x + 12, rider_y + wx_dy, wx_dz });
   if (cw_node_valid(mist)) cw_node3d_set_position(mist, (t3_vec3){ rider_x + 18, rider_y + 1.2f, -14 }); /* its wisps are the world's: only the box moves */
   if (cw_node_valid(coast_fog[0])) {
-    bool quality = cw_gfx_get(CW_GFX_EFFECTS) >= 1 && fx_views <= 2;
+    bool quality = cw_gfx_get(CW_GFX_EFFECTS) >= CW_QUALITY_MEDIUM && fx_views <= 2;
     for (int j = 0; j < 2; j++) {
       bool near = quality && fabsf(rider_x - coast_fog_centers[j]) < 28;
       if (quality && !near) for (int i = 1; i < bike_riders(); i++) {

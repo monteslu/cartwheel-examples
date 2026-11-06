@@ -2118,7 +2118,7 @@
     ],
     "maxGt16": 0.05,
     "expect": {
-      "cw.quality": 1,
+      "cw.quality": 2,
       "checkpoint": 2
     },
     "webgpu": {

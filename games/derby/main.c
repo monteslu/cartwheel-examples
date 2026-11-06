@@ -551,7 +551,7 @@ static void apply_gfx(void) {
   fx_volumetric(on);
   scenery_volumetric(on);
   int sh = cw_gfx_get(CW_GFX_SHADOWS);
-  scenery_flood_shadows(sh == CW_QUALITY_LOW ? 0 : sh == CW_QUALITY_MEDIUM ? 2 : 4);
+  scenery_flood_shadows(sh <= CW_GFX_SHADOWS_LOW ? 0 : sh == CW_GFX_SHADOWS_MEDIUM ? 2 : 4);
 }
 
 static void start_bout(int arena, bool with_human) {
