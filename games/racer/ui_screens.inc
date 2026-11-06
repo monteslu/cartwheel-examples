@@ -213,8 +213,10 @@ static int title_count(void) {
 enum { TI_RACE, TI_TRIAL, TI_CUP, TI_BATTLE, TI_SPLIT, TI_OPTIONS, TI_QUIT };
 static const char *const TITLE_ITEMS[7] = { "RACE", "TIME TRIAL", "CUP", "BATTLE", "SPLIT SCREEN", "OPTIONS", "QUIT" };
 static const char *const PAUSE_ITEMS[5] = { "RESUME", "RESTART RACE", "GRAPHICS", "CONTROLS", "QUIT TO MENU" };
-static const char *const OPTPAGE_ITEMS[10] = { "GRAPHICS", "TEXT SIZE", "TEXT BACKGROUND", "MUSIC", "EFFECTS", "ANNOUNCER", "STEERING ASSIST", "AUTO-ACCELERATE", "CONTROLS", "BACK" };
-enum { OI_GFX, OI_TEXT, OI_TEXT_BG, OI_MUSIC, OI_SFX, OI_VOICE, OI_ASSIST_STEER, OI_ASSIST_GAS, OI_CONTROLS, OI_BACK, OI_COUNT };
+/* no Text background row: every line of this UI already stands on an outline and a drop shadow (tx_o), so the engine's
+ * backdrop never reaches it and the row changed nothing; the backdrop stays Off (ui.c init) */
+static const char *const OPTPAGE_ITEMS[9] = { "GRAPHICS", "TEXT SIZE", "MUSIC", "EFFECTS", "ANNOUNCER", "STEERING ASSIST", "AUTO-ACCELERATE", "CONTROLS", "BACK" };
+enum { OI_GFX, OI_TEXT, OI_MUSIC, OI_SFX, OI_VOICE, OI_ASSIST_STEER, OI_ASSIST_GAS, OI_CONTROLS, OI_BACK, OI_COUNT };
 
 /* the vehicle panel of one player */
 typedef struct vlay {
@@ -813,10 +815,7 @@ static void opt_value(int i, char *b, size_t n) {
   b[0] = 0;
   if (i == OI_GFX) snprintf(b, n, "%s  -  %s", cw_quality_label(), cw_render_res_label());
   else if (i == OI_TEXT) snprintf(b, n, "%s", cw_text_scale_label());
-  else if (i == OI_TEXT_BG) {
-    snprintf(b, n, "%s", cw_text_backdrop_label());
-    for (char *c = b; *c; c++) *c = (char)(*c >= 'a' && *c <= 'z' ? *c - 32 : *c);
-  } else if (i == OI_ASSIST_STEER || i == OI_ASSIST_GAS || i == OI_VOICE) snprintf(b, n, "OFF");
+  else if (i == OI_ASSIST_STEER || i == OI_ASSIST_GAS || i == OI_VOICE) snprintf(b, n, "OFF");
 }
 static float opt_hint_y; /* the hint line's top, as draw_options last measured it */
 typedef struct opt_lay {
@@ -889,11 +888,6 @@ static void tick_options(float W, float H) {
   if (U.opt_sel == OI_TEXT && (dx || (act && U.mt > 8))) {
     if (dx < 0) cw_text_scale_cycle_back();
     else cw_text_scale_cycle();
-    sfx_move(), act = false, save_write();
-  }
-  if (U.opt_sel == OI_TEXT_BG && (dx || (act && U.mt > 8))) {
-    cw_text_backdrop_cycle();
-    if (dx < 0) cw_text_backdrop_cycle(), cw_text_backdrop_cycle(); /* three steps: two on is one back */
     sfx_move(), act = false, save_write();
   }
   if (U.opt_sel == OI_MUSIC || U.opt_sel == OI_SFX) {
@@ -1419,7 +1413,10 @@ static void draw_map_card(const maplay *m, int i, float s) {
   }
 }
 
+/* the room an option row left between its name and its value's left arrow, as last drawn (a tag goes there) */
+static float opt_gap_x0, opt_gap_x1;
 static void draw_option_row(cw_rect r, const char *label, const char *value, bool sel, float s, float ap) {
+  opt_gap_x0 = opt_gap_x1 = 0;
   if (ap <= 0) return;
   r.x += (1 - ease_back(ap)) * 100 * s;
   slab(r, 10 * s, sel ? alpha(MUSTARD, 0.95f) : PANEL, s * 0.8f);
@@ -1433,6 +1430,7 @@ static void draw_option_row(cw_rect r, const char *label, const char *value, boo
   float lsz = fminf(r.h * 0.5f, 21 * s), lroom = vx - half - 14 * s - (r.x + 22 * s), lw = tx_width(U.f_hud, label, lsz);
   if (lw > lroom && lw > 0) lsz = fmaxf(lsz * lroom / lw, fminf(lsz, body_px() / cw_text_scale()));
   tx_o(U.f_hud, label, r.x + 22 * s, r.y + r.h * 0.5f, lsz, tc, (txopt){ .align = CW_ALIGN_LEFT, .outline = sel ? 0.01f : 0, .no_shadow = sel });
+  opt_gap_x0 = r.x + 22 * s + tx_width(U.f_hud, label, lsz), opt_gap_x1 = vx - half - 10 * s;
   tx_o(U.f_title, value, vx, r.y + r.h * 0.5f, sz, tc, (txopt){ .align = CW_ALIGN_CENTER, .outline = sel ? 0.01f : 0, .no_shadow = sel });
   arrow(cw_v2(vx - half, r.y + r.h * 0.5f), 8 * s, -1, sel ? INK : MUSTARD, s);
   arrow(cw_v2(vx + half, r.y + r.h * 0.5f), 8 * s, 1, sel ? INK : MUSTARD, s);
@@ -1552,7 +1550,7 @@ static void draw_options(float W, float H, float s) {
       bool on = i == OI_VOICE ? SAVE.voice_off == 0 : (U.assist & (i == OI_ASSIST_STEER ? 1 : 2)) != 0;
       o.align = CW_ALIGN_RIGHT;
       tx_o(U.f_title, on ? "ON" : "OFF", r.x + r.w - 24 * s, r.y + r.h * 0.5f, 20 * s, sel ? INK : (on ? LIME : DIM), o);
-    } else if (i == OI_TEXT || i == OI_TEXT_BG) {
+    } else if (i == OI_TEXT) {
       char b[32];
       opt_value(i, b, sizeof b);
       o.align = CW_ALIGN_RIGHT;
@@ -1823,12 +1821,17 @@ static void draw_results(float W, float H, float s) {
       fmt_time(b, sizeof b, r->best);
       tx_fit(U.f_hud, b, cx_best, cy, rowh * 0.46f, colw, alpha(r->record ? LIME : CREAM, ra), CW_ALIGN_CENTER);
       if (r->record) {
-        /* a star for a new record */
-        cw_vec2 sc = cw_v2(cx_best + tx_width(U.f_hud, b, rowh * 0.46f) * 0.5f + 12 * s, cy);
-        float pulse = 1 + 0.15f * cw_sin(U.time * 8);
+        /* a star for a new record: in the room between the best lap and the points, as both draw at the player's
+         * Text size, smaller when the room is small */
+        char pb[16];
+        snprintf(pb, sizeof pb, "%d", r->points);
+        float bw = fminf(tx_width(U.f_hud, b, rowh * 0.46f), colw), best_r = cx_best + bw * 0.5f;
+        float pts_l = cx_pts - tx_width(U.f_title, pb, rowh * 0.46f) - 4 * s, room = pts_l - best_r;
+        float pulse = 1 + 0.15f * cw_sin(U.time * 8), rad = fminf(8.0f * s, fmaxf(4.0f * s, room * 0.5f - 3 * s)) * pulse;
+        cw_vec2 sc = cw_v2(best_r + room * 0.5f, cy);
         cw_vec2 sp[10];
         for (int k = 0; k < 10; k++) {
-          float a = -CW_PI * 0.5f + (float)k * CW_PI / 5.0f, rr2 = (k & 1 ? 3.6f : 8.0f) * s * pulse;
+          float a = -CW_PI * 0.5f + (float)k * CW_PI / 5.0f, rr2 = k & 1 ? rad * 0.45f : rad;
           sp[k] = cw_v2(sc.x + cw_cos(a) * rr2, sc.y + cw_sin(a) * rr2);
         }
         cw_r2d_fan(sc, sp, 10, true, alpha(MUSTARD, ra));

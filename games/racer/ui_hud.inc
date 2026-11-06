@@ -392,10 +392,10 @@ static void hud_place(const hv *g) {
   float nx = x + 10 * s;
   tx_o(U.f_title, b, nx, y + 50 * s, nsz, base, (txopt){ .align = CW_ALIGN_LEFT, .outline = nsz * 0.07f });
   float nw = tx_width(U.f_title, b, nsz);
-  tx_o(U.f_title, place_suffix(p), nx + nw + 3 * s, y + 30 * s, 30 * s, base, (txopt){ .align = CW_ALIGN_LEFT, .outline = 2.5f * s });
+  tx_o(U.f_title, place_suffix(p), nx + nw + 6 * s, y + 30 * s, 30 * s, base, (txopt){ .align = CW_ALIGN_LEFT, .outline = 2.5f * s });
   snprintf(b, sizeof b, "/%d", g->S->nkarts);
   float oy = fmaxf(y + 70 * s, y + 30 * s + 0.4f * (cw_text_drawn_size(U.f_title, 30 * s) + cw_text_drawn_size(U.f_small, hpx(20, s, 12))) + 3 * s); /* under the suffix by the size both draw at */
-  tx_o(U.f_small, b, nx + nw + 4 * s, oy, hpx(20, s, 12), CREAM, (txopt){ .align = CW_ALIGN_LEFT, .outline = 2 * s });
+  tx_o(U.f_small, b, nx + nw + 10 * s, oy, hpx(20, s, 12), CREAM, (txopt){ .align = CW_ALIGN_LEFT, .outline = 2 * s });
   /* the way it went: a little arrow for a moment */
   if (h->place_t > 0 && h->place_t < 70) {
     float a = clamp01(1 - (float)h->place_t / 70.0f);

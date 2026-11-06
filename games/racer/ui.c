@@ -119,7 +119,7 @@ typedef struct save_data {
   uint8_t music, sfx;          /* 0..10 */
   uint8_t laps, skill, items, map;
   uint8_t veh[MAXV], col[MAXV];
-  uint8_t text_bg, pad[3];    /* text_bg (version 3): Text background (cw_text_backdrop: Off, Outline, Panel); a pad byte before */
+  uint8_t text_bg, pad[3];    /* text_bg (version 3): the Text background once offered (cw_text_backdrop); now always Off, the row is gone; a pad byte before */
   uint32_t best_lap_cs[NMAPS]; /* centiseconds, 0 = none yet */
   uint32_t races, wins;
   /* version 2: everything above is a version 1 save, which loads with these empty */
@@ -846,8 +846,8 @@ void ui_init(void) {
 
   save_check();
   cw_quality_restore(gfx_saved()); /* the player's graphics settings if they chose any; else Auto */
-  cw_text_scale_restore(SAVE.text_scale); /* the player's Text size and Text background */
-  cw_text_backdrop_set((cw_text_backdrop)SAVE.text_bg);
+  cw_text_scale_restore(SAVE.text_scale); /* the player's Text size */
+  cw_text_backdrop_set(CW_TEXT_BACKDROP_OFF); /* every line is outlined and shadowed already (tx_o): no Text background row */
   cw_quality_auto(true, 17.5f); /* a steady 60: the default budget, 19 ms, sat happily at 53 fps on a Vega 8 */
   U.laps = SAVE.laps, U.skill = SAVE.skill, U.items = SAVE.items, U.map = SAVE.map;
   if (getenv("RACER_UI_ITEMS")) U.items = atoi(getenv("RACER_UI_ITEMS")) % 3; /* dev aid: the item-box setting the screens show */

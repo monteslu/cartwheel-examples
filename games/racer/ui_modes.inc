@@ -332,7 +332,11 @@ static void trial_detail(float x, float y, float ybot, float w, int map, float s
 /* "new here? try this": a small tag on the assists row while the player is new and has them off */
 static void assist_tag(cw_rect row, float s) {
   float a = 0.75f + 0.25f * cw_sin(U.time * 5);
-  cw_rect r = cw_rect_make(row.x + row.w * 0.27f, row.y + row.h * 0.5f - 9 * s, 64 * s, 18 * s);
+  /* as large as its word draws at the player's Text size, in the room the row left between its name and its value
+   * (draw_option_row, just before); none when the room is too small (large text) */
+  float w = tx_width(U.f_small, "TRY ME", 14 * s) + 18 * s, h = cw_text_drawn_size(U.f_small, 14 * s) + 4 * s;
+  if (opt_gap_x1 - opt_gap_x0 < w + 12 * s || h > row.h) return;
+  cw_rect r = cw_rect_make((opt_gap_x0 + opt_gap_x1 - w) * 0.5f, row.y + row.h * 0.5f - h * 0.5f, w, h);
   para(r, 6 * s, alpha(TEAL, a));
   para_lines(r, 6 * s, 1.4f * s, alpha(INK, a));
   tx_o(U.f_small, "TRY ME", r.x + r.w * 0.5f + 3 * s, r.y + r.h * 0.5f, 14 * s, alpha(INK, a), (txopt){ .align = CW_ALIGN_CENTER, .outline = 0.01f, .no_shadow = true });

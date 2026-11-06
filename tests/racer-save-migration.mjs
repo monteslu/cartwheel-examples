@@ -85,10 +85,11 @@ assert.equal(num(st['save.races']), 9, 'races kept');
 assert.equal(num(st['save.text']), 0, 'text size: the default');
 console.log('PASS version 2 save carried over: races kept, the text settings at their defaults');
 
-// a version 3 save keeps its text settings (the background Panel)
+// a version 3 save keeps its text size; a Text background it saved (Panel here) is no longer applied: the row is gone,
+// every line of the UI is outlined already, so the backdrop stays Off
 st = run('v3', v2(3, 0, 2));
 assert.equal(num(st['save.version']), 3);
 assert.equal(num(st['save.migrated']) || 0, 0, 'no migration');
 assert.equal(num(st['save.races']), 9, 'races kept');
-assert.equal(num(st['save.text_bg']), 2, 'text background kept');
-console.log('PASS version 3 save keeps its text settings');
+assert.equal(num(st['text.backdrop']), 0, 'the saved Text background is not applied (no row)');
+console.log('PASS version 3 save loads; its old Text background is not applied');
