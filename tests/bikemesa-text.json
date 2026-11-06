@@ -27,7 +27,7 @@
     },
     {
       "name": "finish",
-      "frames": 2420,
+      "frames": 2800,
       "app": "bikemesa",
       "input": "bikemesa-ride.json"
     },
@@ -51,7 +51,7 @@
     },
     {
       "name": "results2",
-      "frames": 2740,
+      "frames": 3400,
       "app": "bikemesa",
       "input": "bikemesa-race2.json"
     }

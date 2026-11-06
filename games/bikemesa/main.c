@@ -39,9 +39,13 @@
 #include "cartwheel/quality_menu.h"
 #include "cartwheel/render2d.h"
 #include "cartwheel/resource.h"
+#include "cartwheel/splats.h"
 #include "game.h"
 
 #include "tracks.inc"
+
+static struct cw_splats *contact_set; /* the bikes' contact blobs (contact_add) */
+static void contact_free(void);
 /* the tracks a player sees: the tuned ones in order (a dev build with
  * BIKEMESA_ALL_TRACKS set shows every track) */
 static int visible_tracks(void) {
@@ -529,6 +533,7 @@ static bool load_track(int index, bool attract, int riders) {
   }
   cw_tree *t = cw_scene_app_tree();
   models_unbind();
+  contact_free();
   if (cw_node_valid(G.scene)) cw_node_free(G.scene);
   view_forget();
   models_forget();
@@ -549,6 +554,7 @@ static bool load_track(int index, bool attract, int riders) {
     models_person_only(i,person_preview_build&&G.slot[i]==SLOT_RIDER);
   }
   models_build(G.scene);
+  contact_set = cw_splats_new(G.scene, "BikeContact", CW_SPLATS_SHADOW, MAX_RIDERS);
   NRID = CW_CLAMP(riders, 1, MAX_RIDERS);
   memset(RD, 0, sizeof RD);
   memset(G.places, 0, sizeof G.places);
@@ -688,6 +694,43 @@ static float rider_steering(int i) {
   return -(r->lane_to-r->lane_from)*.40f*cw_sin(6.2831853f*u);
 }
 /* where rider i is drawn across the track: its lane, or between two while changing */
+static float rider_z(int i);
+/* A soft blob under each bike while the Shadows setting is Minimal (Very Low): there the sun's single small cascade
+ * and the caster culling leave the rider almost no shadow of its own, and a bike with nothing dark under it looks as if
+ * it hovers. Straight under the wheels on the ground of its lane (a ramp included), fading as it leaves the ground;
+ * none while it is far off upright (round a loop), none for a ragdoll. Render only. */
+static cw_splats *contact_set;
+static void contact_free(void) {
+  cw_splats_free(contact_set);
+  contact_set = NULL;
+}
+static bool contact_on(void) {
+  static int no_shadows = -1; /* the engine's test switch for a frame with no shadows (quality-grounding) takes these too */
+  if (no_shadows < 0) no_shadows = getenv("CW_TEST_NO_SHADOWS") != NULL;
+  return contact_set && !no_shadows && cw_gfx_get(CW_GFX_SHADOWS) <= CW_GFX_SHADOWS_MINIMAL;
+}
+static void contact_begin(void) {
+  if (contact_set) cw_splats_begin(contact_set);
+}
+static void contact_add(int i, const bike_pose *p, float z) {
+  if (!contact_on() || p->ragdoll || p->frame.q.c < 0.8f) return;
+  bike_fit f = bike_fit_for(G.bike[i]);
+  float rr = f.wheel_r, fr = f.front_r > 0 ? f.front_r : f.wheel_r;
+  float x0 = p->rear.p.x, x1 = p->front.p.x, xm = (x0 + x1) * 0.5f;
+  int lane = RD[i].lane_to;
+  float g0 = track_height_at(x0, NULL) + track_ramp_h(G.t, x0, lane), g1 = track_height_at(x1, NULL) + track_ramp_h(G.t, x1, lane);
+  float gm = track_height_at(xm, NULL) + track_ramp_h(G.t, xm, lane);
+  float h = fminf(p->rear.p.y - rr - g0, p->front.p.y - fr - g1); /* the lower tyre over its ground */
+  float k = 1 - cw_clampf(h / 2.5f, 0, 1);
+  if (k <= 0) return;
+  float len = fabsf(x1 - x0) + rr + fr + 0.5f;
+  cw_splats_add(contact_set, (t3_vec3){ xm, gm, z }, len * (0.85f + 0.15f * k), 0.75f, 1.5707963f, 0, (t3_color){ 0, 0, 0 }, 0.6f * k);
+}
+static void contact_end(void) {
+  if (!contact_set) return;
+  cw_splats_end(contact_set);
+  cw_splats_mesh(contact_set)->mesh.base.visible = cw_splats_count(contact_set) > 0; /* no draw at all above Very Low */
+}
 static float rider_z(int i) {
   const rider_t *r = &RD[i];
   int keep = (int)(P - RD);
@@ -1270,6 +1313,8 @@ static void frame_hook(cw_tree *t, double alpha, void *u) {
   (void)u;
   bike_pose p;
   if (G.state == GS_REPLAY) {
+    contact_begin(); /* none in a replay */
+    contact_end();
     replay_pose(0, replay_tick(P, alpha), &p);
     models_sync(&p);
     view_frame((float)alpha);
@@ -1283,6 +1328,7 @@ static void frame_hook(cw_tree *t, double alpha, void *u) {
   }
   if (NRID > 1) {
     cw_node cams[MAX_RIDERS];
+    contact_begin();
     for (int i = 0; i < NRID; i++) {
       use_rider(i);
       bike_pose_get((float)alpha, &P->live);
@@ -1292,6 +1338,7 @@ static void frame_hook(cw_tree *t, double alpha, void *u) {
       if(i==0) dbg_steering=P->live.steering;
       person_preview_pose(i,&P->live);
       models_sync_rider(i, &P->live, P->live.z);
+      if (P->replay_t <= 0 && G.state != GS_CHARACTER) contact_add(i, &P->live, P->live.z);
       if (G.state == GS_CHARACTER) models_turntable(i, -1.45f + G.state_ticks * 0.014f, P->live.frame.p.x + (G.slot[i]==SLOT_RIDER?0:G.bike[i]==BIKE_DJ?.40f:G.bike[i]==BIKE_BIGWHEEL?-.35f:.05f));
       if (P->replay_t > 0) {
         replay_pose(i, replay_tick(P, alpha), &P->replay);
@@ -1301,6 +1348,7 @@ static void frame_hook(cw_tree *t, double alpha, void *u) {
       } else camera_frame(alpha);
       cams[i] = P->cam;
     }
+    contact_end();
     use_rider(0);
     view_frame((float)alpha);
     view_stream(cams,NRID);
@@ -1313,6 +1361,9 @@ static void frame_hook(cw_tree *t, double alpha, void *u) {
   dbg_steering=p.steering;
   person_preview_pose(0,&p);
   models_sync_rider(0, &p, rider_z(0));
+  contact_begin();
+  if (G.state != GS_CHARACTER) contact_add(0, &p, rider_z(0));
+  contact_end();
   if (G.state == GS_CHARACTER) models_turntable(0, -1.45f + G.state_ticks * 0.014f, p.frame.p.x + (G.slot[0]==SLOT_RIDER?0:G.bike[0]==BIKE_DJ?.40f:G.bike[0]==BIKE_BIGWHEEL?-.35f:.05f));
   view_frame((float)alpha);
   camera_frame(alpha);

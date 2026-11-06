@@ -148,3 +148,4 @@ physical+shadow+senv+l1001+xplain
 physical+shadow+senv+transm+l1001+xplain
 standard+shadow+senv+ds+l1001+xplain
 standard+trans+shadow+senv+l1001+xplain
+basic+map+trans+instbig+icol
