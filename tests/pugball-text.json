@@ -35,6 +35,42 @@
       "name": "results",
       "frames": 3700,
       "app": "pugball_auto"
+    },
+    {
+      "name": "stadium",
+      "frames": 150,
+      "app": "pugball",
+      "input": "pugball-stadium2.json"
+    },
+    {
+      "name": "match",
+      "frames": 330,
+      "app": "pugball",
+      "input": "pugball-kickoff.json"
+    },
+    {
+      "name": "fulltime",
+      "frames": 1900,
+      "app": "pugball_cup",
+      "input": "pugball-cup1.json"
+    },
+    {
+      "name": "split2",
+      "frames": 400,
+      "app": "pugball",
+      "input": "pugball-split2.json"
+    },
+    {
+      "name": "split3",
+      "frames": 400,
+      "app": "pugball",
+      "input": "pugball-split3.json"
+    },
+    {
+      "name": "touch",
+      "frames": 400,
+      "app": "pugball",
+      "input": "pugball-touch.json"
     }
   ]
 }
