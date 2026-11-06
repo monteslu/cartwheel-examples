@@ -1,0 +1,40 @@
+{
+  "app": "pugball",
+  "secondary": [],
+  "screens": [
+    {
+      "name": "title",
+      "frames": 120,
+      "app": "pugball"
+    },
+    {
+      "name": "sheet",
+      "frames": 80,
+      "app": "pugball",
+      "input": "pugball-start.json"
+    },
+    {
+      "name": "play",
+      "frames": 740,
+      "app": "pugball",
+      "input": "pugball-kickoff.json"
+    },
+    {
+      "name": "pause",
+      "frames": 540,
+      "app": "pugball",
+      "input": "pugball-text-pause.json"
+    },
+    {
+      "name": "split4",
+      "frames": 400,
+      "app": "pugball",
+      "input": "pugball-split4.json"
+    },
+    {
+      "name": "results",
+      "frames": 3700,
+      "app": "pugball_auto"
+    }
+  ]
+}

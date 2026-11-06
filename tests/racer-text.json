@@ -1,0 +1,44 @@
+{
+  "app": "racer",
+  "secondary": [],
+  "screens": [
+    {
+      "name": "title",
+      "frames": 300
+    },
+    {
+      "name": "race",
+      "frames": 1200,
+      "app": "racer",
+      "startCmds": [
+        "race 0 0 1"
+      ]
+    },
+    {
+      "name": "race-split4",
+      "frames": 1200,
+      "startCmds": [
+        "bot 1",
+        "race 0 4 3"
+      ]
+    },
+    {
+      "name": "battle",
+      "frames": 1500,
+      "app": "racer",
+      "startCmds": [
+        "bot 1",
+        "battle 0 2 40 6"
+      ]
+    },
+    {
+      "name": "results",
+      "frames": 3000,
+      "app": "racer",
+      "startCmds": [
+        "bot 1",
+        "battle 0 2 40 6"
+      ]
+    }
+  ]
+}

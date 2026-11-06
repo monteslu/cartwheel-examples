@@ -710,6 +710,12 @@ static void heading(const char *s, float x, float y, float size, float alpha, cw
 static void spaced(const char *s, float x, float y, float size, cw_color c, cw_text_align al, float wrap) {
   text(font_ui, s, x, y, size, c, al, wrap, size * 0.35f);
 }
+/* a spaced line's size as drawn (the player's text size included) */
+static cw_vec2 spaced_size(const char *s, float size) {
+  cw_text_style st = { .size = size, .letter_spacing = size * 0.35f };
+  cw_text_metrics m = cw_font_measure(font_ui, s, &st);
+  return cw_v2(m.width, m.height);
+}
 /* a spaced line with button prompts in it ({fire}, {up|down}: cartwheel/prompt.h),
  * centred in [x, x + wrap]: the words as spaced() draws them, each {...} the
  * engine's glyph for that action's binding on P1's device (cw_prompt_actions) */
@@ -772,14 +778,17 @@ static void draw_hud(float W, float H, float s) {
   const hero *h = &S->h;
   char b[64];
   /* the gauges and spare ships are 3D (hud3d.c); their labels are here */
-  spaced("shields", 0, H - 34 * s, 12 * s, rgba(0.55f, 0.68f, 0.95f, 0.85f), CW_ALIGN_LEFT, 0);
-  spaced("damage", W - 96 * s, H - 34 * s, 12 * s, rgba(0.95f, 0.55f, 0.5f, 0.85f), CW_ALIGN_LEFT, 0);
+  /* the gauge labels on the bottom edge, placed by their measured size so a larger text size keeps them on screen */
+  float lab = 14 * s;
+  cw_vec2 sh = spaced_size("shields", lab), dm = spaced_size("damage", lab);
+  spaced("shields", 4 * s, H - 8 * s - sh.y, lab, rgba(0.55f, 0.68f, 0.95f, 0.85f), CW_ALIGN_LEFT, 0);
+  spaced("damage", W - 4 * s - dm.x, H - 8 * s - dm.y, lab, rgba(0.95f, 0.55f, 0.5f, 0.85f), CW_ALIGN_LEFT, 0);
   /* score and level, top left; reserve ships, top right */
   hgrad(cw_rect_make(0, 0, 330 * s, 70 * s), rgba(0.01f, 0.015f, 0.025f, 0.6f), rgba(0.01f, 0.015f, 0.025f, 0));
   snprintf(b, sizeof b, "%08lld", (long long)S->score);
   text(font_title, b, 26 * s, 14 * s, 26 * s, rgba(0.8f, 0.86f, 0.95f, 0.95f), CW_ALIGN_LEFT, 0, 3 * s);
   snprintf(b, sizeof b, "level %d   %s", S->level, SKILL_NAME[SAVE.skill]);
-  spaced(b, 28 * s, 46 * s, 12 * s, rgba(0.5f, 0.58f, 0.72f, 0.85f), CW_ALIGN_LEFT, 0);
+  spaced(b, 28 * s, 46 * s, 14 * s, rgba(0.5f, 0.58f, 0.72f, 0.85f), CW_ALIGN_LEFT, 0);
   /* the boss: a hairline gauge across the top */
   if (S->boss_hp >= 0) {
     float bw = W * 0.36f, bx = (W - bw) * 0.5f, by = 22 * s;
@@ -787,7 +796,7 @@ static void draw_hud(float W, float H, float s) {
     cw_r2d_set_blend(CW_BLEND_ADD);
     cw_r2d_rect(cw_rect_make(bx, by, bw * cw_clampf(S->boss_hp, 0, 1), 6 * s), rgba(1, 0.25f, 0.15f, 0.9f));
     cw_r2d_set_blend(CW_BLEND_ALPHA);
-    spaced("hostile command craft", 0, by + 10 * s, 11 * s, rgba(0.9f, 0.45f, 0.4f, 0.8f), CW_ALIGN_CENTER, W);
+    spaced("hostile command craft", 0, by + 10 * s, 14 * s, rgba(0.9f, 0.45f, 0.4f, 0.8f), CW_ALIGN_CENTER, W);
   }
   /* messages, in the original's spaced lowercase */
   if (G.state_ticks < 260 && S->mode == PLAY_ON) {

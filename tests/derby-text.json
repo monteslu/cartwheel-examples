@@ -1,0 +1,34 @@
+{
+  "app": "derby",
+  "secondary": [],
+  "screens": [
+    {
+      "name": "title",
+      "frames": 150,
+      "app": "derby"
+    },
+    {
+      "name": "play",
+      "frames": 700,
+      "app": "derby",
+      "input": "derby-quick.json"
+    },
+    {
+      "name": "pause",
+      "frames": 640,
+      "app": "derby",
+      "input": "derby-text-pause.json"
+    },
+    {
+      "name": "split4",
+      "frames": 700,
+      "app": "derby",
+      "input": "derby-split4.json"
+    },
+    {
+      "name": "results",
+      "frames": 3200,
+      "app": "derby_auto"
+    }
+  ]
+}

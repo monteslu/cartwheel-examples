@@ -1,0 +1,34 @@
+{
+  "app": "chromite",
+  "secondary": [],
+  "screens": [
+    {
+      "name": "title",
+      "frames": 150,
+      "app": "chromite"
+    },
+    {
+      "name": "menu",
+      "frames": 120,
+      "app": "chromite",
+      "input": "chromite-menu.json"
+    },
+    {
+      "name": "play",
+      "frames": 900,
+      "app": "chromite",
+      "input": "chromite-fight.json"
+    },
+    {
+      "name": "pause",
+      "frames": 740,
+      "app": "chromite",
+      "input": "chromite-text-pause.json"
+    },
+    {
+      "name": "autopilot",
+      "frames": 2400,
+      "app": "chromite_auto"
+    }
+  ]
+}

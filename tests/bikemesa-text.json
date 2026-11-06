@@ -1,0 +1,35 @@
+{
+  "app": "bikemesa",
+  "secondary": [],
+  "screens": [
+    {
+      "name": "title",
+      "frames": 120,
+      "app": "bikemesa"
+    },
+    {
+      "name": "select",
+      "frames": 120,
+      "app": "bikemesa",
+      "input": "bikemesa-select.json"
+    },
+    {
+      "name": "play",
+      "frames": 1200,
+      "app": "bikemesa",
+      "input": "bikemesa-ride.json"
+    },
+    {
+      "name": "pause",
+      "frames": 1040,
+      "app": "bikemesa",
+      "input": "bikemesa-text-pause.json"
+    },
+    {
+      "name": "finish",
+      "frames": 2420,
+      "app": "bikemesa",
+      "input": "bikemesa-ride.json"
+    }
+  ]
+}
