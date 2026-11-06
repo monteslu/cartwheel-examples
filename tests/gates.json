@@ -5790,5 +5790,15 @@
     "name": "quality-grounding",
     "script": "tests/quality-grounding.mjs",
     "note": "nothing floats on Very Low: the autopilot of each game in play (racer, derby, pugball, bomberdude, chromite, spout; BikeMesa by eye) keeps at least 90% of the shadows High draws at the base of every caster big enough to read on screen (chromite 80%: a pipe lit by a lamp), on GL and WebGPU (the engine's tests/quality-grounding.mjs). Control: a frame with no shadows must fail"
+  },
+  {
+    "name": "bomberdude-save-migration",
+    "script": "tests/bomberdude-save-migration.mjs",
+    "note": "bomberdude: an older save still loads with its contents and the text settings at their defaults; a saved text size of 200% with the panel background comes back; a damaged save starts fresh; an empty save too"
+  },
+  {
+    "name": "pugball-save-migration",
+    "script": "tests/pugball-save-migration.mjs",
+    "note": "pugball: an older save still loads with its contents and the text settings at their defaults; a saved text size of 200% with the panel background comes back; a damaged save starts fresh; an empty save too"
   }
 ]
