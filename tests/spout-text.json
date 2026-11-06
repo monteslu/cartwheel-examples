@@ -1,0 +1,34 @@
+{
+  "app": "spout",
+  "secondary": [],
+  "screens": [
+    {
+      "name": "title",
+      "frames": 120,
+      "app": "spout"
+    },
+    {
+      "name": "select",
+      "frames": 120,
+      "app": "spout",
+      "input": "spout-locked.json"
+    },
+    {
+      "name": "play",
+      "frames": 600,
+      "app": "spout",
+      "input": "spout-climb.json"
+    },
+    {
+      "name": "pause",
+      "frames": 540,
+      "app": "spout",
+      "input": "spout-text-pause.json"
+    },
+    {
+      "name": "win",
+      "frames": 1500,
+      "app": "spout_auto"
+    }
+  ]
+}
