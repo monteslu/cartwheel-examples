@@ -1,5 +1,8 @@
 [{"frame":30,"buttons":["south"]},{"frame":34,"axes":{}},
  {"frame":215,"buttons":["r"],"axes":{"rt":1}},
  {"frame":300,"buttons":["start"]},{"frame":304,"axes":{}},
+ {"frame":312,"buttons":["down"]},{"frame":316,"axes":{}},
  {"frame":320,"buttons":["down"]},{"frame":324,"axes":{}},
- {"frame":340,"buttons":["south"]},{"frame":344,"axes":{}}]
+ {"frame":328,"buttons":["down"]},{"frame":332,"axes":{}},
+ {"frame":336,"buttons":["down"]},{"frame":340,"axes":{}},
+ {"frame":348,"buttons":["south"]},{"frame":352,"axes":{}}]

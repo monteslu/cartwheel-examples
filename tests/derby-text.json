@@ -8,16 +8,52 @@
       "app": "derby"
     },
     {
+      "name": "title-join",
+      "frames": 90,
+      "app": "derby",
+      "input": "derby-text-join.json"
+    },
+    {
       "name": "play",
       "frames": 700,
       "app": "derby",
       "input": "derby-quick.json"
     },
     {
+      "name": "countdown",
+      "frames": 120,
+      "app": "derby",
+      "input": "derby-quick.json"
+    },
+    {
+      "name": "points",
+      "frames": 600,
+      "app": "derby",
+      "input": "derby-text-points.json"
+    },
+    {
       "name": "pause",
       "frames": 640,
       "app": "derby",
       "input": "derby-text-pause.json"
+    },
+    {
+      "name": "graphics",
+      "frames": 360,
+      "app": "derby",
+      "input": "derby-text-gfx.json"
+    },
+    {
+      "name": "split2",
+      "frames": 500,
+      "app": "derby",
+      "input": "derby-text-split2.json"
+    },
+    {
+      "name": "split3",
+      "frames": 700,
+      "app": "derby",
+      "input": "derby-split3.json"
     },
     {
       "name": "split4",

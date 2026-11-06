@@ -1901,7 +1901,7 @@
       ],
       "note": "Pause and quit on WebGPU."
     },
-    "note": "QUICK MATCH, drive, START pauses, down to QUIT TO TITLE, (A): back on the title with a fresh field (everyone at full health, no crashes counted). The control pauses and picks RESUME instead: still in the bout."
+    "note": "QUICK MATCH, drive, START pauses, down four rows to QUIT TO TITLE, (A): back on the title with a fresh field (everyone at full health, no crashes counted). The control pauses and picks RESUME instead: still in the bout."
   },
   {
     "name": "derby-steer",
