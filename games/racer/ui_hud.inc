@@ -368,7 +368,12 @@ typedef struct hv {
 static void hud_trial(const hv *g); /* ui_modes.inc: the time trial's panels */
 static void hud_battle_view(const hv *g, int nviews); /* ui_battle.inc: a battle's HUD */
 
-static float hpx(float design, float s, float minpx) { return fmaxf(design * s, minpx); }
+/* a HUD text size: the design size at the view's scale, never under the body text floor (a split screen view's HUD is
+ * drawn smaller, its text is not) */
+static float hpx(float design, float s, float minpx) {
+  (void)minpx;
+  return fmaxf(design * s, body_px());
+}
 
 static const cw_color PLACE_COL[3] = { { 1.0f, 0.80f, 0.15f, 1 }, { 0.85f, 0.88f, 0.95f, 1 }, { 0.92f, 0.58f, 0.32f, 1 } };
 
@@ -389,7 +394,8 @@ static void hud_place(const hv *g) {
   float nw = tx_width(U.f_title, b, nsz);
   tx_o(U.f_title, place_suffix(p), nx + nw + 3 * s, y + 30 * s, 30 * s, base, (txopt){ .align = CW_ALIGN_LEFT, .outline = 2.5f * s });
   snprintf(b, sizeof b, "/%d", g->S->nkarts);
-  tx_o(U.f_small, b, nx + nw + 4 * s, y + 70 * s, hpx(20, s, 12), CREAM, (txopt){ .align = CW_ALIGN_LEFT, .outline = 2 * s });
+  float oy = fmaxf(y + 70 * s, y + 30 * s + 0.4f * (cw_text_drawn_size(U.f_title, 30 * s) + cw_text_drawn_size(U.f_small, hpx(20, s, 12))) + 3 * s); /* under the suffix by the size both draw at */
+  tx_o(U.f_small, b, nx + nw + 4 * s, oy, hpx(20, s, 12), CREAM, (txopt){ .align = CW_ALIGN_LEFT, .outline = 2 * s });
   /* the way it went: a little arrow for a moment */
   if (h->place_t > 0 && h->place_t < 70) {
     float a = clamp01(1 - (float)h->place_t / 70.0f);
@@ -413,7 +419,10 @@ static void hud_lap(const hv *g) {
   cw_rect r2 = cw_rect_make(x, y + 52 * s, w, g->medium ? 36 * s : 62 * s);
   float secs = k->finished ? (float)k->finish_tick / TICK_HZ : (float)g->S->race_ticks / TICK_HZ;
   fmt_time(b, sizeof b, fmaxf(secs, 0.001f));
-  tx_o(U.f_title, b, x + w - 4 * s, r2.y + 19 * s, 24 * s, CREAM, (txopt){ .align = CW_ALIGN_RIGHT, .outline = 2.2f * s });
+  /* each line under the last by the size they draw at */
+  float d38 = cw_text_drawn_size(U.f_title, 38 * s), d24 = cw_text_drawn_size(U.f_title, 24 * s), d20 = cw_text_drawn_size(U.f_small, 20 * s);
+  float cy2 = fmaxf(r2.y + 19 * s, y + 31 * s + 0.4f * (d38 + d24) + 4 * s), cy3 = fmaxf(r2.y + 44 * s, cy2 + 0.4f * (d24 + d20) + 4 * s);
+  tx_o(U.f_title, b, x + w - 4 * s, cy2, 24 * s, CREAM, (txopt){ .align = CW_ALIGN_RIGHT, .outline = 2.2f * s });
   if (g->medium) return;
   const hudv *h = g->hs;
   if (h->last_lap > 0 && h->last_lap_t > 0) {
@@ -421,12 +430,12 @@ static void hud_lap(const hv *g) {
     char l[64];
     snprintf(l, sizeof l, "LAST %s", b);
     float a = h->last_lap_t > 360 ? clamp01((420.0f - (float)h->last_lap_t) / 60.0f) : 1;
-    tx_o(U.f_small, l, x + w - 4 * s, r2.y + 44 * s, 20 * s, alpha(h->last_lap_best ? LIME : CREAM, a), (txopt){ .align = CW_ALIGN_RIGHT, .outline = 2 * s });
+    tx_o(U.f_small, l, x + w - 4 * s, cy3, 20 * s, alpha(h->last_lap_best ? LIME : CREAM, a), (txopt){ .align = CW_ALIGN_RIGHT, .outline = 2 * s });
   } else if (k->best_lap > 0) {
     fmt_time(b, sizeof b, k->best_lap);
     char l[64];
     snprintf(l, sizeof l, "BEST %s", b);
-    tx_o(U.f_small, l, x + w - 4 * s, r2.y + 44 * s, 20 * s, CREAM, (txopt){ .align = CW_ALIGN_RIGHT, .outline = 2 * s });
+    tx_o(U.f_small, l, x + w - 4 * s, cy3, 20 * s, CREAM, (txopt){ .align = CW_ALIGN_RIGHT, .outline = 2 * s });
   }
 }
 
@@ -462,7 +471,7 @@ static void hud_item(const hv *g) {
       snprintf(b, sizeof b, "x%d", k->item_count);
       tx(U.f_title, b, r.x + r.w - 8 * s, r.y + r.h - 16 * s, 22 * s, CREAM, CW_ALIGN_RIGHT);
     }
-    if (!g->compact) tx_fit(U.f_small, ITEM_NAME[k->item], cx, r.y + r.h + 14 * s, hpx(18, s, 12), 150 * s, CREAM, CW_ALIGN_CENTER);
+    if (!g->compact) tx_fit(U.f_small, ITEM_NAME[k->item], cx, r.y + r.h + fmaxf(14 * s, 4 * s + 0.55f * cw_text_drawn_size(U.f_small, hpx(18, s, 12))), hpx(18, s, 12), 150 * s, CREAM, CW_ALIGN_CENTER);
   } else {
     tx(U.f_title, "?", c.x, c.y, sz * 0.5f, rgba(0.6f, 0.55f, 0.5f, 0.45f), CW_ALIGN_CENTER);
   }
@@ -503,7 +512,9 @@ static void hud_speed(const hv *g) {
   char b[16];
   snprintf(b, sizeof b, "%d", (int)(h->speed_s * 3.6f + 0.5f));
   tx_o(U.f_title, b, cx, cy - 4 * s, 38 * s, glow > 0.3f ? rgba(1, 0.9f, 0.6f, 1) : CREAM, (txopt){ .align = CW_ALIGN_CENTER });
-  tx(U.f_small, "KM/H", cx, cy + 28 * s, hpx(16, s, 11), DIM, CW_ALIGN_CENTER);
+  /* under the number by the size both draw at (they grow with the Text size) */
+  float ky = fmaxf(cy + 28 * s, cy - 4 * s + 0.4f * (cw_text_drawn_size(U.f_title, 38 * s) + cw_text_drawn_size(U.f_small, hpx(16, s, 11))) + 3 * s);
+  tx(U.f_small, "KM/H", cx, ky, hpx(16, s, 11), DIM, CW_ALIGN_CENTER);
   (void)k;
 }
 
@@ -580,7 +591,7 @@ static void hud_minimap(const hv *g, cw_rect r) {
 
 static void hud_standings(const hv *g, float x, float y, int rows_max) {
   const sim *S = g->S;
-  float s = g->s, rh = 25 * s, w = 196 * s;
+  float s = g->s, rh = fmaxf(25 * s, cw_text_drawn_size(U.f_hud, hpx(15, s, 0)) + 9 * s), w = 196 * s; /* rows as tall as their text */
   int n = S->nkarts;
   int mine_pos = g->k->place - 1;
   int first = 0, rows = n;
@@ -601,20 +612,20 @@ static void hud_standings(const hv *g, float x, float y, int rows_max) {
     cw_color ink = me ? INK : CREAM;
     char b[48];
     snprintf(b, sizeof b, "%d", idx + 1);
-    tx_o(U.f_title, b, rr.x + 18 * s, rr.y + rr.h * 0.5f, 15 * s, ink, (txopt){ .align = CW_ALIGN_CENTER, .outline = me ? 0.01f : 0, .no_shadow = true });
+    tx_o(U.f_title, b, rr.x + 18 * s, rr.y + rr.h * 0.5f, hpx(15, s, 0), ink, (txopt){ .align = CW_ALIGN_CENTER, .outline = me ? 0.01f : 0, .no_shadow = true });
     cw_r2d_circle(cw_v2(rr.x + 36 * s, rr.y + rr.h * 0.5f), 5.4f * s, 12, INK);
     cw_r2d_circle(cw_v2(rr.x + 36 * s, rr.y + rr.h * 0.5f), 4.2f * s, 12, kart_col(k->colour));
     if (k->human) snprintf(b, sizeof b, "P%d", (ki < MAXV ? ki : 0) + 1);
     else snprintf(b, sizeof b, "%s", CPU_NAME[ki % MAXK]);
-    tx_o(U.f_hud, b, rr.x + 48 * s, rr.y + rr.h * 0.5f, 15 * s, ink, (txopt){ .align = CW_ALIGN_LEFT, .outline = me ? 0.01f : 0, .no_shadow = true });
+    tx_o(U.f_hud, b, rr.x + 48 * s, rr.y + rr.h * 0.5f, hpx(15, s, 0), ink, (txopt){ .align = CW_ALIGN_LEFT, .outline = me ? 0.01f : 0, .no_shadow = true });
     if (k->finished) {
-      tx_o(U.f_small, "DONE", rr.x + rr.w - 12 * s, rr.y + rr.h * 0.5f, 14 * s, me ? INK : LIME, (txopt){ .align = CW_ALIGN_RIGHT, .outline = 0.01f, .no_shadow = true });
+      tx_o(U.f_small, "DONE", rr.x + rr.w - 12 * s, rr.y + rr.h * 0.5f, hpx(14, s, 0), me ? INK : LIME, (txopt){ .align = CW_ALIGN_RIGHT, .outline = 0.01f, .no_shadow = true });
     } else if (idx > 0) {
       float gap = (lead->prog - k->prog) / fmaxf(18.0f, fabsf(k->speed));
       if (gap < 0) gap = 0;
       if (gap < 99.5f) snprintf(b, sizeof b, "+%.1f", gap);
       else snprintf(b, sizeof b, "+%d:%02d", (int)gap / 60, (int)gap % 60);
-      tx_o(U.f_small, b, rr.x + rr.w - 12 * s, rr.y + rr.h * 0.5f, 14 * s, me ? INK : DIM, (txopt){ .align = CW_ALIGN_RIGHT, .outline = 0.01f, .no_shadow = true });
+      tx_o(U.f_small, b, rr.x + rr.w - 12 * s, rr.y + rr.h * 0.5f, hpx(14, s, 0), me ? INK : DIM, (txopt){ .align = CW_ALIGN_RIGHT, .outline = 0.01f, .no_shadow = true });
     }
   }
 }
@@ -625,13 +636,17 @@ static void banner(const hv *g, const char *text, const char *sub, cw_color col,
   float in = ease_back(t / 0.14f), out = t > 0.8f ? ease_io((t - 0.8f) / 0.2f) : 0;
   float cx = g->x + g->w * 0.5f + (1 - in) * g->w * 0.6f + out * g->w * 0.6f;
   float w = fminf(g->w * 0.9f, tx_width(U.f_title, text, size * s) + 90 * s);
-  float h = size * s * 1.45f + (sub ? 24 * s : 0);
-  cw_rect r = cw_rect_make(cx - w * 0.5f, cy - size * s * 0.72f, w, h);
+  /* the box and the line under the text from the size they draw at */
+  float dt = cw_text_drawn_size(U.f_title, size * s), ds = sub ? cw_text_drawn_size(U.f_hud, hpx(20, s, 12)) : 0;
+  float sy = cy + fmaxf(size * s * 0.78f, 0.4f * (dt + ds) + 4 * s);
+  if (sub) w = fminf(g->w * 0.96f, fmaxf(w, tx_width(U.f_hud, sub, hpx(20, s, 12)) + 60 * s));
+  float h = fmaxf(size * s * 1.45f, dt * 1.45f) + (sub ? sy - cy + ds * 0.5f - dt * 0.4f : 0);
+  cw_rect r = cw_rect_make(cx - w * 0.5f, cy - fmaxf(size * s, dt) * 0.72f, w, h);
   slab(r, 16 * s, rgba(0.1f, 0.07f, 0.09f, 0.9f), s);
   cw_rect strip = cw_rect_make(r.x, r.y + r.h - 7 * s, r.w, 7 * s);
   para(strip, 0, col);
   tx_o(U.f_title, text, cx, cy, size * s, col, (txopt){ .align = CW_ALIGN_CENTER });
-  if (sub) tx(U.f_hud, sub, cx, cy + size * s * 0.78f, hpx(20, s, 12), CREAM, CW_ALIGN_CENTER);
+  if (sub) tx(U.f_hud, sub, cx, sy, hpx(20, s, 12), CREAM, CW_ALIGN_CENTER);
 }
 
 static void hud_countdown(const hv *g) {
@@ -841,7 +856,9 @@ static void hud_shared(const hv *g, float W, float H) {
   hud_minimap(&m, mr);
   float lx = mr.x + mr.w + 14 * q.s;
   if (lx + 196 * q.s > qx + qw) lx = qx + qw - 196 * q.s - 8;
-  hud_standings(&m, lx, qy + 14 * q.s, 8);
+  /* as many rows as fit the quarter at the size they draw at (hud_standings shows the leader's end of the order) */
+  float srh = fmaxf(25 * q.s, cw_text_drawn_size(U.f_hud, hpx(15, q.s, 0)) + 9 * q.s);
+  hud_standings(&m, lx, qy + 14 * q.s, CW_CLAMP((int)((qh - 20 * q.s) / srh), 1, 8));
 }
 
 static void hud_view(int v, float W, float H, int nviews) {
