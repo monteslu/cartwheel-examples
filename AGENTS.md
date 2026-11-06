@@ -27,6 +27,18 @@ node deps/cartwheel-sdk/linux-x64/tools/check-prompts.mjs games/<game>   # the b
   `node deps/cartwheel-sdk/<host>/tools/programs.mjs <app> --build build/native` and commit the generated files.
 - Generated assets come from each game's `tools/` scripts: change the script, rerun it and commit both.
 
+## Graphics presets and launcher art
+
+- Every game has the engine's five presets (Very Low first). A test of a preset or a setting value goes by name and by
+  range (`q <= CW_QUALITY_LOW`, `CW_GFX_SHADOWS_MINIMAL`), never by number, so Very Low takes the cheapest branch. A game
+  lever takes `cw_quality_lever_presets` with all five values. An array indexed by `cw_quality` has `CW_QUALITY_COUNT` entries.
+- A new material, scene or level runs its game's quality sweep (`tests/<game>-quality.mjs`, inside a GPU suite, `--shard i/n`
+  to keep each suite under the lock's 15 minutes): every preset on GL and WebGPU, 0 missing programs, 0 skipped draws.
+  A state it reports goes into `games/<game>/programs/<game>.txt` (regenerate with `programs.mjs --table`).
+- A new game gets `games/<game>/art` (wasmcart docs/art.md: icon, cover with the name, background, logo, title,
+  3 to 6 labelled screenshots, all real renders), the art, description and author keys in its `project.cwproj`, a line
+  in `tests/quality-range-scenes.json` and `tests/quality-grounding.mjs`, and its name in `tests/cart-art.mjs`.
+
 ## Showing controls
 
 Every prompt that tells the player which button, key or touch control does something goes through the engine's

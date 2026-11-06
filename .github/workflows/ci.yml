@@ -53,6 +53,10 @@ jobs:
         run: node deps/cartwheel-sdk/linux-x64/tools/check-prompts.mjs $(for g in $PROMPT_GAMES; do printf 'games/%s ' $g; done)
       - name: Build the carts (GL and WebGPU in one cart each)
         run: RELEASE=1 TARGETS=cart-wgpu scripts/build.sh $GAMES
+      # every release cart carries its launcher art (games/<game>/art, project.cwproj art/description/author); the check's
+      # control (the same manifest without its cover) must fail
+      - name: Cart art
+        run: node tests/cart-art.mjs $GAMES
       - name: Collect carts
         run: |
           mkdir -p carts

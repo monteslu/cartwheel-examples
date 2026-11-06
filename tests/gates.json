@@ -5710,5 +5710,85 @@
       "render.skipped": 0
     },
     "controlInput": "bikemesa-ride.json"
+  },
+  {
+    "name": "quality-range-1",
+    "script": "tests/quality-range-1.mjs",
+    "note": "the GPU time of each graphics preset in play at 1080p on the test GPU, GL (racer; the engine's tools/quality-range.mjs over tests/quality-range-scenes.json): no preset dearer than the one above it, Ultra not under High, Very Low and Low under the share of High measured for each game. Control: every preset drawing High must fail"
+  },
+  {
+    "name": "quality-range-2",
+    "script": "tests/quality-range-2.mjs",
+    "note": "the GPU time of each graphics preset in play at 1080p on the test GPU, WebGPU (racer; the engine's tools/quality-range.mjs over tests/quality-range-scenes.json): no preset dearer than the one above it, Ultra not under High, Very Low and Low under the share of High measured for each game. Control: every preset drawing High must fail"
+  },
+  {
+    "name": "quality-range-3",
+    "script": "tests/quality-range-3.mjs",
+    "note": "the GPU time of each graphics preset in play at 1080p on the test GPU, GL (BikeMesa; the engine's tools/quality-range.mjs over tests/quality-range-scenes.json): no preset dearer than the one above it, Ultra not under High, Very Low and Low under the share of High measured for each game. Control: every preset drawing High must fail"
+  },
+  {
+    "name": "quality-range-4",
+    "script": "tests/quality-range-4.mjs",
+    "note": "the GPU time of each graphics preset in play at 1080p on the test GPU, WebGPU (BikeMesa; the engine's tools/quality-range.mjs over tests/quality-range-scenes.json): no preset dearer than the one above it, Ultra not under High, Very Low and Low under the share of High measured for each game. Control: every preset drawing High must fail"
+  },
+  {
+    "name": "quality-range-5",
+    "script": "tests/quality-range-5.mjs",
+    "note": "the GPU time of each graphics preset in play at 1080p on the test GPU, GL (derby, pugball; the engine's tools/quality-range.mjs over tests/quality-range-scenes.json): no preset dearer than the one above it, Ultra not under High, Very Low and Low under the share of High measured for each game. Control: every preset drawing High must fail"
+  },
+  {
+    "name": "quality-range-6",
+    "script": "tests/quality-range-6.mjs",
+    "note": "the GPU time of each graphics preset in play at 1080p on the test GPU, WebGPU (derby, pugball; the engine's tools/quality-range.mjs over tests/quality-range-scenes.json): no preset dearer than the one above it, Ultra not under High, Very Low and Low under the share of High measured for each game. Control: every preset drawing High must fail"
+  },
+  {
+    "name": "quality-range-7",
+    "script": "tests/quality-range-7.mjs",
+    "note": "the GPU time of each graphics preset in play at 1080p on the test GPU, GL (bomberdude, chromite, spout; the engine's tools/quality-range.mjs over tests/quality-range-scenes.json): no preset dearer than the one above it, Ultra not under High, Very Low and Low under the share of High measured for each game. Control: every preset drawing High must fail"
+  },
+  {
+    "name": "quality-range-8",
+    "script": "tests/quality-range-8.mjs",
+    "note": "the GPU time of each graphics preset in play at 1080p on the test GPU, WebGPU (bomberdude, chromite, spout; the engine's tools/quality-range.mjs over tests/quality-range-scenes.json): no preset dearer than the one above it, Ultra not under High, Very Low and Low under the share of High measured for each game. Control: every preset drawing High must fail"
+  },
+  {
+    "name": "bikemesa-quality",
+    "script": "tests/bikemesa-quality.mjs",
+    "note": "every program state the game draws at every graphics preset, Very Low to Ultra and Auto stepping down in play, is in its table on GL and WebGPU: 0 missing, 0 skipped draws, each scene proven reached by its own debug state (tests/lib/quality-sweep.mjs). Control: the table with one Very Low state taken out must report it and skip draws"
+  },
+  {
+    "name": "bomberdude-quality",
+    "script": "tests/bomberdude-quality.mjs",
+    "note": "every program state the game draws at every graphics preset, Very Low to Ultra and Auto stepping down in play, is in its table on GL and WebGPU: 0 missing, 0 skipped draws, each scene proven reached by its own debug state (tests/lib/quality-sweep.mjs). Control: the table with one Very Low state taken out must report it and skip draws"
+  },
+  {
+    "name": "chromite-quality",
+    "script": "tests/chromite-quality.mjs",
+    "note": "every program state the game draws at every graphics preset, Very Low to Ultra and Auto stepping down in play, is in its table on GL and WebGPU: 0 missing, 0 skipped draws, each scene proven reached by its own debug state (tests/lib/quality-sweep.mjs). Control: the table with one Very Low state taken out must report it and skip draws"
+  },
+  {
+    "name": "derby-quality",
+    "script": "tests/derby-quality.mjs",
+    "note": "every program state the game draws at every graphics preset, Very Low to Ultra and Auto stepping down in play, is in its table on GL and WebGPU: 0 missing, 0 skipped draws, each scene proven reached by its own debug state (tests/lib/quality-sweep.mjs). Control: the table with one Very Low state taken out must report it and skip draws"
+  },
+  {
+    "name": "pugball-quality",
+    "script": "tests/pugball-quality.mjs",
+    "note": "every program state the game draws at every graphics preset, Very Low to Ultra and Auto stepping down in play, is in its table on GL and WebGPU: 0 missing, 0 skipped draws, each scene proven reached by its own debug state (tests/lib/quality-sweep.mjs). Control: the table with one Very Low state taken out must report it and skip draws"
+  },
+  {
+    "name": "racer-quality",
+    "script": "tests/racer-quality.mjs",
+    "note": "every program state the game draws at every graphics preset, Very Low to Ultra and Auto stepping down in play, is in its table on GL and WebGPU: 0 missing, 0 skipped draws, each scene proven reached by its own debug state (tests/lib/quality-sweep.mjs). Control: the table with one Very Low state taken out (racer: the Very Low ground after Auto steps down mid-race) must report it and skip draws"
+  },
+  {
+    "name": "spout-quality",
+    "script": "tests/spout-quality.mjs",
+    "note": "every program state the game draws at every graphics preset, Very Low to Ultra and Auto stepping down in play, is in its table on GL and WebGPU: 0 missing, 0 skipped draws, each scene proven reached by its own debug state (tests/lib/quality-sweep.mjs). Control: the table with one Very Low state taken out must report it and skip draws"
+  },
+  {
+    "name": "quality-grounding",
+    "script": "tests/quality-grounding.mjs",
+    "note": "nothing floats on Very Low: the autopilot of each game in play (racer, derby, pugball, bomberdude, chromite, spout; BikeMesa by eye) keeps at least 90% of the shadows High draws at the base of every caster big enough to read on screen (chromite 80%: a pipe lit by a lamp), on GL and WebGPU (the engine's tests/quality-grounding.mjs). Control: a frame with no shadows must fail"
   }
 ]

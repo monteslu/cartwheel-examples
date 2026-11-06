@@ -101,6 +101,7 @@ void world_build(cw_node scene, const sim *s, int theme, const car_look looks[MA
 void world_prebuild_car(int i, int kind, const car_look *look);
 void world_reset(void);
 void world_tick(const sim *s);      /* fixed tick */
+void world_contact_shadows(const sim *s); /* each frame: blobs under the cars on Minimal and Low shadows */
 /* each car's detail from a camera whose view is k of the screen's height;
  * a split view (k < 1) draws every car but the one it follows (own: -1 none)
  * at level 1 or lighter beyond 12k metres */

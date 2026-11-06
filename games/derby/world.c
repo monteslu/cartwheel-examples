@@ -13,6 +13,7 @@
 #include "cartwheel/debug.h"
 #include "cartwheel/math.h"
 #include "cartwheel/quality.h"
+#include "cartwheel/splats.h"
 #include "world.h"
 
 #define SKIDS 2600 /* quads in the skid-mark ring */
@@ -39,6 +40,8 @@ static struct {
   int scrape_next[MAXC], soots[MAXC];
   dent dent_seen[MAXC][MAX_DENTS];
   int ndent_seen[MAXC];
+  /* a soft dark blob under each car while the shadows are Minimal or Low (the floodlights cast none there) */
+  cw_splats *contact;
 } W;
 
 static cw_node hang(cw_node parent, const char *name, t3_object *obj) {
@@ -432,6 +435,7 @@ static void body_decals_tick(int i, const car *c) {
 void world_reset(void) {
   if (W.ready)
     for (int i = 0; i < MAXC; i++) car_free(&W.car[i]);
+  cw_splats_free(W.contact);
   memset(&W, 0, sizeof W);
 }
 
@@ -471,6 +475,7 @@ void world_build(cw_node scene, const sim *s, int theme, const car_look looks[MA
   build_wall(W.root);
   build_skids(W.root);
   build_puddles(W.root);
+  W.contact = cw_splats_new(W.root, "CarContact", CW_SPLATS_SHADOW, MAXC);
   for (int i = 0; i < MAXC; i++) {
     W.on[i] = s->c[i].on;
     if (pre_ok[i] && PRE[i].kind == s->c[i].kind && PRE[i].colour == looks[i].colour && PRE[i].number == looks[i].number) {
@@ -503,6 +508,26 @@ void world_lod(t3_vec3 eye, float k, int own) {
     if (k < 1 && i != own && lod == 0 && d > 12 * k * 12 * k) lod = 1; /* a split view: full detail only close by (6 m in a quarter) */
     car_set_trimmed(&W.car[i], k < 1 && i == own);
     car_set_lod(&W.car[i], lod);
+  }
+}
+
+/* the cars' contact shadows: the arena is lit by floodlights, whose shadows the Minimal and Low settings turn
+ * off, and a car with nothing dark under it looks as if it hovers. Render only. */
+void world_contact_shadows(const sim *s) {
+  if (!W.ready || !W.contact) return;
+  cw_splats_begin(W.contact);
+  if (cw_gfx_get(CW_GFX_SHADOWS) > CW_GFX_SHADOWS_LOW) return; /* Low: no floodlight shadows either (world_tick) */
+  static int no_shadows = -1; /* the engine's test switch for a frame with no shadows (tests/quality-grounding.mjs) takes these too */
+  if (no_shadows < 0) no_shadows = getenv("CW_TEST_NO_SHADOWS") != NULL;
+  if (no_shadows) return;
+  for (int i = 0; i < MAXC; i++) {
+    const car *c = &s->c[i];
+    if (!c->on) continue;
+    const car_spec *k = &CAR_SPEC[c->kind];
+    t3_quat q = c->q; /* the body's forward (+z) on the floor */
+    float fx = 2 * (q.x * q.z + q.w * q.y), fz = 1 - 2 * (q.x * q.x + q.y * q.y);
+    t3_vec3 p = cw_node3d_position(W.car_node[i]);
+    cw_splats_add(W.contact, (t3_vec3){ p.x, 0, p.z }, k->hl * 2.3f, k->hw * 2.5f, atan2f(fx, fz), 0, (t3_color){ 0, 0, 0 }, 0.7f);
   }
 }
 

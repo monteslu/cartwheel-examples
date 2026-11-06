@@ -286,6 +286,23 @@ CW_TEST_GPU=software node tests/gate.mjs bikemesa-auto --hosts native
 CW_TEST_GPU=software node tests/gate.mjs bikemesa-auto --hosts native --gpu webgpu
 ```
 
+### Graphics presets
+
+Every game has the engine's five graphics presets (Very Low, Low, Medium, High, Ultra, plus Auto), and the
+resolution is a setting of its own that no preset changes. Four kinds of check hold them, each a script gate in
+`tests/gates.json` run inside a GPU suite (`node deps/cartwheel-engine/tools/with-gpu-suite.mjs <name> node <script>`):
+
+- `tests/<game>-quality.mjs`: every program state the game draws at every preset, on GL and WebGPU, is in its
+  table (0 missing, 0 skipped draws), each scene proven reached by its own debug state
+  (`tests/lib/quality-sweep.mjs`; `--quality verylow`, `--gpu gl`, `--scene <regex>` and `--shard i/n` narrow a
+  run). Control: the table with one Very Low state taken out must report it.
+- `tests/quality-range-1.mjs` to `-8.mjs`: the GPU time of each preset in play at 1080p (the engine's
+  `tools/quality-range.mjs` over `tests/quality-range-scenes.json`, each game with its measured share of High).
+  Control: every preset drawing High must fail.
+- `tests/quality-grounding.mjs`: on Very Low every caster big enough to read keeps the shadow at its base that
+  High draws, so nothing looks as if it floats. Control: a frame with no shadows must fail.
+- `tests/cart-art.mjs`: every release cart carries its launcher art (`games/<game>/art`, see Layout). Control: a manifest with no cover.
+
 ### Split-screen cost
 
 `tests/bikemesa-split-bench.mjs` measures what each extra player costs:
@@ -358,13 +375,16 @@ v0.6.0`.
 
 | Path | Contents |
 |---|---|
-| `games/<game>/` | one game: its C sources, `CMakeLists.txt`, `CREDITS`, `assets/` and `tools/` |
+| `games/<game>/` | one game: its C sources, `CMakeLists.txt`, `CREDITS`, `project.cwproj` (native export presets, the description and author), `assets/` and `tools/` |
+| `games/<game>/art/` | its launcher art, packed into the cart: `art.json`, an icon, a cover with the name, a background and a logo, the title screen and labelled screenshots (wasmcart's [art guide](https://github.com/wasmcart/wasmcart/blob/main/docs/art.md)) |
 | `games/<game>/assets/` | what the game packs: scenes, colour grades, audio, fonts, `roots.txt` (the pack manifest), `input.cfg`, `project.cwproj` |
 | `games/<game>/tools/` | the scripts that generate the game's assets and gate inputs, committed next to their output |
 | `games/<game>/programs/` | the game's three.c program table: `<game>.txt` and the C generated from it |
 | `tests/gates.json` | every gate |
 | `tests/<game>-*.json` | input scripts for the gates |
 | `tests/gate.mjs` | runs the gates |
+| `tests/<game>-quality.mjs`, `tests/quality-*.mjs`, `tests/lib/` | the graphics preset checks (above) |
+| `tests/cart-art.mjs` | every release cart carries its art |
 | `scripts/deps.lock` | the pinned cartwheel-engine commit and its SDKs (sha256) |
 | `scripts/fetch-deps.sh`, `scripts/build.sh` | fetch the SDKs (or the engine) and build |
 | `tests/native-replay.mjs`, `tests/compare-replays.mjs` | the `_auto` replays on any platform's build, and their comparison |

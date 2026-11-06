@@ -1233,6 +1233,7 @@ static void fixed(void *u, double dt) {
     scenery_beams(eyes, n);
   }
   const sim *s = &G.S;
+  world_contact_shadows(s);
   G.phase = s->phase;
   G.clock = s->clock;
   G.alive = s->alive;

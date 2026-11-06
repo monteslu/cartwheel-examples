@@ -158,12 +158,15 @@ void probe_sync(float travel, bool title) {
     cw_node3d_set_position(P.node, (t3_vec3){ 0, PLAY_Y, title ? 7.2f : 0 });
     cw_node_set(P.node, "origin_offset", cw_val_vec3(0, 0, title ? -7.2f : 0));
   }
-  /* 128 at every preset (the engine halves it on Very Low, Low and Medium) */
+  /* 128 from Low to High (the engine quarters it on Very Low and halves it on Low and Medium) */
   int res = cw_gfx_get(CW_GFX_EFFECTS) <= CW_QUALITY_MEDIUM ? PROBE_SIZE * 2 : PROBE_SIZE;
   if (res != P.resolution) P.resolution = res, cw_node_set(P.node, "resolution", cw_val_int(res));
   int on = probe_every > 0;
   if (on != P.on) P.on = on, cw_node_set(P.node, "intensity", cw_val_float(on ? 1 : 0));
-  if (on && (P.frames++ % (uint64_t)probe_every) == 0) cw_reflection_probe_update(P.node);
+  /* the cheaper presets capture less often, as the engine's own refresh does (every 8 frames on Very Low, 4 on Low) */
+  int fx = cw_gfx_get(CW_GFX_EFFECTS);
+  uint64_t every = (uint64_t)probe_every * (fx <= CW_QUALITY_VERY_LOW ? 4 : fx == CW_QUALITY_LOW ? 2 : 1);
+  if (on && (P.frames++ % every) == 0) cw_reflection_probe_update(P.node);
   cw_value v;
   if (cw_node_get_prop(P.node, "captures", &v)) probe_refreshes = (int)v.i;
 }
