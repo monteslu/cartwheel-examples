@@ -3,6 +3,13 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.19.0 (2026-11-06)
+
+- **All games**: Engine v0.36.0. Low and Very Low cost less GPU time with the same picture or close to it: both draw the scene into a smaller HDR target (half the bytes a pixel), Low runs the fog, the edge smoothing and bloom inside one final pass with a lighter first bloom level, and draws no volumetric fog or heat haze. A sky whose light keeps easing re-renders at most every 8 frames on Very Low, 4 on Low and 2 on Medium (spout's weather changes cost about 3 ms of GL time a frame before)
+- **bomberdude**: Low and Very Low draw the arena after a depth pass, so the crates, walls and grass stacked over the meadow are shaded once a pixel
+- **chromite**: The chrome reflection is refreshed every eighth frame on Low, as on Very Low (every other frame from Medium up)
+- **All games**: GPU time on Very Low and Low as a share of High (1080p, Radeon 890M, GL / WebGPU), before -> after: racer 0.46 / 0.41 -> 0.42 / 0.38 and 0.67 / 0.59 -> 0.49 / 0.48; BikeMesa 0.43 / 0.39 -> 0.38 / 0.38 and 0.67 / 0.64 -> 0.53 / 0.49; derby 0.33 / 0.33 -> 0.27 / 0.28 and 0.42 / 0.43 -> 0.35 / 0.37; pugball 0.35 / 0.40 -> 0.35 / 0.35 and 0.55 / 0.59 -> 0.64 / 0.49 (the GL Low figure varies run to run with the same frame: 0.41 in an earlier run); bomberdude 0.55 / 0.51 -> 0.43 / 0.39 and 0.79 / 0.75 -> 0.57 / 0.51; chromite 0.29 / 0.61 -> 0.27 / 0.54 and 0.90 / 0.75 -> 0.38 / 0.71 (WebGPU does not time the reflection captures, so its High reads low); spout 0.71 / 0.39 -> 0.15 / 0.28 and 0.85 / 0.57 -> 0.21 / 0.37. The range gates (tests/quality-range-1 to -8) hold each game to these shares: spout to Very Low 0.3 of High, derby and spout to Low 0.45
+
 ## v0.18.1 (2026-11-06)
 
 - **All games**: Engine v0.34.3. Control hints for movement show the d-pad, with the arms to press solid, wherever the d-pad and the left stick both move: steering, leaning, moving and the menus. A single direction lights its one arm. Actions only a stick does still show the stick
