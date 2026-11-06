@@ -957,7 +957,9 @@ static title_geo title_layout(float W, float H, float s) {
   float bottom = g.ticker_y - 10 * s;
   g.hs_head = spaced_size("high scores", 14 * s).y;
   g.hs_pitch = fmaxf(19 * s, mono_size("0", 15 * s, 2 * s).y);
-  g.hs_y = fminf(H * 0.7f, bottom - (fmaxf(22 * s, g.hs_head + 4 * s) + 5 * g.hs_pitch));
+  /* the high scores' last row ends a clear gap above the ticker's line, by their measured sizes */
+  float hs_block = fmaxf(22 * s, g.hs_head + 4 * s) + 4 * g.hs_pitch + mono_size("0", 15 * s, 2 * s).y;
+  g.hs_y = fminf(H * 0.7f, g.ticker_y - 12 * s - hs_block);
   g.x0 = fmaxf(hs_right + 50 * s, fminf(W * 0.36f, W - 24 * s - maxw));
   g.panel_w = fminf(W - (g.x0 - 30 * s) - 8 * s, fmaxf(W * 0.34f, maxw + 60 * s));
   g.y0 = H * 0.55f;
