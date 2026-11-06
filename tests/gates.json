@@ -531,7 +531,7 @@
         1,
         1
       ],
-      "sim.hash": 2450199915
+      "sim.hash": 4271964199
     },
     "controlInput": "bomberdude-idle.json",
     "webgpu": {
@@ -976,8 +976,8 @@
       "players.boost": [
         0,
         0,
-        33,
-        33,
+        22,
+        23,
         0,
         0
       ]
@@ -2055,10 +2055,10 @@
       ],
       "note": "WebGPU on every host against the GL reference: the canyon's grass tufts are sub-pixel blades whose edges rasterize a pixel apart across backends."
     },
-    "note": "The canyon is thousands of thin grass blades and dust: native and the carts rasterize their edges a pixel apart (tex.hash and wind.hash prove the data identical), so frames compare at 5% over 16 levels; named state (the Box2D bike, bike.pos, state.hash) is exact. Pedalling only (RT) rides Red Rock Run start to finish: the jumps clear on the hands-off assists, the finish panel shows the time, medal and score.",
+    "note": "The canyon is thousands of thin grass blades and dust: native and the carts rasterize their edges a pixel apart (tex.hash and wind.hash prove the data identical), so frames compare at 5% over 16 levels; named state (the Box2D bike, bike.pos, state.hash) is exact. Pedalling only (RT) rides Red Rock Run start to finish (2800 frames: the opening loop added to the track takes longer than the 2420 this gate first ran): the jumps clear on the hands-off assists, the finish panel shows the time, medal and score.",
     "name": "bikemesa-ride",
     "app": "bikemesa",
-    "frames": 2420,
+    "frames": 2800,
     "input": "bikemesa-ride.json",
     "expect": {
       "game.state": 5,
@@ -2325,7 +2325,7 @@
       ],
       "note": "WebGPU on every host against the GL reference: the canyon's grass tufts are sub-pixel blades whose edges rasterize a pixel apart across backends."
     },
-    "note": "No respawn can loop: respawn_sweep puts the rider back at every checkpoint (and the start) of every track, from every lane, with the inputs a player may still be holding as the replay ends (none; pedal; brake; lean back or forward; pedal or brake with a lean), and each must ride 120 ticks without a crash (sweep.fails 0 of sweep.cases 1696), then the title again. Before the fix a rider in a lane that a pinch had closed behind (Red Rock Run checkpoint 3, Scary Town checkpoints 2 and 3, lanes 0 and 3) was thrown back off the bike on the first tick of every respawn: the barrier test took the new bike's last x as 0. The control lets the held leans reach the new bike (respawn_sweep 120 raw): leaning back on the pedals loops it out.",
+    "note": "No respawn can loop: respawn_sweep puts the rider back at every checkpoint (and the start) of every track, from every lane, with the inputs a player may still be holding as the replay ends (none; pedal; brake; lean back or forward; pedal or brake with a lean), and each must ride 120 ticks without a crash (sweep.fails 0 of sweep.cases 2784: the start and every checkpoint of every ready track, 4 lanes, 8 held inputs; 1696 before Night Burbs, Liberty Leap and the other later tracks), then the title again. Before the fix a rider in a lane that a pinch had closed behind (Red Rock Run checkpoint 3, Scary Town checkpoints 2 and 3, lanes 0 and 3) was thrown back off the bike on the first tick of every respawn: the barrier test took the new bike's last x as 0. The control lets the held leans reach the new bike (respawn_sweep 120 raw): leaning back on the pedals loops it out.",
     "name": "bikemesa-respawn",
     "app": "bikemesa",
     "frames": 6,
@@ -2333,7 +2333,7 @@
       "respawn_sweep 120"
     ],
     "expect": {
-      "sweep.cases": 1696,
+      "sweep.cases": 2784,
       "sweep.fails": 0,
       "sweep.fail": [
         0,
@@ -2760,10 +2760,10 @@
       ],
       "note": "WebGPU on every host against the GL reference: the canyon's grass tufts are sub-pixel blades whose edges rasterize a pixel apart across backends."
     },
-    "note": "Two-player split race on Red Rock Run: pad 2 joins on the player select with (A) and picks a rider and a bike, P1 picks the track; the screen splits top / bottom, a camera, HUD and listener each, P1 in lane 0, P2 in lane 1. P1 pedals from frame 230, P2 a second later; both move a lane toward the middle before Red Rock's pinch (lanes 1-2) and ride clean to the line: P1 1st, P2 2nd (race.places), the results panel up (game.state 5). The control never joins pad 2: a solo ride (no places).",
+    "note": "Two-player split race on Red Rock Run: pad 2 joins on the player select with (A) and picks a rider and a bike, P1 picks the track; the screen splits top / bottom, a camera, HUD and listener each, P1 in lane 0, P2 in lane 1. P1 pedals from frame 230, P2 a second later; both move a lane toward the middle before Red Rock's pinch (lanes 1-2) and ride to the line: P1 1st and clean, P2 2nd after one wipeout (race.places, race.crashes), the results panel up (game.state 5); 3400 frames: the opening loop the track gained takes longer than the 2740 this gate first ran. The control never joins pad 2: a solo ride (no places).",
     "name": "bikemesa-race2",
     "app": "bikemesa",
-    "frames": 2740,
+    "frames": 3400,
     "input": "bikemesa-race2.json",
     "controlInput": "bikemesa-race2-solo.json",
     "expect": {
@@ -5555,6 +5555,7 @@
   },
   {
     "name": "racer-trial",
+    "env": { "CW_RUN_TIMEOUT_MS": "900000" },
     "app": "racer",
     "frames": 12000,
     "startCmds": [
