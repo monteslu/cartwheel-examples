@@ -2,43 +2,29 @@
   "app": "racer",
   "secondary": [],
   "screens": [
-    {
-      "name": "title",
-      "frames": 300
-    },
-    {
-      "name": "race",
-      "frames": 1200,
-      "app": "racer",
-      "startCmds": [
-        "race 0 0 1"
-      ]
-    },
-    {
-      "name": "race-split4",
-      "frames": 1200,
-      "startCmds": [
-        "bot 1",
-        "race 0 4 3"
-      ]
-    },
-    {
-      "name": "battle",
-      "frames": 1500,
-      "app": "racer",
-      "startCmds": [
-        "bot 1",
-        "battle 0 2 40 6"
-      ]
-    },
-    {
-      "name": "results",
-      "frames": 3000,
-      "app": "racer",
-      "startCmds": [
-        "bot 1",
-        "battle 0 2 40 6"
-      ]
-    }
+    { "name": "title", "frames": 300 },
+    { "name": "menu", "frames": 120, "env": { "RACER_UI": "menu" } },
+    { "name": "options", "frames": 120, "env": { "RACER_UI": "options" } },
+    { "name": "assist", "frames": 120, "env": { "RACER_UI": "assist" } },
+    { "name": "controls", "frames": 120, "env": { "RACER_UI": "controls" } },
+    { "name": "join", "frames": 120, "env": { "RACER_UI": "join", "RACER_PLAYERS": "2" } },
+    { "name": "vehicle", "frames": 120, "env": { "RACER_UI": "vehicle", "RACER_PLAYERS": "2" } },
+    { "name": "map", "frames": 120, "env": { "RACER_UI": "map" } },
+    { "name": "trial", "frames": 120, "env": { "RACER_UI": "trial" } },
+    { "name": "cup", "frames": 120, "env": { "RACER_UI": "cup" } },
+    { "name": "arena", "frames": 120, "env": { "RACER_UI": "arena", "RACER_PLAYERS": "2" } },
+    { "name": "around", "frames": 120, "env": { "RACER_UI": "around" } },
+    { "name": "pause", "frames": 120, "env": { "RACER_UI": "pause" } },
+    { "name": "bpause", "frames": 120, "env": { "RACER_UI": "bpause" } },
+    { "name": "race", "frames": 1200, "app": "racer", "startCmds": ["race 0 0 1"] },
+    { "name": "race-split2", "frames": 1200, "startCmds": ["bot 1", "race 0 2 3"] },
+    { "name": "race-split3", "frames": 1200, "startCmds": ["bot 1", "race 0 3 3"] },
+    { "name": "race-split4", "frames": 1200, "startCmds": ["bot 1", "race 0 4 3"] },
+    { "name": "battle", "frames": 1500, "app": "racer", "startCmds": ["bot 1", "battle 0 2 40 6"] },
+    { "name": "results", "frames": 3000, "app": "racer", "startCmds": ["bot 1", "battle 0 2 40 6"] },
+    { "name": "race-results", "frames": 160, "env": { "RACER_UI": "results", "RACER_UI_FAKE": "1" } },
+    { "name": "trialres", "frames": 160, "env": { "RACER_UI": "trialres" } },
+    { "name": "standings", "frames": 160, "env": { "RACER_UI": "standings" } },
+    { "name": "cupend", "frames": 200, "env": { "RACER_UI": "cupend" } }
   ]
 }

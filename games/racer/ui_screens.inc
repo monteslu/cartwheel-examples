@@ -88,11 +88,42 @@ static const char *dev_hint(const char *pad, const char *keys, const char *ptr, 
   return U.device == DEV_PAD ? pad : U.device == DEV_KEYS ? keys : U.device == DEV_TOUCH ? touch : ptr;
 }
 
+/* the hint line at the bottom, broken at its triple spaces into lines that fit the screen; its slab's top (hint_top) is
+ * where a screen's content above it has to end */
+#define HINT_MAXL 5
+static int hint_split(float W, float s, const char *str, char out[HINT_MAXL][192]) {
+  int n = 0;
+  char line[192] = "";
+  for (const char *p = str; *p && n < HINT_MAXL;) {
+    const char *e = strstr(p, "   ");
+    size_t len = e ? (size_t)(e - p) : strlen(p);
+    char cand[192];
+    snprintf(cand, sizeof cand, "%s%s%.*s", line, *line ? "   " : "", (int)len, p);
+    if (*line && tx_width(U.f_hud, cand, 18 * s) + 50 * s > W * 0.96f) {
+      snprintf(out[n++], 192, "%s", line);
+      snprintf(line, sizeof line, "%.*s", (int)len, p);
+    } else snprintf(line, sizeof line, "%s", cand);
+    p += len;
+    while (*p == ' ') p++;
+  }
+  if (*line && n < HINT_MAXL) snprintf(out[n++], 192, "%s", line);
+  return n;
+}
+static float hint_row_h(float s) { return fmaxf(34 * s, cw_text_drawn_size(U.f_hud, 18 * s) * 1.25f + 12 * s); }
+static float hint_top(float W, float H, float s, const char *str) {
+  char l[HINT_MAXL][192];
+  int n = hint_split(W, s, str, l);
+  return H - 24 * s - hint_row_h(s) - (float)(n > 1 ? n - 1 : 0) * (hint_row_h(s) - 10 * s);
+}
 static void hint_line(float W, float H, float s, const char *str) {
-  float w = tx_width(U.f_hud, str, 18 * s) + 50 * s;
-  cw_rect r = cw_rect_make(W * 0.5f - w * 0.5f, H - 58 * s, w, 34 * s);
+  char l[HINT_MAXL][192];
+  int n = hint_split(W, s, str, l);
+  float w = 0, rh = hint_row_h(s), lh = rh - 10 * s;
+  for (int i = 0; i < n; i++) w = fmaxf(w, tx_width(U.f_hud, l[i], 18 * s) + 50 * s);
+  float top = hint_top(W, H, s, str);
+  cw_rect r = cw_rect_make(W * 0.5f - w * 0.5f, top, w, H - 24 * s - top);
   slab(r, 10 * s, rgba(0.08f, 0.06f, 0.08f, 0.8f), s * 0.8f);
-  tx(U.f_hud, str, W * 0.5f, r.y + r.h * 0.5f, 18 * s, alpha(CREAM, 0.92f), CW_ALIGN_CENTER);
+  for (int i = 0; i < n; i++) tx_o(U.f_hud, l[i], W * 0.5f, r.y + 5 * s + lh * 0.5f + (float)i * lh, 18 * s, alpha(CREAM, 0.92f), (txopt){ .align = CW_ALIGN_CENTER });
 }
 
 static void header(float W, float H, float s, const char *title, const char *sub) {
@@ -137,7 +168,10 @@ static void draw_button(cw_rect r, const char *label, bool sel, bool enabled, fl
   slab(q, 14 * s, fill, s);
   if (sel) para(cw_rect_make(q.x + 6 * s, q.y + q.h - 8 * s, q.w - 12 * s, 5 * s), 0, alpha(RUST, a));
   cw_color tc = !enabled ? alpha(DIM, a * 0.6f) : sel ? alpha(INK, a) : alpha(CREAM, a);
-  tx_o(U.f_title, label, q.x + q.w * 0.5f + 6 * s, q.y + q.h * 0.5f, q.h * 0.42f, tc, (txopt){ .align = CW_ALIGN_CENTER, .outline = sel ? 0.01f : 0, .no_shadow = sel });
+  /* the label fitted to the button (it grows with the Text size; never under the body size) */
+  float ls = q.h * 0.42f, lw = tx_width(U.f_title, label, ls), room = q.w - 44 * s;
+  if (lw > room && lw > 0) ls = fmaxf(ls * room / lw, fminf(ls, body_px() / cw_text_scale()));
+  tx_o(U.f_title, label, q.x + q.w * 0.5f + 6 * s, q.y + q.h * 0.5f, ls, tc, (txopt){ .align = CW_ALIGN_CENTER, .outline = sel ? 0.01f : 0, .no_shadow = sel });
   if (sel) {
     float bob = 3 * s * cw_sin(U.time * 8);
     tri(cw_v2(q.x - 22 * s + bob, q.y + q.h * 0.5f), 11 * s, 0, INK);
@@ -179,8 +213,8 @@ static int title_count(void) {
 enum { TI_RACE, TI_TRIAL, TI_CUP, TI_BATTLE, TI_SPLIT, TI_OPTIONS, TI_QUIT };
 static const char *const TITLE_ITEMS[7] = { "RACE", "TIME TRIAL", "CUP", "BATTLE", "SPLIT SCREEN", "OPTIONS", "QUIT" };
 static const char *const PAUSE_ITEMS[5] = { "RESUME", "RESTART RACE", "GRAPHICS", "CONTROLS", "QUIT TO MENU" };
-static const char *const OPTPAGE_ITEMS[8] = { "GRAPHICS", "MUSIC", "EFFECTS", "ANNOUNCER", "STEERING ASSIST", "AUTO-ACCELERATE", "CONTROLS", "BACK" };
-enum { OI_GFX, OI_MUSIC, OI_SFX, OI_VOICE, OI_ASSIST_STEER, OI_ASSIST_GAS, OI_CONTROLS, OI_BACK, OI_COUNT };
+static const char *const OPTPAGE_ITEMS[10] = { "GRAPHICS", "TEXT SIZE", "TEXT BACKGROUND", "MUSIC", "EFFECTS", "ANNOUNCER", "STEERING ASSIST", "AUTO-ACCELERATE", "CONTROLS", "BACK" };
+enum { OI_GFX, OI_TEXT, OI_TEXT_BG, OI_MUSIC, OI_SFX, OI_VOICE, OI_ASSIST_STEER, OI_ASSIST_GAS, OI_CONTROLS, OI_BACK, OI_COUNT };
 
 /* the vehicle panel of one player */
 typedef struct vlay {
@@ -230,7 +264,7 @@ static void vlayout(cw_rect P, vlay *l) {
 /* where each human's panel goes on the vehicle screen */
 static cw_rect vpanel_rect(int i, int n, float W, float H) {
   float s = lscale(W, H);
-  float top = (is_portrait(W, H) ? 96 : 100) * s, bot = 70 * s;
+  float top = (is_portrait(W, H) ? 96 : 100) * s, bot = fmaxf(70 * s, 24 * s + hint_row_h(s) + 8 * s); /* clear of the hint line */
   float x0 = W * 0.02f, y0 = top, w = W * 0.96f, h = H - top - bot;
   float g = 10 * s;
   if (n == 1) return cw_rect_make(x0 + w * 0.06f, y0, w * 0.88f, h);
@@ -310,7 +344,7 @@ static void map_layout(float W, float H, maplay *m) {
     m->cols = 4;
     float cw = (gw - 3 * gap) / 4, ch = 80 * s, y0 = 88 * s;
     for (int i = 0; i < NMAPS; i++) m->card[i] = cw_rect_make(gx + (float)(i % 4) * (cw + gap), y0 + (float)(i / 4) * (ch + gap), cw, ch);
-    float by = y0 + 2 * ch + gap + 8 * s, bh = H - by - 64 * s;
+    float by = y0 + 2 * ch + gap + 8 * s, bh = H - by - fmaxf(64 * s, 24 * s + hint_row_h(s) + 6 * s); /* clear of the hint line */
     m->detail = cw_rect_make(gx, by, gw * 0.56f, bh);
     float bs = fminf(bh - 12 * s, gw * 0.56f * 0.42f);
     m->big = cw_rect_make(gx + 8 * s, by + 6 * s, bs, bs);
@@ -768,18 +802,69 @@ static void tick_map(float W, float H) {
   }
 }
 
-static cw_rect opt_panel(float W, float H) {
-  float s = lscale(W, H);
-  float w = fminf(W * 0.92f, 620 * s), h = (float)OI_COUNT * 46 * s + 24 * s;
-  return cw_rect_make((W - w) * 0.5f, fmaxf(98 * s, H * 0.5f - h * 0.5f), w, h);
+/* the options page, laid out from the size its text draws at: rows as tall as their text, the panel as wide as the
+ * longest name and value, and as many rows as fit between the header and the hint line (it scrolls with the
+ * selection past that) */
+static const char *opt_hint(void) {
+  return dev_hint("{m_left|m_right|m_up|m_down} move and adjust   {m_ok} choose   {back} back", "{m_left|m_right|m_up|m_down} move and adjust   {m_ok} choose   {back} back",
+                  "Click to choose, drag the bars", "Tap to choose, drag the bars");
 }
+static void opt_value(int i, char *b, size_t n) {
+  b[0] = 0;
+  if (i == OI_GFX) snprintf(b, n, "%s  -  %s", cw_quality_label(), cw_render_res_label());
+  else if (i == OI_TEXT) snprintf(b, n, "%s", cw_text_scale_label());
+  else if (i == OI_TEXT_BG) {
+    snprintf(b, n, "%s", cw_text_backdrop_label());
+    for (char *c = b; *c; c++) *c = (char)(*c >= 'a' && *c <= 'z' ? *c - 32 : *c);
+  } else if (i == OI_ASSIST_STEER || i == OI_ASSIST_GAS || i == OI_VOICE) snprintf(b, n, "OFF");
+}
+static float opt_hint_y; /* the hint line's top, as draw_options last measured it */
+typedef struct opt_lay {
+  cw_rect panel;
+  float row_h, pitch, label_w;
+  int first, shown;
+} opt_lay;
+static opt_lay opt_layout(float W, float H) {
+  float s = lscale(W, H);
+  opt_lay L = { 0 };
+  L.row_h = fmaxf(40 * s, cw_text_drawn_size(U.f_title, 20 * s) + 14 * s);
+  L.pitch = L.row_h + 6 * s;
+  float lw = 0, vw = 0;
+  char b[64];
+  for (int i = 0; i < OI_COUNT; i++) {
+    lw = fmaxf(lw, tx_width(U.f_title, OPTPAGE_ITEMS[i], 20 * s));
+    opt_value(i, b, sizeof b);
+    vw = fmaxf(vw, tx_width(i == OI_GFX ? U.f_hud : U.f_title, b, 20 * s) + (i == OI_GFX ? 18 * s : 0));
+  }
+  vw = fmaxf(vw, 120 * s); /* the sliders' room */
+  L.label_w = lw + 48 * s;
+  float w = fminf(W * 0.96f, fmaxf(620 * s, L.label_w + vw + 60 * s + 36 * s));
+  float desc = cw_text_drawn_size(U.f_small, 17 * s) * 1.3f + 16 * s; /* the line under the panel that says what an assist does */
+  float top = 98 * s, bottom = (opt_hint_y > 0 ? opt_hint_y : H - 58 * s) - 8 * s - desc;
+  int fit = (int)((bottom - top - 24 * s + 6 * s) / L.pitch);
+  L.shown = CW_CLAMP(fit, 1, OI_COUNT);
+  if (U.opt_sel < U.opt_first) U.opt_first = U.opt_sel;
+  if (U.opt_sel >= U.opt_first + L.shown) U.opt_first = U.opt_sel - L.shown + 1;
+  U.opt_first = CW_CLAMP(U.opt_first, 0, OI_COUNT - L.shown);
+  L.first = U.opt_first;
+  float h = (float)L.shown * L.pitch - 6 * s + 24 * s;
+  L.panel = cw_rect_make((W - w) * 0.5f, fmaxf(top, fminf(H * 0.5f - h * 0.5f, bottom - h)), w, h);
+  return L;
+}
+static cw_rect opt_panel(float W, float H) { return opt_layout(W, H).panel; }
+/* a row's rect; a row scrolled out of the page is off the canvas (no click finds it) */
 static cw_rect opt_row(int i, float W, float H) {
   float s = lscale(W, H);
-  cw_rect p = opt_panel(W, H);
-  return cw_rect_make(p.x + 18 * s, p.y + 12 * s + (float)i * 46 * s, p.w - 36 * s, 40 * s);
+  opt_lay L = opt_layout(W, H);
+  if (i < L.first || i >= L.first + L.shown) return cw_rect_make(-10000, -10000, 0, 0);
+  return cw_rect_make(L.panel.x + 18 * s, L.panel.y + 12 * s + (float)(i - L.first) * L.pitch, L.panel.w - 36 * s, L.row_h);
 }
-/* the slider's track inside a row */
-static cw_rect opt_slider(cw_rect row, float s) { return cw_rect_make(row.x + row.w * 0.42f, row.y + row.h * 0.5f - 11 * s, row.w * 0.5f, 22 * s); }
+/* the slider's track inside a row: after the longest name, before the number */
+static cw_rect opt_slider(cw_rect row, float s) {
+  opt_lay L = opt_layout(cw_r2d_canvas_size().x, cw_r2d_canvas_size().y);
+  float x0 = row.x + fmaxf(row.w * 0.42f, L.label_w), x1 = row.x + row.w - 6 * s - tx_width(U.f_hud, "10", 18 * s) - 14 * s;
+  return cw_rect_make(x0, row.y + row.h * 0.5f - 11 * s, fmaxf(x1 - x0, 60 * s), 22 * s);
+}
 
 static void tick_options(float W, float H) {
   float s = lscale(W, H);
@@ -800,6 +885,17 @@ static void tick_options(float W, float H) {
   if (U.opt_sel == OI_ASSIST_STEER && (dx || (act && N.click))) U.assist ^= 1, sfx_move(), act = false, changed = true;
   if (U.opt_sel == OI_ASSIST_GAS && (dx || (act && N.click))) U.assist ^= 2, sfx_move(), act = false, changed = true;
   if (U.opt_sel == OI_VOICE && (dx || (act && N.click))) SAVE.voice_off ^= 1, sfx_move(), act = false, changed = true;
+  /* the text settings (render-only, kept in the save): left / right or a press steps them */
+  if (U.opt_sel == OI_TEXT && (dx || (act && U.mt > 8))) {
+    if (dx < 0) cw_text_scale_cycle_back();
+    else cw_text_scale_cycle();
+    sfx_move(), act = false, save_write();
+  }
+  if (U.opt_sel == OI_TEXT_BG && (dx || (act && U.mt > 8))) {
+    cw_text_backdrop_cycle();
+    if (dx < 0) cw_text_backdrop_cycle(), cw_text_backdrop_cycle(); /* three steps: two on is one back */
+    sfx_move(), act = false, save_write();
+  }
   if (U.opt_sel == OI_MUSIC || U.opt_sel == OI_SFX) {
     uint8_t *v = U.opt_sel == OI_MUSIC ? &SAVE.music : &SAVE.sfx;
     if (dx) {
@@ -891,10 +987,28 @@ static void tick_race(float W, float H) {
   if (game_is_trial() && U.pending == PD_NONE && cw_action_just_pressed(0, U.a_item) && U.mt > 12) trial_retry();
 }
 
+/* the pause screen's lines under its banner (a battle's line, who paused), from the size they draw at: where the
+ * buttons start (a share of the height) */
+static float pause_line1(float s) { return 70 * s + 6 * s + cw_text_drawn_size(U.f_hud, 20 * s) * 0.6f; }
+static float pause_line2(float s) { return pause_line1(s) + cw_text_drawn_size(U.f_hud, 20 * s) * 0.6f + 4 * s + cw_text_drawn_size(U.f_hud, 18 * s) * 0.6f; }
+static float pause_top(float W, float H) {
+  float s = lscale(W, H), y = H * 0.1f;
+  int lines = game_sim()->battle ? (game_views() > 1 ? 2 : 1) : game_views() > 1 ? 1 : 0;
+  if (lines == 2) y += pause_line2(s) + cw_text_drawn_size(U.f_hud, 18 * s) * 0.6f;
+  else if (lines == 1) y += pause_line1(s) + cw_text_drawn_size(U.f_hud, 20 * s) * 0.6f;
+  else y += 70 * s;
+  return fmaxf(0.3f, (y + 12 * s) / H);
+}
+/* a pause button: the tighter rows when the usual ones would reach the hint line */
+static cw_rect pause_rect_i(int i, float W, float H) {
+  float s = lscale(W, H), top = pause_top(W, H), hint = H - 24 * s - hint_row_h(s) - 8 * s;
+  cw_rect last = list_rect_n(4, 4, W, H, top);
+  return last.y + last.h <= hint ? list_rect_n(i, 4, W, H, top) : list_rect_n(i, 7, W, H, top);
+}
 static void tick_pause(float W, float H) {
   if (U.pending != PD_NONE) return;
   cw_rect rects[5];
-  for (int i = 0; i < 5; i++) rects[i] = list_rect(i, W, H, is_portrait(W, H) ? 0.3f : 0.3f);
+  for (int i = 0; i < 5; i++) rects[i] = pause_rect_i(i, W, H);
   bool resume = (N.start || N.back) && U.mt > 8;
   if (N.dy) U.sel = (U.sel + N.dy + 5) % 5, sfx_move();
   if (pointer_mode() && N.moved)
@@ -1053,8 +1167,10 @@ static void draw_title(float W, float H, float s) {
   draw_logo(W * 0.5f, ly, logo_size, s, appear);
   if (!menu) {
     float t = clamp01(((float)U.ticks - 25) / 20.0f);
-    para(cw_rect_make(W * 0.5f - 250 * s, ly + logo_size * 0.62f, 500 * s, 34 * s), 12 * s, alpha(rgba(0.1f, 0.07f, 0.09f, 0.88f), t));
-    tx(U.f_hud, "Loops, jumps and junk. Eight tracks.", W * 0.5f, ly + logo_size * 0.62f + 17 * s, 20 * s, alpha(CREAM, t), CW_ALIGN_CENTER);
+    static const char *const TAG = "Loops, jumps and junk. Eight tracks.";
+    float tgw = fmaxf(500 * s, tx_width(U.f_hud, TAG, 20 * s) + 60 * s), tgh = fmaxf(34 * s, cw_text_drawn_size(U.f_hud, 20 * s) + 12 * s); /* the band from its text */
+    para(cw_rect_make(W * 0.5f - tgw * 0.5f, ly + logo_size * 0.62f, tgw, tgh), 12 * s, alpha(rgba(0.1f, 0.07f, 0.09f, 0.88f), t));
+    tx(U.f_hud, TAG, W * 0.5f, ly + logo_size * 0.62f + tgh * 0.5f, 20 * s, alpha(CREAM, t), CW_ALIGN_CENTER);
     const char *p = dev_hint("Press {m_ok}", "Press {m_ok}", "Click to start", "Tap to start");
     float blink = 0.8f + 0.2f * cw_sin(U.time * 4.5f);
     float py = H * (por ? 0.7f : 0.78f);
@@ -1179,7 +1295,7 @@ static void draw_vpanel(int i, int n, float W, float H, float s) {
   para(tag, 8 * sp, pc);
   para_lines(tag, 8 * sp, 2 * sp, INK);
   snprintf(b, sizeof b, "P%d", i + 1);
-  tx_o(U.f_title, b, tag.x + tag.w * 0.5f + 3 * sp, tag.y + tag.h * 0.5f, 15 * sp, INK, (txopt){ .align = CW_ALIGN_CENTER, .outline = 0.01f, .no_shadow = true });
+  tx_o(U.f_title, b, tag.x + tag.w * 0.5f + 3 * sp, tag.y + tag.h * 0.5f, fmaxf(15 * sp, body_px()), INK, (txopt){ .align = CW_ALIGN_CENTER, .outline = 0.01f, .no_shadow = true });
   cw_rect nm = SHIFT(l.name);
   tx_fit(U.f_title, vd->name, nm.x + nm.w * 0.5f, nm.y + nm.h * 0.5f, 24 * sp, nm.w - 70 * sp, CREAM, CW_ALIGN_CENTER);
   if (!ready) {
@@ -1215,17 +1331,25 @@ static void draw_vpanel(int i, int n, float W, float H, float s) {
   static const char *const STAT[7] = { "SPEED", "ACCEL", "HANDLING", "GRIP", "WEIGHT", "DRIFT", "BOOST" };
   float val[7] = { vd->top, vd->accel, vd->turn, vd->grip, vd->mass, vd->drift, vd->boost };
   cw_rect sr = SHIFT(l.stats);
-  float rowh = sr.h / 7;
-  for (int k = 0; k < 7; k++) {
+  float rowh = sr.h / 7, ssz = fmaxf(rowh * 0.74f, body_px());
+  /* the bars only where their names fit a row at the size they draw at (a large Text size in a split panel leaves the
+   * name and the blurb) */
+  bool stats = cw_text_drawn_size(U.f_small, ssz) * 0.82f <= rowh;
+  for (int k = 0; k < 7 && stats; k++) {
     float f = 0.12f + 0.88f * clamp01((val[k] - U.stat_lo[k]) / (U.stat_hi[k] - U.stat_lo[k]));
     float cy = sr.y + (float)k * rowh + rowh * 0.5f;
     float lw = sr.w * 0.38f;
-    tx_o(U.f_small, STAT[k], sr.x, cy, fmaxf(rowh * 0.74f, 11), CREAM, (txopt){ .align = CW_ALIGN_LEFT, .outline = 0.01f, .no_shadow = true });
+    tx_o(U.f_small, STAT[k], sr.x, cy, ssz, CREAM, (txopt){ .align = CW_ALIGN_LEFT, .outline = 0.01f, .no_shadow = true });
     cw_color c = f < 0.5f ? mix(RUST, MUSTARD, f * 2) : mix(MUSTARD, LIME, (f - 0.5f) * 2);
     stat_bar(cw_rect_make(sr.x + lw, cy - rowh * 0.27f, sr.w - lw, rowh * 0.54f), f, c, sp);
   }
   cw_rect br = SHIFT(l.blurb);
-  tx_para(U.f_hud, vd->blurb, br, fmaxf(13 * sp, 11), alpha(CREAM, 0.92f), CW_ALIGN_LEFT);
+  if (!stats) br.h += br.y - sr.y, br.y = sr.y; /* the blurb takes the bars' room */
+  /* whole lines only, in its box */
+  float bsz = fmaxf(13 * sp, body_px()), blh = cw_text_drawn_size(U.f_hud, bsz) * 1.08f * 1.2f;
+  cw_r2d_push_clip(cw_rect_make(br.x - 4 * sp, br.y - 2 * sp, br.w + 8 * sp, fmaxf(blh, floorf(br.h / blh) * blh) + 4 * sp));
+  tx_para(U.f_hud, vd->blurb, br, bsz, alpha(CREAM, 0.92f), CW_ALIGN_LEFT);
+  cw_r2d_pop_clip();
   /* paint */
   for (int c = 0; c < N_COLOURS; c++) {
     cw_rect q = SHIFT(l.sw[c]);
@@ -1300,12 +1424,18 @@ static void draw_option_row(cw_rect r, const char *label, const char *value, boo
   r.x += (1 - ease_back(ap)) * 100 * s;
   slab(r, 10 * s, sel ? alpha(MUSTARD, 0.95f) : PANEL, s * 0.8f);
   cw_color tc = sel ? INK : CREAM;
-  tx_o(U.f_hud, label, r.x + 22 * s, r.y + r.h * 0.5f, fminf(r.h * 0.5f, 21 * s), tc, (txopt){ .align = CW_ALIGN_LEFT, .outline = sel ? 0.01f : 0, .no_shadow = sel });
-  float sz = fminf(r.h * 0.5f, 24 * s);
-  float vx = r.x + r.w * 0.66f;
+  /* the value between its arrows, the name in the room left of them: each fitted to its room (never under the body
+   * size), so a large Text size keeps them apart */
+  float sz = fminf(r.h * 0.5f, 24 * s), vw = tx_width(U.f_title, value, sz), vmax = r.w * 0.42f - 60 * s;
+  if (vw > vmax && vw > 0) sz = fmaxf(sz * vmax / vw, fminf(sz, body_px() / cw_text_scale())), vw = tx_width(U.f_title, value, sz);
+  float half = fmaxf(vw * 0.5f + 20 * s, 46 * s);
+  float vx = fminf(r.x + r.w * 0.66f, r.x + r.w - 14 * s - half);
+  float lsz = fminf(r.h * 0.5f, 21 * s), lroom = vx - half - 14 * s - (r.x + 22 * s), lw = tx_width(U.f_hud, label, lsz);
+  if (lw > lroom && lw > 0) lsz = fmaxf(lsz * lroom / lw, fminf(lsz, body_px() / cw_text_scale()));
+  tx_o(U.f_hud, label, r.x + 22 * s, r.y + r.h * 0.5f, lsz, tc, (txopt){ .align = CW_ALIGN_LEFT, .outline = sel ? 0.01f : 0, .no_shadow = sel });
   tx_o(U.f_title, value, vx, r.y + r.h * 0.5f, sz, tc, (txopt){ .align = CW_ALIGN_CENTER, .outline = sel ? 0.01f : 0, .no_shadow = sel });
-  arrow(cw_v2(r.x + r.w * 0.66f - fmaxf(tx_width(U.f_title, value, sz) * 0.5f + 20 * s, 46 * s), r.y + r.h * 0.5f), 8 * s, -1, sel ? INK : MUSTARD, s);
-  arrow(cw_v2(r.x + r.w * 0.66f + fmaxf(tx_width(U.f_title, value, sz) * 0.5f + 20 * s, 46 * s), r.y + r.h * 0.5f), 8 * s, 1, sel ? INK : MUSTARD, s);
+  arrow(cw_v2(vx - half, r.y + r.h * 0.5f), 8 * s, -1, sel ? INK : MUSTARD, s);
+  arrow(cw_v2(vx + half, r.y + r.h * 0.5f), 8 * s, 1, sel ? INK : MUSTARD, s);
 }
 
 static void draw_option_row_fwd(cw_rect r, const char *label, const char *value, bool sel, float s, float ap) { draw_option_row(r, label, value, sel, s, ap); }
@@ -1328,10 +1458,15 @@ static void draw_map(float W, float H, float s) {
   if (U.mm[U.map].ok) mm_draw(&U.mm[U.map], big, 14 * s, s, 4.4f * s + 0.8f, true);
   cw_r2d_round_rect_lines(big, 10 * s, 2 * s, 5, INK);
   float tx0 = big.x + big.w + 16 * s, tw = d.x + d.w - tx0 - 14 * s;
+  cw_r2d_push_clip(cw_rect_make(d.x, d.y, d.w, d.h)); /* the name stays in the box */
   tx_fit(U.f_title, md->name, tx0, d.y + 28 * s, 28 * s, tw, MUSTARD, CW_ALIGN_LEFT);
-  float bh = tx_para(U.f_hud, md->blurb, cw_rect_make(tx0, d.y + 50 * s, tw, 70 * s), 17 * s, CREAM, CW_ALIGN_LEFT);
+  cw_r2d_pop_clip();
+  float ny = d.y + fmaxf(50 * s, 14 * s + cw_text_drawn_size(U.f_title, 28 * s) * 1.1f); /* under the name by its size */
+  cw_r2d_push_clip(cw_rect_make(tx0 - 4 * s, ny - 4 * s, tw + 8 * s, d.y + d.h - ny)); /* the blurb stays in the box */
+  float bh = tx_para(U.f_hud, md->blurb, cw_rect_make(tx0, ny, tw, 70 * s), 17 * s, CREAM, CW_ALIGN_LEFT);
+  cw_r2d_pop_clip();
   const mmap_t *mm = &U.mm[U.map];
-  float iy = d.y + 50 * s + bh + 16 * s;
+  float iy = ny + bh + 16 * s;
   char b[96];
   if (mm->ok && iy < d.y + d.h - 24 * s) {
     snprintf(b, sizeof b, "%.2f km per lap", mm->length / 1000.0f);
@@ -1394,15 +1529,20 @@ static void draw_slider(cw_rect r, int v, float s, bool sel) {
 static void draw_options(float W, float H, float s) {
   backdrop(W, H, s, 0.85f);
   header(W, H, s, "OPTIONS", NULL);
-  cw_rect p = opt_panel(W, H);
+  opt_hint_y = hint_top(W, H, s, opt_hint());
+  opt_lay L = opt_layout(W, H);
+  cw_rect p = L.panel;
   float ap = ease_out((float)U.mt / 14.0f);
   p.y += (1 - ap) * 40 * s;
   slab(p, 0, rgba(0.09f, 0.065f, 0.08f, 0.92f), s);
-  for (int i = 0; i < OI_COUNT; i++) {
+  /* more rows above or below: a mark at the panel's edge */
+  if (L.first > 0) tri(cw_v2(p.x + p.w * 0.5f, p.y + 6 * s), 7 * s, -CW_PI * 0.5f, MUSTARD);
+  if (L.first + L.shown < OI_COUNT) tri(cw_v2(p.x + p.w * 0.5f, p.y + p.h - 6 * s), 7 * s, CW_PI * 0.5f, MUSTARD);
+  for (int i = L.first; i < L.first + L.shown; i++) {
     cw_rect r = opt_row(i, W, H);
     r.y += (1 - ap) * 40 * s;
     bool sel = U.opt_sel == i;
-    float a = clamp01(((float)U.mt - (float)i * 3) / 12.0f);
+    float a = clamp01(((float)U.mt - (float)(i - L.first) * 3) / 12.0f);
     if (a <= 0) continue;
     slab(r, 10 * s, sel ? alpha(MUSTARD, 0.95f) : PANEL, s * 0.8f);
     cw_color tc = sel ? INK : CREAM;
@@ -1412,9 +1552,14 @@ static void draw_options(float W, float H, float s) {
       bool on = i == OI_VOICE ? SAVE.voice_off == 0 : (U.assist & (i == OI_ASSIST_STEER ? 1 : 2)) != 0;
       o.align = CW_ALIGN_RIGHT;
       tx_o(U.f_title, on ? "ON" : "OFF", r.x + r.w - 24 * s, r.y + r.h * 0.5f, 20 * s, sel ? INK : (on ? LIME : DIM), o);
+    } else if (i == OI_TEXT || i == OI_TEXT_BG) {
+      char b[32];
+      opt_value(i, b, sizeof b);
+      o.align = CW_ALIGN_RIGHT;
+      tx_o(U.f_title, b, r.x + r.w - 24 * s, r.y + r.h * 0.5f, 20 * s, sel ? INK : MUSTARD, o);
     } else if (i == OI_GFX) {
       char b[64];
-      snprintf(b, sizeof b, "%s  -  %s", cw_quality_label(), cw_render_res_label());
+      opt_value(i, b, sizeof b);
       o.align = CW_ALIGN_RIGHT;
       tx_o(U.f_hud, b, r.x + r.w - 40 * s, r.y + r.h * 0.5f, 20 * s, tc, o);
       tri(cw_v2(r.x + r.w - 22 * s, r.y + r.h * 0.5f), 9 * s, 0, sel ? INK : MUSTARD);
@@ -1429,14 +1574,14 @@ static void draw_options(float W, float H, float s) {
       tri(cw_v2(r.x + r.w - 22 * s, r.y + r.h * 0.5f), 9 * s, 0, sel ? INK : MUSTARD);
     }
   }
-  hint_line(W, H, s, dev_hint("{m_left|m_right|m_up|m_down} move and adjust   {m_ok} choose   {back} back", "{m_left|m_right|m_up|m_down} move and adjust   {m_ok} choose   {back} back", "Click to choose, drag the bars", "Tap to choose, drag the bars"));
+  hint_line(W, H, s, opt_hint());
   /* what an assist does, for the row picked */
   if (U.opt_sel == OI_ASSIST_STEER || U.opt_sel == OI_ASSIST_GAS || U.opt_sel == OI_VOICE) {
     const char *d = U.opt_sel == OI_VOICE ? "The voice that calls the race: the countdown, your place, the hits, the big air."
                     : U.opt_sel == OI_ASSIST_STEER ? "A gentle pull back to the road when a wall is close. Costs no speed."
                                                    : "The throttle stays down unless you brake. Costs no speed; the rocket start is still yours.";
     cw_rect pp = opt_panel(W, H);
-    tx_fit(U.f_small, d, W * 0.5f, pp.y + pp.h + 16 * s, 17 * s, W * 0.92f, alpha(CREAM, 0.9f), CW_ALIGN_CENTER);
+    tx_fit(U.f_small, d, W * 0.5f, pp.y + pp.h + 8 * s + cw_text_drawn_size(U.f_small, 17 * s) * 0.65f, 17 * s, W * 0.96f, alpha(CREAM, 0.9f), CW_ALIGN_CENTER);
   }
 }
 
@@ -1541,18 +1686,18 @@ static void draw_pause(float W, float H, float s) {
     if (S->amode == AM_CTF) snprintf(p, sizeof p, "Capture the Flag in %s   %d:%02d left   RED %d - %d BLUE", S->md->name, left / 60, left % 60, S->team_score[0], S->team_score[1]);
     else if (S->amode == AM_KOTM) snprintf(p, sizeof p, "King of the Mountain in %s   %d:%02d left", S->md->name, left / 60, left % 60);
     else snprintf(p, sizeof p, "Battle in %s   %d:%02d left   %d of %d still in", S->md->name, left / 60, left % 60, S->alive, S->nkarts);
-    tx_fit(U.f_hud, p, W * 0.5f, b.y + b.h + 24 * s, 20 * s, W * 0.9f, CREAM, CW_ALIGN_CENTER);
+    tx_fit(U.f_hud, p, W * 0.5f, H * 0.1f + pause_line1(s), 20 * s, W * 0.96f, CREAM, CW_ALIGN_CENTER);
     if (game_views() > 1) {
       snprintf(p, sizeof p, "Player %d paused", U.pauser + 1);
-      tx(U.f_hud, p, W * 0.5f, b.y + b.h + 50 * s, 18 * s, DIM, CW_ALIGN_CENTER);
+      tx(U.f_hud, p, W * 0.5f, H * 0.1f + pause_line2(s), 18 * s, DIM, CW_ALIGN_CENTER);
     }
   } else if (game_views() > 1) {
     char p[32];
     snprintf(p, sizeof p, "Player %d paused", U.pauser + 1);
-    tx(U.f_hud, p, W * 0.5f, b.y + b.h + 24 * s, 20 * s, CREAM, CW_ALIGN_CENTER);
+    tx(U.f_hud, p, W * 0.5f, H * 0.1f + pause_line1(s), 20 * s, CREAM, CW_ALIGN_CENTER);
   }
   for (int i = 0; i < 5; i++)
-    draw_button(list_rect(i, W, H, is_portrait(W, H) ? 0.3f : 0.3f), i == 1 && game_is_trial() ? "RETRY" : i == 1 && game_sim()->battle ? "RESTART BATTLE" : PAUSE_ITEMS[i], U.sel == i, true, s,
+    draw_button(pause_rect_i(i, W, H), i == 1 && game_is_trial() ? "RETRY" : i == 1 && game_sim()->battle ? "RESTART BATTLE" : PAUSE_ITEMS[i], U.sel == i, true, s,
                 clamp01(((float)U.mt - (float)i * 3) / 14.0f));
   hint_line(W, H, s, dev_hint("{m_up|m_down} move   {m_ok} choose   {start} resume", "{m_up|m_down} move   {m_ok} choose   {start} resume", "Click to choose", "Tap to choose"));
 }
@@ -1627,7 +1772,7 @@ static void draw_results(float W, float H, float s) {
     else tab = cw_rect_make(gx - (1 - panel) * 500 * s, 108 * s, W * 0.56f, H - 108 * s - 28 * s);
     float pa = panel;
     slab(tab, 0, rgba(0.09f, 0.065f, 0.08f, 0.92f * pa), s);
-    bool wide_cols = tab.w > 520 * s;
+    bool wide_cols = tab.w > 520 * s && cw_text_scale() < 1.4f; /* the hits and tricks columns: not at a large Text size */
     float rowh = por ? 30 * s : fminf(36 * s, (tab.h - 100 * s) / 8.0f);
     float cx_rank = tab.x + 22 * s, cx_name = tab.x + 48 * s;
     float cx_time = tab.x + tab.w * (wide_cols ? 0.47f : 0.56f), cx_best = tab.x + tab.w * (wide_cols ? 0.645f : 0.76f);
@@ -1635,8 +1780,9 @@ static void draw_results(float W, float H, float s) {
     float hy = tab.y + 22 * s;
     float hsz = 15 * s;
     tx(U.f_small, "DRIVER", cx_name, hy, hsz, DIM, CW_ALIGN_LEFT);
-    tx(U.f_small, "TIME", cx_time, hy, hsz, DIM, CW_ALIGN_CENTER);
-    tx(U.f_small, "BEST LAP", cx_best, hy, hsz, DIM, CW_ALIGN_CENTER);
+    float colw = cx_best - cx_time - 10 * s; /* a column's room: its text is fitted to it (never under the body size) */
+    tx_fit(U.f_small, "TIME", cx_time, hy, hsz, colw, DIM, CW_ALIGN_CENTER);
+    tx_fit(U.f_small, "BEST LAP", cx_best, hy, hsz, colw, DIM, CW_ALIGN_CENTER);
     if (wide_cols) {
       tx(U.f_small, "HITS", cx_hits, hy, hsz, DIM, CW_ALIGN_CENTER);
       tx(U.f_small, "TRICKS", cx_tr, hy, hsz, DIM, CW_ALIGN_CENTER);
@@ -1645,7 +1791,7 @@ static void draw_results(float W, float H, float s) {
     if (U.cup.on) {
       char cb[40];
       snprintf(cb, sizeof cb, "%s  -  RACE %d OF %d", CUPS[U.cup.cup].name, U.cup.race + 1, cup_nraces());
-      tx(U.f_title, cb, tab.x + 24 * s, tab.y + tab.h - 40 * s, 13 * s, alpha(MUSTARD, pa), CW_ALIGN_LEFT);
+      tx(U.f_title, cb, tab.x + 24 * s, tab.y + tab.h - 40 * s, 14 * s, alpha(MUSTARD, pa), CW_ALIGN_LEFT);
     }
     for (int i = 0; i < U.res_n; i++) {
       const result_row *r = &U.res[i];
@@ -1673,9 +1819,9 @@ static void draw_results(float W, float H, float s) {
       }
       if (r->finished) fmt_time(b, sizeof b, r->time);
       else snprintf(b, sizeof b, "DNF");
-      tx(U.f_hud, b, cx_time, cy, rowh * 0.46f, alpha(r->finished ? CREAM : DIM, ra), CW_ALIGN_CENTER);
+      tx_fit(U.f_hud, b, cx_time, cy, rowh * 0.46f, colw, alpha(r->finished ? CREAM : DIM, ra), CW_ALIGN_CENTER);
       fmt_time(b, sizeof b, r->best);
-      tx(U.f_hud, b, cx_best, cy, rowh * 0.46f, alpha(r->record ? LIME : CREAM, ra), CW_ALIGN_CENTER);
+      tx_fit(U.f_hud, b, cx_best, cy, rowh * 0.46f, colw, alpha(r->record ? LIME : CREAM, ra), CW_ALIGN_CENTER);
       if (r->record) {
         /* a star for a new record */
         cw_vec2 sc = cw_v2(cx_best + tx_width(U.f_hud, b, rowh * 0.46f) * 0.5f + 12 * s, cy);

@@ -1,5 +1,6 @@
-// racer's save data: a version 1 save (76 bytes, before the time trial, the cups and the assists) must load under
-// version 2 with everything it held kept and the new fields empty, and a damaged one must start fresh.
+// racer's save data: a version 1 save (76 bytes, before the time trial, the cups and the assists) and a version 2 save
+// (before the text settings) must load under version 3 with everything they held kept and the new fields empty (the
+// text settings at their defaults), a damaged one must start fresh, and a version 3 save keeps its text settings.
 //   node tests/racer-save-migration.mjs [path/to/racer]
 // It runs the game's real save loader (racer is started for a few frames with CW_SAVE_FILE and its debug state read).
 import assert from 'node:assert/strict';
@@ -42,7 +43,7 @@ const num = (v) => (Array.isArray(v) ? v[0] : v);
 
 // a good version 1 save is carried over
 let st = run('v1', v1());
-assert.equal(num(st['save.version']), 2, 'migrated to version 2');
+assert.equal(num(st['save.version']), 3, 'migrated to version 3');
 assert.equal(num(st['save.migrated']), 1, 'the migration ran');
 assert.equal(num(st['save.races']), 12, 'races kept');
 assert.equal(num(st['save.best_lap0']), 6543, 'a best lap kept');
@@ -52,13 +53,42 @@ console.log('PASS version 1 save carried over: races, best laps kept, trial time
 // a damaged version 1 (the checksum is off) starts fresh, never half loaded
 const bad = v1(); bad[17] ^= 3;
 st = run('v1-bad', bad);
-assert.equal(num(st['save.version']), 2);
+assert.equal(num(st['save.version']), 3);
 assert.equal(num(st['save.migrated']) || 0, 0, 'a damaged save is not carried over');
 assert.equal(num(st['save.races']), 0, 'fresh');
 console.log('PASS damaged version 1 save starts fresh');
 
 // no save at all
 st = run('empty', Buffer.alloc(0));
-assert.equal(num(st['save.version']), 2);
+assert.equal(num(st['save.version']), 3);
 assert.equal(num(st['save.races']), 0);
 console.log('PASS empty save starts fresh');
+
+// a version 2 save (the same layout; the text settings' bytes were padding): carried over, the text settings at their defaults
+const bytes = num(st['save.size']) * 4;
+const v2 = (ver, text, bg) => {
+  const b = Buffer.alloc(bytes);
+  b.writeUInt32LE(0x52435231, 0); b.writeUInt16LE(ver, 4); b.writeUInt16LE(bytes / 4, 6);
+  b[16] = 6; b[17] = 9; b[18] = 3; b[19] = 2; b[20] = 1; b[21] = 2;
+  b.writeUInt32LE(9, 68); b.writeUInt32LE(4, 72); // races, wins
+  b[30] = bg;   // text background (version 3; padding in version 2)
+  b[83] = text; // text size (version 3; padding in version 2)
+  let h = 2166136261;
+  for (const x of b.subarray(12)) h = Math.imul(h ^ x, 16777619) >>> 0;
+  b.writeUInt32LE((h ^ (ver | ((bytes / 4) << 16))) >>> 0, 8); // the size field counts 4 byte units since version 2
+  return b;
+};
+st = run('v2', v2(2, 0, 0));
+assert.equal(num(st['save.version']), 3, 'version 2 migrated to version 3');
+assert.equal(num(st['save.migrated']), 2, 'the version 2 migration ran');
+assert.equal(num(st['save.races']), 9, 'races kept');
+assert.equal(num(st['save.text']), 0, 'text size: the default');
+console.log('PASS version 2 save carried over: races kept, the text settings at their defaults');
+
+// a version 3 save keeps its text settings (the background Panel)
+st = run('v3', v2(3, 0, 2));
+assert.equal(num(st['save.version']), 3);
+assert.equal(num(st['save.migrated']) || 0, 0, 'no migration');
+assert.equal(num(st['save.races']), 9, 'races kept');
+assert.equal(num(st['save.text_bg']), 2, 'text background kept');
+console.log('PASS version 3 save keeps its text settings');

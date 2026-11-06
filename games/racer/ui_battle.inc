@@ -411,7 +411,8 @@ static void hud_b_balloons(const hv *g, const bhud *h) {
   snprintf(b, sizeof b, "%d", k->points);
   float pop = h->pts_t > 0 ? 1 + 0.5f * (1 - ease_back((float)h->pts_t / 14.0f)) : 1;
   tx_o(U.f_title, b, x + 168 * s, y + 38 * s, 40 * s * pop, h->pts_t > 0 ? LIME : MUSTARD, (txopt){ .align = CW_ALIGN_CENTER, .outline = 2 * s });
-  tx_o(U.f_small, k->points == 1 ? "POP" : "POPS", x + 168 * s, y + 70 * s, hpx(14, s, 10), CREAM, (txopt){ .align = CW_ALIGN_CENTER, .outline = 2 * s });
+  float py = fmaxf(y + 70 * s, y + 38 * s + 0.4f * (cw_text_drawn_size(U.f_title, 40 * s) + cw_text_drawn_size(U.f_small, hpx(14, s, 10))) + 3 * s);
+  tx_o(U.f_small, k->points == 1 ? "POP" : "POPS", x + 168 * s, py, hpx(14, s, 10), CREAM, (txopt){ .align = CW_ALIGN_CENTER, .outline = 2 * s });
 }
 
 /* top right: the clock and who is still in */
@@ -435,13 +436,14 @@ static void hud_b_clock(const hv *g) {
     int hs = (S->hill_left + TICK_HZ - 1) / TICK_HZ;
     snprintf(b, sizeof b, "HILL MOVES %d:%02d", hs / 60, hs % 60);
   } else snprintf(b, sizeof b, "%d OF %d IN", S->alive, S->nkarts);
-  tx_o(U.f_hud, b, x + w - 4 * s, y + 70 * s, 18 * s, CREAM, (txopt){ .align = CW_ALIGN_RIGHT, .outline = 2 * s });
+  float ly2 = fmaxf(y + 70 * s, y + 31 * s + 0.4f * (cw_text_drawn_size(U.f_title, 38 * s) + cw_text_drawn_size(U.f_hud, hpx(18, s, 0))) + 4 * s);
+  tx_o(U.f_hud, b, x + w - 4 * s, ly2, hpx(18, s, 0), CREAM, (txopt){ .align = CW_ALIGN_RIGHT, .outline = 2 * s });
 }
 
 /* the points table: everyone in standing order, their balloons as dots */
 static void hud_b_table(const hv *g, float x, float y, int rows_max) {
   const sim *S = g->S;
-  float s = g->s, rh = 24 * s, w = 196 * s;
+  float s = g->s, rh = fmaxf(24 * s, cw_text_drawn_size(U.f_hud, hpx(14, s, 0)) + 9 * s), w = 196 * s; /* rows as tall as their text */
   int n = S->nkarts < rows_max ? S->nkarts : rows_max;
   for (int r = 0; r < n; r++) {
     int ki = S->order[r];
@@ -454,17 +456,17 @@ static void hud_b_table(const hv *g, float x, float y, int rows_max) {
     char b[24];
     cw_r2d_circle(cw_v2(rr.x + 16 * s, rr.y + rr.h * 0.5f), 5.4f * s, 12, INK);
     cw_r2d_circle(cw_v2(rr.x + 16 * s, rr.y + rr.h * 0.5f), 4.2f * s, 12, kart_col(k->colour));
-    tx_o(U.f_hud, kart_name(S, ki, b, sizeof b, false), rr.x + 28 * s, rr.y + rr.h * 0.5f, 14 * s, ink, (txopt){ .align = CW_ALIGN_LEFT, .outline = me ? 0.01f : 0, .no_shadow = true });
+    tx_o(U.f_hud, kart_name(S, ki, b, sizeof b, false), rr.x + 28 * s, rr.y + rr.h * 0.5f, hpx(14, s, 0), ink, (txopt){ .align = CW_ALIGN_LEFT, .outline = me ? 0.01f : 0, .no_shadow = true });
     if (S->amode == AM_CTF) {
       if (k->carry >= 0) map_flag(cw_v2(rr.x + 118 * s, rr.y + rr.h * 0.5f + 7 * s), 14 * s, team_col(k->carry), 1);
     } else if (S->amode == AM_KOTM) {
-      if (S->hill_holder == ki) tx_o(U.f_small, "KING", rr.x + 128 * s, rr.y + rr.h * 0.5f, 13 * s, me ? INK : MUSTARD, (txopt){ .align = CW_ALIGN_CENTER, .outline = 0.01f, .no_shadow = true });
-    } else if (k->out) tx_o(U.f_small, "OUT", rr.x + 128 * s, rr.y + rr.h * 0.5f, 13 * s, me ? INK : RED, (txopt){ .align = CW_ALIGN_CENTER, .outline = 0.01f, .no_shadow = true });
+      if (S->hill_holder == ki) tx_o(U.f_small, "KING", rr.x + 128 * s, rr.y + rr.h * 0.5f, hpx(13, s, 0), me ? INK : MUSTARD, (txopt){ .align = CW_ALIGN_CENTER, .outline = 0.01f, .no_shadow = true });
+    } else if (k->out) tx_o(U.f_small, "OUT", rr.x + 128 * s, rr.y + rr.h * 0.5f, hpx(13, s, 0), me ? INK : RED, (txopt){ .align = CW_ALIGN_CENTER, .outline = 0.01f, .no_shadow = true });
     else
       for (int bi = 0; bi < BALLOONS; bi++)
         cw_r2d_circle(cw_v2(rr.x + 114 * s + (float)bi * 11 * s, rr.y + rr.h * 0.5f), 3.6f * s, 10, bi < k->balloons ? (me ? INK : kart_col(k->colour)) : alpha(DIM, 0.35f));
     snprintf(b, sizeof b, "%d", k->points);
-    tx_o(U.f_title, b, rr.x + rr.w - 14 * s, rr.y + rr.h * 0.5f, 14 * s, me ? INK : MUSTARD, (txopt){ .align = CW_ALIGN_RIGHT, .outline = 0.01f, .no_shadow = true });
+    tx_o(U.f_title, b, rr.x + rr.w - 14 * s, rr.y + rr.h * 0.5f, hpx(14, s, 0), me ? INK : MUSTARD, (txopt){ .align = CW_ALIGN_RIGHT, .outline = 0.01f, .no_shadow = true });
   }
 }
 
@@ -495,7 +497,8 @@ static void hud_b_stamps(const hv *g, const bhud *h) {
     else snprintf(b, sizeof b, "POPPED!");
     tx_o(U.f_title, b, cx, g->y + g->h * 0.42f - t * 10 * s, 28 * s, alpha(RED, a), (txopt){ .align = CW_ALIGN_CENTER, .outline = 2 * s });
     snprintf(b, sizeof b, "%d BALLOON%s LEFT", g->k->balloons, g->k->balloons == 1 ? "" : "S");
-    tx_o(U.f_hud, b, cx, g->y + g->h * 0.42f + 30 * s - t * 10 * s, 20 * s, alpha(CREAM, a), (txopt){ .align = CW_ALIGN_CENTER });
+    float dy = fmaxf(30 * s, 0.4f * (cw_text_drawn_size(U.f_title, 28 * s) + cw_text_drawn_size(U.f_hud, hpx(20, s, 0))) + 6 * s); /* under the line by their sizes */
+    tx_o(U.f_hud, b, cx, g->y + g->h * 0.42f + dy - t * 10 * s, hpx(20, s, 0), alpha(CREAM, a), (txopt){ .align = CW_ALIGN_CENTER });
   }
 }
 
@@ -514,7 +517,8 @@ static void hud_b_feed(const hv *g) {
     if (by >= 0) snprintf(b, sizeof b, "%s knocked out %s", kart_name(S, by, n2, sizeof n2, false), kart_name(S, vi, n1, sizeof n1, false));
     else snprintf(b, sizeof b, "%s is out", kart_name(S, vi, n1, sizeof n1, false));
     float fs = hpx(17, s, 11), w = tx_width(U.f_hud, b, fs) + 40 * s;
-    cw_rect r = cw_rect_make(cx - w * 0.5f, y + (float)shown * 28 * s - (1 - in) * 20 * s, w, 24 * s);
+    float rh = fmaxf(24 * s, cw_text_drawn_size(U.f_hud, fs) + 8 * s); /* the strip as tall as its text */
+    cw_rect r = cw_rect_make(cx - w * 0.5f, y + (float)shown * (rh + 4 * s) - (1 - in) * 20 * s, w, rh);
     para(r, 8 * s, rgba(0.1f, 0.06f, 0.08f, 0.85f * a));
     cw_r2d_circle(cw_v2(r.x + 14 * s, r.y + r.h * 0.5f), 5 * s, 10, alpha(kart_col(S->k[vi].colour), a));
     tx(U.f_hud, b, cx + 6 * s, r.y + r.h * 0.5f, fs, alpha(CREAM, a), CW_ALIGN_CENTER);
@@ -1351,16 +1355,17 @@ static void draw_battle_results(float W, float H, float s) {
     slab(r, 18 * s, rgba(0.1f, 0.07f, 0.09f, 0.94f), s);
     para(cw_rect_make(r.x + 6 * s, r.y + r.h - 9 * s, r.w - 12 * s, 6 * s), 0, band);
     tx_fit(U.f_title, b, r.x + r.w * 0.5f + 8 * s, r.y + 32 * s, 42 * s, r.w - 80 * s, mode_teams(S) && S->win_team >= 0 ? band : PLACE_COL[0], CW_ALIGN_CENTER);
-    tx(U.f_hud, why, W * 0.5f, r.y + r.h + 16 * s, 18 * s, alpha(CREAM, head), CW_ALIGN_CENTER);
+    tx_fit(U.f_hud, why, W * 0.5f, r.y + r.h + fmaxf(16 * s, 4 * s + 0.5f * cw_text_drawn_size(U.f_hud, 18 * s)), 18 * s, W * 0.96f, alpha(CREAM, head), CW_ALIGN_CENTER);
   }
   if (panel <= 0) {
     tx(U.f_hud, dev_hint("{m_ok} to see the results", "{m_ok} to see the results", "Click to see the results", "Tap to see the results"), W * 0.5f, H - 50 * s, 22 * s, alpha(CREAM, 0.5f + 0.4f * cw_sin(U.time * 5)),
        CW_ALIGN_CENTER);
     return;
   }
-  float gx = W * 0.025f;
+  float gx = W * 0.025f, dw = cw_text_drawn_size(U.f_hud, 18 * s);
+  float tab_y = fmaxf(124 * s, 92 * s + fmaxf(16 * s, 4 * s + 0.5f * dw) + 0.5f * dw + 6 * s); /* under the line that says why */
   cw_rect tab = por ? cw_rect_make(gx, 130 * s + (1 - panel) * 200 * s, W - 2 * gx, 8 * 32 * s + 50 * s)
-                    : cw_rect_make(gx - (1 - panel) * 500 * s, 124 * s, W * 0.56f, H - 124 * s - 100 * s);
+                    : cw_rect_make(gx - (1 - panel) * 500 * s, tab_y, W * 0.56f, H - tab_y - 100 * s);
   slab(tab, 0, rgba(0.09f, 0.065f, 0.08f, 0.92f * panel), s);
   float rowh = por ? 32 * s : fminf(36 * s, (tab.h - 50 * s) / 8.0f);
   float cx_name = tab.x + 60 * s, cx_bal = tab.x + tab.w * 0.52f, cx_stat = tab.x + tab.w * 0.74f, cx_pts = tab.x + tab.w - 22 * s;

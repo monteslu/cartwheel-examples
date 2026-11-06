@@ -23,7 +23,7 @@
  *                        trophy screen (RACER_UI_CUP=0|1, RACER_UI_PLACE=1..8 where the human finished) and the assists page
  *
  * Modes (ui_modes.inc): RACE, TIME TRIAL (ghost, medals) and CUP (four races, points, trophies, unlocks); speed class and
- * assists are in the race setup (map select, cup select) and the options page. The save data is version 2 (see save_data). */
+ * assists are in the race setup (map select, cup select) and the options page. The save data is version 3 (see save_data). */
 #include <math.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -108,7 +108,7 @@ typedef struct result_row {
 } result_row;
 
 #define SAVE_MAGIC 0x52435231u /* 'RCR1' */
-#define SAVE_VERSION 2
+#define SAVE_VERSION 3
 #define SAVE_V1_SIZE 76        /* the bytes a version 1 save held */
 #define NCUPS 2
 typedef struct save_data {
@@ -119,18 +119,19 @@ typedef struct save_data {
   uint8_t music, sfx;          /* 0..10 */
   uint8_t laps, skill, items, map;
   uint8_t veh[MAXV], col[MAXV];
-  uint8_t pad[4];
+  uint8_t text_bg, pad[3];    /* text_bg (version 3): Text background (cw_text_backdrop: Off, Outline, Panel); a pad byte before */
   uint32_t best_lap_cs[NMAPS]; /* centiseconds, 0 = none yet */
   uint32_t races, wins;
   /* version 2: everything above is a version 1 save, which loads with these empty */
   uint8_t speed_class, assist, ghost_on, cup_pick; /* the setup last used: class, assists (1 steering, 2 auto accelerate), the ghost shown, the cup picked */
   uint8_t cup_best[NCUPS];     /* the best trophy of each cup: 0 none, 1 bronze, 2 silver, 3 gold (cup 2 is open once cup 1 has one) */
   uint8_t voice_off;           /* the announcer: 0 on (what every older save holds in this byte), 1 off */
-  uint8_t pad2;
+  uint8_t text_scale;          /* version 3: Text size (cw_text_scale_saved, 0 = the default); a pad byte before */
   uint32_t trial_cs[NMAPS];    /* the best time trial per map, centiseconds, 0 = none yet */
   ghost_saved ghost[NMAPS];    /* the run behind it: 24 KB a map at most */
 } save_data;
 _Static_assert(offsetof(save_data, wins) + 4 == SAVE_V1_SIZE, "a version 1 save was 76 bytes");
+_Static_assert(offsetof(save_data, text_bg) == 30 && offsetof(save_data, text_scale) == 83, "the text settings sit in version 2's pad bytes");
 static save_data SAVE;
 
 static struct {
@@ -188,7 +189,7 @@ static struct {
   } bt;
   bool auto_cup;                   /* dev/gates: a cup that clicks through its own results and standings (the bot drives) */
   /* options */
-  int opt_sel, cfrom, rec_dummy, shake;
+  int opt_sel, opt_first, cfrom, rec_dummy, shake; /* opt_first: the options page's first row shown (it scrolls at a large Text size) */
   /* pause / results */
   int pauser;
   int res_ticks;
@@ -402,10 +403,12 @@ static void tx_o(cw_font f, const char *s, float x, float cy, float size, cw_col
   cw_r2d_text(f, s, cw_v2(x, cy + 0.35f * size - m.ascent), &st);
 }
 static void tx(cw_font f, const char *s, float x, float cy, float size, cw_color c, cw_text_align al) { tx_o(f, s, x, cy, size, c, (txopt){ .align = al }); }
-/* shrunk so it fits maxw (never grown) */
+/* the body text floor in canvas units: 14 at 540 lines, 2.6% of the canvas height (the engine's is 2.4%) */
+static float body_px(void) { return 14.0f * cw_r2d_canvas_size().y / 540.0f; }
+/* shrunk so it fits maxw (never grown, and never under the body text floor at the player's Text size) */
 static void tx_fit(cw_font f, const char *s, float x, float cy, float size, float maxw, cw_color c, cw_text_align al) {
   float w = tx_width(f, s, size);
-  if (w > maxw && w > 0) size *= maxw / w;
+  if (w > maxw && w > 0) size = fmaxf(size * maxw / w, fminf(size, body_px() / cw_text_scale()));
   tx(f, s, x, cy, size, c, al);
 }
 /* wrapped text in a box; returns the height used. Plain (no outline) so a paragraph stays calm. */
@@ -517,6 +520,7 @@ static void save_write(void) {
   SAVE.laps = (uint8_t)U.laps, SAVE.skill = (uint8_t)U.skill, SAVE.items = (uint8_t)U.items, SAVE.map = (uint8_t)U.map;
   SAVE.speed_class = (uint8_t)U.cls, SAVE.assist = (uint8_t)U.assist, SAVE.ghost_on = (uint8_t)U.ghost_on, SAVE.cup_pick = (uint8_t)U.cup_sel;
   for (int i = 0; i < MAXV; i++) SAVE.veh[i] = (uint8_t)U.veh[i], SAVE.col[i] = (uint8_t)U.col[i];
+  SAVE.text_scale = cw_text_scale_saved(), SAVE.text_bg = (uint8_t)cw_text_backdrop_get();
   SAVE.checksum = sum_of();
   cw_save_commit();
 }
@@ -531,7 +535,7 @@ static void save_reset(void) {
   for (int i = 0; i < MAXV; i++) SAVE.veh[i] = (uint8_t)((i * 2 + i / 3) % NVEH), SAVE.col[i] = (uint8_t)i;
   SAVE.checksum = sum_of();
 }
-static int save_migrated; /* debug: the save loaded was a version 1 and was carried over */
+static int save_migrated; /* debug: the save loaded was an older version and was carried over (1: version 1, 2: version 2) */
 static void save_check(void) {
   if (SAVE.magic == SAVE_MAGIC && SAVE.version == 1 && SAVE.size == SAVE_V1_SIZE && SAVE.checksum == sum_n(SAVE_V1_SIZE, 1u | (uint32_t)SAVE_V1_SIZE << 16)) {
     /* a version 1 save: everything it held stays (best laps, settings, the last race's choices); the new fields start empty */
@@ -543,6 +547,13 @@ static void save_check(void) {
     save_migrated = 1;
     cw_info("racer: save data carried over from version 1");
   }
+  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 2 && SAVE.size == save_size_field() && SAVE.checksum == sum_n(sizeof SAVE, 2u | (uint32_t)SAVE.size << 16)) {
+    /* a version 2 save: the same layout; the text settings were pad bytes (zero), so they load as the defaults */
+    SAVE.version = SAVE_VERSION;
+    SAVE.text_scale = 0, SAVE.text_bg = 0;
+    SAVE.checksum = sum_of();
+    save_migrated = 2;
+  }
   if (SAVE.magic != SAVE_MAGIC || SAVE.version != SAVE_VERSION || SAVE.size != save_size_field() || SAVE.checksum != sum_of()) {
     if (SAVE.magic) cw_warn("racer: save data rejected (magic %08x version %u), starting fresh", SAVE.magic, SAVE.version);
     save_reset();
@@ -551,6 +562,7 @@ static void save_check(void) {
   if (SAVE.assist > 3) SAVE.assist = 0;
   if (SAVE.ghost_on > 1) SAVE.ghost_on = 1;
   if (SAVE.voice_off > 1) SAVE.voice_off = 0;
+  if (SAVE.text_bg > CW_TEXT_BACKDROP_PANEL) SAVE.text_bg = 0;
   if (SAVE.cup_pick >= NCUPS) SAVE.cup_pick = 0;
   for (int c = 0; c < NCUPS; c++)
     if (SAVE.cup_best[c] > 3) SAVE.cup_best[c] = 0;
@@ -834,6 +846,8 @@ void ui_init(void) {
 
   save_check();
   cw_quality_restore(gfx_saved()); /* the player's graphics settings if they chose any; else Auto */
+  cw_text_scale_restore(SAVE.text_scale); /* the player's Text size and Text background */
+  cw_text_backdrop_set((cw_text_backdrop)SAVE.text_bg);
   cw_quality_auto(true, 17.5f); /* a steady 60: the default budget, 19 ms, sat happily at 53 fps on a Vega 8 */
   U.laps = SAVE.laps, U.skill = SAVE.skill, U.items = SAVE.items, U.map = SAVE.map;
   if (getenv("RACER_UI_ITEMS")) U.items = atoi(getenv("RACER_UI_ITEMS")) % 3; /* dev aid: the item-box setting the screens show */
@@ -865,6 +879,9 @@ void ui_init(void) {
   cw_debug_i32("ui.sel", &U.sel);
   cw_debug_field("save.version", &SAVE.version, CW_DBG_U16, 1);
   cw_debug_i32("save.migrated", &save_migrated);
+  cw_debug_field("save.size", &SAVE.size, CW_DBG_U16, 1);
+  cw_debug_field("save.text", &SAVE.text_scale, CW_DBG_U8, 1);
+  cw_debug_field("save.text_bg", &SAVE.text_bg, CW_DBG_U8, 1);
   cw_debug_field("save.races", &SAVE.races, CW_DBG_U32, 1);
   cw_debug_field("save.best_lap0", &SAVE.best_lap_cs[0], CW_DBG_U32, 1);
   cw_debug_field("save.trial_cs", SAVE.trial_cs, CW_DBG_U32, NMAPS);

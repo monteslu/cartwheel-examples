@@ -235,7 +235,7 @@ static void draw_trial_results(float W, float H, float s) {
   /* the buttons */
   static const char *const BL[3] = { "RETRY", "NEXT MAP", "MENU" };
   for (int i = 0; i < 3; i++) draw_button(res_button(i, W, H), BL[i], U.sel == i && t > 14, true, s * 0.8f, clamp01(((float)t - 14 - (float)i * 4) / 12.0f));
-  tx(U.f_small, dev_hint("{item} also retries", "{item} also retries", "", "ITEM also retries"), W * 0.5f, H - 11 * s, 14 * s, alpha(DIM, 0.85f), CW_ALIGN_CENTER);
+  tx(U.f_small, dev_hint("{item} also retries", "{item} also retries", "", "ITEM also retries"), W * 0.5f, H - 4 * s - cw_text_drawn_size(U.f_small, 14 * s) * 0.6f, 14 * s, alpha(DIM, 0.85f), CW_ALIGN_CENTER);
 }
 
 /* ── the trial's HUD panels ─────────────────────────────────────────── */
@@ -335,7 +335,7 @@ static void assist_tag(cw_rect row, float s) {
   cw_rect r = cw_rect_make(row.x + row.w * 0.27f, row.y + row.h * 0.5f - 9 * s, 64 * s, 18 * s);
   para(r, 6 * s, alpha(TEAL, a));
   para_lines(r, 6 * s, 1.4f * s, alpha(INK, a));
-  tx_o(U.f_small, "TRY ME", r.x + r.w * 0.5f + 3 * s, r.y + r.h * 0.5f, 11.5f * s, alpha(INK, a), (txopt){ .align = CW_ALIGN_CENTER, .outline = 0.01f, .no_shadow = true });
+  tx_o(U.f_small, "TRY ME", r.x + r.w * 0.5f + 3 * s, r.y + r.h * 0.5f, 14 * s, alpha(INK, a), (txopt){ .align = CW_ALIGN_CENTER, .outline = 0.01f, .no_shadow = true });
 }
 
 /* ── cups ───────────────────────────────────────────────────────────── */
@@ -669,7 +669,14 @@ static void draw_cup_card(const cuplay *l, int c, float s) {
   cw_r2d_rect_lines(cw_rect_make(q.x + 3 * s, q.y + 3 * s, q.w - 6 * s, q.h - 6 * s), 3 * s, sel ? (U.cup_focus == 0 ? MUSTARD : alpha(MUSTARD, 0.55f)) : rgba(0.4f, 0.36f, 0.36f, 0.6f));
   const cup_def *cd = &CUPS[c];
   tx_fit(U.f_title, cd->name, q.x + 22 * s, q.y + 30 * s, 28 * s, q.w * 0.6f, open ? MUSTARD : DIM, CW_ALIGN_LEFT);
-  tx_para(U.f_hud, cd->blurb, cw_rect_make(q.x + 22 * s, q.y + 52 * s, q.w - 120 * s, 44 * s), 15 * s, alpha(CREAM, open ? 1.0f : 0.6f), CW_ALIGN_LEFT);
+  { /* the blurb in whole lines that fit above the races (a large Text size shows fewer) */
+    float by = q.y + fmaxf(52 * s, 16 * s + cw_text_drawn_size(U.f_title, 28 * s)), lh = cw_text_drawn_size(U.f_hud, 15 * s) * 1.3f, room = q.y + 104 * s - by;
+    if (room >= lh) {
+      cw_r2d_push_clip(cw_rect_make(q.x + 18 * s, by - 2 * s, q.w - 110 * s, floorf(room / lh) * lh + 2 * s));
+      tx_para(U.f_hud, cd->blurb, cw_rect_make(q.x + 22 * s, by, q.w - 120 * s, room), 15 * s, alpha(CREAM, open ? 1.0f : 0.6f), CW_ALIGN_LEFT);
+      cw_r2d_pop_clip();
+    }
+  }
   /* the best trophy */
   if (open) draw_trophy(q.x + q.w - 52 * s, q.y + 100 * s, 22 * s, SAVE.cup_best[c], U.time);
   /* the four races */
@@ -683,7 +690,9 @@ static void draw_cup_card(const cuplay *l, int c, float s) {
     char nb[8];
     snprintf(nb, sizeof nb, "%d", i + 1);
     tx_o(U.f_title, nb, mr.x + 12 * s, mr.y + 12 * s, 14 * s, alpha(MUSTARD, open ? 1 : 0.5f), (txopt){ .align = CW_ALIGN_CENTER });
-    tx_fit(U.f_small, MAPS[m]->name, mr.x + mr.w * 0.5f, mr.y + mr.h + 15 * s, 14 * s, mr.w + 6 * s, alpha(CREAM, open ? 0.95f : 0.55f), CW_ALIGN_CENTER);
+    /* the track's name where it fits under its map at the body size or larger (the map and its number say which it is) */
+    if (tx_width(U.f_small, MAPS[m]->name, body_px() / cw_text_scale()) <= mr.w + 6 * s)
+      tx_fit(U.f_small, MAPS[m]->name, mr.x + mr.w * 0.5f, mr.y + mr.h + 15 * s, 14 * s, mr.w + 6 * s, alpha(CREAM, open ? 0.95f : 0.55f), CW_ALIGN_CENTER);
   }
   if (!open) {
     cw_r2d_rect(q, rgba(0.02f, 0.01f, 0.03f, 0.74f));
