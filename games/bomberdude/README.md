@@ -52,7 +52,13 @@ A) is a round straight away: you and three CPUs on Clover Commons.
   A press up to 8 ticks early (still standing on your last bomb) drops as
   soon as it can. You can always walk off your own bomb, never back onto it.
 - The title, the players screen and the pause menu show the controls for the
-  device used last.
+  device used last (each screen leaves the controls line out when the text is
+  too big for it; the pause menu and the round start still show it).
+- Text size and Text background are rows in the pause menu (up and down pick
+  a row, left and right or a press change it), kept in the save. Every screen
+  is laid out from the size its text draws at, so at 200% nothing overlaps:
+  the player cards go down the sides, the title buttons stack, and the arena
+  tiles leave their names to the line under them.
 - From the title, QUICK BATTLE takes one press; Battle takes three presses of
   the same button (BATTLE, go, arena), and player 1 stays a person whatever
   is pressed (gate `bomberdude-confirm`).

@@ -29,6 +29,24 @@
       "name": "results",
       "frames": 2700,
       "app": "bomberdude_auto"
+    },
+    {
+      "name": "arena",
+      "frames": 72,
+      "app": "bomberdude",
+      "input": "bomberdude-confirm.json"
+    },
+    {
+      "name": "touch",
+      "frames": 200,
+      "app": "bomberdude",
+      "input": "bomberdude-touch.json"
+    },
+    {
+      "name": "touch-pause",
+      "frames": 270,
+      "app": "bomberdude",
+      "input": "bomberdude-touch.json"
     }
   ]
 }
