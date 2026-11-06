@@ -34,12 +34,14 @@ enum { GS_TITLE, GS_SELECT, GS_PLAY, GS_PAUSE, GS_WIN };
 /* ── save ───────────────────────────────────────────────────────────── */
 
 #define SAVE_MAGIC 0x54554f53u /* 'SOUT' */
-#define SAVE_VERSION 3
+#define SAVE_VERSION 4
+/* version 4: the text size (cw_text_scale_saved) and the text background; version 3 ended at the graphics settings */
 typedef struct save_data {
   uint32_t magic;
   uint16_t version, size;
   struct { int32_t cleared, best_ticks, dews, flies; } lv[SP_LEVELS];
   uint8_t quality[4]; /* the graphics settings: cw_quality_saved() little-endian, 0 = none chosen */
+  uint8_t text_size, text_bg, pad[2]; /* cw_text_scale_saved() (0 = none chosen), cw_text_backdrop_get() */
   uint32_t checksum;
 } save_data;
 static save_data SAVE;
@@ -59,10 +61,26 @@ static void save_write(void) {
   uint32_t q = cw_quality_saved();
   if (q)
     for (int i = 0; i < 4; i++) SAVE.quality[i] = (uint8_t)(q >> (8 * i));
+  SAVE.text_size = cw_text_scale_saved();
+  SAVE.text_bg = (uint8_t)cw_text_backdrop_get();
   SAVE.checksum = save_sum();
   cw_save_commit();
 }
+/* a version 3 save: the same fields up to the graphics settings, its checksum where the text bytes now are */
+static bool save_from_v3(void) {
+  enum { V3_SIZE = offsetof(save_data, text_size) + sizeof(uint32_t) };
+  if (SAVE.magic != SAVE_MAGIC || SAVE.version != 3 || SAVE.size != V3_SIZE) return false;
+  uint32_t stored, sum = cw_hash32(&SAVE.lv, offsetof(save_data, text_size) - offsetof(save_data, lv), CW_HASH32_INIT) ^ (3u | (uint32_t)V3_SIZE << 16);
+  memcpy(&stored, &SAVE.text_size, sizeof stored);
+  if (stored != sum) return false;
+  SAVE.text_size = SAVE.text_bg = SAVE.pad[0] = SAVE.pad[1] = 0;
+  SAVE.version = SAVE_VERSION;
+  SAVE.size = sizeof SAVE;
+  SAVE.checksum = save_sum();
+  return true;
+}
 static void save_check(void) {
+  if (save_from_v3()) return;
   if (SAVE.magic != SAVE_MAGIC || SAVE.version != SAVE_VERSION || SAVE.size != sizeof SAVE || SAVE.checksum != save_sum()) save_reset();
 }
 static bool level_open(int i) { return i < LEVELS_BUILT && (i == 0 || SAVE.lv[i - 1].cleared); }
@@ -328,6 +346,8 @@ static void init(void *u) {
   cw_quality_full_resolution(true); /* Auto gives up detail, never pixels */
   cw_quality_restore(gfx_saved()); /* the player's graphics settings, if they chose any; else Auto */
   cw_quality_auto(true, 0);
+  cw_text_scale_restore(SAVE.text_size); /* the player's text size and text background */
+  cw_text_backdrop_set(SAVE.text_bg <= CW_TEXT_BACKDROP_PANEL ? (cw_text_backdrop)SAVE.text_bg : CW_TEXT_BACKDROP_OFF);
   if (!cw_input_load_bindings_asset("input.cfg")) cw_warn("spout: input.cfg had errors");
   cw_input_commit_defaults();
   G.a_left = cw_action_find("left");
@@ -391,6 +411,14 @@ static void init(void *u) {
 
 static bool pressed(cw_action a) { return cw_action_just_pressed(0, a); }
 
+/* the screens' layouts (drawn below), shared with the pointer here */
+typedef struct select_geo { float tw, gap, y, th, name_y, stat_y, blurb_y, hint_y, wrap; } select_geo;
+typedef struct pause_geo { cw_rect card, row[2]; float title_y, prompt_y, gfx_y, quit_y, quit_top; } pause_geo;
+/* the last drawn layouts: the pointer reads them here (prompts are measured only while drawing, never in the fixed tick) */
+static select_geo select_drawn;
+static pause_geo pause_drawn = { .row = { { -1e4f, -1e4f, 0, 0 }, { -1e4f, -1e4f, 0, 0 } }, .quit_top = 1e9f };
+static float pause_quit_top = 1e9f;
+
 static void save_fields(void) {
   dbg_unlocked = dbg_cleared = 0;
   for (int i = 0; i < SP_LEVELS; i++) {
@@ -447,11 +475,11 @@ static void fixed(void *u, double dt) {
     int dx = (pressed(G.a_right) ? 1 : 0) - (pressed(G.a_left) ? 1 : 0);
     if (dx) G.cursor = (G.cursor + dx + SP_LEVELS) % SP_LEVELS, sfx(SFX_SELECT, 0.4f);
     /* tiles in a row: a tap or click picks one */
-    float tw = cs.x / 6.2f, gap = (cs.x - tw * SP_LEVELS) / (SP_LEVELS + 1);
+    select_geo sg = select_drawn;
     int hit = -1;
     for (int i = 0; i < SP_LEVELS; i++) {
-      float x = gap + i * (tw + gap), y = cs.y * 0.36f;
-      if (m.x >= x && m.x < x + tw && m.y >= y && m.y < y + tw * 1.25f) hit = i;
+      float x = sg.gap + i * (sg.tw + sg.gap);
+      if (m.x >= x && m.x < x + sg.tw && m.y >= sg.y && m.y < sg.y + sg.th) hit = i;
     }
     if (mouse_clicked && hit >= 0) G.cursor = hit;
     if (G.state_ticks > 10 && (confirm || (mouse_clicked && hit >= 0))) {
@@ -499,9 +527,30 @@ static void fixed(void *u, double dt) {
   case GS_PAUSE:
     G.prev = G.S;
     if (cw_quality_menu_is_open()) break; /* the graphics page has the presses */
+    if (G.state_ticks > 5) { /* the text settings (render-only): left / right the size, up / down the background, a tap on a row steps it */
+      pause_geo pg = pause_drawn;
+      int step = 0, row = -1;
+      if (pressed(G.a_right)) row = 0, step = 1;
+      else if (pressed(G.a_left)) row = 0, step = -1;
+      else if (pressed(G.a_down)) row = 1, step = 1;
+      else if (pressed(G.a_up)) row = 1, step = -1;
+      for (int i = 0; i < 2; i++)
+        if (mouse_clicked && m.x >= pg.row[i].x && m.x < pg.row[i].x + pg.row[i].w && m.y >= pg.row[i].y && m.y < pg.row[i].y + pg.row[i].h) row = i, step = 1;
+      if (row == 0) step > 0 ? cw_text_scale_cycle() : cw_text_scale_cycle_back();
+      if (row == 1) {
+        cw_text_backdrop_cycle();
+        if (step < 0) cw_text_backdrop_cycle(); /* three settings: twice forward is one back */
+      }
+      if (row >= 0) {
+        save_write();
+        sfx(SFX_SELECT, 0.5f);
+        break;
+      }
+      pause_quit_top = pg.quit_top;
+    }
     if (G.state_ticks > 5 && (pressed(G.a_pause) || pressed(G.a_jump) || pressed(G.a_start) || mouse_clicked)) {
-      /* the lower half of the panel is QUIT for the pointer; keys and pads resume */
-      if (mouse_clicked && m.y > cs.y * 0.55f) load_world(0, true), G.state = GS_SELECT;
+      /* under the settings the card is QUIT for the pointer; keys and pads resume */
+      if (mouse_clicked && m.y >= pause_quit_top) load_world(0, true), G.state = GS_SELECT;
       else G.state = GS_PLAY;
       G.state_ticks = 0;
     }
@@ -616,17 +665,27 @@ static void torn(cw_rect r, cw_color c, uint32_t seed) {
   cw_r2d_fan(cw_v2(mid.x + 5, mid.y + 5), sh, n, true, rgba(0.15f, 0.1f, 0.05f, 0.25f * c.a));
   cw_r2d_fan(mid, p, n, true, c);
 }
+/* text on the game's own paper (a torn card, a tile) says so: the player's
+ * Text background setting adds no second panel behind it */
+static bool on_paper = true;
 static void text(const char *s, float x, float y, float size, cw_color c, cw_text_align al, float wrap) {
-  cw_text_style st = { .size = size, .color = c, .align = al, .wrap_width = wrap };
+  cw_text_style st = { .size = size, .color = c, .align = al, .wrap_width = wrap, .own_backdrop = on_paper };
   cw_r2d_text(font_ui, s, cw_v2(x, y), &st);
 }
+/* a line's size as drawn (the player's text size included), wrapped at wrap when wrap > 0 */
+static cw_vec2 text_box(const char *s, float size, float wrap) {
+  cw_text_style st = { .size = size, .wrap_width = wrap };
+  cw_text_metrics m = cw_font_measure(font_ui, s, &st);
+  return cw_v2(m.width, m.height);
+}
+static float line_h(float size) { return text_box("Ag", size, 0).y; }
 /* text with button prompts in it ({jump}, {left|right}: cartwheel/prompt.h)
  * for P1's device, centred in [x, x + wrap]. The paper look keeps its ink:
  * the words are drawn as text() draws them and each {action} as the
  * engine's glyph in its light fill (cw_prompt_actions), laid out here, so a
  * glyph reads as rings and dots on the paper instead of an inked blob. */
 static float ptext_run(const char *s, float x, float y, float size, cw_color c, bool draw) {
-  cw_text_style st = { .size = size, .color = c };
+  cw_text_style st = { .size = size, .color = c, .own_backdrop = on_paper };
   float lh = cw_font_measure(font_ui, "Ag", &st).height, gap = size * 0.25f;
   float space = cw_font_measure(font_ui, "a a", &st).width - cw_font_measure(font_ui, "aa", &st).width;
   cw_color fill = rgba(1, 1, 1, c.a);
@@ -665,30 +724,83 @@ static void ptext(const char *s, float x, float y, float size, cw_color c, float
   float w = ptext_run(s, 0, 0, size, c, false);
   ptext_run(s, x + (wrap - w) * 0.5f, y, size, c, true);
 }
+/* a prompt line that breaks at its wide gaps (three spaces or more) into as
+ * many lines as it needs to fit [x, x + wrap], each centred; returns its
+ * height and its widest line (*w) */
+static float ptext_block(const char *s, float x, float y, float size, cw_color c, float wrap, bool draw, float *w) {
+  char line[192] = "", cand[192];
+  float lh = line_h(size) * 1.1f, h = 0, widest = 0;
+  int gap_n = 0; /* the gap before this piece, kept when the line holds both */
+  for (const char *p = s; *p;) {
+    const char *g = strstr(p, "   ");
+    size_t n = g ? (size_t)(g - p) : strlen(p);
+    snprintf(cand, sizeof cand, "%s%.*s%.*s", line, line[0] ? gap_n : 0, "                ", (int)n, p);
+    if (line[0] && ptext_run(cand, 0, 0, size, c, false) > wrap) {
+      float lw = ptext_run(line, 0, 0, size, c, false);
+      widest = lw > widest ? lw : widest;
+      if (draw) ptext(line, x, y + h, size, c, wrap);
+      h += lh;
+      snprintf(line, sizeof line, "%.*s", (int)n, p);
+    } else
+      memcpy(line, cand, sizeof line);
+    p += n;
+    for (gap_n = 0; *p == ' '; p++) gap_n += gap_n < 16;
+  }
+  if (line[0]) {
+    float lw = ptext_run(line, 0, 0, size, c, false);
+    widest = lw > widest ? lw : widest;
+    if (draw) ptext(line, x, y + h, size, c, wrap);
+    h += line_h(size);
+  }
+  if (w) *w = widest;
+  return h;
+}
+static cw_text_style title_style(float size, cw_color c, cw_text_align al, float wrap) {
+  return (cw_text_style){ .size = size, .color = c, .align = al, .wrap_width = wrap, .outline_width = size * 0.06f,
+                          .outline_color = rgba(0.2f, 0.12f, 0.06f, c.a) };
+}
 static void title_text(const char *s, float x, float y, float size, cw_color c, cw_text_align al, float wrap) {
-  cw_text_style st = { .size = size, .color = c, .align = al, .wrap_width = wrap, .outline_width = size * 0.06f,
-                       .outline_color = rgba(0.2f, 0.12f, 0.06f, c.a) };
+  cw_text_style st = title_style(size, c, al, wrap);
   cw_r2d_text(font_title, s, cw_v2(x, y), &st);
+}
+static float title_h(const char *s, float size, float wrap) {
+  cw_text_style st = title_style(size, rgba(1, 1, 1, 1), CW_ALIGN_LEFT, wrap);
+  return cw_font_measure(font_title, s, &st).height;
 }
 
 static const char *prompt_go(void) {
   return glyphs() ? "press {jump} to climb" : on_touch() ? "tap to climb" : "click to climb";
 }
 
-static void draw_forecast(float W, float s) {
+/* the forecast card, top right: its size from its words; returns its rect */
+static cw_rect forecast_rect(float W, float s, const char *now, const char *next) {
+  float tw = fmaxf(text_box(now, 22 * s, 0).x, text_box(next, 19 * s, 0).x);
+  float th = line_h(22 * s) + 4 * s + line_h(19 * s);
+  float w = 72 * s + tw + 14 * s, h = fmaxf(74 * s, th + 16 * s);
+  return cw_rect_make(W - 14 * s - w, 14 * s, w, h);
+}
+static void forecast_words(const sim *S, const char **now, char *next, size_t n) {
+  const level_def *L = S->L;
+  int left = 0, nx = WX_RAIN;
+  switch (S->weather) {
+  case WX_SUN: left = L->sun_ticks - S->weather_ticks, nx = WX_RAIN; break;
+  case WX_WARN: left = L->warn_ticks - S->weather_ticks, nx = WX_RAIN; break;
+  case WX_RAIN: left = L->rain_ticks - S->weather_ticks, nx = WX_SUN; break;
+  default: left = 90 - S->weather_ticks, nx = WX_SUN; break;
+  }
+  bool snow = L->theme == THEME_WINTER, night = L->theme == THEME_CITY;
+  *now = S->weather == WX_SUN ? (night ? "clear night" : "sunny") : S->weather == WX_WARN ? (snow ? "snow soon!" : "rain soon!") : S->weather == WX_RAIN ? (snow ? "snowing" : "raining") : "clearing";
+  snprintf(next, n, "%s in %d", nx == WX_RAIN ? (snow ? "snow" : "rain") : (night ? "clear" : "sun"), (left + 59) / 60);
+}
+static void draw_forecast(cw_rect r, float s) {
   const sim *S = &G.S;
   const level_def *L = S->L;
-  int left = 0, next = WX_RAIN;
-  switch (S->weather) {
-  case WX_SUN: left = L->sun_ticks - S->weather_ticks, next = WX_RAIN; break;
-  case WX_WARN: left = L->warn_ticks - S->weather_ticks, next = WX_RAIN; break;
-  case WX_RAIN: left = L->rain_ticks - S->weather_ticks, next = WX_SUN; break;
-  default: left = 90 - S->weather_ticks, next = WX_SUN; break;
-  }
-  cw_rect r = cw_rect_make(W - 190 * s, 14 * s, 176 * s, 74 * s);
+  const char *now;
+  char b[48];
+  forecast_words(S, &now, b, sizeof b);
   torn(r, rgba(1, 0.98f, 0.92f, 0.95f), 3);
-  cw_vec2 c = cw_v2(r.x + 40 * s, r.y + 37 * s);
-  bool snow = L->theme == THEME_WINTER, night = L->theme == THEME_CITY;
+  cw_vec2 c = cw_v2(r.x + 40 * s, r.y + r.h * 0.5f);
+  bool snow = L->theme == THEME_WINTER;
   bool rain_now = S->weather == WX_RAIN || S->weather == WX_WARN;
   if (!rain_now && S->L->theme == THEME_CITY) { /* a crescent moon */
     cw_r2d_circle(c, 16 * s, 24, rgba(0.95f, 0.92f, 0.7f, 1));
@@ -713,17 +825,15 @@ static void draw_forecast(float W, float s) {
       } else cw_r2d_line(cw_v2(c.x - 10 * s + i * 9 * s, c.y + 14 * s), cw_v2(c.x - 13 * s + i * 9 * s, c.y + 24 * s), 2.5f * s, rgba(0.3f, 0.5f, 0.9f, 1));
     }
   }
-  char b[48];
-  const char *now = S->weather == WX_SUN ? (night ? "clear night" : "sunny") : S->weather == WX_WARN ? (snow ? "snow soon!" : "rain soon!") : S->weather == WX_RAIN ? (snow ? "snowing" : "raining") : "clearing";
-  text(now, r.x + 72 * s, r.y + 8 * s, 22 * s, S->weather == WX_WARN ? rgba(0.75f, 0.2f, 0.1f, 1) : rgba(0.2f, 0.15f, 0.1f, 1), CW_ALIGN_LEFT, 0);
-  snprintf(b, sizeof b, "%s in %d", next == WX_RAIN ? (snow ? "snow" : "rain") : (night ? "clear" : "sun"), (left + 59) / 60);
-  text(b, r.x + 72 * s, r.y + 36 * s, 19 * s, rgba(0.35f, 0.3f, 0.25f, 1), CW_ALIGN_LEFT, 0);
+  float h1 = line_h(22 * s), y = r.y + (r.h - h1 - 4 * s - line_h(19 * s)) * 0.5f;
+  text(now, r.x + 72 * s, y, 22 * s, S->weather == WX_WARN ? rgba(0.75f, 0.2f, 0.1f, 1) : rgba(0.2f, 0.15f, 0.1f, 1), CW_ALIGN_LEFT, 0);
+  text(b, r.x + 72 * s, y + h1 + 4 * s, 19 * s, rgba(0.35f, 0.3f, 0.25f, 1), CW_ALIGN_LEFT, 0);
 }
 
-static void draw_meter(float W, float H, float s) {
+static void draw_meter(float W, float H, float s, float top) {
   (void)W;
   const sim *S = &G.S;
-  float x = 26 * s, y0 = H - 40 * s, y1 = 110 * s;
+  float x = 26 * s, y0 = H - 40 * s, y1 = fmaxf(110 * s, top + 14 * s);
   torn(cw_rect_make(x - 10 * s, y1 - 14 * s, 20 * s, y0 - y1 + 28 * s), rgba(0.75f, 0.85f, 0.95f, 0.9f), 9);
   for (int i = 0; i < S->L->n_checks; i++) {
     float y = y0 + (y1 - y0) * S->L->checks[i] / S->L->height;
@@ -741,7 +851,10 @@ static void touch_button(int id, const char *label, cw_vec2 wc, float wr, cw_col
   bool on = cw_touch_control_active(id);
   cw_r2d_circle(cc, r * (on ? 0.92f : 1), 32, rgba(c.r, c.g, c.b, on ? 0.85f : 0.6f));
   cw_r2d_circle_lines(cc, r, 3, 32, rgba(1, 1, 1, 0.8f));
-  title_text(label, cc.x - r * 2, cc.y - r * 0.28f, r * 0.42f, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, r * 4);
+  /* the button's name is part of the button, sized to it (well over the body floor): it keeps its size */
+  cw_text_style st = title_style(r * 0.42f, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, r * 4);
+  st.fixed_size = true;
+  cw_r2d_text(font_title, label, cw_v2(cc.x - r * 2, cc.y - r * 0.28f), &st);
 }
 static void draw_touch(void) {
   int ww, wh;
@@ -766,74 +879,120 @@ static void draw_touch(void) {
   touch_button(T_PAUSE, "II", cw_v2(14 * k + 32 * k, 14 * k + 26 * k), 26 * k, rgba(0.3f, 0.25f, 0.2f, 1));
 }
 
+/* the HUD: every card sized from its words, so a larger text size keeps them apart */
 static void draw_hud(float W, float H, float s) {
   const sim *S = &G.S;
-  char b[64];
+  char b[64], nx[48];
+  const char *now;
   int secs = S->tick / 60;
   snprintf(b, sizeof b, "%d:%02d   dew %d/%d   flies %d/3", secs / 60, secs % 60, S->dews, S->L->n_dews, S->flies);
-  torn(cw_rect_make(W * 0.5f - 170 * s, 12 * s, 340 * s, 56 * s), rgba(1, 0.98f, 0.92f, 0.95f), 6);
-  text(b, W * 0.5f - 170 * s, 22 * s, 26 * s, rgba(0.22f, 0.16f, 0.1f, 1), CW_ALIGN_CENTER, 340 * s);
-  /* silk: a little spool per charge */
+  forecast_words(S, &now, nx, sizeof nx);
+  cw_rect fr = forecast_rect(W, s, now, nx);
+  cw_vec2 tb = text_box(b, 26 * s, 0);
+  float pw = fmaxf(340 * s, tb.x + 40 * s), ph = fmaxf(56 * s, tb.y + 20 * s);
+  float px = W * 0.5f - pw * 0.5f, left = 48 * s; /* the meter's column */
+  if (px + pw > fr.x - 10 * s) px = fmaxf(left, fr.x - 10 * s - pw);
+  if (px + pw > fr.x - 10 * s) fr.y = 12 * s + ph + 8 * s; /* no room beside it: the forecast goes under */
+  torn(cw_rect_make(px, 12 * s, pw, ph), rgba(1, 0.98f, 0.92f, 0.95f), 6);
+  text(b, px, 12 * s + (ph - tb.y) * 0.5f, 26 * s, rgba(0.22f, 0.16f, 0.1f, 1), CW_ALIGN_CENTER, pw);
+  /* silk: a little spool per charge, under the card */
+  float sy = 12 * s + ph + 16 * s, scx = px + pw * 0.5f;
   for (int i = 0; i < SILK_MAX; i++) {
-    cw_vec2 c = cw_v2(W * 0.5f - 52 * s + i * 26 * s, 84 * s);
+    cw_vec2 c = cw_v2(scx - 52 * s + i * 26 * s, sy);
     if (i >= S->silk && i >= 3) continue;
     cw_r2d_circle(c, 9 * s, 16, i < S->silk ? rgba(0.97f, 0.97f, 1, 0.95f) : rgba(0.3f, 0.3f, 0.35f, 0.35f));
     cw_r2d_circle_lines(c, 9 * s, 2 * s, 16, rgba(0.35f, 0.3f, 0.4f, 0.8f));
   }
-  draw_forecast(W, s);
-  draw_meter(W, H, s);
-  if (S->s.state == SP_WASHED && S->s.stun > 0 && S->pecks && S->bird_ticks > BIRD_WARN) title_text("pecked!", 0, H * 0.3f, 40 * s, rgba(1, 0.8f, 0.5f, 1), CW_ALIGN_CENTER, W);
-  else if (S->s.state == SP_WASHED && S->s.stun > 0) title_text("washed down!", 0, H * 0.3f, 40 * s, rgba(0.55f, 0.75f, 1, 1), CW_ALIGN_CENTER, W);
-  else if (sim_gust_warn(S)) title_text("wind's picking up - hold tight!", 0, H * 0.18f, 30 * s, rgba(0.8f, 0.9f, 1, 1), CW_ALIGN_CENTER, W);
-  else if (sim_gusting(S)) title_text("whoosh!", 0, H * 0.18f, 36 * s, rgba(0.8f, 0.9f, 1, 1), CW_ALIGN_CENTER, W);
+  draw_forecast(fr, s);
+  float top = fmaxf(sy + 9 * s, fr.y + fr.h); /* the lowest of the cards */
+  draw_meter(W, H, s, 0);
+  float by = fmaxf(H * 0.18f, top + 10 * s), wy = fmaxf(H * 0.3f, top + 10 * s);
+  if (S->s.state == SP_WASHED && S->s.stun > 0 && S->pecks && S->bird_ticks > BIRD_WARN) title_text("pecked!", 0, wy, 40 * s, rgba(1, 0.8f, 0.5f, 1), CW_ALIGN_CENTER, W);
+  else if (S->s.state == SP_WASHED && S->s.stun > 0) title_text("washed down!", 0, wy, 40 * s, rgba(0.55f, 0.75f, 1, 1), CW_ALIGN_CENTER, W);
+  else if (sim_gust_warn(S)) title_text("wind's picking up - hold tight!", 16 * s, by, 30 * s, rgba(0.8f, 0.9f, 1, 1), CW_ALIGN_CENTER, W - 32 * s);
+  else if (sim_gusting(S)) title_text("whoosh!", 0, by, 36 * s, rgba(0.8f, 0.9f, 1, 1), CW_ALIGN_CENTER, W);
   else if (S->weather == WX_WARN)
-    title_text(S->L->theme == THEME_WINTER ? "snow's coming - hold tight!" : "rain's coming - hold tight!", 0, H * 0.18f, 30 * s, rgba(1, 0.85f, 0.5f, 1), CW_ALIGN_CENTER, W);
-  if (S->ev_check || (S->checkpoint > 0 && G.state_ticks % 600 < 0)) (void)0;
+    title_text(S->L->theme == THEME_WINTER ? "snow's coming - hold tight!" : "rain's coming - hold tight!", 16 * s, by, 30 * s, rgba(1, 0.85f, 0.5f, 1), CW_ALIGN_CENTER, W - 32 * s);
   if (on_touch()) draw_touch();
   else if (G.state_ticks < 600) {
     const char *h = "{left|right|up|down} climb   {jump} jump   {brace} hold   {silk} silk up";
-    float hw = ptext_run(h, 0, 0, 22 * s, rgba(0, 0, 0, 1), false) + 40 * s;
-    torn(cw_rect_make(W * 0.5f - hw * 0.5f, H - 54 * s, hw, 40 * s), rgba(1, 0.98f, 0.92f, 0.85f), 8);
-    ptext(h, 0, H - 48 * s, 22 * s, rgba(0.25f, 0.2f, 0.15f, 1), W);
+    float hw, hh = ptext_block(h, 0, 0, 22 * s, rgba(0, 0, 0, 1), W - 120 * s, false, &hw);
+    float bh = hh + 18 * s, y = H - 14 * s - bh;
+    torn(cw_rect_make(W * 0.5f - (hw + 40 * s) * 0.5f, y, hw + 40 * s, bh), rgba(1, 0.98f, 0.92f, 0.85f), 8);
+    ptext_block(h, 60 * s, y + 9 * s, 22 * s, rgba(0.25f, 0.2f, 0.15f, 1), W - 120 * s, true, NULL);
   }
 }
 
 static void draw_title(float W, float H, float s) {
-  torn(cw_rect_make(W * 0.5f - 230 * s, H * 0.1f, 460 * s, 150 * s), rgba(1, 0.97f, 0.88f, 0.95f), 1);
-  title_text(SPOUT_TITLE, 0, H * 0.1f + 10 * s, 96 * s, rgba(0.95f, 0.55f, 0.3f, 1), CW_ALIGN_CENTER, W);
-  text("a paper spider, a long wet climb", 0, H * 0.1f + 114 * s, 26 * s, rgba(0.3f, 0.22f, 0.15f, 1), CW_ALIGN_CENTER, W);
+  const char *sub = "a paper spider, a long wet climb";
+  cw_text_style ts = title_style(96 * s, rgba(0.95f, 0.55f, 0.3f, 1), CW_ALIGN_CENTER, W);
+  ts.fixed_size = true; /* the name is the logo: art, drawn as it is */
+  float logo_h = cw_font_measure(font_title, SPOUT_TITLE, &ts).height;
+  float pw = fminf(W - 16 * s, fmaxf(460 * s, text_box(sub, 26 * s, 0).x + 40 * s));
+  cw_vec2 sb = text_box(sub, 26 * s, pw - 24 * s);
+  float sub_y = fmaxf(114 * s, 10 * s + logo_h);
+  torn(cw_rect_make(W * 0.5f - pw * 0.5f, H * 0.1f, pw, sub_y + sb.y + 8 * s), rgba(1, 0.97f, 0.88f, 0.95f), 1);
+  cw_r2d_text(font_title, SPOUT_TITLE, cw_v2(0, H * 0.1f + 10 * s), &ts);
+  text(sub, W * 0.5f - pw * 0.5f + 12 * s, H * 0.1f + sub_y, 26 * s, rgba(0.3f, 0.22f, 0.15f, 1), CW_ALIGN_CENTER, pw - 24 * s);
   float p = 0.6f + 0.4f * cw_sin(frame_t * 3);
-  torn(cw_rect_make(W * 0.5f - 130 * s, H * 0.82f, 260 * s, 46 * s), rgba(1, 0.98f, 0.92f, 0.6f + 0.3f * p), 2);
-  ptext(prompt_go(), 0, H * 0.82f + 7 * s, 28 * s, rgba(0.25f, 0.18f, 0.12f, 1), W);
+  float gw, gh = ptext_block(prompt_go(), 0, 0, 28 * s, rgba(0, 0, 0, 1), W - 56 * s, false, &gw);
+  float bw = fmaxf(260 * s, gw + 40 * s), bh = gh + 18 * s, by = fminf(H * 0.82f, H - 8 * s - bh);
+  torn(cw_rect_make(W * 0.5f - bw * 0.5f, by, bw, bh), rgba(1, 0.98f, 0.92f, 0.6f + 0.3f * p), 2);
+  ptext_block(prompt_go(), 28 * s, by + 9 * s, 28 * s, rgba(0.25f, 0.18f, 0.12f, 1), W - 56 * s, true, NULL);
+}
+
+/* the spout select's layout, from the size its words draw at (the pointer's
+ * tiles in the fixed tick and the drawing share it) */
+static const char *select_hint(void) { return glyphs() ? "{left|right} choose,   {jump} to climb" : on_touch() ? "tap a spout" : "click a spout to climb"; }
+static select_geo select_layout(float W, float H, float s) {
+  select_geo g;
+  g.tw = W / 6.2f, g.gap = (W - g.tw * SP_LEVELS) / (SP_LEVELS + 1), g.wrap = W - 32 * s;
+  float name_h = 0, blurb_h = 0;
+  for (int i = 0; i < SP_LEVELS; i++) {
+    name_h = fmaxf(name_h, text_box(LEVELS[i].name, 20 * s, g.tw - 12 * s).y);
+    blurb_h = fmaxf(blurb_h, text_box(LEVELS[i].blurb, 26 * s, g.wrap).y);
+  }
+  g.name_y = fmaxf(62 * s, 12 * s + title_h("5", 40 * s, 0));
+  g.stat_y = fmaxf(g.tw * 0.95f, g.name_y + name_h + 6 * s);
+  g.th = fmaxf(g.tw * 1.25f, g.stat_y + line_h(19 * s) + 10 * s);
+  float hint_h = ptext_block(select_hint(), 0, 0, 22 * s, rgba(0, 0, 0, 1), g.wrap, false, NULL);
+  g.hint_y = fminf(H * 0.9f, H - 8 * s - hint_h);
+  float top = H * 0.12f + title_h("pick a spout", 52 * s, 0) + 14 * s;
+  g.y = fmaxf(top, fminf(H * 0.36f, g.hint_y - 10 * s - blurb_h - 18 * s - g.th));
+  g.blurb_y = g.y + g.th + 18 * s;
+  return g;
 }
 
 static void draw_select(float W, float H, float s) {
+  select_geo g = select_layout(W, H, s);
+  select_drawn = g;
   title_text("pick a spout", 0, H * 0.12f, 52 * s, rgba(0.95f, 0.55f, 0.3f, 1), CW_ALIGN_CENTER, W);
-  float tw = W / 6.2f, gap = (W - tw * SP_LEVELS) / (SP_LEVELS + 1);
   static const float TC[THEME_COUNT][3] = { { 0.75f, 0.9f, 0.65f }, { 0.55f, 0.6f, 0.85f }, { 0.95f, 0.7f, 0.45f }, { 0.85f, 0.92f, 1 }, { 0.5f, 0.8f, 0.55f } };
+  float tw = g.tw;
   for (int i = 0; i < SP_LEVELS; i++) {
-    float x = gap + i * (tw + gap), y = H * 0.36f;
+    float x = g.gap + i * (tw + g.gap), y = g.y;
     const level_def *L = &LEVELS[i];
     bool open = level_open(i), sel = i == G.cursor;
     float lift = sel ? -8 * s : 0;
-    torn(cw_rect_make(x, y + lift, tw, tw * 1.25f), rgba(TC[L->theme][0], TC[L->theme][1], TC[L->theme][2], open ? 1 : 0.55f), (uint32_t)(20 + i));
-    if (sel) cw_r2d_polyline((cw_vec2[]){ cw_v2(x - 4, y + lift - 4), cw_v2(x + tw + 4, y + lift - 4), cw_v2(x + tw + 4, y + lift + tw * 1.25f + 4), cw_v2(x - 4, y + lift + tw * 1.25f + 4) }, 4, 4 * s, true, rgba(0.95f, 0.55f, 0.3f, 1));
+    torn(cw_rect_make(x, y + lift, tw, g.th), rgba(TC[L->theme][0], TC[L->theme][1], TC[L->theme][2], open ? 1 : 0.55f), (uint32_t)(20 + i));
+    if (sel) cw_r2d_polyline((cw_vec2[]){ cw_v2(x - 4, y + lift - 4), cw_v2(x + tw + 4, y + lift - 4), cw_v2(x + tw + 4, y + lift + g.th + 4), cw_v2(x - 4, y + lift + g.th + 4) }, 4, 4 * s, true, rgba(0.95f, 0.55f, 0.3f, 1));
     char b[32];
     snprintf(b, sizeof b, "%d", i + 1);
     title_text(b, x, y + lift + 8 * s, 40 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, tw);
-    text(L->name, x + 6 * s, y + lift + 62 * s, 20 * s, rgba(0.2f, 0.15f, 0.1f, 1), CW_ALIGN_CENTER, tw - 12 * s);
+    text(L->name, x + 6 * s, y + lift + g.name_y, 20 * s, rgba(0.2f, 0.15f, 0.1f, 1), CW_ALIGN_CENTER, tw - 12 * s);
     if (!open) {
-      text(i < LEVELS_BUILT ? "locked" : "coming soon", x, y + lift + tw * 0.95f, 19 * s, rgba(0.35f, 0.3f, 0.3f, 1), CW_ALIGN_CENTER, tw);
+      text(i < LEVELS_BUILT ? "locked" : "coming soon", x + 4 * s, y + lift + g.stat_y, 19 * s, rgba(0.35f, 0.3f, 0.3f, 1), CW_ALIGN_CENTER, tw - 8 * s);
     } else if (SAVE.lv[i].cleared) {
       int t = SAVE.lv[i].best_ticks / 60;
       snprintf(b, sizeof b, "best %d:%02d", t / 60, t % 60);
-      text(b, x, y + lift + tw * 0.95f, 19 * s, rgba(0.15f, 0.4f, 0.15f, 1), CW_ALIGN_CENTER, tw);
+      text(b, x + 4 * s, y + lift + g.stat_y, 19 * s, rgba(0.15f, 0.4f, 0.15f, 1), CW_ALIGN_CENTER, tw - 8 * s);
     }
   }
   const level_def *L = &LEVELS[G.cursor];
-  text(L->blurb, 0, H * 0.36f + W / 6.2f * 1.25f + 24 * s, 26 * s, rgba(0.2f, 0.15f, 0.1f, 1), CW_ALIGN_CENTER, W);
-  ptext(glyphs() ? "{left|right} choose, {jump} to climb" : on_touch() ? "tap a spout" : "click a spout to climb", 0, H * 0.9f, 22 * s,
-        rgba(0.3f, 0.25f, 0.2f, 1), W);
+  on_paper = false; /* over the scene */
+  text(L->blurb, 16 * s, g.blurb_y, 26 * s, rgba(0.2f, 0.15f, 0.1f, 1), CW_ALIGN_CENTER, g.wrap);
+  ptext_block(select_hint(), 16 * s, g.hint_y, 22 * s, rgba(0.3f, 0.25f, 0.2f, 1), g.wrap, true, NULL);
+  on_paper = true;
 }
 
 /* the graphics settings from the pause card (cartwheel/quality_menu.h): the
@@ -857,30 +1016,81 @@ static void gfx_input(void) {
   if (pressed(G.a_settings)) cw_quality_menu_open();
 }
 
+/* the pause card: paused, how to resume and quit, the text size and text
+ * background (left / right and up / down step them; a tap on a row steps
+ * it), the graphics line, and (for the pointer) the quit line. Laid out from
+ * the size its words draw at; the fixed tick's pointer shares it */
+static void pause_lines(char rows[2][80], char *gfx, size_t n) {
+  char bg[16];
+  snprintf(bg, sizeof bg, "%s", cw_text_backdrop_label());
+  for (char *c = bg; *c; c++) *c = (char)(*c >= 'A' && *c <= 'Z' ? *c + 32 : *c);
+  snprintf(rows[0], 80, glyphs() ? "{left|right} text size  %s" : "text size: %s", cw_text_scale_label());
+  snprintf(rows[1], 80, glyphs() ? "{up|down} text background  %s" : "text background: %s", bg);
+  snprintf(gfx, n, "graphics: %s", cw_quality_label());
+  for (char *c = gfx; *c; c++) *c = (char)(*c >= 'A' && *c <= 'Z' ? *c + 32 : *c);
+  if (!on_touch()) snprintf(gfx + strlen(gfx), n - strlen(gfx), "   ({settings} settings)");
+}
+static const char *pause_prompt(void) { return glyphs() ? "{jump} resume    {back} quit" : "tap the top: resume"; }
+static pause_geo pause_layout(float W, float H, float s) {
+  pause_geo g;
+  char rows[2][80], gfx[96];
+  pause_lines(rows, gfx, sizeof gfx);
+  cw_color ink = rgba(0, 0, 0, 1);
+  float th = title_h("paused", 48 * s, 0), ph = line_h(24 * s), rh = line_h(24 * s), gh = line_h(20 * s);
+  float w = 340 * s;
+  w = fmaxf(w, ptext_run(pause_prompt(), 0, 0, 24 * s, ink, false) + 48 * s);
+  for (int i = 0; i < 2; i++) w = fmaxf(w, ptext_run(rows[i], 0, 0, 24 * s, ink, false) + 48 * s);
+  w = fmaxf(w, ptext_run(gfx, 0, 0, 20 * s, ink, false) + 48 * s);
+  if (!glyphs()) w = fmaxf(w, text_box("tap here: quit to spouts", 24 * s, 0).x + 48 * s);
+  w = fminf(w, W - 16 * s);
+  float h = 12 * s + th + 6 * s + ph + 14 * s + 2 * rh + 6 * s + 10 * s + gh + (glyphs() ? 0 : 14 * s + rh) + 18 * s;
+  float y = fmaxf(8 * s, (H - h) * 0.5f);
+  g.card = cw_rect_make(W * 0.5f - w * 0.5f, y, w, h);
+  y += 12 * s;
+  g.title_y = y, y += th + 6 * s;
+  g.prompt_y = y, y += ph + 14 * s;
+  g.row[0] = cw_rect_make(g.card.x, y - 3 * s, w, rh + 6 * s), y += rh + 6 * s;
+  g.row[1] = cw_rect_make(g.card.x, y - 3 * s, w, rh + 6 * s), y += rh + 10 * s;
+  g.gfx_y = y, y += gh;
+  g.quit_top = y + 4 * s; /* the pointer: at or under the quit line quits */
+  g.quit_y = y + 14 * s;
+  return g;
+}
+
 static void draw_pause(float W, float H, float s) {
+  pause_geo g = pause_layout(W, H, s);
+  pause_drawn = g;
+  char rows[2][80], gfx[96];
+  pause_lines(rows, gfx, sizeof gfx);
   cw_r2d_rect(cw_rect_make(0, 0, W, H), rgba(0.1f, 0.08f, 0.06f, 0.35f));
-  torn(cw_rect_make(W * 0.5f - 170 * s, H * 0.3f, 340 * s, H * 0.4f), rgba(1, 0.97f, 0.88f, 0.97f), 11);
-  title_text("paused", 0, H * 0.32f, 48 * s, rgba(0.95f, 0.55f, 0.3f, 1), CW_ALIGN_CENTER, W);
-  ptext(glyphs() ? "{jump} resume    {back} quit" : "tap the top: resume", 0, H * 0.45f, 24 * s, rgba(0.25f, 0.2f, 0.15f, 1), W);
-  if (!glyphs()) text("tap here: quit to spouts", 0, H * 0.6f, 24 * s, rgba(0.6f, 0.2f, 0.1f, 1), CW_ALIGN_CENTER, W);
-  char buf[64];
-  snprintf(buf, sizeof buf, "graphics: %s", cw_quality_label());
-  for (char *c = buf; *c; c++) *c = (char)(*c >= 'A' && *c <= 'Z' ? *c + 32 : *c);
-  if (!on_touch()) snprintf(buf + strlen(buf), sizeof buf - strlen(buf), "   ({settings} settings)");
-  ptext(buf, 0, H * 0.52f, 18 * s, rgba(0.4f, 0.3f, 0.2f, 1), W);
+  torn(g.card, rgba(1, 0.97f, 0.88f, 0.97f), 11);
+  title_text("paused", 0, g.title_y, 48 * s, rgba(0.95f, 0.55f, 0.3f, 1), CW_ALIGN_CENTER, W);
+  ptext(pause_prompt(), 0, g.prompt_y, 24 * s, rgba(0.25f, 0.2f, 0.15f, 1), W);
+  for (int i = 0; i < 2; i++) {
+    cw_r2d_rect(g.row[i], rgba(0.95f, 0.55f, 0.3f, 0.14f));
+    ptext(rows[i], 0, g.row[i].y + 3 * s, 24 * s, rgba(0.25f, 0.2f, 0.15f, 1), W);
+  }
+  ptext(gfx, 0, g.gfx_y, 20 * s, rgba(0.4f, 0.3f, 0.2f, 1), W);
+  if (!glyphs()) text("tap here: quit to spouts", 0, g.quit_y, 24 * s, rgba(0.6f, 0.2f, 0.1f, 1), CW_ALIGN_CENTER, W);
 }
 
 static void draw_win(float W, float H, float s) {
   const sim *S = &G.S;
   float in = cw_clampf(G.state_ticks / 20.0f, 0, 1);
-  torn(cw_rect_make(W * 0.5f - 210 * s, H * 0.22f, 420 * s, 250 * s), rgba(1, 0.97f, 0.88f, 0.97f * in), 13);
-  title_text("to the top!", 0, H * 0.24f, 52 * s, rgba(0.95f, 0.55f, 0.3f, in), CW_ALIGN_CENTER, W);
   char b[96];
   int t = S->win_tick / 60;
   snprintf(b, sizeof b, "time %d:%02d%s\ndewdrops %d of %d, flies %d of 3\nwashed down %d, held on %d", t / 60, t % 60, G.new_best ? "  (best!)" : "", S->dews,
            S->L->n_dews, S->flies, S->washes + S->knocks, S->braced_waves);
-  text(b, 0, H * 0.24f + 80 * s, 26 * s, rgba(0.25f, 0.2f, 0.15f, in), CW_ALIGN_CENTER, W);
-  ptext(prompt_go(), 0, H * 0.24f + 200 * s, 22 * s, rgba(0.4f, 0.3f, 0.2f, in), W);
+  float th = title_h("to the top!", 52 * s, 0);
+  cw_vec2 bb = text_box(b, 26 * s, W - 48 * s);
+  float gw, gh = ptext_block(prompt_go(), 0, 0, 22 * s, rgba(0, 0, 0, 1), W - 48 * s, false, &gw);
+  float w = fminf(W - 16 * s, fmaxf(420 * s, fmaxf(bb.x, gw) + 48 * s));
+  float h = 10 * s + th + 12 * s + bb.y + 14 * s + gh + 18 * s;
+  float y = fmaxf(8 * s, fminf(H * 0.22f, (H - h) * 0.5f));
+  torn(cw_rect_make(W * 0.5f - w * 0.5f, y, w, h), rgba(1, 0.97f, 0.88f, 0.97f * in), 13);
+  title_text("to the top!", 0, y + 10 * s, 52 * s, rgba(0.95f, 0.55f, 0.3f, in), CW_ALIGN_CENTER, W);
+  text(b, 24 * s, y + 10 * s + th + 12 * s, 26 * s, rgba(0.25f, 0.2f, 0.15f, in), CW_ALIGN_CENTER, W - 48 * s);
+  ptext_block(prompt_go(), 24 * s, y + h - 18 * s - gh, 22 * s, rgba(0.4f, 0.3f, 0.2f, in), W - 48 * s, true, NULL);
 }
 
 static void render(void *u, double alpha) {
