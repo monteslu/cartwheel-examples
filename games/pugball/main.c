@@ -1783,7 +1783,7 @@ static stadium_layout stadium_layout_of(float W, float H) {
   for (int i = 0; i < STADIUMS; i++) title_h = fmaxf(title_h, measure_w(STADIUM_TITLES[i], TILE_TITLE * s, tw - 14 * s, CW_ALIGN_LEFT).height);
   float th = fmaxf(120 * s, 6 * s + L.h_num + 4 * s + title_h + 6 * s + L.h_size + 8 * s);
   L.titles = th <= room || th == 120 * s;
-  if (!L.titles) th = fmaxf(fminf(120 * s, room), 6 * s + L.h_num + L.h_size + 24 * s);
+  if (!L.titles) th = fmaxf(fminf(120 * s, room), 6 * s + L.h_num + 16 * s); /* the cup size goes beside the number */
   float x0 = (W - (STADIUMS * tw + (STADIUMS - 1) * gx)) * 0.5f;
   for (int i = 0; i < STADIUMS; i++) L.tile[i] = cw_rect_make(x0 + i * (tw + gx), y0, tw, th);
   return L;
@@ -2580,7 +2580,9 @@ static void draw_stadium_select(float W, float H, float s) {
       float sr = fminf(13 * s, L.h_num * 0.45f);
       if (SAVE.won[i]) star(r.x + r.w - sr - 8 * s, r.y + 6 * s + L.h_num * 0.5f, sr, rgba(1, 0.82f, 0.15f, 1), 0);
       snprintf(buf, sizeof buf, "%dv%d", CUP_SIZE[i], CUP_SIZE[i]);
-      label(buf, r.x + 8 * s, r.y + r.h - L.h_size - 8 * s, TILE_SIZE_TXT * s, rgba(1, 0.95f, 0.85f, 0.9f), CW_ALIGN_LEFT, 0);
+      if (!L.titles) label(buf, r.x + 14 * s + measure_digits("5", TILE_NUM * s).width, r.y + 6 * s + (L.h_num - L.h_size) * 0.5f, TILE_SIZE_TXT * s,
+                           rgba(1, 0.95f, 0.85f, 0.9f), CW_ALIGN_LEFT, 0);
+      else label(buf, r.x + 8 * s, r.y + r.h - L.h_size - 8 * s, TILE_SIZE_TXT * s, rgba(1, 0.95f, 0.85f, 0.9f), CW_ALIGN_LEFT, 0);
     }
   }
   if (banner) { /* in the heading's place */
@@ -2716,7 +2718,7 @@ static void marker(t3_vec3 at, const char *label, cw_color c, float W, float H, 
   }
   float x = cx + dx * k, y = cy + dy * k;
   if (HV.corner.w > 0 && x + r + 12 * s > HV.corner.x && x - r - 12 * s < HV.corner.x + HV.corner.w && y + r + 12 * s > HV.corner.y)
-    y = HV.corner.y - r - 14 * s; /* up the edge, clear of the gauge and its chip */
+    x = HV.corner.x < X0 + W * 0.5f ? HV.corner.x + HV.corner.w + r + 14 * s : HV.corner.x - r - 14 * s; /* beside the gauge and its chip */
   cw_r2d_circle(cw_v2(x, y), r + 3 * s, 20, dark);
   cw_r2d_circle(cw_v2(x, y), r, 20, c);
   cw_vec2 tip = cw_v2(x + dx * (r + 12 * s), y + dy * (r + 12 * s)), sd = cw_v2(-dy * r * 0.6f, dx * r * 0.6f);
