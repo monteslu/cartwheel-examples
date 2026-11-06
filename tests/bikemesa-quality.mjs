@@ -11,5 +11,5 @@ sweep({
   scenes: [gateScene('bikemesa-ride', { reach: { 'game.state': (v) => v >= 3, checkpoint: (v) => v >= 2 } }), gateScene('bikemesa-title'),
     ...[2, 3, 4].map((n) => ({ ...gateScene('bikemesa-loop-lanes', { name: `split ${n}`, frames: 900, presets: ['verylow', 'low', 'high'], reach: { players: n, 'game.state': (v) => v >= 3 } }), cmds: [`players ${n}`, 'track 1'] })),
     ...Array.from({ length: 19 }, (_, i) => ({ ...track(i + 1), cmds: [`track ${i + 1}`] }))],
-  control: { state: 'standard+vcol+shadow+skin+senv+l1001+xplain', scene: 'bikemesa-ride', quality: 'verylow' },
+  control: { state: 'physical+shadow+senv+l1001+xplain', scene: 'track 16', quality: 'verylow' },
 });
