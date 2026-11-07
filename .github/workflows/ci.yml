@@ -35,6 +35,9 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the tags: each cart's manifest version is the tag on a tag build, else <last tag>-dev.g<commit>
+          filter: tree:0 # (commits only: no old trees or files)
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -57,6 +60,10 @@ jobs:
       # control (the same manifest without its cover) must fail
       - name: Cart art
         run: node tests/cart-art.mjs $GAMES
+      # every cart's manifest version is this build's: the tag on a v* tag (a release version), else this
+      # checkout's <last tag>-dev.g<commit>; the control (a cart rewritten to another version) must fail
+      - name: Cart version
+        run: node tests/cart-version.mjs --dir build/cart-wgpu/carts $GAMES
       - name: Collect carts
         run: |
           mkdir -p carts
@@ -127,6 +134,9 @@ jobs:
           - { target: macos-arm64, os: macos-15, run: true, gl_smoke: true }
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the tags: the packages carry the carts' version (cwexport's rule is cw_add_app's)
+          filter: tree:0
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -155,18 +165,18 @@ jobs:
         run: TARGETS=${{ matrix.target }} scripts/build.sh
       - name: Package
         run: |
-          if [ "${GITHUB_REF_TYPE}" = tag ]; then v="${GITHUB_REF_NAME#v}"; else v="0.0.0-${GITHUB_SHA::7}"; fi
           case "$(uname -s)-$(uname -m)" in Linux-x86_64) host=linux-x64 ;; Linux-aarch64) host=linux-arm64 ;; Darwin-arm64) host=macos-arm64 ;; esac
           preset=${{ matrix.target }}
           for g in $GAMES; do
             node deps/cartwheel-sdk/$host/tools/cwexport.mjs --project games/$g --preset $preset \
-              --build build/${{ matrix.target }} --version "$v" --out out/export | grep -E '^@result|rror'
+              --build build/${{ matrix.target }} --out out/export | grep -E '^@result|rror'
           done
           mkdir -p out/release
           find out/export -maxdepth 2 -type f \( -name '*.tar.gz' -o -name '*.AppImage' -o -name '*.zip' -o -name '*.apk' \) -exec cp {} out/release/ \;
           ls -l out/release
           # every game in GAMES must have packaged (a game without a project.cwproj exported nothing and nothing failed)
           for g in $GAMES; do ls out/release/$g-* >/dev/null 2>&1 || { echo "$g: no package for $preset" >&2; exit 1; }; done
+          # (each package's version: the checkout's, as the carts', from cwexport; on a v* tag the tag's)
       - uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.target }}
@@ -317,6 +327,10 @@ jobs:
     permissions:
       contents: write # a v* tag publishes the carts and the native builds as a GitHub release
     steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
       - uses: actions/download-artifact@v7
         with:
           pattern: release-*
@@ -329,6 +343,8 @@ jobs:
           cp release/release-carts/* release/release-linux-x64/* release/release-linux-arm64/* \
              release/release-android-arm64/* release/release-macos-arm64/* release/release-windows-x64-final/* files/
           ls -l files
+          # every cart's manifest and every package's name carry the tag's version
+          node tests/cart-version.mjs --dir files
           gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
             gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
           gh release upload "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --clobber files/*

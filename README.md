@@ -302,6 +302,7 @@ resolution is a setting of its own that no preset changes. Four kinds of check h
 - `tests/quality-grounding.mjs`: on Very Low every caster big enough to read keeps the shadow at its base that
   High draws, so nothing looks as if it floats. Control: a frame with no shadows must fail.
 - `tests/cart-art.mjs`: every release cart carries its launcher art (`games/<game>/art`, see Layout). Control: a manifest with no cover.
+- `tests/cart-version.mjs`: every cart's manifest version is this build's (the tag's on a `v*` tag, else `<last tag>-dev.g<commit>`); in the release, every package's name carries it too. Control: a cart rewritten to another version.
 
 ### Split-screen cost
 
@@ -368,8 +369,16 @@ against the pinned SDKs.
   frames must equal Linux x64 GL's, field for field (`tests/compare-replays.mjs`).
 
 Pushing a `v*` tag runs the same jobs and publishes a GitHub release with the
-six carts and each game's native builds: `git tag v0.6.0 && git push origin
-v0.6.0`.
+carts and each game's native builds: `git tag v0.6.0 && git push origin
+v0.6.0`. The release checks that every cart's manifest and every package's
+name carry the tag's version (`tests/cart-version.mjs`).
+
+Every cart's manifest says which version it is, and the build works it out
+from the checkout (the engine's `cw_add_app`): a build of a `v*` tag is that
+version (`0.19.5`), any other build the last tag plus the commit
+(`0.19.5-dev.g1a2b3c4`), so a cart built locally or from `main` is never taken
+for a release. `cwexport` gives the native packages
+the same version.
 
 ## Layout
 
@@ -385,6 +394,7 @@ v0.6.0`.
 | `tests/gate.mjs` | runs the gates |
 | `tests/<game>-quality.mjs`, `tests/quality-*.mjs`, `tests/lib/` | the graphics preset checks (above) |
 | `tests/cart-art.mjs` | every release cart carries its art |
+| `tests/cart-version.mjs` | every cart's manifest (and every release package's name) carries this build's version |
 | `scripts/deps.lock` | the pinned cartwheel-engine commit and its SDKs (sha256) |
 | `scripts/fetch-deps.sh`, `scripts/build.sh` | fetch the SDKs (or the engine) and build |
 | `tests/native-replay.mjs`, `tests/compare-replays.mjs` | the `_auto` replays on any platform's build, and their comparison |
