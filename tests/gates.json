@@ -2071,7 +2071,7 @@
   {
     "name": "bikemesa-presets",
     "app": "bikemesa",
-    "frames": 1240,
+    "frames": 1600,
     "input": "bikemesa-ride.json",
     "startCmds": [
       "@640 quality ultra",
@@ -2131,7 +2131,7 @@
       ],
       "note": "maxArea: a shadow or surface on one backend and not the other. A cart's WebGPU handles are its own heap allocations, so the view of a shadow map remade at the new preset's size came back at the old view's address and three.c's bind-group cache (keyed by the view) kept sampling the old map: shadows of flags and rocks from where the rider had been, rocks' own shadows gone (0.7% of the frame here; 0 after the fix, 0.01% native WebGPU vs GL). Native WebGPU holds the old view alive in the cached group, so only the carts showed it."
     },
-    "note": "Red Rock Run with the graphics preset changed mid-ride as a player does from the pause menu (High, Ultra at 600, Low at 800, Medium at 1000: every shadow map size), ending past the second checkpoint's pennant. Requests at a frame (@N) run on native and chromium only (romdev has no way to post one mid-run)."
+    "note": "Red Rock Run with the graphics preset changed mid-ride as a player does from the pause menu (High, Ultra at 600, Low at 800, Medium at 1000: every shadow map size), ending past the second checkpoint's pennant (1600 frames: the opening loop the track gained takes longer than the 1240 this gate first ran). Requests at a frame (@N) run on native and chromium only (romdev has no way to post one mid-run)."
   },
   {
     "fields": [
