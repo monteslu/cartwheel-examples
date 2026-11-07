@@ -3,6 +3,12 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.19.2 (2026-11-07)
+
+- **All games**: Engine v0.36.1. On WebGPU a game's GPU time now includes its reflection probe and sky captures (they were untimed), every frame is timed, and the range gates count a frame as the sum of each pass's average
+- **chromite**: Its WebGPU High now counts the chrome reflection's captures (about 1.6 ms a frame), so its WebGPU shares are true: Very Low 0.46 and Low 0.58 of High
+- **All games**: GPU time on Very Low and Low as a share of High (1080p, Radeon 890M, GL / WebGPU, measured on a quiet machine): racer 0.55 / 0.44 and 0.66 / 0.56; BikeMesa 0.37 / 0.35 and 0.53 / 0.50; derby 0.29 / 0.28 and 0.37 / 0.37; pugball 0.33 / 0.35 and 0.47 / 0.50; bomberdude 0.43 / 0.39 and 0.55 / 0.51; chromite 0.42 / 0.46 and 0.55 / 0.58; spout 0.29 / 0.21 and 0.37 / 0.41. The range gates hold each game to these shares plus 0.06 (spout's Low to 0.45 of High)
+
 ## v0.19.1 (2026-11-07)
 
 - **racer**: The options page has no Text background row: every line of the racer's screens is outlined and shadowed already, so the setting made no difference
