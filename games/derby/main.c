@@ -552,19 +552,20 @@ static void views_setup(void) {
  *   screen; otherwise the analytic fog and the beam cones, as before
  *   (splitscreen keeps it off: a grid per view would cost each view a whole
  *   fog pass);
- *   floodlight shadows by the Shadows setting: on Minimal (Very Low) only the
- *   stand-in for Flood0 (flood_sun_apply), on Low the stand-in and the other
- *   three floods, two opposite corners on Medium, all four on High and Ultra. */
-/* Minimal and Low shadows at night (the sun under the horizon): Flood0 as a casting directional light
- * (scenery_flood_sun), the one caster Minimal keeps (by day the sun is that caster), so the cars are shaded and stand on
- * their shadows at every preset */
+ *   floodlight shadows by the Shadows setting: on Minimal (Very Low) and Low
+ *   the directional stand-ins for Flood0 and Flood2 (flood_sun_apply; a spot
+ *   that casts costs Low about 0.5 ms at 1080p on a Radeon 890M, a stand-in a
+ *   tenth of that), two opposite corners on Medium, all four on High and Ultra. */
+/* Minimal and Low shadows at night (the sun under the horizon): Flood0 and Flood2, the two ends of one long side, as
+ * casting directional lights (scenery_flood_sun; by day the sun is the caster), so the cars are shaded from both ends and
+ * stand on their shadows at every preset */
 static void flood_sun_apply(void) {
   bool night = cw_node_valid(G.sun) && G.sun_known && !G.sun_up;
   bool on = night && cw_gfx_get(CW_GFX_SHADOWS) <= CW_GFX_SHADOWS_LOW;
   /* the sun under the horizon lights nothing, and a plain directional light made before the casting one would stop
    * three.c drawing lit materials (a kind's shadow casters come first): it steps aside while the flood stands in */
   if (cw_node_valid(G.sun)) cw_node_set(G.sun, "visible", cw_val_bool(!on));
-  scenery_flood_sun(on);
+  scenery_flood_sun(on ? 2 : 0);
 }
 static void apply_gfx(void) {
   cw_node fog = find_type(G.scene, "HeightFog");
@@ -578,7 +579,7 @@ static void apply_gfx(void) {
   fx_volumetric(on);
   scenery_volumetric(on);
   int sh = cw_gfx_get(CW_GFX_SHADOWS);
-  scenery_flood_shadows(sh <= CW_GFX_SHADOWS_MINIMAL ? 0 : sh == CW_GFX_SHADOWS_LOW ? 3 : sh == CW_GFX_SHADOWS_MEDIUM ? 2 : 4);
+  scenery_flood_shadows(sh <= CW_GFX_SHADOWS_LOW ? 0 : sh == CW_GFX_SHADOWS_MEDIUM ? 2 : 4);
   flood_sun_apply();
 }
 
