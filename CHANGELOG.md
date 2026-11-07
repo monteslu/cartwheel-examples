@@ -3,6 +3,10 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.19.3 (2026-11-07)
+
+- **derby**: The night arena keeps its shadows on Very Low and Low. One floodlight becomes a light that casts a shadow from above, so every car is shaded and stands on its shadow instead of floating; on Low the other three floodlights cast too. Very Low costs 0.27 / 0.29 of High (GL / WebGPU) and Low 0.54 / 0.59; the range gates hold derby to 0.32 and 0.66
+
 ## v0.19.2 (2026-11-07)
 
 - **All games**: Engine v0.36.1. On WebGPU a game's GPU time now includes its reflection probe and sky captures (they were untimed), every frame is timed, and the range gates count a frame as the sum of each pass's average
