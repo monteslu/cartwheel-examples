@@ -1,7 +1,7 @@
 [
   { "name": "racer", "app": "racer", "frames": 900, "startCmds": ["race 0 0 1"], "maxVeryLow": 0.62, "maxLow": 0.73 },
   { "name": "bikemesa", "app": "bikemesa_auto", "frames": 900, "maxVeryLow": 0.44, "maxLow": 0.59 },
-  { "name": "derby", "app": "derby_auto", "frames": 900, "maxVeryLow": 0.35, "maxLow": 0.45 },
+  { "name": "derby", "app": "derby_auto", "frames": 900, "maxVeryLow": 0.32, "maxLow": 0.66 },
   { "name": "pugball", "app": "pugball_auto", "frames": 900, "maxVeryLow": 0.42, "maxLow": 0.56 },
   { "name": "bomberdude", "app": "bomberdude_auto", "frames": 900, "maxVeryLow": 0.49, "maxLow": 0.62 },
   { "name": "chromite", "app": "chromite_auto", "frames": 900, "maxVeryLow": 0.52, "maxLow": 0.65 },

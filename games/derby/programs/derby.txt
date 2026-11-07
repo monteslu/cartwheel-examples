@@ -92,3 +92,4 @@ physical+map+trans+senv+ds+cc+l1001+xcluster_plain
 depth+xcluster_plain
 standard+map+trans+senv+l1001+xcluster_meshdecal_plain
 basic+map+trans+instbig+icol
+standard+map+trans+shadow+senv+l1001+xcluster_meshdecal_plain
