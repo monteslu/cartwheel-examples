@@ -89,6 +89,8 @@ void scenery_tick(const sim *s, int ticks, int cheer);
 void scenery_beams(const t3_vec3 *eyes, int n); /* floodlight beams only from a distance */
 void scenery_volumetric(bool on); /* volumetric fog draws the beams: no cones */
 void scenery_flood_shadows(int n); /* floodlights casting shadows: 0, 2 or 4 */
+void scenery_flood_sun(bool on);   /* Minimal and Low at night: Flood0 as a casting directional light */
+void scenery_flood_sun_follow(t3_vec3 c); /* its shadow box over the play */
 void scenery_reset(void);
 void scenery_light_crowd(bool light); /* lighter figures for the crowd (splitscreen) */
 void scenery_density(float k); /* share of the crowd drawn, 0..1 (cw_quality_density) */

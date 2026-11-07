@@ -552,8 +552,20 @@ static void views_setup(void) {
  *   screen; otherwise the analytic fog and the beam cones, as before
  *   (splitscreen keeps it off: a grid per view would cost each view a whole
  *   fog pass);
- *   floodlight shadows by the Shadows setting: none on Low (as before), two
- *   opposite corners on Medium, all four on High and Ultra. */
+ *   floodlight shadows by the Shadows setting: on Minimal (Very Low) only the
+ *   stand-in for Flood0 (flood_sun_apply), on Low the stand-in and the other
+ *   three floods, two opposite corners on Medium, all four on High and Ultra. */
+/* Minimal and Low shadows at night (the sun under the horizon): Flood0 as a casting directional light
+ * (scenery_flood_sun), the one caster Minimal keeps (by day the sun is that caster), so the cars are shaded and stand on
+ * their shadows at every preset */
+static void flood_sun_apply(void) {
+  bool night = cw_node_valid(G.sun) && G.sun_known && !G.sun_up;
+  bool on = night && cw_gfx_get(CW_GFX_SHADOWS) <= CW_GFX_SHADOWS_LOW;
+  /* the sun under the horizon lights nothing, and a plain directional light made before the casting one would stop
+   * three.c drawing lit materials (a kind's shadow casters come first): it steps aside while the flood stands in */
+  if (cw_node_valid(G.sun)) cw_node_set(G.sun, "visible", cw_val_bool(!on));
+  scenery_flood_sun(on);
+}
 static void apply_gfx(void) {
   cw_node fog = find_type(G.scene, "HeightFog");
   bool on = false;
@@ -566,7 +578,8 @@ static void apply_gfx(void) {
   fx_volumetric(on);
   scenery_volumetric(on);
   int sh = cw_gfx_get(CW_GFX_SHADOWS);
-  scenery_flood_shadows(sh <= CW_GFX_SHADOWS_LOW ? 0 : sh == CW_GFX_SHADOWS_MEDIUM ? 2 : 4);
+  scenery_flood_shadows(sh <= CW_GFX_SHADOWS_MINIMAL ? 0 : sh == CW_GFX_SHADOWS_LOW ? 3 : sh == CW_GFX_SHADOWS_MEDIUM ? 2 : 4);
+  flood_sun_apply();
 }
 
 static void start_bout(int arena, bool with_human) {
@@ -1083,7 +1096,9 @@ static void camera_tick(void) {
       G.sun_up = up, G.sun_known = true;
       cw_node_set(G.sun, "shadow", cw_val_bool(up));
       cw_node_set(G.sun, "fog_energy", cw_val_float(up ? 1 : 0));
+      flood_sun_apply();
     }
+    scenery_flood_sun_follow(c);
   }
 }
 

@@ -24,6 +24,9 @@ static struct {
   int side_start[3];
   t3_object *shaft[4];       /* the floodlight beams */
   cw_node flood[4];          /* the floodlights (SpotLight3D) */
+  cw_node flood_sun;         /* Flood0 as a directional light, for Minimal and Low shadows (scenery_flood_sun) */
+  t3_vec3 flood_dir;         /* Flood0's aim, unit */
+  bool flood_sun_on;
   t3_vec3 shaft_a[4], shaft_b[4]; /* each beam's axis: the lamp, where it lands */
   int crowd;
   t3_vec3 at[CROWD_MAX];
@@ -385,6 +388,39 @@ static void floodlights(cw_node root) {
     cw_node3d_set_position(sp, (t3_vec3){ x * 0.97f, H - 0.4f, z * 0.97f });
     cw_node3d_look_at(sp, (t3_vec3){ x * 0.12f, 0, z * 0.12f }, (t3_vec3){ 0, 1, 0 });
     S.flood[k] = sp;
+    if (k == 0) {
+      t3_vec3 a = { x * 0.97f, H - 0.4f, z * 0.97f }, b = { x * 0.12f, 0, z * 0.12f };
+      t3_vec3 d = { b.x - a.x, b.y - a.y, b.z - a.z };
+      float l = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
+      S.flood_dir = (t3_vec3){ d.x / l, d.y / l, d.z / l };
+      { /* steeper than the flood itself, 70% of the way to straight down: the one shadow falls under each car and
+         * the wreck, where a car meets the dirt, whichever corner it faces */
+        const float u = 0.7f;
+        t3_vec3 v = { S.flood_dir.x * (1 - u), S.flood_dir.y * (1 - u) - u, S.flood_dir.z * (1 - u) };
+        float vl = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
+        S.flood_dir = (t3_vec3){ v.x / vl, v.y / vl, v.z / vl };
+        b = (t3_vec3){ a.x + S.flood_dir.x * l, a.y + S.flood_dir.y * l, a.z + S.flood_dir.z * l };
+      }
+      /* its stand-in on Minimal and Low shadows (spot lights cast none there): the same light from the same
+       * direction as a directional light, the one caster the engine keeps (one map, hard edges, small casters
+       * culled). Its energy is the flood's at the middle of the arena (energy over distance squared), so the
+       * arena is as bright as with the flood */
+      cw_node sun = cw_node_new("DirectionalLight3D", "FloodSun");
+      cw_node_add_child(root, sun);
+      cw_node_set(sun, "color", cw_val_color(1, 0.66f, 0.36f, 1));
+      cw_node_set(sun, "energy", cw_val_float(0));
+      cw_node_set(sun, "shadow", cw_val_bool(false));
+      cw_node_set(sun, "visible", cw_val_bool(false)); /* off: no light at all, so the other presets' programs stay as they were */
+      cw_node_set(sun, "shadow_size", cw_val_int(1024));
+      cw_node_set(sun, "shadow_extent", cw_val_float(26));
+      cw_node_set(sun, "shadow_far", cw_val_float(140));
+      cw_node_set(sun, "shadow_bias", cw_val_float(-0.0003f));
+      cw_node_set(sun, "shadow_normal_bias", cw_val_float(0.03f));
+      cw_node_set(sun, "fog_energy", cw_val_float(0));
+      cw_node3d_set_position(sun, a);
+      cw_node3d_look_at(sun, b, (t3_vec3){ 0, 1, 0 });
+      S.flood_sun = sun;
+    }
   }
   t3_object *g = t3_group_new();
   add_part(g, mb_finish(&steel), st, true, true);
@@ -484,14 +520,35 @@ void scenery_build(cw_node scene, int theme, uint32_t seed) {
  * its pool of light) the camera would be in the haze, and the haze is
  * the fog's job */
 static bool real_shafts; /* volumetric fog draws the beams: the cones stay hidden */
-/* how many floodlights cast shadows: 0, 2 (two opposite corners) or 4. Each
+/* how many floodlights cast shadows: 0, 2 (two opposite corners), 3 (all but Flood0, which the stand-in replaces on
+ * Low: scenery_flood_sun) or 4. Each
  * shadowed flood costs every pixel it lights a filtered atlas lookup (about
  * 0.6 ms of GPU a light at 1080p on a Radeon 890M) and the volumetric fog a
  * shadow map of its own, so the Shadows setting picks (main.c apply_gfx) */
 void scenery_flood_shadows(int n) {
   flood_shadows = n;
   for (int k = 0; k < 4; k++)
-    if (cw_node_valid(S.flood[k])) cw_node_set(S.flood[k], "shadow", cw_val_bool(n >= (k == 0 || k == 3 ? 2 : 4)));
+    if (cw_node_valid(S.flood[k])) cw_node_set(S.flood[k], "shadow", cw_val_bool(n == 3 ? k != 0 : n >= (k == 0 || k == 3 ? 2 : 4)));
+}
+/* Minimal and Low shadows at night: Flood0 lights the arena as a directional light that casts (S.flood_sun) and the
+ * spot is off, so the cars and the wreck throw one hard shadow and nothing floats; off, the spot as before */
+void scenery_flood_sun(bool on) {
+  if (!cw_node_valid(S.flood_sun) || !cw_node_valid(S.flood[0])) return;
+  S.flood_sun_on = on;
+  t3_vec3 p = cw_node3d_position(S.flood[0]);
+  float d2 = p.x * p.x + p.y * p.y + p.z * p.z; /* to the middle of the arena */
+  /* six times the flood's energy over distance squared at the middle: the spot's cone puts most of its light where
+   * it aims, and at that the shadows read about as dark as the flood's own (the arena's floor 6% brighter) */
+  cw_node_set(S.flood_sun, "energy", cw_val_float(on ? 6000.0f / d2 : 0));
+  cw_node_set(S.flood_sun, "shadow", cw_val_bool(on));
+  cw_node_set(S.flood_sun, "visible", cw_val_bool(on));
+  cw_node_set(S.flood[0], "visible", cw_val_bool(!on)); /* the spot is replaced, not doubled */
+}
+/* its shadow box follows the play, as the sun's does (main.c camera_tick) */
+void scenery_flood_sun_follow(t3_vec3 c) {
+  if (!S.flood_sun_on || !cw_node_valid(S.flood_sun)) return;
+  t3_vec3 d = S.flood_dir;
+  cw_node3d_set_position(S.flood_sun, (t3_vec3){ c.x - d.x * 70, c.y - d.y * 70, c.z - d.z * 70 });
 }
 void scenery_volumetric(bool on) { real_shafts = on; }
 void scenery_beams(const t3_vec3 *eyes, int n) {
