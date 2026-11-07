@@ -3,6 +3,14 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.19.1 (2026-11-07)
+
+- **racer**: The options page has no Text background row: every line of the racer's screens is outlined and shadowed already, so the setting made no difference
+- **racer**: At 200% text the TRY ME tag on the assists row is sized from its word and sits between the row's name and value (it stays away when there is no room), the place suffix and the number of racers keep clear of the place, and the lap record star fits between the best lap and the points
+- **bikemesa**: On Very Low each bike has a soft shadow under it, so the rider no longer looks as if it hovers where the shadows give a small figure almost none
+- **derby**: On Very Low and Low the soft shadows under the cars are drawn, and reach past the body all round: they were placed every frame but never sent to the GPU, so the cars sat on nothing
+- **Tests**: bikemesa's input scripts step through the bike colour choice, its ride and two-player race run long enough for Red Rock Run's opening loop, its respawn sweep counts the newer tracks; racer-trial has the time its long run needs; the touch tests of bomberdude and pugball expect the state their inputs reach now
+
 ## v0.19.0 (2026-11-06)
 
 - **All games**: Engine v0.36.0. Low and Very Low cost less GPU time with the same picture or close to it: both draw the scene into a smaller HDR target (half the bytes a pixel), Low runs the fog, the edge smoothing and bloom inside one final pass with a lighter first bloom level, and draws no volumetric fog or heat haze. A sky whose light keeps easing re-renders at most every 8 frames on Very Low, 4 on Low and 2 on Medium (spout's weather changes cost about 3 ms of GL time a frame before)
