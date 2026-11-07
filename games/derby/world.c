@@ -513,22 +513,28 @@ void world_lod(t3_vec3 eye, float k, int own) {
 
 /* the cars' contact shadows: the arena is lit by floodlights, whose shadows the Minimal and Low settings turn
  * off, and a car with nothing dark under it looks as if it hovers. Render only. */
+static int32_t contact_dbg; /* debug field world.contacts: the blobs drawn this frame */
 void world_contact_shadows(const sim *s) {
+  static bool field;
+  if (!field) field = true, cw_debug_i32("world.contacts", &contact_dbg);
   if (!W.ready || !W.contact) return;
   cw_splats_begin(W.contact);
-  if (cw_gfx_get(CW_GFX_SHADOWS) > CW_GFX_SHADOWS_LOW) return; /* Low: no floodlight shadows either (world_tick) */
+  bool on = cw_gfx_get(CW_GFX_SHADOWS) <= CW_GFX_SHADOWS_LOW; /* Low: no floodlight shadows either (world_tick) */
   static int no_shadows = -1; /* the engine's test switch for a frame with no shadows (tests/quality-grounding.mjs) takes these too */
   if (no_shadows < 0) no_shadows = getenv("CW_TEST_NO_SHADOWS") != NULL;
-  if (no_shadows) return;
-  for (int i = 0; i < MAXC; i++) {
+  if (no_shadows) on = false;
+  for (int i = 0; on && i < MAXC; i++) {
     const car *c = &s->c[i];
     if (!c->on) continue;
     const car_spec *k = &CAR_SPEC[c->kind];
     t3_quat q = c->q; /* the body's forward (+z) on the floor */
     float fx = 2 * (q.x * q.z + q.w * q.y), fz = 1 - 2 * (q.x * q.x + q.y * q.y);
     t3_vec3 p = cw_node3d_position(W.car_node[i]);
-    cw_splats_add(W.contact, (t3_vec3){ p.x, 0, p.z }, k->hl * 2.3f, k->hw * 2.5f, atan2f(fx, fz), 0, (t3_color){ 0, 0, 0 }, 0.7f);
+    cw_splats_add(W.contact, (t3_vec3){ p.x, 0, p.z }, k->hl * 3.8f, k->hw * 4.6f, atan2f(fx, fz), 0, (t3_color){ 0, 0, 0 }, 0.95f); /* past the body all round: under it the car hides the blob */
   }
+  cw_splats_end(W.contact); /* the upload: without it the set draws nothing */
+  contact_dbg = cw_splats_count(W.contact);
+  cw_splats_mesh(W.contact)->mesh.base.visible = contact_dbg > 0;
 }
 
 t3_vec3 world_car_pos(int i) { return W.ready ? cw_node3d_position(W.car_node[i]) : (t3_vec3){ 0, 0, 0 }; }
