@@ -3,6 +3,11 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.19.4 (2026-11-07)
+
+- **derby**: At night Very Low and Low light the arena with two floodlights as lights that cast, one from each end of a long side, a little flatter than before, in place of one on Very Low and four on Low. The cars are shaded from both ends and stand on their shadows through the whole bout, not only at one moment of it. Low costs 0.37 / 0.38 of High (GL / WebGPU), down from 0.54 / 0.59, and Very Low 0.28 / 0.29; the range gates hold derby to 0.30 and 0.44
+- **derby**: The grounding gate judges a sweep of the autopilot's bout, every 50 frames from frame 300 to 900, on Very Low and on Low, GL and WebGPU, instead of one frame of Very Low. Its control (each frame and the whole sweep with no shadows) must fail
+
 ## v0.19.3 (2026-11-07)
 
 - **derby**: The night arena keeps its shadows on Very Low and Low. One floodlight becomes a light that casts a shadow from above, so every car is shaded and stands on its shadow instead of floating; on Low the other three floodlights cast too. Very Low costs 0.27 / 0.29 of High (GL / WebGPU) and Low 0.54 / 0.59; the range gates hold derby to 0.32 and 0.66
