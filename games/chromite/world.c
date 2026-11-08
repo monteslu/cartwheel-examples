@@ -443,12 +443,14 @@ static void deck_piece(t3_object *s, float x0, float x1, float z0, float z1) {
 #define PIT_Z0 5.0f
 #define PIT_Z1 19.0f
 #define PIT_D 10.0f
+/* the pit's parts take light and shade but throw no sun shadow: they are in the dark under the deck, where the
+ * sun's map cannot reach on every preset alike */
 static void pit(t3_object *s, int seg) {
   float w = PIT_X * 2, l = PIT_Z1 - PIT_Z0, zc = (PIT_Z0 + PIT_Z1) * 0.5f;
   /* the walls: plating down to the floor, a chrome lip round the top */
   for (int e = -1; e <= 1; e += 2) {
-    mesh(s, box(0.6f, PIT_D, l + 1.2f), W.trim_mat, e * (PIT_X + 0.3f), -PIT_D * 0.5f, zc, true, true);
-    mesh(s, box(w, PIT_D, 0.6f), W.trim_mat, 0, -PIT_D * 0.5f, e < 0 ? PIT_Z0 - 0.3f : PIT_Z1 + 0.3f, true, true);
+    mesh(s, box(0.6f, PIT_D, l + 1.2f), W.trim_mat, e * (PIT_X + 0.3f), -PIT_D * 0.5f, zc, false, true);
+    mesh(s, box(w, PIT_D, 0.6f), W.trim_mat, 0, -PIT_D * 0.5f, e < 0 ? PIT_Z0 - 0.3f : PIT_Z1 + 0.3f, false, true);
     mesh(s, box(0.3f, 0.25f, l + 1.2f), W.steel_mat, e * (PIT_X + 0.3f), 0.12f, zc, false, true);
     mesh(s, box(w + 1.2f, 0.25f, 0.3f), W.steel_mat, 0, 0.12f, e < 0 ? PIT_Z0 - 0.3f : PIT_Z1 + 0.3f, false, true);
   }
@@ -459,11 +461,11 @@ static void pit(t3_object *s, int seg) {
   for (int k = 0; k < 2; k++) {
     t3_geometry *p = cyl(0.7f, 0.7f, w, 20);
     t3_geometry_rotate_z(p, 1.5707963f);
-    mesh(s, p, W.pipe_mat, 0, -PIT_D + 0.7f, PIT_Z0 + 3 + k * 7, true, true);
+    mesh(s, p, W.pipe_mat, 0, -PIT_D + 0.7f, PIT_Z0 + 3 + k * 7, false, true);
   }
-  mesh(s, cyl(2.0f, 2.2f, 2.4f, 28), W.trim_mat, -1.5f, -PIT_D + 1.2f, zc, true, true);
+  mesh(s, cyl(2.0f, 2.2f, 2.4f, 28), W.trim_mat, -1.5f, -PIT_D + 1.2f, zc, false, true);
   mesh(s, torus(2.1f, 0.18f, 28, 8), W.steel_mat, -1.5f, -PIT_D + 2.45f, zc, false, true);
-  for (int k = 0; k < 4; k++) mesh(s, box(0.25f, PIT_D, 0.25f), W.steel_mat, (k & 1 ? 1 : -1) * (PIT_X - 0.2f), -PIT_D * 0.5f, PIT_Z0 + 1 + (k / 2) * (l - 2), true, true);
+  for (int k = 0; k < 4; k++) mesh(s, box(0.25f, PIT_D, 0.25f), W.steel_mat, (k & 1 ? 1 : -1) * (PIT_X - 0.2f), -PIT_D * 0.5f, PIT_Z0 + 1 + (k / 2) * (l - 2), false, true);
   if (W.pits >= SEGS) return;
   /* the work light: warm, it sweeps slowly up and down the pit (world_sync) */
   t3_light *wl = t3_point_light_new(0xffc080, 0, 14, 2);
