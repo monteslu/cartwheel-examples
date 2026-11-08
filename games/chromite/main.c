@@ -132,6 +132,7 @@ static struct {
   float shields, damage;
   int32_t pb_ticks, esc_ticks; /* the HUD's point-blank and got-past words: ticks left */
   int64_t esc_cost, esc_last;
+  int32_t continues; /* continues taken (modern rules), for the gates */
 } G;
 
 static int32_t input_mode;
@@ -145,6 +146,32 @@ static int32_t cheat_level, cheat_boss, cheat_gallery, cheat_blasts;
 static int32_t dbg_skill, dbg_hi0, dbg_armed;
 /* the rules and the score system, for the gates */
 static int32_t dbg_boss_plates = -1, dbg_boss_tells;
+/* what the screen shows, as the world draws it (for the newcomer gate, which plays by what is drawn): the craft
+ * (x, y; 99 = none), and the enemy rounds nearest the ship */
+#define VIEW_N 24
+static float view_enemies[VIEW_N * 2], view_rounds[VIEW_N * 2];
+static void view_fill(void) {
+  int n = 0;
+  for (int i = 0; i < MAX_ENEMIES && n < VIEW_N; i++)
+    if (G.S.en[i].live && G.S.en[i].y < FIELD_Y) view_enemies[n * 2] = G.S.en[i].x, view_enemies[n * 2 + 1] = G.S.en[i].y, n++;
+  for (; n < VIEW_N; n++) view_enemies[n * 2] = view_enemies[n * 2 + 1] = 99;
+  /* the nearest VIEW_N rounds to the ship, nearest first */
+  static float d2[MAX_EBULLETS];
+  for (int i = 0; i < MAX_EBULLETS; i++) {
+    const ebullet *b = &G.S.eb[i];
+    float dx = b->x - G.S.h.x, dy = b->y - G.S.h.y;
+    d2[i] = b->live ? dx * dx + dy * dy : 1e30f;
+  }
+  for (n = 0; n < VIEW_N; n++) {
+    int k = 0;
+    for (int i = 1; i < MAX_EBULLETS; i++)
+      if (d2[i] < d2[k]) k = i;
+    if (d2[k] >= 1e30f) break;
+    view_rounds[n * 2] = G.S.eb[k].x, view_rounds[n * 2 + 1] = G.S.eb[k].y;
+    d2[k] = 1e30f;
+  }
+  for (; n < VIEW_N; n++) view_rounds[n * 2] = view_rounds[n * 2 + 1] = 99;
+}
 static int32_t dbg_rules, dbg_chain, dbg_chain_best, dbg_mult10, dbg_escapes, dbg_point_blanks, dbg_cancelled, dbg_hitstop_ticks;
 /* rumble requests made (presentation; the engine's cw.rumble shows the last one) */
 static int32_t rumbles;
@@ -520,6 +547,9 @@ static void init(void *u) {
   cw_debug_i32("cancelled", &dbg_cancelled);
   cw_debug_i32("hitstop.ticks", &dbg_hitstop_ticks);
   cw_debug_i32("rumbles", &rumbles);
+  cw_debug_i32("continues", &G.continues);
+  cw_debug_f32_array("view.enemies", view_enemies, VIEW_N * 2);
+  cw_debug_f32_array("view.rounds", view_rounds, VIEW_N * 2);
   cw_debug_i32("boss.plates", &dbg_boss_plates);
   cw_debug_i32("boss.tells", &dbg_boss_tells);
   cw_debug_i32("over.headings", &over_headings);
@@ -577,6 +607,9 @@ static bool mouse_target(float *tx, float *ty) {
   *tx = eye.x + d.x * t, *ty = -(eye.z + d.z * t);
   return true;
 }
+
+/* the results card offers a continue: modern rules, and the run ended in a death (not ended from the pause menu) */
+static bool can_continue_now(void) { return G.S.rules == RULES_MODERN && G.S.mode == PLAY_DEAD; }
 
 static void record_score(void) {
   int s = SAVE.skill;
@@ -768,7 +801,13 @@ static void fixed(void *u, double dt) {
 #ifdef CHROMITE_AUTOPILOT
     if (G.state_ticks > 420) new_game(1);
 #endif
-    if (G.state_ticks > 60 && (pressed(G.a_start) || pressed(G.a_fire) || mouse_clicked)) {
+    /* modern rules, after a death: {fire} continues from the start of this level (the score starts again; the
+     * high score table already has this run), {back} or Start goes to the title. Classic: any press, the title. */
+    bool can_continue = can_continue_now();
+    if (G.state_ticks > 60 && can_continue && (pressed(G.a_fire) || (mouse_clicked && input_mode == DEV_TOUCH))) {
+      G.continues++;
+      new_game(G.S.level);
+    } else if (G.state_ticks > 60 && (pressed(G.a_start) || (!can_continue && (pressed(G.a_fire) || mouse_clicked)) || (can_continue && (pressed(G.a_back) || mouse_right_clicked)))) {
       G.state = GS_TITLE;
       G.state_ticks = 0;
       G.cursor = 0;
@@ -797,6 +836,7 @@ static void fixed(void *u, double dt) {
   dbg_skill = SAVE.skill, dbg_hi0 = SAVE.hi[SAVE.skill][0], dbg_armed = G.S.h.armed > 0;
   dbg_rules = G.state == GS_TITLE ? SAVE.rules : G.S.rules;
   dbg_chain = G.S.chain, dbg_chain_best = G.S.chain_best, dbg_mult10 = sim_multiplier10(&G.S);
+  view_fill();
   dbg_boss_plates = G.S.boss >= 0 && G.S.en[G.S.boss].live ? G.S.en[G.S.boss].plates : -1;
   dbg_escapes = G.S.escapes, dbg_point_blanks = G.S.point_blanks, dbg_cancelled = G.S.cancelled;
 }
@@ -1198,7 +1238,8 @@ static void draw_over(float W, float H, float s) {
     spaced(b, 0, y, 16 * s, rgba(1, 0.7f, 0.5f, a), CW_ALIGN_CENTER, W);
     y += spaced_size(b, 16 * s).y + 6 * s;
   }
-  const char *p = prompt_touch() ? "tap to continue" : "press {fire} to continue";
+  const char *p = can_continue_now() ? (prompt_touch() ? "tap to continue from this level" : "{fire} : continue from this level      {back} : title")
+                                     : prompt_touch() ? "tap to continue" : "press {fire} to continue";
   float ph = pspaced_block(p, 16 * s, 0, 16 * s, rgba(1, 1, 1, 1), W - 32 * s, false);
   pspaced_block(p, 16 * s, fmaxf(y + 10 * s, fminf(H * 0.82f, H - 8 * s - ph)), 16 * s, rgba(0.5f, 0.56f, 0.72f, a * 0.8f), W - 32 * s, true);
 }
