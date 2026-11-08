@@ -396,13 +396,13 @@ t3_texture *planet_texture(void) {
       float cloud = fbm(u, v, 8, 16, 4, 205) * 0.7f + fbm(u, v, 24, 12, 2, 207) * 0.3f;
       float lat = fabsf(v - 0.5f) * 2;
       float c[3];
-      float is_land = sstep(0.52f, 0.56f, land);
+      float is_land = sstep(0.47f, 0.51f, land);
       float sea = 0.6f + 0.4f * sstep(0.3f, 0.52f, land); /* shallows lighter */
-      c[0] = 0.015f * sea, c[1] = 0.05f * sea, c[2] = 0.13f * sea;
+      c[0] = 0.01f * sea, c[1] = 0.03f * sea, c[2] = 0.08f * sea;
       float lr = 0.28f + 0.2f * dry, lg = 0.14f + 0.1f * dry, lb = 0.07f + 0.04f * dry;
       c[0] += (lr - c[0]) * is_land, c[1] += (lg - c[1]) * is_land, c[2] += (lb - c[2]) * is_land;
       float ice = sstep(0.82f, 0.9f, lat + 0.05f * dry);
-      float cl = sstep(0.55f, 0.72f, cloud) * (0.6f + 0.4f * sstep(0.2f, 0.5f, cw_sin(v * 30 + 2 * cloud)));
+      float cl = sstep(0.48f, 0.66f, cloud) * (0.6f + 0.4f * sstep(0.2f, 0.5f, cw_sin(v * 30 + 2 * cloud)));
       float wht = fmaxf(ice, cl * 0.85f);
       c[0] += (0.75f - c[0]) * wht, c[1] += (0.77f - c[1]) * wht, c[2] += (0.8f - c[2]) * wht;
       uint8_t *p = px + ((size_t)y * PW + x) * 4;

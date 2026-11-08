@@ -187,7 +187,12 @@ static void deck_materials(int variation) {
   }
   if (variation == 1) {
     W.planet_mat = t3_mesh_standard_material_new(0xffffff);
-    t3_material_set_map(W.planet_mat, planet_texture());
+    t3_texture *pt = planet_texture();
+    /* the view takes in a few degrees of the globe: the map repeats so its continents and cloud bands are
+     * the size of the screen, not of a hemisphere (its noise is periodic, so the repeat has no seam) */
+    pt->repeat = (t3_vec2){ 10, 5 };
+    pt->wrap_t = T3_REPEAT;
+    t3_material_set_map(W.planet_mat, pt);
     W.planet_mat->roughness = 0.85f;
     W.planet_mat->metalness = 0;
     W.planet_mat->emissive = (t3_color){ 0.012f, 0.018f, 0.04f }; /* the night side keeps a faint blue */
@@ -199,7 +204,7 @@ static void deck_materials(int variation) {
     lt->repeat = (t3_vec2){ 1, SEG_L / 3.2f };
     t3_material_set_texture(W.lava_mat, T3_EMISSIVE_MAP, lt);
     W.lava_mat->emissive = (t3_color){ 1, 1, 1 };
-    W.lava_mat->emissive_intensity = 2.6f;
+    W.lava_mat->emissive_intensity = 1.1f; /* a glow under the action, never brighter than the fire over it */
     W.lava_mat->roughness = 0.9f;
     W.lava_mat->metalness = 0;
   }
@@ -414,7 +419,7 @@ static void melt_channel(t3_object *s, float x) {
     t3_object_set_position(l, x, 1.2f, SEG_L * (k + 0.5f) / 3);
     t3_object_add(s, l);
     t3_release(l);
-    W.lava_light_k[W.lava_lights] = 7 + 2 * (float)k;
+    W.lava_light_k[W.lava_lights] = 5 + 1.5f * (float)k;
     W.lava_light[W.lava_lights++] = l;
   }
 }

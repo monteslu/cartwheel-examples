@@ -3,7 +3,7 @@
 //               control sw double_over 1 (the dying HUD's own GAME OVER under the card, as it once was) draws two
 //   modern      a pilot who never fires lets the first waves through: they cost score and the chain, never a ship
 //               (escapes > 0, losses 0); control sw rules 1 (classic, the original's rule) spends ships
-//   chain       the fight script scores more with the chain than with flat kills (sw no_chain 1, the control), and
+//   chain       the autopilot's first 40 s score more with the chain than with flat kills (sw no_chain 1, the control), and
 //               the chain grows past 3
 //   boss        a command craft brought up and finished (`boss`, `boss low`): the fight holds 3 ticks, the pad rumbles,
 //               the craft's fire turns to score chips; control: never fire at it (no hit-stop)
@@ -23,9 +23,9 @@ mkdirSync(OUT, { recursive: true });
 let fail = 0;
 const check = (name, ok, detail) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}: ${detail}`); if (!ok) fail++; };
 
-function run(tag, frames, { input, cmds = [] } = {}) {
+function run(tag, frames, { input, cmds = [], app = 'chromite' } = {}) {
   const state = join(OUT, `${tag}.${GPU}.json`), shot = join(OUT, `${tag}.${GPU}.png`);
-  const args = [RUN, '--host', 'native', '--gpu', GPU, '--app', 'chromite', '--frames', String(frames), '--state', state, '--shot', shot];
+  const args = [RUN, '--host', 'native', '--gpu', GPU, '--app', app, '--frames', String(frames), '--state', state, '--shot', shot];
   if (input) args.push('--input', join(ROOT, 'tests', input));
   if (cmds.length) args.push('--start-cmds', cmds.join(';'));
   const r = spawnSync('node', args, { cwd: ROOT, encoding: 'utf8', env: { ...process.env, CW_PROJECT_ROOT: ROOT }, timeout: 300000 });
@@ -47,9 +47,9 @@ const idleCtl = run('modern-control', 2400, { input: 'chromite-start.json', cmds
 check('control (sw rules 1, classic): escapes spend ships', idleCtl.rules === 1 && idleCtl.losses > 0,
   `rules ${idleCtl.rules}, losses ${idleCtl.losses}, lives ${idleCtl.lives}`);
 
-// chain: the fight script with the chain against flat kills
-const chain = run('chain', 900, { input: 'chromite-fight.json' });
-const flat = run('chain-control', 900, { input: 'chromite-fight.json', cmds: ['sw no_chain 1'] });
+// chain: the autopilot's first 40 s with the chain against flat kills
+const chain = run('chain', 2400, { app: 'chromite_auto' });
+const flat = run('chain-control', 2400, { app: 'chromite_auto', cmds: ['sw no_chain 1'] });
 check('chain: kills in a row pay more than flat kills', chain['chain.best'] >= 3 && chain.score > flat.score && chain.kills === flat.kills,
   `chain best ${chain['chain.best']}, score ${chain.score} vs flat ${flat.score}, kills ${chain.kills} / ${flat.kills}, point blanks ${chain.point_blanks}`);
 check('control (sw no_chain 1) scores no more than itself', !(flat.score > flat.score), `flat ${flat.score}`);
