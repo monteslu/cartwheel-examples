@@ -163,3 +163,4 @@ standard+map+rep+nmap+ao+rmap+shadow+senv+l1001+xcluster_plain
 standard+shadow+senv+l1001+xcluster_plain
 physical+instbig+shadow+senv+icol+sheen+l1301+s100
 standard+instbig+shadow+senv+icol+l1001+xcluster_plain
+physical+instbig+shadow+senv+icol+sheen+l1301+s100+xplain
