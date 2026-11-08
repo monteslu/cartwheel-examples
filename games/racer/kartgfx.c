@@ -122,6 +122,7 @@ static void spr(float *x, float *v, float target, float w, float z) {
   *x += *v * dt;
 }
 static float clampf_(float v, float lo, float hi) { return v < lo ? lo : v > hi ? hi : v; }
+static float flame_eye_k = 1.0f; /* kartgfx_frame: 0 with a camera right on the kart, 1 from 3.8 m out (pose_driver) */
 static float ease(float p) { return p * p * (3 - 2 * p); }
 
 void kartgfx_tick(const sim *s) {
@@ -535,7 +536,9 @@ void kartgfx_frame(const sim *s, float alpha) {
       }
     }
 
+    flame_eye_k = NEYE == 0 ? 1.0f : clampf_((sqrtf(near2) - 2.8f) / 1.0f, 0, 1);
     pose_driver(r, P, tsec, st->trick_kind == 0 || k->finished);
+    flame_eye_k = 1.0f;
     rig_sync_parts(r);
     ground_probe(s, i, r, alpha);
     /* the shield bubble: pulses, blinks out slowly (2 Hz) in its last seconds */
@@ -604,6 +607,9 @@ static void pose_driver(kart_rig *r, const float *P, float tsec, bool both_hands
 
     /* flames: nested cones that stretch and flicker with the boost */
     float bo = P[KP_BOOST];
+    /* and they shrink away when a camera is right on the kart (a bump or a close call pushes the chase camera in): an
+     * additive cone a metre from the lens swept the whole view orange */
+    bo *= flame_eye_k;
     for (int f = 0; f < vg->nflame; f++) {
       /* not while the kart is spun or tumbling: the cones swung through the chase camera, big orange sweeps across the view */
       bool on = bo > 0.02f && P[KP_FLAIL] < 0.5f && P[KP_FLIP] == 0;
