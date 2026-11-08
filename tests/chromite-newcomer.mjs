@@ -108,7 +108,7 @@ const LEG = arg('--leg', 'both');
 for (const backend of BACKENDS) {
   console.log(`--- ${backend}`);
   if (LEG !== 'control') {
-  const n = await play(backend, 'newcomer', { idle: true });
+  const n = await play(backend, 'newcomer', { idle: true, pre: 'sw rules 0' }); /* the default rules, whatever an earlier run saved */
   check('newcomer (a second pad pressed Start on the title, then idled): launches from the prompt and reaches level 2', n.started === 1 && n.reached,
     `title ${n.titleState}, launched ${n.started}, level 2 ${n.reached} at ${n.frames} frames, continues ${n.continues}, game over ${n.over}, lives ${n.lives}, kills ${n.kills}, escapes ${n.escapes}, losses ${n.losses}`);
   }
