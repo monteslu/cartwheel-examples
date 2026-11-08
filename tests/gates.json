@@ -5844,6 +5844,11 @@
     "note": "racer through romdev, GL and WebGPU, by the screen's prompts: a race starts alone, and in split screen with a second pad that joined and idles (P1's START NOW, the idle seat sits the race out). Control: sw idle_wait 1 keeps P1 on the ride pick."
   },
   {
+    "name": "bomberdude-newcomer",
+    "script": "tests/bomberdude-newcomer.mjs",
+    "note": "bomberdude through romdev, GL and WebGPU, by the screen: QUICK BATTLE from the title, a bomb dropped and stood on, then the line on screen says how a knocked-out player rides the rim; P1 presses the button it names and has thrown a bomb within ten seconds of the knockout, and the round ends; again with a second pad that joined and idles. Control: ride_hint 0 (nothing said to a knocked-out person, as before) leaves P1 without a throw."
+  },
+  {
     "name": "racer-slow-finish",
     "script": "tests/racer-slow-finish.mjs",
     "note": "racer through romdev, GL and WebGPU: a newcomer who sits at the lights for two and a half minutes, then holds the gas steered by the assist alone, finishes the first race though the computer field was home more than 40 s before. Control: sw dnf_any 1 (40 s after the first kart home, a computer one too) ends the race with the player short of the line."
