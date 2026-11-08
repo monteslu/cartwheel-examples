@@ -4639,7 +4639,7 @@
       "knocks": 1
     },
     "controlInput": "spout-peck-dodge.json",
-    "note": "Spout: the climb is a fixed-step sim on cartwheel/math.h, so every host keeps the same named state; frames compare at 5% over 16 levels (thin paper edges and rain streaks rasterize a pixel apart). The paper bird comes at tick 1500, marks a spot near the spider and pecks it 75 ticks later: standing still is pecked down 2 m; the control steps aside while the mark shows and is not."
+    "note": "Spout: the climb is a fixed-step sim on cartwheel/math.h, so every host keeps the same named state; frames compare at 5% over 16 levels (thin paper edges and rain streaks rasterize a pixel apart). The paper bird comes at tick 1080 and every 840 after, marks the spot where the spider will be and pecks it 75 ticks later: standing still is pecked down 2 m; the control steps aside while the mark shows and is not."
   },
   {
     "name": "chromite-title",
@@ -5852,6 +5852,16 @@
     "name": "pugball-feel",
     "script": "tests/pugball-feel.mjs",
     "note": "pugball through romdev, GL and WebGPU: a fresh save's Exhibition plays any stadium; the kickoff countdown keeps off the cat; in a goal mouth the chase camera keeps the pug in the picture, clear of the posts and crossbar; boosting to supersonic opens the view (the FOV kick); MOON CAT keeps the cat up half as long again. Controls: sw exhibition_locked 1, sw kick_dodge 0, sw cam_posts 0, sw fov_kick 0 (the old behaviour) each fail their part."
+  },
+  {
+    "name": "spout-newcomer",
+    "script": "tests/spout-newcomer.mjs",
+    "note": "spout through romdev, GL and WebGPU, by the pad: a newcomer climbs the first spout by what the screen shows (holds up, braces when a wave front is drawn coming down its stream, hops when stuck) within 60 s and with no wash, alone and with a second pad that pressed once and idles (nothing changes). Control: sw hide_waves 1 (no wave fronts to read) gets it washed down."
+  },
+  {
+    "name": "spout-feel",
+    "script": "tests/spout-feel.mjs",
+    "note": "spout through romdev, GL and WebGPU: the first spout asks something (study hazards 1: the climber that only holds up is washed on every seed, the one that braces for the waves it sees is not and is as quick); the HUD never covers the pipe above the spider through a climb; a clean climb wins a paper medal. Controls: sw old_hazards 1 lets the holder up untouched, sw old_hud 1 covers the pipe."
   },
   {
     "name": "racer-newcomer",

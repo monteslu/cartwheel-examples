@@ -98,6 +98,8 @@ typedef struct sim {
   int dews;
   int washes, knocks, jumps, braced_waves;
   float stream_th[MAX_STREAMS];
+  float stream_off[MAX_STREAMS]; /* how far the rain has pushed each stream round from its line (radians) */
+  float climb_v;            /* the spider's climb, m/s, smoothed (the bird aims where it will be) */
   int win_tick;
   int gust_ticks, gust_dir; /* TWIST_WIND: ticks into the gust cycle, the push direction */
   /* silk: zip up a line to the next collar or bracket above, swinging round */
@@ -117,11 +119,15 @@ typedef struct sim {
 } sim;
 
 void sim_start(sim *S, const level_def *L, uint32_t seed);
+/* the old hazards (a gate's control): streams that only wander, a bird that marks where the spider is and first comes
+ * after 400 ticks, then every 1500 */
+void sim_old_hazards(bool on);
 bool sim_gusting(const sim *S); /* the wind pushing now (TWIST_WIND) */
 bool sim_gust_warn(const sim *S);
 void sim_step(sim *S, const sim_input *in);
 bool sim_on_patch(const sim *S, float th, float y, int *which);
-#define BIRD_EVERY 1500
+#define BIRD_EVERY 840   /* (1500 with the old hazards) */
+#define BIRD_FIRST 1080
 #define BIRD_WARN 75   /* ticks the mark shows before the peck */
 #define BIRD_STAY 140
 float sim_silk_reach(const sim *S);
@@ -133,6 +139,7 @@ float wrap_pi(float a);
 
 void world_build(cw_node root, const level_def *L, int title);
 void world_free(void);
+extern bool world_hide_waves; /* the wave fronts undrawn (a gate's control) */
 /* positions the spider, water, rain, sun and clouds for this frame */
 void world_sync(const sim *prev, const sim *cur, float alpha, float t_seconds, bool stopmotion);
 t3_vec3 world_spider_pos(const sim *prev, const sim *cur, float alpha, float *th_out);

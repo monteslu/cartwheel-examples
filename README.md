@@ -196,6 +196,13 @@ slow newcomer is never cut off because the computer field is home. `games/racer/
 A paper spider climbs a rain spout. The weather turns from sun to rain;
 rain makes the paper wraps slick and sends water down the spout, so brace
 or be washed back to the last bracket. Five spouts, each opening the next.
+The rain pushes a stream round the pipe toward the spider, so its waves
+cross the climb and must be met braced; the paper bird marks where the
+spider will be. Each spout has a par time and a paper medal (gold, silver,
+bronze). The HUD keeps to the rails and the banners to the lower third, off
+the pipe above the spider; on High and Ultra a miniature's depth of field
+keeps the spider sharp and the garden soft. Gates `spout-newcomer` (a
+newcomer climbs the first spout by the wave fronts it sees) and `spout-feel`.
 `games/spout/`
 
 ## Play

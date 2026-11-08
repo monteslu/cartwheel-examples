@@ -166,6 +166,9 @@ static t3_material *edge_mat;
 
 typedef struct leg { t3_object *hip, *knee; float side, base; } leg;
 #define LEG_SEG 0.16f /* each leg segment (the strip in build_spider) */
+/* the wave fronts left undrawn (the newcomer gate's control: a climber with no tell of the waves) */
+bool world_hide_waves;
+
 static struct {
   cw_node node;      /* the cartwheel node everything hangs under */
   t3_object *root;
@@ -1229,7 +1232,7 @@ void world_sync(const sim *prev, const sim *cur, float alpha, float t, bool stop
   if (smap) smap->offset.y = t * 0.9f;
   for (int i = 0; i < 8; i++) {
     const wave *w = &cur->waves[i];
-    T3_OBJ(W.waves[i])->visible = w->live;
+    T3_OBJ(W.waves[i])->visible = w->live && !world_hide_waves;
     if (!w->live) continue;
     float y = w->y;
     if (prev->waves[i].live) y = prev->waves[i].y + (w->y - prev->waves[i].y) * alpha;

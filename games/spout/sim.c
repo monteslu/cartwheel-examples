@@ -20,6 +20,11 @@
 #define LEAF_SPEED 2.2f
 #define STREAM_HALF 0.42f /* half-width of a stream (radians) */
 #define CLEAR_TICKS 90
+#define STREAM_REACH 1.5f  /* radians the rain can push a stream from its line */
+#define STREAM_DRIFT 0.26f /* rad/s: the stream creeps toward the spider (a walk round outpaces it) */
+#define STREAM_SETTLE 0.2f
+static bool old_hazards;
+void sim_old_hazards(bool on) { old_hazards = on; }
 
 float wrap_pi(float a) { return cw_wrap_angle(a); }
 
@@ -115,8 +120,24 @@ static void weather_step(sim *S) {
     if (S->weather_ticks >= CLEAR_TICKS) S->weather = WX_SUN, S->weather_ticks = 0, S->ev_sun_start = 1;
     break;
   }
-  /* the streams wander a little round the pipe */
-  for (int k = 0; k < L->n_streams; k++) S->stream_th[k] = L->streams[k] + 0.22f * cw_sin(S->tick * 0.011f + k * 2.1f);
+  /* the streams wander a little round the pipe; in the rain (and the warning before it) the one nearest the spider is
+   * blown round toward it, so the water crosses its line and a wave has to be met braced; in the sun they settle back */
+  int near = -1;
+  float nd = 9;
+  for (int k = 0; k < L->n_streams; k++) {
+    float d = fabsf(wrap_pi(S->s.th - (L->streams[k] + S->stream_off[k])));
+    if (d < nd) nd = d, near = k;
+  }
+  /* (not below the first bracket: the bottom of the pipe is where a newcomer learns the weather) */
+  bool wet_sky = (S->weather == WX_WARN || S->weather == WX_RAIN) && (L->n_checks < 2 || S->s.y >= L->checks[1]);
+  for (int k = 0; k < L->n_streams; k++) {
+    float off = S->stream_off[k], want = 0;
+    if (!old_hazards && wet_sky && k == near) want = cw_clampf(wrap_pi(S->s.th - L->streams[k]), -STREAM_REACH, STREAM_REACH);
+    float rate = (want != 0 ? STREAM_DRIFT : STREAM_SETTLE) * DT;
+    off += cw_clampf(want - off, -rate, rate);
+    S->stream_off[k] = off;
+    S->stream_th[k] = wrap_pi(L->streams[k] + off + 0.22f * cw_sin(S->tick * 0.011f + k * 2.1f));
+  }
 }
 
 static void wash_down(sim *S, float metres, bool wave);
@@ -125,12 +146,14 @@ static void wash_down(sim *S, float metres, bool wave);
  * a little round), the mark shows, then it pecks there; be elsewhere */
 static void bird_step(sim *S) {
   spider *s = &S->s;
-  if (S->tick < 400) return;
+  if (S->tick < (old_hazards ? 400 : BIRD_FIRST)) return;
   if (S->bird_ticks == 0) {
-    if (S->tick % BIRD_EVERY != 0) return;
+    if (old_hazards ? S->tick % 1500 != 0 : (S->tick - BIRD_FIRST) % BIRD_EVERY != 0) return;
     S->bird_ticks = 1;
     float dth = (rnd01(S) - 0.5f) * 0.6f;
     float dy = 0.3f + rnd01(S) * 0.6f;
+    /* it marks where the spider will be when it pecks, at the pace it is climbing: keep climbing and it lands on you */
+    if (!old_hazards) dy = 0.1f + rnd01(S) * 0.3f + cw_clampf(S->climb_v, 0, CLIMB) * (BIRD_WARN / 60.0f);
     S->bird_th = wrap_pi(s->th + dth);
     S->bird_y = s->y + dy;
     S->ev_bird = 1;
@@ -242,6 +265,7 @@ void sim_step(sim *S, const sim_input *in) {
   weather_step(S);
   if (s->stun > 0) s->stun--;
 
+  float y_was = s->y;
   float ix = cw_clampf(in->x, -1, 1), iy = cw_clampf(in->y, -1, 1);
   float mag = sqrtf(ix * ix + iy * iy);
   if (mag > 1) ix /= mag, iy /= mag, mag = 1;
@@ -330,7 +354,10 @@ void sim_step(sim *S, const sim_input *in) {
   if (s->y > L->height + 0.3f) s->y = L->height + 0.3f;
 
   hazards_step(S);
-
+  {
+    float vy = (s->y - y_was) / DT;
+    S->climb_v += (vy - S->climb_v) * 0.05f;
+  }
   bird_step(S);
   for (int i = S->checkpoint + 1; i < L->n_checks; i++)
     if (s->state == SP_CLING && s->y >= L->checks[i]) {
@@ -371,6 +398,8 @@ uint32_t sim_hash(const sim *S) {
   int32_t flags = s->state | (s->brace ? 16 : 0);
   HF(s->th), HF(s->y), HF(s->r), HF(s->vth), HF(s->vy), HF(s->vr), HF(s->slide), HF(s->face), HF(s->walk), HF(s->stun), HF(flags);
   HF(S->gust_ticks), HF(S->gust_dir), HF(S->silk), HF(S->zip_y), HF(S->zip_swing), HF(S->bird_ticks), HF(S->bird_th), HF(S->bird_y), HF(S->fly_got), HF(S->spool_got), HF(S->tick), HF(S->weather), HF(S->weather_ticks), HF(S->wet), HF(S->checkpoint), HF(S->rng), HF(S->dew_got);
+  for (int k = 0; k < MAX_STREAMS; k++) HF(S->stream_off[k]);
+  HF(S->climb_v);
   for (int i = 0; i < 8; i++) {
     int32_t live = S->waves[i].live;
     HF(live);

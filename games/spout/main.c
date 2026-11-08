@@ -28,6 +28,10 @@
 #include "cartwheel/resource.h"
 #include "cartwheel/vfs.h"
 #include "game.h"
+#include "study.h"
+
+static int medal_of(int level, int ticks); /* (the paper medals, by the win card) */
+static void paper_medal(float cx, float cy, float r, int m, float a);
 
 enum { GS_TITLE, GS_SELECT, GS_PLAY, GS_PAUSE, GS_WIN };
 
@@ -97,6 +101,7 @@ static struct {
   uint32_t state_hash;
   float spider_pos[3];
   int32_t result_ticks, new_best;
+  int32_t medal; /* the last climb's medal: 0 gold, 1 silver, 2 bronze */
   int title_level;
 } G;
 
@@ -301,6 +306,37 @@ static void cmd_bind(int argc, const char **argv, cw_reply *r) {
 /* Inspection command: defer scene replacement to the fixed tick. Does not
  * unlock levels or write progression data. */
 static int pending_level=-1;
+/* study hazards <level>: three climbers (hold, tell, none) on three seeds, without drawing (study.c);
+ * sw old_hazards <0|1>: streams that only wander and the old bird (the hazard gate's control) */
+static int sw_old_hazards;
+static void cmd_study(int argc, const char **argv, cw_reply *r) {
+  int n = argc > 2 ? atoi(argv[2]) : 1;
+  if (argc < 2 || strcmp(argv[1], "hazards") || n < 1 || n > LEVELS_BUILT) {
+    cw_reply_error(r, "usage: study hazards <1..5>");
+    return;
+  }
+  static study_climb c[3][3];
+  study_hazards(n - 1, c);
+  static const char *const BOT[3] = { "hold", "tell", "none" };
+  cw_reply_raw(r, "{");
+  for (int b = 0; b < 3; b++) {
+    cw_reply_printf(r, "%s\"%s\":[", b ? "," : "", BOT[b]);
+    for (int k = 0; k < 3; k++)
+      cw_reply_printf(r, "%s{\"ticks\":%d,\"washes\":%d,\"knocks\":%d,\"pecks\":%d,\"braced\":%d}", k ? "," : "", c[b][k].ticks, c[b][k].washes, c[b][k].knocks,
+                      c[b][k].pecks, c[b][k].braced);
+    cw_reply_raw(r, "]");
+  }
+  cw_reply_raw(r, "}");
+}
+static int sw_old_hud;
+static int32_t hud_over_pipe, hud_samples;
+static int32_t wave_near; /* a wave front drawn coming down the spider's stream, within 1.6 m above it (what a player sees) */
+static void cmd_sw(int argc, const char **argv, cw_reply *r) {
+  if (argc > 2 && !strcmp(argv[1], "old_hazards")) sw_old_hazards = atoi(argv[2]), sim_old_hazards(sw_old_hazards);
+  if (argc > 2 && !strcmp(argv[1], "old_hud")) sw_old_hud = atoi(argv[2]);
+  if (argc > 2 && !strcmp(argv[1], "hide_waves")) world_hide_waves = atoi(argv[2]) != 0;
+  cw_reply_printf(r, "{\"old_hazards\":%d,\"old_hud\":%d,\"hide_waves\":%d}", sw_old_hazards, sw_old_hud, (int)world_hide_waves);
+}
 static void cmd_level(int argc,const char **argv,cw_reply *r) {
   int n=argc>1?atoi(argv[1]):0;
   if(n<1||n>LEVELS_BUILT){cw_reply_error(r,"usage: level <1..5>");return;}
@@ -320,6 +356,11 @@ static sim_input autopilot(const sim *S) {
   for (int i = 0; i < 8; i++) {
     const wave *w = &S->waves[i];
     if (w->live && fabsf(wrap_pi(s->th - S->stream_th[w->stream])) < 0.5f && w->y > s->y && w->y - s->y < 1.2f) in.brace = true;
+  }
+  /* the bird's mark near: step round out of it while it shows */
+  if (!in.brace && S->bird_ticks > 0 && S->bird_ticks < BIRD_WARN && fabsf(wrap_pi(s->th - S->bird_th)) < 0.9f && fabsf(s->y - S->bird_y) < 1.2f) {
+    in.x = wrap_pi(s->th - S->bird_th) >= 0 ? 1.0f : -1.0f, in.y = 0.2f;
+    return in;
   }
   /* a slick wrap just above: jump it, or walk round it to its gap */
   int which;
@@ -373,6 +414,11 @@ static void init(void *u) {
 
   G.stopmotion = true;
   cw_debug_command("level", "level <1..5>: inspect a playable level without changing unlocks",cmd_level);
+  cw_debug_command("study", "study hazards <1..5>: three climbers on three seeds, without drawing (the hazard gate)", cmd_study);
+  cw_debug_command("sw", "sw old_hazards|old_hud <0|1>: the old hazards or HUD back (the gates' controls)", cmd_sw);
+  cw_debug_i32("hud.over_pipe", &hud_over_pipe);
+  cw_debug_i32("hud.wave_near", &wave_near);
+  cw_debug_i32("hud.samples", &hud_samples);
   cw_debug_command("bind", "bind <action> <bindings>: replace an action's bindings (binding text, as input.cfg writes it)", cmd_bind);
   cw_debug_i32("game.state", &G.state);
   cw_debug_i32("game.level", &G.level);
@@ -392,6 +438,7 @@ static void init(void *u) {
   cw_debug_i32("flies", &G.S.flies);
   cw_debug_i32("win.ticks", &G.result_ticks);
   cw_debug_i32("new_best", &G.new_best);
+  cw_debug_i32("win.medal", &G.medal);
   cw_debug_i32("save.unlocked", &dbg_unlocked);
   cw_debug_i32("save.cleared", &dbg_cleared);
   cw_debug_i32("select.locked_bumps", &G.locked_bumps);
@@ -507,9 +554,15 @@ static void fixed(void *u, double dt) {
 #endif
     sim_step(&G.S, &in);
     play_events();
+    wave_near = 0;
+    for (int i = 0; i < 8 && !world_hide_waves; i++) {
+      const wave *w = &G.S.waves[i];
+      if (w->live && fabsf(wrap_pi(G.S.s.th - G.S.stream_th[w->stream])) < 0.6f && w->y > G.S.s.y - 0.1f && w->y - G.S.s.y < 1.6f) wave_near = 1;
+    }
     if (G.S.s.state == SP_WIN) {
       G.result_ticks = G.S.win_tick;
       int lv = G.level;
+      G.medal = medal_of(lv, G.S.win_tick);
       if (!SAVE.lv[lv].cleared || G.S.win_tick < SAVE.lv[lv].best_ticks) SAVE.lv[lv].best_ticks = G.S.win_tick, G.new_best = 1;
       SAVE.lv[lv].cleared = 1;
       if (G.S.dews > SAVE.lv[lv].dews) SAVE.lv[lv].dews = G.S.dews;
@@ -609,6 +662,23 @@ static void sync_hook(cw_tree *t, double alpha, void *u) {
   if (cw_node_valid(G.sky)) {
     cw_node_set(G.sky, "sun_energy", cw_val_float(3.6 - 2.6 * gloom));
     cw_node_set(G.sky, "mie", cw_val_float(2.2 + 2.0 * gloom));
+  }
+  /* a miniature's depth of field on High and Ultra: the spider sharp, the garden behind it soft, as a macro lens sees
+   * a diorama (0.5 ms GL, 1.2 ms WebGPU on the test GPU; the lower presets keep every pixel sharp) */
+  {
+    cw_node post = cw_node_get(G.scene, "Post");
+    bool dof = cw_node_valid(post) && G.state == GS_PLAY && cw_quality_get() >= CW_QUALITY_HIGH;
+    if (cw_node_valid(post)) {
+      cw_node_set(post, "dof", cw_val_bool(dof));
+      if (dof) {
+        t3_vec3 p = world_spider_pos(&G.prev, &G.S, a, NULL), e = cw_node3d_position(G.camera);
+        float d = sqrtf((p.x - e.x) * (p.x - e.x) + (p.y - e.y) * (p.y - e.y) + (p.z - e.z) * (p.z - e.z));
+        cw_node_set(post, "dof_focus_distance", cw_val_float(d));
+        cw_node_set(post, "dof_focus_range", cw_val_float(0.9f));
+        cw_node_set(post, "dof_blur", cw_val_float(7));
+        cw_node_set(post, "dof_near_blur", cw_val_float(0.3f));
+      }
+    }
   }
   /* the key light's tight shadow square follows the spider; the light sits
    * up-sun of it so every caster between the sun and the spider is in it */
@@ -879,6 +949,37 @@ static void draw_touch(void) {
   touch_button(T_PAUSE, "II", cw_v2(14 * k + 32 * k, 14 * k + 26 * k), 26 * k, rgba(0.3f, 0.25f, 0.2f, 1));
 }
 
+/* is the HUD over the pipe above the spider? (hud.over_pipe: of 12 samples of the pipe from the spider up 2.4 m, those
+ * whose strip on screen any card or banner covers). sw old_hud 1: the card in the middle of the top and the banners
+ * over the climb, as before (the gate's control) */
+static bool scr(t3_vec3 p, float W, float H, cw_vec2 *out) {
+  t3_camera *c = cw_node_valid(G.camera) ? (t3_camera *)cw_node3d_object(G.camera) : NULL;
+  if (!c) return false;
+  t3_vec3 v = t3_vec3_apply_mat4(p, &c->matrix_world_inverse);
+  if (v.z > -0.1f) return false;
+  t3_vec3 n = t3_vec3_apply_mat4(v, &c->projection_matrix);
+  *out = cw_v2((n.x * 0.5f + 0.5f) * W, (0.5f - n.y * 0.5f) * H);
+  return true;
+}
+static bool hits(cw_rect r, float x0, float x1, float y) { return r.w > 0 && y >= r.y && y <= r.y + r.h && x1 >= r.x && x0 <= r.x + r.w; }
+static void hud_measure(float W, float H, float s, cw_rect card, cw_rect forecast, float banner_y, float banner_x, float banner_w) {
+  const sim *S = &G.S;
+  bool banner = (S->s.state == SP_WASHED && S->s.stun > 0) || sim_gust_warn(S) || sim_gusting(S) || S->weather == WX_WARN;
+  cw_rect b = banner ? cw_rect_make(banner_x, banner_y, banner_w, 2 * title_h("Mg", 40 * s, 0)) : cw_rect_make(0, 0, 0, 0);
+  hud_over_pipe = hud_samples = 0;
+  float th = S->s.th;
+  for (int i = 0; i < 12; i++) {
+    float y = S->s.y + 0.2f + i * 0.2f;
+    cw_vec2 a, l, r;
+    t3_vec3 axis = { 0, y, 0 }, side = { cw_cos(th) * PIPE_R, 0, -cw_sin(th) * PIPE_R };
+    if (!scr(axis, W, H, &a) || !scr((t3_vec3){ side.x, y, side.z }, W, H, &l) || !scr((t3_vec3){ -side.x, y, -side.z }, W, H, &r)) continue;
+    float x0 = fminf(l.x, r.x), x1 = fmaxf(l.x, r.x);
+    if (a.y < 0 || a.y > H) continue;
+    hud_samples++;
+    hud_over_pipe += hits(card, x0, x1, a.y) || hits(forecast, x0, x1, a.y) || hits(b, x0, x1, a.y);
+  }
+}
+
 /* the HUD: every card sized from its words, so a larger text size keeps them apart */
 static void draw_hud(float W, float H, float s) {
   const sim *S = &G.S;
@@ -891,6 +992,8 @@ static void draw_hud(float W, float H, float s) {
   cw_vec2 tb = text_box(b, 26 * s, 0);
   float pw = fmaxf(340 * s, tb.x + 40 * s), ph = fmaxf(56 * s, tb.y + 20 * s);
   float px = W * 0.5f - pw * 0.5f, left = 48 * s; /* the meter's column */
+  /* the card stands on the left rail, beside the meter: the middle of the top is the pipe the spider climbs into */
+  if (!sw_old_hud) px = left, pw = tb.x + 40 * s; /* (as wide as its words: the pipe stands just right of it) */
   if (px + pw > fr.x - 10 * s) px = fmaxf(left, fr.x - 10 * s - pw);
   if (px + pw > fr.x - 10 * s) fr.y = 12 * s + ph + 8 * s; /* no room beside it: the forecast goes under */
   torn(cw_rect_make(px, 12 * s, pw, ph), rgba(1, 0.98f, 0.92f, 0.95f), 6);
@@ -907,12 +1010,18 @@ static void draw_hud(float W, float H, float s) {
   float top = fmaxf(sy + 9 * s, fr.y + fr.h); /* the lowest of the cards */
   draw_meter(W, H, s, 0);
   float by = fmaxf(H * 0.18f, top + 10 * s), wy = fmaxf(H * 0.3f, top + 10 * s);
-  if (S->s.state == SP_WASHED && S->s.stun > 0 && S->pecks && S->bird_ticks > BIRD_WARN) title_text("pecked!", 0, wy, 40 * s, rgba(1, 0.8f, 0.5f, 1), CW_ALIGN_CENTER, W);
-  else if (S->s.state == SP_WASHED && S->s.stun > 0) title_text("washed down!", 0, wy, 40 * s, rgba(0.55f, 0.75f, 1, 1), CW_ALIGN_CENTER, W);
-  else if (sim_gust_warn(S)) title_text("wind's picking up - hold tight!", 16 * s, by, 30 * s, rgba(0.8f, 0.9f, 1, 1), CW_ALIGN_CENTER, W - 32 * s);
-  else if (sim_gusting(S)) title_text("whoosh!", 0, by, 36 * s, rgba(0.8f, 0.9f, 1, 1), CW_ALIGN_CENTER, W);
+  /* the banners go to the lower third and the right half, beside and under the spider: the pipe and the climb above
+   * it stand left of the middle (the camera looks from a little to the left) */
+  float bx = 0, bw = W;
+  if (!sw_old_hud) by = wy = H * 0.72f, bx = W * 0.58f, bw = W - bx - 16 * s;
+  hud_measure(W, H, s, cw_rect_make(px, 12 * s, pw, sy + 9 * s - 12 * s), fr, by, bx, bw);
+  if (S->s.state == SP_WASHED && S->s.stun > 0 && S->pecks && S->bird_ticks > BIRD_WARN) title_text("pecked!", bx, wy, 40 * s, rgba(1, 0.8f, 0.5f, 1), CW_ALIGN_CENTER, bw);
+  else if (S->s.state == SP_WASHED && S->s.stun > 0) title_text("washed down!", bx, wy, 40 * s, rgba(0.55f, 0.75f, 1, 1), CW_ALIGN_CENTER, bw);
+  else if (sim_gust_warn(S)) title_text("wind's picking up - hold tight!", bx + 16 * s * (sw_old_hud != 0), by, 30 * s, rgba(0.8f, 0.9f, 1, 1), CW_ALIGN_CENTER, sw_old_hud ? W - 32 * s : bw);
+  else if (sim_gusting(S)) title_text("whoosh!", bx, by, 36 * s, rgba(0.8f, 0.9f, 1, 1), CW_ALIGN_CENTER, bw);
   else if (S->weather == WX_WARN)
-    title_text(S->L->theme == THEME_WINTER ? "snow's coming - hold tight!" : "rain's coming - hold tight!", 16 * s, by, 30 * s, rgba(1, 0.85f, 0.5f, 1), CW_ALIGN_CENTER, W - 32 * s);
+    title_text(S->L->theme == THEME_WINTER ? "snow's coming - hold tight!" : "rain's coming - hold tight!", bx + 16 * s * (sw_old_hud != 0), by, 30 * s, rgba(1, 0.85f, 0.5f, 1),
+               CW_ALIGN_CENTER, sw_old_hud ? W - 32 * s : bw);
   if (on_touch()) draw_touch();
   else if (G.state_ticks < 600) {
     const char *h = "{left|right|up|down} climb   {jump} jump   {brace} hold   {silk} silk up";
@@ -985,6 +1094,8 @@ static void draw_select(float W, float H, float s) {
     } else if (SAVE.lv[i].cleared) {
       int t = SAVE.lv[i].best_ticks / 60;
       snprintf(b, sizeof b, "best %d:%02d", t / 60, t % 60);
+      int m = medal_of(i, SAVE.lv[i].best_ticks);
+      paper_medal(x + tw - 18 * s, y + lift + 18 * s, 11 * s, m, 1);
       text(b, x + 4 * s, y + lift + g.stat_y, 19 * s, rgba(0.15f, 0.4f, 0.15f, 1), CW_ALIGN_CENTER, tw - 8 * s);
     }
   }
@@ -1074,13 +1185,30 @@ static void draw_pause(float W, float H, float s) {
   if (!glyphs()) text("tap here: quit to spouts", 0, g.quit_y, 24 * s, rgba(0.6f, 0.2f, 0.1f, 1), CW_ALIGN_CENTER, W);
 }
 
+/* paper medals per spout, by the climb's time: gold at par (a clean climb that braces for the waves it meets),
+ * silver within a third more, bronze for getting to the top at all */
+static const int PAR_SECS[SP_LEVELS] = { 24, 31, 30, 30, 40 };
+static const char *const MEDAL[3] = { "GOLD", "SILVER", "BRONZE" };
+static const float MEDAL_RGB[3][3] = { { 0.95f, 0.75f, 0.2f }, { 0.75f, 0.78f, 0.82f }, { 0.75f, 0.45f, 0.22f } };
+static int medal_of(int level, int ticks) {
+  float secs = ticks / 60.0f, par = (float)PAR_SECS[level % SP_LEVELS];
+  return secs <= par ? 0 : secs <= par * 1.34f ? 1 : 2;
+}
+static void paper_medal(float cx, float cy, float r, int m, float a) {
+  cw_r2d_circle(cw_v2(cx + 2, cy + 3), r, 24, rgba(0.2f, 0.15f, 0.1f, 0.3f * a));
+  cw_r2d_circle(cw_v2(cx, cy), r, 24, rgba(MEDAL_RGB[m][0], MEDAL_RGB[m][1], MEDAL_RGB[m][2], a));
+  cw_r2d_circle_lines(cw_v2(cx, cy), r * 0.72f, r * 0.12f, 24, rgba(1, 1, 1, 0.5f * a));
+}
+
 static void draw_win(float W, float H, float s) {
   const sim *S = &G.S;
   float in = cw_clampf(G.state_ticks / 20.0f, 0, 1);
-  char b[96];
+  char b[160];
   int t = S->win_tick / 60;
-  snprintf(b, sizeof b, "time %d:%02d%s\ndewdrops %d of %d, flies %d of 3\nwashed down %d, held on %d", t / 60, t % 60, G.new_best ? "  (best!)" : "", S->dews,
-           S->L->n_dews, S->flies, S->washes + S->knocks, S->braced_waves);
+  int m = medal_of(G.level, S->win_tick);
+  snprintf(b, sizeof b, "time %d:%02d%s\n%s medal (gold at %d:%02d)\ndewdrops %d of %d, flies %d of 3\nwashed down %d, held on %d", t / 60, t % 60,
+           G.new_best ? "  (best!)" : "", MEDAL[m], PAR_SECS[G.level % SP_LEVELS] / 60, PAR_SECS[G.level % SP_LEVELS] % 60, S->dews, S->L->n_dews, S->flies,
+           S->washes + S->knocks, S->braced_waves);
   float th = title_h("to the top!", 52 * s, 0);
   cw_vec2 bb = text_box(b, 26 * s, W - 48 * s);
   float gw, gh = ptext_block(prompt_go(), 0, 0, 22 * s, rgba(0, 0, 0, 1), W - 48 * s, false, &gw);
@@ -1089,6 +1217,7 @@ static void draw_win(float W, float H, float s) {
   float y = fmaxf(8 * s, fminf(H * 0.22f, (H - h) * 0.5f));
   torn(cw_rect_make(W * 0.5f - w * 0.5f, y, w, h), rgba(1, 0.97f, 0.88f, 0.97f * in), 13);
   title_text("to the top!", 0, y + 10 * s, 52 * s, rgba(0.95f, 0.55f, 0.3f, in), CW_ALIGN_CENTER, W);
+  paper_medal(W * 0.5f + w * 0.5f - 34 * s, y + 10 * s + th * 0.5f, 22 * s, m, in);
   text(b, 24 * s, y + 10 * s + th + 12 * s, 26 * s, rgba(0.25f, 0.2f, 0.15f, in), CW_ALIGN_CENTER, W - 48 * s);
   ptext_block(prompt_go(), 24 * s, y + h - 18 * s - gh, 22 * s, rgba(0.4f, 0.3f, 0.2f, in), W - 48 * s, true, NULL);
 }
