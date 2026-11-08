@@ -43,7 +43,7 @@ own, both on the built cart through romdev, on GL and on WebGPU:
   brings the old wait back) must fail.
 
 Pause, resume, retry and quit belong in one of the two. The existing ones show the shape:
-`tests/bikemesa-newcomer.mjs`, `tests/bomberdude-newcomer.mjs`, `tests/derby-newcomer.mjs`, `tests/pugball-newcomer.mjs`, `tests/racer-newcomer.mjs`
+`tests/bikemesa-newcomer.mjs`, `tests/bomberdude-newcomer.mjs`, `tests/chromite-newcomer.mjs`, `tests/derby-newcomer.mjs`, `tests/pugball-newcomer.mjs`, `tests/racer-newcomer.mjs`
 and `tests/racer-slow-finish.mjs`. Each tears its romdev host down when it exits. Look at the frames they save: a
 frame hash cannot show that the way is readable. A new game is not done until both gates pass.
 
