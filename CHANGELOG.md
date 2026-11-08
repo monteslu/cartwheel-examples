@@ -3,6 +3,11 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.19.8 (2026-11-08)
+
+- **bikemesa**: The program table has the two states the rider pick and the first track draw at Low and Very Low on WebGPU (the grass and the low terrain). A machine that Auto stepped down saw the red no-program banner over the rider pick, and no grass. `tests/bikemesa-low-programs.mjs` checks the title, the rider pick alone and in split screen, and the first seconds of track 1 at both presets on GL and WebGPU through romdev
+- **racer**: The karts throw their shadows below High again (the sun's shadow box ended short of the road, so the karts looked to hover), and each wheel is drawn on the road from the pose the kart is drawn at, not a tick behind. `tests/racer-grounded.mjs` gates both on every map
+
 ## v0.19.7 (2026-11-08)
 
 - **bikemesa**: A pad that joined the rider pick and then presses nothing for 5 s no longer holds the start. Once P1 is ready, P1's panel offers start now, and the idle seat sits the race out. A seat still picking is waited for as before
