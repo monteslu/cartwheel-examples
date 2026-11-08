@@ -92,7 +92,9 @@ Up to four players split screen, one pad each: players 2-4 join on the
 title with (A), and CPU cars fill the bout to six. Two players share the
 screen top and bottom; three or four take its quarters (with three, the
 last quarter holds the clock, the standings and a map of the arena with
-every car on it). Each player has their own chase camera and HUD.
+every car on it). Each player has their own chase camera and HUD, and the
+controls stay up in each player's view, on that player's pad, from the
+countdown until they give it gas.
 `games/derby/`
 
 ### pugball

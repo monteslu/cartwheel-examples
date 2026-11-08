@@ -105,6 +105,8 @@ static struct {
   int32_t crashes, walls, wrecks, max_hit, flips;
   float wheel_yaw0, yaw_rate0;  /* car 1's drawn front-wheel angle and its turn rate (rad, rad/s; + = left) */
   int32_t steer_agrees;         /* 1 while car 1 turns and its wheels point the same way */
+  int32_t hint_frames[4];       /* frames each player's view drew the controls hint this bout */
+  bool gassed[4];               /* the player has given it gas since the flag dropped */
   uint32_t hash, state_hash;
   /* the bout */
   int slot[MAXC];
@@ -685,6 +687,21 @@ static void cmd_bind(int argc, const char **argv, cw_reply *r) {
   cw_reply_str(r, list);
   cw_reply_raw(r, "}");
 }
+/* sw hint_countdown 1: the controls hint only through the countdown and only
+ * on a single screen, as the game once drew it (the newcomer gate's control) */
+static int sw_hint_countdown;
+static void cmd_sw(int argc, const char **argv, cw_reply *r) {
+  if (argc > 2 && !strcmp(argv[1], "hint_countdown")) sw_hint_countdown = atoi(argv[2]);
+  cw_reply_printf(r, "{\"hint_countdown\":%d}", sw_hint_countdown);
+}
+/* the controls hint stays up from the countdown until that player gives it
+ * gas (or ten seconds into the bout): a newcomer sees which button drives */
+static bool show_controls(int player) {
+  const sim *S = &G.S;
+  if (S->phase == PH_COUNTDOWN) return true;
+  if (sw_hint_countdown) return false;
+  return S->phase == PH_GO && S->phase_ticks < 600 && player >= 0 && player < 4 && !G.gassed[player];
+}
 /* players n: n humans in the next bout (the splitscreen gate; extra players without pads idle) */
 static void cmd_players(int argc, const char **argv, cw_reply *r) {
   int n = argc > 1 ? atoi(argv[1]) : 1;
@@ -790,6 +807,7 @@ static void init(void *u) {
   cw_debug_field("cars.points", G.points, CW_DBG_I32, MAXC);
   cw_debug_field("players.thr", G.thr, CW_DBG_I32, 4);
   cw_debug_field("players.steer", G.steer, CW_DBG_I32, 4);
+  cw_debug_field("hint.frames", G.hint_frames, CW_DBG_I32, 4);
   cw_debug_i32("count.crashes", &G.crashes);
   cw_debug_i32("count.walls", &G.walls);
   cw_debug_i32("count.wrecks", &G.wrecks);
@@ -813,6 +831,7 @@ static void init(void *u) {
   cw_debug_command("bout", "bout [arena]: a quick match now", cmd_bout);
   cw_debug_command("bind", "bind <action> <bindings>: replace an action's bindings (binding text, as input.cfg writes it)", cmd_bind);
   cw_debug_command("players", "players <1..4>: humans in the next bout (splitscreen)", cmd_players);
+  cw_debug_command("sw", "sw hint_countdown <0|1>: 1 = the controls hint only through the countdown, single screen only (control)", cmd_sw);
   cw_debug_i32("views", &G.views);
   G.state_hash = 2166136261u;
   G.rule = RULE_LAST_RUNNING;
@@ -1200,7 +1219,12 @@ static void fixed(void *u, double dt) {
     }
     sim_step(&G.S, in);
     for (int i = 0; i < MAXC; i++)
-      if (G.human_of[i] >= 0 && G.human_of[i] < 4) G.thr[G.human_of[i]] = in[i].thr, G.steer[G.human_of[i]] = in[i].steer;
+      if (G.human_of[i] >= 0 && G.human_of[i] < 4) {
+        int h = G.human_of[i];
+        G.thr[h] = in[i].thr, G.steer[h] = in[i].steer;
+        if (G.S.phase == PH_COUNTDOWN) G.gassed[h] = false, G.hint_frames[h] = G.S.phase_ticks ? G.hint_frames[h] : 0;
+        else if (in[i].thr > 0) G.gassed[h] = true;
+      }
     static FILE *rec; /* dev aid: DERBY_RECORD=file logs every tick's input (tools/make-gate-script.mjs) */
     static bool rec_checked;
     if (!rec_checked) {
@@ -1366,9 +1390,12 @@ static cw_font small_font(void) { return CW_HANDLE_IS_NULL(font_small) ? font_hu
 static float tw(cw_font f, const char *s, float size) { return cw_font_measure(f, s, &(cw_text_style){ .size = size }).width; }
 static float tsz(cw_font f, float size) { return cw_text_drawn_size(f, size); } /* the size `size` draws at now */
 
-/* a hint with button prompts ({m_ok}, {thr_fwd}: cartwheel/prompt.h, for P1's
- * device), broken at its triple spaces into lines that fit the canvas */
+/* a hint with button prompts ({m_ok}, {thr_fwd}: cartwheel/prompt.h, for
+ * hint_player's device, P1's but in a split view), broken at its triple spaces
+ * into lines that fit the canvas (or the view from hint_x, W wide) */
 #define HINT_LINES 6
+static int hint_player;
+static float hint_x;
 static int hint_lines(const char *s, float W, float size, char out[HINT_LINES][200], float *wmax, float *hsum) {
   int n = 0;
   *wmax = 0, *hsum = 0;
@@ -1379,7 +1406,7 @@ static int hint_lines(const char *s, float W, float size, char out[HINT_LINES][2
     size_t len = e ? (size_t)(e - p) : strlen(p);
     char cand[200];
     snprintf(cand, sizeof cand, "%s%s%.*s", line, *line ? "   " : "", (int)len, p);
-    if (*line && cw_prompt_text_size(font_hud, cand, 0, size).x > W - 4 * size) {
+    if (*line && cw_prompt_text_size(font_hud, cand, hint_player, size).x > W - 4 * size) {
       snprintf(out[n++], 200, "%s", line);
       snprintf(line, sizeof line, "%.*s", (int)len, p);
     } else snprintf(line, sizeof line, "%s", cand);
@@ -1388,7 +1415,7 @@ static int hint_lines(const char *s, float W, float size, char out[HINT_LINES][2
   }
   if (*line && n < HINT_LINES) snprintf(out[n++], 200, "%s", line);
   for (int i = 0; i < n; i++) {
-    cw_vec2 m = cw_prompt_text_size(font_hud, out[i], 0, size);
+    cw_vec2 m = cw_prompt_text_size(font_hud, out[i], hint_player, size);
     *wmax = fmaxf(*wmax, m.x), *hsum += m.y;
   }
   return n;
@@ -1406,10 +1433,10 @@ static void prompt_line(const char *s, float W, float y, float size) {
   float w, h;
   int n = *s ? hint_lines(s, W, size, l, &w, &h) : 0;
   if (!n) return;
-  cw_r2d_rect(cw_rect_make(W * 0.5f - w * 0.5f - size, y - size * 0.3f, w + 2 * size, h + size * 0.6f), rgba(0.04f, 0.03f, 0.02f, 0.6f));
+  cw_r2d_rect(cw_rect_make(hint_x + W * 0.5f - w * 0.5f - size, y - size * 0.3f, w + 2 * size, h + size * 0.6f), rgba(0.04f, 0.03f, 0.02f, 0.6f));
   for (int i = 0; i < n; i++) {
-    cw_prompt_text(font_hud, l[i], 0, cw_v2(W * 0.5f, y), size, rgba(1, 0.95f, 0.85f, 1), CW_ALIGN_CENTER);
-    y += cw_prompt_text_size(font_hud, l[i], 0, size).y;
+    cw_prompt_text(font_hud, l[i], hint_player, cw_v2(hint_x + W * 0.5f, y), size, rgba(1, 0.95f, 0.85f, 1), CW_ALIGN_CENTER);
+    y += cw_prompt_text_size(font_hud, l[i], hint_player, size).y;
   }
 }
 /* the same, its band's bottom at `bottom` */
@@ -1785,6 +1812,16 @@ static void draw_split_hud(float W, float H, float s) {
       snprintf(buf, sizeof buf, "%d PTS", c->points);
       text(buf, pr.x, pr.y - tsz(font_hud, 16 * s) - 6 * s, 16 * s, rgba(0.84f, 0.56f, 0.24f, 1), CW_ALIGN_LEFT, 0);
     }
+    /* the controls on this player's device, over their plate, from the countdown until they give it gas */
+    int pl = G.pl[v];
+    if (!sw_hint_countdown && show_controls(pl)) {
+      const char *how = "{thr_fwd} gas   {thr_back} brake / reverse   {steer_l|steer_r} steer   {handbrake} handbrake   {look} look back";
+      float hs = fmaxf(14 * s, SPLIT_LABEL * s);
+      hint_player = pl, hint_x = R.x;
+      prompt_line(how, R.w, pr.y - 10 * s - prompt_height(how, R.w, hs) + hs * 0.3f, hs);
+      hint_player = 0, hint_x = 0;
+      if (pl >= 0 && pl < 4) G.hint_frames[pl]++;
+    }
     if (c->wrecked && S->phase == PH_GO) {
       float a = cw_clampf(c->wreck_ticks / 20.0f, 0, 1);
       stencil("WRECKED", R.x, R.y + R.h * 0.3f, 36 * s, rgba(0.95f, 0.3f, 0.15f, a), CW_ALIGN_CENTER, R.w);
@@ -1890,12 +1927,16 @@ static void draw_hud(float W, float H, float s) {
     float f = (S->phase_ticks % 60) / 60.0f, pop = 1 + 0.4f * (1 - f) * (1 - f);
     snprintf(buf, sizeof buf, "%d", n < 1 ? 1 : n);
     stencil(buf, 0, H * 0.2f, 110 * s * pop, rgba(0.84f, 0.56f, 0.24f, 1 - f * 0.3f), CW_ALIGN_CENTER, W);
-    const char *how = split ? "" : touch ? "left thumb: steer   right thumb: gas, brake, slide"
-                    : "{thr_fwd} gas   {thr_back} brake / reverse   {steer_l|steer_r} steer   {handbrake} handbrake   {horn} horn   {look} look back";
-    if (*how) prompt_line(how, W, fminf(H * 0.62f, plate_top - 10 * s - prompt_height(how, W, 16 * s) + 16 * s * 0.3f), 16 * s);
   } else if (S->phase == PH_GO && S->phase_ticks < 50) {
     float f = S->phase_ticks / 50.0f;
     stencil("WRECK 'EM!", 0, H * 0.2f, 84 * s * (1 + 0.3f * (1 - f)), rgba(0.84f, 0.56f, 0.24f, 1 - f), CW_ALIGN_CENTER, W);
+  }
+  /* the controls, from the countdown until the player gives it gas (the split views draw their own) */
+  if (!split && show_controls(0)) {
+    const char *how = touch ? "left thumb: steer   right thumb: gas, brake, slide"
+                    : "{thr_fwd} gas   {thr_back} brake / reverse   {steer_l|steer_r} steer   {handbrake} handbrake   {horn} horn   {look} look back";
+    prompt_line(how, W, fminf(H * 0.62f, plate_top - 10 * s - prompt_height(how, W, 16 * s) + 16 * s * 0.3f), 16 * s);
+    G.hint_frames[0]++;
   }
   if (me >= 0 && S->c[me].wrecked && S->phase == PH_GO) {
     float a = cw_clampf(S->c[me].wreck_ticks / 20.0f, 0, 1);
