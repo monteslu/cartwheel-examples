@@ -38,7 +38,7 @@ async function run(backend, pre) {
   for (let f = 0; f < 600 && +(await rd('bout.phase')) !== 1; f += 10) await step(10);
   await pads({ r: true });
   let hit = 0;
-  for (let f = 0; f < 300 && !hit; f += 5) { await step(5); hit = +(await rd('count.max_hit')); }
+  for (let f = 0; f < 300 && !hit; f += 5) { await step(5); hit = +(await rd('count.max_hit')) / 100; } // (the field is hundredths)
   await step(30);
   await pads({});
   const r = { maxHit: hit, beats: +(await rd('beat.count')), held: +(await rd('beat.held')), rumbles: +(await rd('count.rumbles')), rumble: await rd('cw.rumble') };
@@ -50,9 +50,9 @@ for (const backend of BACKENDS) {
   console.log(`--- ${backend}`);
   const a = await run(backend);
   check('a big hit: the beat, the pad thumps', a.maxHit >= 9 && a.beats >= 1 && a.held >= 3 && a.rumbles >= 1,
-    `hardest hit ${a.maxHit} tonne m/s, ${a.beats} beat(s), ${a.held} ticks held, ${a.rumbles} rumble(s), last ${JSON.stringify(a.rumble)}`);
+    `hardest hit ${a.maxHit.toFixed(1)} tonne m/s, ${a.beats} beat(s), ${a.held} ticks held, ${a.rumbles} rumble(s), last ${JSON.stringify(a.rumble)}`);
   const c = await run(backend, 'sw no_beat 1');
-  check('control: sw no_beat 1, the same hit runs straight on', c.maxHit >= 9 && c.beats === 0 && c.held === 0, `hardest hit ${c.maxHit}, ${c.beats} beat(s), ${c.held} ticks held`);
+  check('control: sw no_beat 1, the same hit runs straight on', c.maxHit >= 9 && c.beats === 0 && c.held === 0, `hardest hit ${c.maxHit.toFixed(1)}, ${c.beats} beat(s), ${c.held} ticks held`);
 }
 console.log(fail ? `${fail} FAILED` : 'all ok');
 await bye(fail ? 1 : 0);
