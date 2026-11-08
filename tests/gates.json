@@ -5851,5 +5851,10 @@
     "name": "racer-grounded",
     "script": "tests/racer-grounded.mjs",
     "note": "racer through romdev, GL and WebGPU, every map: on a race built below High (as Auto builds one on a slow machine, and three or four views do) the player's kart throws its shadow on the road and darkens it where it meets it at every preset (the same paused frame with and without them); and over a lap with the bot at the wheel the cart measures every frame each kart's drawn tyres against the road under them, none more than 50 mm above it while its physics wheels are on it. Controls: sw sun_short 1 with sw contact 0 (the sun's shadow camera 70 m deep below High, which ended short of the road, and no dark under the karts) leaves nothing under the kart; sw wheel_lag 1 (the wheels drawn a tick behind the chassis) puts karts above the road."
+  },
+  {
+    "name": "bikemesa-low-programs",
+    "script": "tests/bikemesa-low-programs.mjs",
+    "note": "bikemesa's cart through romdev, GL and WebGPU, at Very Low and Low: the title, the rider pick alone and in split screen, and track 1's first seconds report no state without a program (cw.three.missing stays 0). Control: --control-cart with a cart built before the fix reports its 2 missing states at Low on WebGPU."
   }
 ]

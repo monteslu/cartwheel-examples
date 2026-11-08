@@ -149,3 +149,5 @@ physical+shadow+senv+transm+l1001+xplain
 standard+shadow+senv+ds+l1001+xplain
 standard+trans+shadow+senv+l1001+xplain
 basic+map+trans+instbig+icol
+standard+instbig+shadow+senv+l1001+xterrainlow_plain
+physical+instbig+shadow+senv+ds+sheen+l1001+xplain
