@@ -10,6 +10,7 @@
 #include <math.h>
 #include <string.h>
 
+#include "cartwheel/debug.h"
 #include "cartwheel/math.h"
 #include "cartwheel/rim_light.h"
 #include "models.h"
@@ -28,7 +29,12 @@ typedef struct kstate {
   float pvup;
   int pair;
   bool first;
+  float wc[4], wc_prev[4]; /* the wheels' compression under the drawn chassis (sim_wheel_compression_at), this tick and the last */
 } kstate;
+
+/* sw wheel_lag <0|1>: 1 = the wheels drawn from the vehicle controller's own casts, a tick behind the drawn chassis (the old
+ * way: tests/racer-grounded.mjs's control) */
+int kartgfx_wheel_lag;
 
 static struct {
   kart_rig rig[MAXK];
@@ -47,7 +53,9 @@ void kartgfx_set_eyes(const t3_vec3 *e, int n) {
 
 cw_node kartgfx_node(int i) { return K.node[i]; }
 
+static void ks_forget(void);
 void kartgfx_reset(void) {
+  ks_forget(); /* (the rigs it points into go) */
   showroom_reset();
   for (int i = 0; i < MAXK; i++)
     if (K.rig[i].root) rig_free(&K.rig[i]);
@@ -111,8 +119,15 @@ void kartgfx_tick(const sim *s) {
     cw_node3d_set_quaternion(n, k->q);
     /* put back on the road: no blend across the jump */
     t3_vec3 jd = v3sub(k->p, was);
-    if (v3dot(jd, jd) > 6.0f * 6.0f) cw_node3d_snapshot(n);
+    bool cut = v3dot(jd, jd) > 6.0f * 6.0f;
+    if (cut) cw_node3d_snapshot(n);
     kstate *st = &K.st[i];
+    /* the wheels cast from where the chassis is drawn this tick (the controller's own casts are a tick behind it) */
+    for (int w = 0; w < 4; w++) {
+      st->wc_prev[w] = st->wc[w];
+      st->wc[w] = sim_wheel_compression_at(i, w, (cw_xform3){ k->p, k->q });
+      if (cut || st->first) st->wc_prev[w] = st->wc[w];
+    }
     memcpy(st->prev, st->cur, sizeof st->cur);
     t3_vec3 up = kart_up(k), fw = kart_fwd(k);
     if (st->first) st->pv = k->v, st->first = false, memcpy(st->prev, st->cur, sizeof st->cur);
@@ -225,6 +240,156 @@ static t3_quat qmul(t3_quat a, t3_quat b) { return t3_quat_multiply(a, b); }
 
 static void pose_driver(kart_rig *r, const float *P, float tsec, bool both_hands);
 
+/* ── the drawn tyres against the road under them ──────────────────────
+ * Every frame, each kart's four tyres as drawn (the node between its last two ticks, the rig's root, the wheel pivots)
+ * against the road under each one (sim_ground_ray: the road's collision mesh, the same sweep trackmesh.c draws): the
+ * gap from the lowest point of the tyre to the road, in mm, of the wheel nearest the road. tests/racer-grounded.mjs
+ * reads it. A kart whose physics wheels touch the road is grounded; one drawn above it there hovers. */
+#define GAP_NONE 99999
+#define GAP_TOL_MM 30
+/* what a frame is: the physics has every wheel on the road, some, none (in the air off a crest or a bump, or a jump's
+ * flight: near a ramp or a gap), or the drawn kart flips, hops or tricks on purpose (kartgfx_tick) */
+enum { GC_ALL, GC_SOME, GC_AIR, GC_JUMP, GC_ANIM, GC_N };
+static struct {
+  int32_t gap[MAXK];          /* this frame: the closest drawn tyre's gap to the road, mm (GAP_NONE: no road under it) */
+  int32_t gnd[MAXK];          /* this frame: the physics wheels on the road after the last tick */
+  int32_t frames[MAXK];       /* frames measured in a race since the last `gap reset` */
+  int32_t n[MAXK * GC_N];     /* per kart and class: frames drawn over GAP_TOL_MM above the road */
+  int32_t max[MAXK * GC_N];   /* the largest such gap, mm */
+  int32_t at_s[MAXK * GC_N];  /* where it was: metres along the main road */
+  int32_t at_tick[MAXK * GC_N];
+  int32_t sunk_max[MAXK];     /* the deepest a tyre went into the road, mm (positive: under it; not in a GC_ANIM frame) */
+  int32_t sunk_s[MAXK], sunk_ev[MAXK * 8]; /* where, and per wheel the gap and what it stands on (-1 nothing) */
+  int32_t ev[MAXK * GC_N * 16]; /* at each max: per wheel the gap (mm), what the physics wheel stands on (sim_body_kind), its
+                                 * compression (mm), the drawn tyre against the physics contact (mm) */
+} GP;
+
+/* `kshadow <kart> <0|1>`: that kart's shadow off and back on (tests/racer-grounded.mjs draws the same paused frame both
+ * ways: what goes darker is the shadow it throws on the road) */
+static struct {
+  t3_object *o[1024];
+  bool cast[1024];
+  int n, kart;
+} KS = { .kart = -1 };
+static void ks_forget(void) { KS.n = 0, KS.kart = -1; }
+static void ks_off(t3_object *o, void *u) {
+  (void)u;
+  if (KS.n < 1024) KS.o[KS.n] = o, KS.cast[KS.n] = o->cast_shadow, KS.n++;
+  o->cast_shadow = false;
+}
+static void cmd_kshadow(int argc, const char **argv, cw_reply *r) {
+  int i = argc > 1 ? atoi(argv[1]) : 0, on = argc > 2 ? atoi(argv[2]) : 1;
+  if (KS.kart >= 0) {
+    for (int j = 0; j < KS.n; j++) KS.o[j]->cast_shadow = KS.cast[j];
+    KS.n = 0, KS.kart = -1;
+  }
+  if (!on && i >= 0 && i < MAXK && K.rig[i].root) KS.kart = i, t3_object_traverse(K.rig[i].root, ks_off, NULL);
+  cw_reply_printf(r, "{\"kart\":%d,\"off\":%d}", KS.kart, KS.n);
+}
+
+static void cmd_gap(int argc, const char **argv, cw_reply *r) {
+  if (argc > 1 && !strcmp(argv[1], "reset")) {
+    int32_t keep_gap[MAXK], keep_gnd[MAXK];
+    memcpy(keep_gap, GP.gap, sizeof keep_gap), memcpy(keep_gnd, GP.gnd, sizeof keep_gnd);
+    memset(&GP, 0, sizeof GP);
+    memcpy(GP.gap, keep_gap, sizeof keep_gap), memcpy(GP.gnd, keep_gnd, sizeof keep_gnd);
+  }
+  cw_reply_printf(r, "{\"tol_mm\":%d}", GAP_TOL_MM);
+}
+
+void kartgfx_debug_init(void) {
+  cw_debug_field("karts.gap_mm", GP.gap, CW_DBG_I32, MAXK);
+  cw_debug_field("karts.gnd", GP.gnd, CW_DBG_I32, MAXK);
+  cw_debug_field("gap.frames", GP.frames, CW_DBG_I32, MAXK);
+  cw_debug_field("gap.n", GP.n, CW_DBG_I32, MAXK * GC_N);           /* [kart * 5 + class]: all down, some, air, a jump, a drawn flip, hop or trick */
+  cw_debug_field("gap.max_mm", GP.max, CW_DBG_I32, MAXK * GC_N);
+  cw_debug_field("gap.at_s", GP.at_s, CW_DBG_I32, MAXK * GC_N);
+  cw_debug_field("gap.at_tick", GP.at_tick, CW_DBG_I32, MAXK * GC_N);
+  cw_debug_field("gap.sunk_max_mm", GP.sunk_max, CW_DBG_I32, MAXK);
+  cw_debug_field("gap.sunk_s", GP.sunk_s, CW_DBG_I32, MAXK);
+  cw_debug_field("gap.sunk_ev", GP.sunk_ev, CW_DBG_I32, MAXK * 8);
+  cw_debug_field("gap.ev", GP.ev, CW_DBG_I32, MAXK * GC_N * 16);
+  cw_debug_command("gap", "gap [reset]: the drawn tyres' gap to the road (karts.gap_mm, gap.*); reset clears the counts", cmd_gap);
+  cw_debug_command("kshadow", "kshadow <kart> <0|1>: that kart throws no shadow (0) or its own again (1)", cmd_kshadow);
+}
+
+/* a jump's flight: a ramp or a gap from 80 samples back to 10 ahead (on the main road, or on the branch it is on) */
+static bool near_jump(const track *t, int i) {
+  if (!t || i < 0 || i >= t->nall) return false;
+  int first = 0, n = t->n;
+  for (int b = 0; b < t->nbranch; b++)
+    if (i >= t->br[b].first && i < t->br[b].first + t->br[b].n) first = t->br[b].first, n = t->br[b].n;
+  for (int d = -80; d <= 10; d++) {
+    int j = first + ((i - first + d) % n + n) % n;
+    if (t->s[j].flags & (TF_GAP | TF_RAMP)) return true;
+  }
+  return false;
+}
+
+static void ground_probe(const sim *s, int i, const kart_rig *r, float alpha) {
+  const kart *k = &s->k[i];
+  cw_node3d *d = cw_node_data(K.node[i], "Node3D");
+  if (!d || !r->root) return;
+  t3_vec3 p = d->position;
+  t3_quat q = d->quaternion;
+  if (d->interpolate && alpha < 1) p = t3_vec3_lerp(d->prev_position, d->position, alpha), q = t3_quat_slerp(d->prev_quaternion, d->quaternion, alpha);
+  const t3_object *root = r->root;
+  float R = VEH[k->veh % NVEH].wheel_r;
+  t3_vec3 up = t3_vec3_apply_quat((t3_vec3){ 0, 1, 0 }, q);
+  float best = 1e9f, sunk = -1e9f, wg[4] = { 99, 99, 99, 99 }, wp[4] = { 99, 99, 99, 99 };
+  const cw_vehicle3d *car = sim_car(s, i);
+  for (int w = 0; w < 4; w++) {
+    const t3_object *wo = r->wheel[w];
+    t3_vec3 c = v3add(root->position, t3_vec3_apply_quat(wo->position, root->quaternion));
+    c = v3add(p, t3_vec3_apply_quat(c, q));
+    t3_vec3 ax = t3_vec3_apply_quat((t3_vec3){ 1, 0, 0 }, qmul(q, qmul(root->quaternion, wo->quaternion)));
+    t3_vec3 hit, n;
+    if (!sim_ground_ray(v3add(c, v3mul(up, 1.5f)), v3mul(up, -4.0f), &hit, &n)) continue;
+    /* the tyre's lowest point towards the road: down the road's normal, in the wheel's own plane */
+    t3_vec3 dn = v3mul(n, -1.0f);
+    dn = v3norm(v3sub(dn, v3mul(ax, v3dot(dn, ax))));
+    float g = v3dot(v3sub(v3add(c, v3mul(dn, R)), hit), n);
+    best = fminf(best, g);
+    sunk = fmaxf(sunk, -g);
+    wg[w] = g;
+    /* the physics wheel's own contact against the drawn tyre */
+    if (car->wheel[w].contact) wp[w] = v3dot(v3sub(v3add(c, v3mul(dn, R)), car->wheel[w].point), n);
+  }
+  /* the wheels the physics has on the road (or an arena floor): a wheel on a wall or another kart is not standing on the
+   * road, and the kart is in the air over it as far as this goes */
+  int on_road = 0;
+  for (int w = 0; w < 4; w++) on_road += car->wheel[w].contact && sim_body_kind(car->wheel[w].ground) == 1;
+  GP.gnd[i] = on_road;
+  GP.gap[i] = best > 1e8f ? GAP_NONE : (int32_t)lrintf(best * 1000.0f);
+  /* a drawn flip, hop or trick (kartgfx_tick: a bomb's flip, a hit's hop, a trick's roll) lifts the drawn kart on purpose */
+  const kstate *st = &K.st[i];
+  bool anim = false;
+  for (int j = 0; j < 2; j++) {
+    const float *P = j ? st->prev : st->cur;
+    anim = anim || P[KP_HOP] != 0 || P[KP_FLIP] != 0 || P[KP_TRICK] != 0;
+  }
+  if (s->phase != PH_RACE || best > 1e8f || k->respawn_ticks > 0) return;
+  GP.frames[i]++;
+  if (GP.gap[i] > GAP_TOL_MM) {
+    int c = anim ? GC_ANIM : on_road == 4 ? GC_ALL : on_road > 0 ? GC_SOME : s->battle || !near_jump(s->track, k->loc.i) ? GC_AIR : GC_JUMP;
+    int x = i * GC_N + c;
+    GP.n[x]++;
+    if (GP.gap[i] > GP.max[x]) {
+      GP.max[x] = GP.gap[i], GP.at_s[x] = (int32_t)k->loc.ms, GP.at_tick[x] = s->tick;
+      int32_t *e = GP.ev + x * 16;
+      for (int w = 0; w < 4; w++)
+        e[w] = (int32_t)lrintf(wg[w] * 1000), e[4 + w] = sim_body_kind(car->wheel[w].ground), e[8 + w] = (int32_t)lrintf(car->wheel[w].compression * 1000),
+        e[12 + w] = (int32_t)lrintf(wp[w] * 1000);
+    }
+  }
+  int32_t sk = (int32_t)lrintf(sunk * 1000.0f);
+  if (!anim && sk > GP.sunk_max[i]) {
+    GP.sunk_max[i] = sk, GP.sunk_s[i] = (int32_t)k->loc.ms;
+    int32_t *e = GP.sunk_ev + i * 8;
+    for (int w = 0; w < 4; w++) e[w] = (int32_t)lrintf(wg[w] * 1000), e[4 + w] = car->wheel[w].contact ? sim_body_kind(car->wheel[w].ground) : -1;
+  }
+}
+
 /* every frame: pose the parts of each kart between the last two ticks */
 void kartgfx_frame(const sim *s, float alpha) {
   if (!s) s = K.sim;
@@ -301,9 +466,17 @@ void kartgfx_frame(const sim *s, float alpha) {
     t3_vec3 wp[4];
     for (int w = 0; w < 4; w++) {
       cw_xform3 lw = cw_vehicle3d_wheel_local(car, w, alpha);
+      /* its height from the casts under the drawn chassis (kartgfx_tick), not the controller's, which are a tick behind
+       * what is drawn (sw wheel_lag 1: the controller's, the old way, the control of tests/racer-grounded.mjs) */
+      float comp = car->wheel[w].compression;
+      if (!kartgfx_wheel_lag) {
+        const cw_wheel3d_def *wd = &car->def.wheels[w];
+        comp = lerp_(st->wc_prev[w], st->wc[w], alpha);
+        lw.p = v3sub(wd->anchor, v3mul(car->def.up, wd->travel - comp));
+      }
       /* the tyre never climbs into its arch: a hard landing squeezes the springs up to 0.4 m, the arch has room for
        * about the first 0.16 of it, so the drawn wheel stops there (the physics keeps the whole travel) */
-      float cex = car->wheel[w].compression - 0.16f;
+      float cex = comp - 0.16f;
       if (cex > 0) lw.p.y -= cex;
       t3_object_set_position(r->wheel[w], lw.p.x, lw.p.y, lw.p.z);
       t3_object_set_quaternion(r->wheel[w], lw.q);
@@ -320,6 +493,7 @@ void kartgfx_frame(const sim *s, float alpha) {
 
     pose_driver(r, P, tsec, st->trick_kind == 0 || k->finished);
     rig_sync_parts(r);
+    ground_probe(s, i, r, alpha);
     /* the shield bubble: pulses, flickers out in its last seconds */
     int sht = (int)P[KP_SHIELD];
     bool shield_on = sht > 0 && (sht > 90 || ((sht / 6) & 1));

@@ -36,6 +36,7 @@ void kartgfx_set_eyes(const t3_vec3 *e, int n); /* the views eyes: far karts dra
 void world_set_eyes(const t3_vec3 *e, int n);     /* the views eyes: far karts draw simpler */
 void kartgfx_tick(const sim *s);               /* fixed tick: pose from the sim */
 cw_node kartgfx_node(int i);
+void kartgfx_debug_init(void);                 /* the drawn tyres' gap to the road: karts.gap_mm and the rest, the `gap` command */
 void kartgfx_frame(const sim *s, float alpha); /* every frame: body, driver, wheels, flames, shield posed between the last two ticks (s may be NULL: the last sim) */
 void kartgfx_drift_colour(int kart, float rgb[3]); /* the tyre smoke and spark colour of this kart's drift charge: grey, blue, orange, purple */
 

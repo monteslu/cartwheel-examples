@@ -342,6 +342,9 @@ bool sim_ray(const sim *s, t3_vec3 from, t3_vec3 delta, float *frac, t3_vec3 *no
 void sim_place_on_grid(sim *s); /* line the karts up behind the line */
 const track *sim_track(const sim *s);
 const cw_vehicle3d *sim_car(const sim *s, int i); /* the wheels' poses for the renderer */
+bool sim_ground_ray(t3_vec3 o, t3_vec3 d, t3_vec3 *hit, t3_vec3 *n); /* render side: the road (or an arena floor) along o..o+d */
+int sim_body_kind(cw_body3d b); /* dev aid: 1 the road, 2 the walls, 3 a kart, 0 none */
+float sim_wheel_compression_at(int i, int w, cw_xform3 x); /* render side: wheel w of kart i cast from chassis pose x */
 float v3len(t3_vec3 a);
 t3_vec3 v3norm(t3_vec3 a);
 t3_vec3 kart_fwd(const kart *k);
@@ -426,5 +429,9 @@ extern const map_def map_test; /* the proving ground: RACER_MAP=-1 */
 /* sw dnf_any <0|1>: 1 = a race ends 40 s after the first kart over the line, a computer one too (the newcomer gate's
    control); 0 (the game) = 40 s after the first person over the line, so nobody still driving is cut off by the field */
 extern int sim_dnf_any;
+/* sw sun_short <0|1>: 1 = below High (and in three or four views) the sun casts no shadow on the play, as it once did (world.c) */
+extern int world_sun_short;
+/* sw wheel_lag <0|1>: 1 = the karts' wheels drawn a tick behind their chassis, as they once were (kartgfx.c) */
+extern int kartgfx_wheel_lag;
 
 #endif

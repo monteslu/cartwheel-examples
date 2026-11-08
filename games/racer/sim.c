@@ -1973,3 +1973,40 @@ void sim_step(sim *s, const kin in_raw[MAXK]) {
 
 /* dev aid (world.c's geometry check): the collision walls as built */
 const track_phys *sim_wall_phys(void) { return &PH.walls; }
+
+/* the surface a tyre stands on (the road, or an arena's floors), down from o along d: the drawn road is the same sweep
+ * (trackmesh.c), so this is also where the road is drawn. Render side only (never during a step) */
+bool sim_ground_ray(t3_vec3 o, t3_vec3 d, t3_vec3 *hit, t3_vec3 *n) {
+  if (!cw_world3d_valid(PH.w)) return false;
+  cw_phys_filter f = cw_phys_filter_layers(1u << L_TRACK);
+  cw_ray_hit3d h;
+  if (!cw_world3d_raycast(PH.w, o, d, &f, &h)) return false;
+  *hit = h.point, *n = h.normal;
+  return true;
+}
+/* dev aid (kartgfx.c's tyre gap): what a body is: 1 the road (or an arena floor), 2 the walls, 3 a kart, 0 none or else */
+int sim_body_kind(cw_body3d b) {
+  if (!b.id) return 0;
+  if (b.id == PH.trackb.id) return 1;
+  if (b.id == PH.wallb.id) return 2;
+  for (int i = 0; i < MAXK; i++)
+    if (PH.body[i].id && b.id == PH.body[i].id) return 3;
+  return 4;
+}
+
+/* render side: wheel w's compression under the chassis at pose x (kartgfx.c: the pose the kart is drawn at). The
+ * controller casts its wheels before the step, so its compression belongs to the chassis a tick before the one drawn:
+ * a kart rising off its springs (out of a dip, after a landing) was drawn with its tyres up to a tenth of a metre above
+ * the road, one sinking with them in it. The same cast as cw_vehicle3d_update's, from x. */
+float sim_wheel_compression_at(int i, int w, cw_xform3 x) {
+  if (i < 0 || i >= MAXK || !cw_world3d_valid(PH.w)) return 0;
+  const cw_vehicle3d *v = &PH.car[i];
+  if (w < 0 || w >= v->def.wheel_count) return 0;
+  const cw_wheel3d_def *wd = &v->def.wheels[w];
+  float len = wd->travel + wd->radius;
+  t3_vec3 o = v3add(x.p, qrot(x.q, wd->anchor)), down = qrot(x.q, v3mul(v->def.up, -len));
+  cw_phys_filter f = { .layers = v->def.mask, .ignore_body = v->chassis.id };
+  cw_ray_hit3d h;
+  if (!cw_world3d_raycast(PH.w, o, down, &f, &h)) return 0;
+  return clampf(len - h.fraction * len, 0, wd->travel);
+}

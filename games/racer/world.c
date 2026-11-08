@@ -48,6 +48,10 @@ void add_mesh(cw_node parent, const char *name, t3_geometry *g, t3_material *m, 
   t3_release(m);
 }
 
+/* sw sun_short <0|1>: 1 = the sun's shadow camera cut to 70 m deep below High and in three or four views (the old way: no
+ * kart threw a shadow there), the control of tests/racer-grounded.mjs */
+int world_sun_short;
+
 static float fractf_(float x) { return x - floorf(x); }
 
 static struct {
@@ -222,9 +226,12 @@ void world_build(cw_node scene, const sim *s, const map_def *map) {
   if (game_planned_views() > 2) {
     cw_node fog = cw_node_get(scene, "Fog");
     if (cw_node_valid(fog)) cw_node_set(fog, "volumetric", cw_val_bool(false));
-    /* the sun's shadows to 70 m: a seventh to a quarter fewer draws in single view, no change seen from the race camera */
+    /* (the sun keeps its scene's shadow_far: that is the shadow camera's depth from the light, which main.c parks 80 m
+     * back from the play, not a distance from the race camera. Set to 70 m here it ended short of the road, so below
+     * High and in three or four views no kart, prop or tree threw a shadow and the karts looked to hover over the
+     * road. sw sun_short 1 brings that back: the control of tests/racer-grounded.mjs) */
     cw_node sun = cw_node_get(scene, "Sun");
-    if (cw_node_valid(sun)) cw_node_set(sun, "shadow_far", cw_val_float(70.0f));
+    if (cw_node_valid(sun) && world_sun_short) cw_node_set(sun, "shadow_far", cw_val_float(70.0f));
     /* no ambient occlusion, and so no depth prepass to feed it: that pass doubles the draws (as split screen, main.c) */
     cw_node post = cw_node_get(scene, "Post");
     if (cw_node_valid(post)) cw_node_set(post, "ssao", cw_val_bool(false)), cw_node_set(post, "depth_prepass", cw_val_bool(false));
