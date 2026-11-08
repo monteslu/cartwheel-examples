@@ -106,6 +106,19 @@ last quarter holds the clock, the standings and a map of the arena with
 every car on it). Each player has their own chase camera and HUD, and the
 controls stay up in each player's view, on that player's pad, from the
 countdown until they give it gas.
+Pick your car on the title with left and right: the sedan is light (quick,
+nimble, it dents), the wagon middleweight, the pickup and the van heavy
+(slow to pull away, they take a beating); over 200 CPU bouts no body wins
+more than 20% off the others. Damage drives: a hit beside a front wheel
+bends it and the car pulls toward that side, a battered flank's tyres grip
+less, a failing engine tops out lower. A big hit on your car lands with a
+beat (the bout runs at a third of its speed for a tenth of a second while
+the sound runs on), a ring of dust thrown out along the dirt, a thump in the
+pad and the crowd's roar; the camera never shakes. When two are left the
+crowd and the music rise and the chase camera eases back. A burst radiator
+vents steam, a dying engine leaks a pool of oil. Gates `derby-opening` (a
+newcomer survives the first seconds, damage drives, the classes; studies run
+in the cart) and `derby-beat`.
 `games/derby/`
 
 ### pugball

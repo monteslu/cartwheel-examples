@@ -314,14 +314,15 @@ static int flood_shadows = 4; /* scenery_flood_shadows */
 
 /* floodlight towers at the corners: a pole, a bank of lamps aimed in, a
  * beam through the haze (a cone of its own where the fog is not volumetric) */
+#define FLOOD_RGB 1, 0.88f, 0.74f, 1 /* a pale halogen white: the dirt and the paint take their own colours, the dust stays warm */
 static void floodlights(cw_node root) {
   t3_material *st = phys(lin(0.5f, 0.5f, 0.52f), 0.5f, 1);
   tex_apply(st, TEX_STEEL, 1, 0.5f, 1);
   t3_material *lamp = phys(lin(1, 0.98f, 0.9f), 0.2f, 0);
-  lamp->emissive = lin(1, 0.72f, 0.42f);
+  lamp->emissive = lin(1, 0.9f, 0.78f);
   lamp->emissive_intensity = 14;
   t3_material *beam = t3_mesh_basic_material_new(0xffffff);
-  beam->color = lin(1, 0.7f, 0.42f);
+  beam->color = lin(1, 0.86f, 0.7f);
   beam->transparent = true;
   beam->opacity = 0.015f;
   beam->vertex_colors = true;
@@ -367,14 +368,14 @@ static void floodlights(cw_node root) {
     snprintf(name, sizeof name, "Tower%d", k);
     hang(root, name, g);
     t3_release(g);
-    /* the light itself: a sodium flood, clustered (LightingSettings in the
+    /* the light itself: a pale halogen flood, whiter than the dust and the orange fires, clustered (LightingSettings in the
      * arena scene), its shadow a tile of the shadow atlas: the cars, the
      * wall and the stands throw long shadows away from each corner. In the
      * volumetric haze it draws its own beam (scenery_volumetric) */
     snprintf(name, sizeof name, "Flood%d", k);
     cw_node sp = cw_node_new("SpotLight3D", name);
     cw_node_add_child(root, sp);
-    cw_node_set(sp, "color", cw_val_color(1, 0.66f, 0.36f, 1));
+    cw_node_set(sp, "color", cw_val_color(FLOOD_RGB));
     cw_node_set(sp, "energy", cw_val_float(1000)); /* (Light3D's most) */
     cw_node_set(sp, "angle", cw_val_float(0.72f));
     cw_node_set(sp, "penumbra", cw_val_float(0.55f));
@@ -412,7 +413,7 @@ static void floodlights(cw_node root) {
       static const char *const NAME[4] = { "FloodSun", "FloodSun1", "FloodSun2", "FloodSun3" };
       cw_node sun = cw_node_new("DirectionalLight3D", NAME[k]);
       cw_node_add_child(root, sun);
-      cw_node_set(sun, "color", cw_val_color(1, 0.66f, 0.36f, 1));
+      cw_node_set(sun, "color", cw_val_color(FLOOD_RGB));
       cw_node_set(sun, "energy", cw_val_float(0));
       cw_node_set(sun, "shadow", cw_val_bool(false));
       cw_node_set(sun, "visible", cw_val_bool(false)); /* off: no light at all, so the other presets' programs stay as they were */

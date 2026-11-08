@@ -63,7 +63,8 @@ typedef struct car {
   float up_y;           /* the body's up . world up: 1 upright, < 0 on its roof */
   float steer;          /* the front wheels' angle, radians (+ left) */
   float hp;             /* 0..100: the engine; 0 is a wreck */
-  float zone[ZONES];    /* 0..1 panel damage per side (looks, bumpers) */
+  float zone[ZONES];    /* 0..1 panel damage per side (looks, bumpers, and the side's grip) */
+  float bend;           /* radians the front wheels are knocked out of true (+ pulls left): hits by the front wheels */
   bool wrecked;
   int wreck_ticks;      /* since it died */
   int last_hit_by;      /* the last car that hurt it (-1) */
@@ -136,6 +137,13 @@ typedef struct car_spec {
   const char *name;
 } car_spec;
 extern const car_spec CAR_SPEC[CAR_KINDS];
+/* each body drives its own way: a weight class (light, middle, heavy) with its pull, top speed, grip and how much a
+ * hit to it costs the engine (on top of its mass, which the collisions already feel) */
+typedef struct car_class {
+  float acc, top, grip, tough; /* x the common pull, top speed and grip; tough divides the damage it takes */
+  const char *name, *blurb;
+} car_class;
+extern const car_class CAR_CLASS[CAR_KINDS];
 
 /* sim.c */
 void sim_init(sim *s, const bool on[MAXC], const int kind[MAXC], int rule, int bout_secs, uint32_t seed);
@@ -154,6 +162,9 @@ extern const float JERSEY[JERSEY_N][2];
 float car_speed(const car *c);       /* along its heading, m/s (negative reversing) */
 void car_local(const car *c, float wx, float wz, float *f, float *sd); /* world point -> car frame */
 int sim_alive(const sim *s);
+void sim_no_classes(bool on); /* every body drives the same, as they once did (a gate's control) */
+void sim_no_handling_damage(bool on); /* damage leaves the handling alone, as it once did (a gate's control) */
+void sim_hurt(sim *s, int i, int zone, float dmg); /* a hit of dmg engine points to car i's zone (a gate's stage) */
 
 /* ai.c: CPU drivers (0 rookie, 1 pro, 2 ace); all their state is here */
 typedef struct ai_mem {

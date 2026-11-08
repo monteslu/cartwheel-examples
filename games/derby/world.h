@@ -79,6 +79,7 @@ void fx_init(cw_node scene, int theme);
 void fx_reset(void);
 void fx_events(const sim *s);       /* this tick's sim events -> effects */
 void fx_tick(const sim *s);         /* fixed tick */
+void fx_slow(bool on);              /* the big-hit beat: bursts at a third of their speed */
 float fx_shake(void);               /* camera shake amount */
 void fx_volumetric(bool on);        /* the haze volumes (volumetric fog on) */
 

@@ -3,7 +3,7 @@
 #   derby       the game
 #   derby_auto  six CPU drivers to a winner, by itself (for hosts that send no input)
 #   derby_ram   parks car 2 broadside in front of yours and holds the field still (the ram gate)
-set(SRC main.c sim.c ai.c world.c models.c cars.c fx.c scenery.c textures.c)
+set(SRC main.c sim.c ai.c study.c world.c models.c cars.c fx.c scenery.c textures.c)
 set(CW_PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/programs/derby.txt)
 cw_add_app(derby SOURCES ${SRC} PACK ${CMAKE_CURRENT_SOURCE_DIR}/assets/roots.txt)
 cw_add_app(derby_auto SOURCES ${SRC} PACK ${CMAKE_CURRENT_SOURCE_DIR}/assets/roots.txt)

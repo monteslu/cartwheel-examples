@@ -119,6 +119,28 @@ static int panel_of(const shape *sh, float x, float y, float z) {
 
 /* the material of a face at (x, y, z): rust where water sits, primer on
  * the patched panel, paint elsewhere */
+static float smooth01(float e0, float e1, float x) {
+  float t = cw_clampf((x - e0) / (e1 - e0), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+/* how rusty a point is, 0..1, soft across a band a few centimetres wide: the rocker, the arch lips, a patch low on a
+ * door. A face is rust only where all its corners are; a face across the edge is paint whose corners fade to the rust
+ * colour, so the edge runs smooth between the skin's grid lines instead of stepping cell by cell */
+static float rust_w(const wear *W, const car_spec *k, const shape *sh, float x, float y, float z) {
+  float n = vn(x * 3.1f + z * 1.7f, y * 3.3f, W->seed + 7);
+  float arch = 9;
+  float ax[2] = { k->af, k->ar };
+  for (int a = 0; a < 2; a++) {
+    float dz = z - ax[a], dy = y - k->wr;
+    arch = fminf(arch, fabsf(sqrtf(dz * dz + dy * dy) - (k->wr + 0.06f)));
+  }
+  float low = sh->sill + 0.05f + 0.06f * n, lip = 0.035f + 0.03f * n;
+  float w = smooth01(low + 0.025f, low - 0.025f, y);
+  if (y < 0.8f) w = fmaxf(w, smooth01(lip + 0.02f, lip - 0.02f, arch));
+  w = fmaxf(w, smooth01(0.78f, 0.84f, n) * smooth01(sh->sill + 0.23f, sh->sill + 0.17f, y));
+  return w;
+}
+
 static int mat_of(const wear *W, const car_spec *k, const shape *sh, float x, float y, float z) {
   float n = vn(x * 3.1f + z * 1.7f, y * 3.3f, W->seed + 7);
   float arch = 9;
@@ -179,6 +201,14 @@ typedef struct pieces { mesh_build mb[MATS]; } pieces;
 static void skin_quad(pieces *P, const wear *W, const car_spec *k, const shape *sh, const t3_vec3 q[4], const float uv[4][2], bool dark) {
   float cx = (q[0].x + q[1].x + q[2].x + q[3].x) * 0.25f, cy = (q[0].y + q[1].y + q[2].y + q[3].y) * 0.25f, cz = (q[0].z + q[1].z + q[2].z + q[3].z) * 0.25f;
   int mat = mat_of(W, k, sh, cx, cy, cz);
+  float rw[4], rmin = 1;
+  for (int i = 0; i < 4; i++) rw[i] = rust_w(W, k, sh, q[i].x, q[i].y, q[i].z), rmin = fminf(rmin, rw[i]);
+  if (rmin >= 0.5f) mat = MAT_RUST;
+  else if (mat == MAT_RUST) {
+    /* across the rust's edge: the panel's paint, its corners fading to rust */
+    int p = panel_of(sh, cx, cy, cz);
+    mat = p >= 0 && p == W->panel_a ? MAT_PRIMER : MAT_PAINT;
+  } else rw[0] = rw[1] = rw[2] = rw[3] = 0;
   mesh_build *b = &P->mb[mat];
   t3_vec3 e1 = { q[2].x - q[0].x, q[2].y - q[0].y, q[2].z - q[0].z }, e2 = { q[3].x - q[1].x, q[3].y - q[1].y, q[3].z - q[1].z };
   t3_vec3 n = { e1.y * e2.z - e1.z * e2.y, e1.z * e2.x - e1.x * e2.z, e1.x * e2.y - e1.y * e2.x };
@@ -190,6 +220,11 @@ static void skin_quad(pieces *P, const wear *W, const car_spec *k, const shape *
     v[i] = mb_vert(b, q[i], n, uv[i][0], uv[i][1]);
     float c[3];
     tint_of(W, sh, mat, q[i].x, q[i].y, q[i].z, n.y, c);
+    if (mat != MAT_RUST && rw[i] > 0) {
+      float r[3];
+      tint_of(W, sh, MAT_RUST, q[i].x, q[i].y, q[i].z, n.y, r);
+      for (int e = 0; e < 3; e++) c[e] += (r[e] - c[e]) * rw[i];
+    }
     if (dark) c[0] = c[1] = c[2] = 0.025f;
     mb_color(b, v[i], c[0], c[1], c[2]);
   }
@@ -249,7 +284,7 @@ static int stations(const car_spec *k, const shape *sh, int lod, float *zs) {
       for (int d = -6; d <= 6; d++) zs[n++] = ax[a] + d * (k->wr + 0.06f) / 6.5f;
   } else if (lod == 1)
     for (int a = 0; a < 2; a++)
-      for (int d = -2; d <= 2; d++) zs[n++] = ax[a] + d * (k->wr + 0.06f) / 2.5f;
+      for (int d = -4; d <= 4; d++) zs[n++] = ax[a] + d * (k->wr + 0.06f) / 4.5f; /* (a round arch, not a stepped one) */
   for (int i = 1; i < n; i++)
     for (int j = i; j > 0 && zs[j] < zs[j - 1]; j--) {
       float t = zs[j];

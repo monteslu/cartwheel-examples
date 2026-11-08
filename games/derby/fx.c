@@ -42,7 +42,14 @@ static struct {
   int theme;
   cw_node root;
   cw_node dust[MAXC], smoke[MAXC], fire[MAXC], mud[MAXC];
+  cw_node steam[MAXC];      /* white steam from a staved-in radiator */
+  cw_node oil[MAXC];        /* a dark pool spreading under a dying engine (Decal3D) */
+  float oil_r[MAXC];
+  t3_vec3 oil_at[MAXC];     /* where the pool lies: a car that drives off leaves it to shrink into the dirt */
   cw_node sparks[4], chips[3], glass[2], cloud[3], grind[3], boom[2];
+  cw_node ring[3];          /* a ring of dust thrown out along the dirt by a hard hit */
+  int ring_i;
+  bool slow;                /* the big-hit beat: the bursts at a third of their speed */
   int sparks_i, chips_i, glass_i, cloud_i, grind_i, boom_i;
   cw_node scorch[SCORCHES];
   int scorch_i;
@@ -139,6 +146,20 @@ static const char *const BOOM[] = { "amount", "160", "lifetime", "0.9", "explosi
   "color_ramp", "\"0 1 0.95 0.7 1, 0.2 1 0.6 0.15 1, 0.55 0.6 0.18 0.04 0.8, 1 0.12 0.08 0.06 0\"", "energy", "4", "blend", "ADD",
   "turbulence", "1.5", "turbulence_scale", "0.5", NULL };
 
+/* a hard hit's ring: dirt shoved out flat along the ground from under the contact, widening and settling */
+/* steam off a burst radiator: white, quick to rise and thin out, never as heavy as the engine's smoke */
+static const char *const STEAM[] = { "amount", "40", "lifetime", "1.1", "lifetime_random", "0.3", "emission_shape", "BOX",
+  "emission_extents", "vec3(0.5, 0.05, 0.1)", "direction", "vec3(0, 1, 0.3)", "spread", "25", "speed_min", "1.6", "speed_max", "2.8",
+  "gravity", "vec3(0, 1.2, 0)", "damping", "1.6", "size", "0.45", "size_random", "0.4", "size_curve", "\"0 0.3, 0.3 1, 1 2.2\"",
+  "color_ramp", "\"0 0.85 0.86 0.88 0, 0.1 0.82 0.83 0.85 0.32, 1 0.9 0.9 0.92 0\"", "blend", "ALPHA", "soft_distance", "0.4",
+  "turbulence", "1.2", "turbulence_scale", "0.4", "local_coords", "false", NULL };
+static const char *const RING[] = { "amount", "110", "lifetime", "1.5", "lifetime_random", "0.3", "explosiveness", "1", "one_shot", "true",
+  "emission_shape", "RING", "emission_radius", "0.9", "emission_inner_radius", "0.7", "emission_normal_speed", "7", "speed_min", "0",
+  "speed_max", "0.6", "direction", "vec3(0, 1, 0)", "spread", "10", "gravity", "vec3(0, 0.15, 0)", "damping", "3.4", "size", "0.9",
+  "size_random", "0.4", "size_curve", "\"0 0.4, 0.25 1, 1 2\"",
+  "color_ramp", "\"0 0.46 0.37 0.27 0, 0.08 0.48 0.39 0.29 0.5, 1 0.52 0.44 0.35 0\"", "blend", "ALPHA", "soft_distance", "0.7",
+  "turbulence", "0.6", "turbulence_scale", "0.3", NULL };
+
 void fx_reset(void) {
   bool vol = FX.vol;
   memset(&FX, 0, sizeof FX);
@@ -155,6 +176,7 @@ void fx_init(cw_node scene, int theme) {
     FX.smoke[i] = pnode("Smoke", SMOKE, 120 + i);
     FX.fire[i] = pnode("Fire", FIRE, 140 + i);
     FX.mud[i] = pnode("Mud", MUD, 160 + i);
+    FX.steam[i] = pnode("Steam", STEAM, 180 + i);
   }
   for (int i = 0; i < 4; i++) FX.sparks[i] = pnode("Sparks", SPARKS, 200 + i);
   for (int i = 0; i < 3; i++) FX.chips[i] = pnode("Chips", CHIPS, 210 + i);
@@ -162,6 +184,7 @@ void fx_init(cw_node scene, int theme) {
   for (int i = 0; i < 3; i++) FX.cloud[i] = pnode("Cloud", CLOUD, 230 + i);
   for (int i = 0; i < 3; i++) FX.grind[i] = pnode("Grind", GRIND, 240 + i);
   for (int i = 0; i < 2; i++) FX.boom[i] = pnode("Boom", BOOM, 250 + i);
+  for (int i = 0; i < 3; i++) FX.ring[i] = pnode("HitRing", RING, 260 + i);
   for (int i = 0; i < 3; i++) {
     char name[16];
     snprintf(name, sizeof name, "Flash%d", i);
@@ -278,6 +301,7 @@ void fx_events(const sim *s) {
         flash((t3_vec3){ e->at.x, 1.2f, e->at.z }, fminf(40, k * 3));
       }
       if (k > 7) burst_at(FX.glass[FX.glass_i++ % 2], (t3_vec3){ e->at.x, 1.1f, e->at.z });
+      if (k > 6) burst_at(FX.ring[FX.ring_i++ % 3], (t3_vec3){ e->at.x, 0.15f, e->at.z });
       FX.shake = fmaxf(FX.shake, fminf(1, k * 0.06f));
       break;
     }
@@ -320,6 +344,36 @@ static const char *const SMOKE_RAMP[3] = {
   "\"0 0.09 0.085 0.08 0, 0.08 0.07 0.065 0.06 0.72, 1 0.22 0.21 0.2 0\"",      /* thick, oily black */
   "\"0 0.05 0.045 0.04 0, 0.08 0.04 0.038 0.035 0.85, 1 0.2 0.19 0.18 0\"" };   /* a fire's */
 
+static void oil_tick(int i, const car *c) {
+  bool leak = c->hp < 30 && c->up_y > 0.5f;
+  float dx = c->x - FX.oil_at[i].x, dz = c->z - FX.oil_at[i].z;
+  bool here = dx * dx + dz * dz < 1.5f * 1.5f;
+  float want = leak && here ? (c->wrecked ? 1.6f : 1.1f) : 0;
+  if (c->respawn > 0) want = 0, FX.oil_r[i] = 0;
+  FX.oil_r[i] += (want - FX.oil_r[i]) * (want > FX.oil_r[i] ? 0.004f : 0.03f);
+  if (FX.oil_r[i] < 0.05f && leak && !here) FX.oil_at[i] = (t3_vec3){ c->x, 0.04f, c->z }, FX.oil_r[i] = 0.06f; /* a new pool where it stands */
+  if (FX.oil_r[i] < 0.05f) {
+    if (cw_node_valid(FX.oil[i])) cw_node_set(FX.oil[i], "visible", cw_val_bool(false));
+    return;
+  }
+  if (!cw_node_valid(FX.oil[i])) {
+    FX.oil[i] = cw_node_new("Decal3D", "Oil");
+    cw_node_add_child(FX.root, FX.oil[i]);
+    cw_node_set(FX.oil[i], "texture", cw_val_string("decals/scorch.png"));
+    cw_node_set(FX.oil[i], "blend", cw_val_enum("MULTIPLY"));
+    cw_node_set(FX.oil[i], "normal_fade", cw_val_float(0.5f));
+    cw_value r = { CW_T_VEC4 };
+    r.v[0] = 256, r.v[1] = 256, r.v[2] = r.v[3] = 256;
+    cw_node_set(FX.oil[i], "region", r);
+  }
+  float d = FX.oil_r[i];
+  cw_node_set(FX.oil[i], "visible", cw_val_bool(true));
+  cw_node_set(FX.oil[i], "color", cw_val_color(0.35f, 0.33f, 0.3f, 0.85f));
+  cw_node_set(FX.oil[i], "size", cw_val_vec3(1.4f * d, 1.8f * d, 0.6f));
+  cw_node3d_set_position(FX.oil[i], FX.oil_at[i]);
+  cw_node3d_set_rotation(FX.oil[i], (t3_vec3){ -1.5707963f, 0, (float)i * 1.3f });
+}
+
 void fx_tick(const sim *s) {
   if (!FX.ready) return;
   FX.ticks++;
@@ -349,6 +403,15 @@ void fx_tick(const sim *s) {
     if (c->wrecked) hood = (t3_vec3){ c->x + fx * k->hl * 0.3f, hy - 0.05f, c->z + fz * k->hl * 0.3f };
     cw_node3d_set_position(FX.smoke[i], hood);
     cw_node3d_set_position(FX.fire[i], hood);
+    /* the radiator: a front staved in past 0.6 vents steam out of the grille while the engine runs */
+    {
+      t3_vec3 grille = { c->x + fx * k->hl * 0.92f, c->y + 0.55f * fmaxf(0.2f, c->up_y), c->z + fz * k->hl * 0.92f };
+      cw_node3d_set_position(FX.steam[i], grille);
+      cw_node3d_set_rotation(FX.steam[i], (t3_vec3){ 0, c->h, 0 });
+      cw_node_set(FX.steam[i], "emitting", cw_val_bool(!c->wrecked && c->respawn == 0 && c->zone[ZONE_FRONT] > 0.6f && c->up_y > 0.5f));
+    }
+    /* oil: under a car below 30 hp a dark pool grows where it stands (it follows the car: a slow leak, not a trail) */
+    oil_tick(i, c);
     int lvl = c->wrecked ? (c->wreck_ticks < 600 ? 3 : 4) : c->hp < 30 ? 2 : c->hp < 65 ? 1 : 0;
     if (c->respawn > 0 && c->respawn < 30) lvl = 0;
     /* the fire's light flickers (hashed from the tick: every host the same), an
@@ -389,4 +452,16 @@ void fx_tick(const sim *s) {
     }
     cw_node_set(FX.flash[i], "energy", cw_val_float(e));
   }
+}
+
+/* the big-hit beat (main.c): the bursts run at a third of their speed while the bout is held */
+void fx_slow(bool on) {
+  if (!FX.ready || on == FX.slow) return;
+  FX.slow = on;
+  cw_value v = cw_val_float(on ? 0.33f : 1);
+  cw_node *sets[] = { FX.sparks, FX.chips, FX.glass, FX.cloud, FX.grind, FX.boom, FX.ring };
+  int counts[] = { 4, 3, 2, 3, 3, 2, 3 };
+  for (int k = 0; k < 7; k++)
+    for (int i = 0; i < counts[k]; i++) cw_node_set(sets[k][i], "speed_scale", v);
+  for (int i = 0; i < MAXC; i++) cw_node_set(FX.fire[i], "speed_scale", v), cw_node_set(FX.smoke[i], "speed_scale", v);
 }

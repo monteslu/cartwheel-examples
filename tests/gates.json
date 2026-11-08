@@ -5839,6 +5839,16 @@
     "note": "derby through romdev, GL and WebGPU: the controls hint stays up until each player gives it gas, on one screen and in every split view, with a second pad joined and idle. Control: sw hint_countdown 1 (the hint only during the countdown, none in split screen)."
   },
   {
+    "name": "derby-opening",
+    "script": "tests/derby-opening.mjs",
+    "note": "derby through romdev, GL and WebGPU, studies run in the cart without drawing: twenty quick matches with a newcomer in the default car (no bout under half an engine ten seconds in, none wrecked inside 20 s, the median wreck at 45 s or later); damage that drives (hits by a front wheel pull the car, a battered flank grips less, a hurt engine tops out lower); three weight classes (the light sedan quickest, the heavy van toughest, wins per start within 20% of the mean over 200 CPU bouts); GL and WebGPU agree bit for bit. Controls: sw no_classes 1 (every body alike) fails the opening and drives every body the same, sw no_handling_damage 1 runs straight."
+  },
+  {
+    "name": "derby-beat",
+    "script": "tests/derby-beat.mjs",
+    "note": "derby_ram through romdev, GL and WebGPU: a big hit on P1's car gets the beat (the bout steps one tick in three for a moment) and rumbles P1's pad; the camera has no shake path. Control: sw no_beat 1, the same hit with no beat."
+  },
+  {
     "name": "racer-newcomer",
     "script": "tests/racer-newcomer.mjs",
     "note": "racer through romdev, GL and WebGPU, by the screen's prompts: a race starts alone, and in split screen with a second pad that joined and idles (P1's START NOW, the idle seat sits the race out). Control: sw idle_wait 1 keeps P1 on the ride pick."

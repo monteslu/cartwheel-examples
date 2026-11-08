@@ -44,6 +44,7 @@
 #include "cartwheel/quality_menu.h"
 #include "cartwheel/render2d.h"
 #include "cartwheel/resource.h"
+#include "study.h"
 #include "world.h"
 
 void fx_set_colours(const int colours[MAXC]);
@@ -106,6 +107,12 @@ static struct {
   float wheel_yaw0, yaw_rate0;  /* car 1's drawn front-wheel angle and its turn rate (rad, rad/s; + = left) */
   int32_t steer_agrees;         /* 1 while car 1 turns and its wheels point the same way */
   int32_t hint_frames[4];       /* frames each player's view drew the controls hint this bout */
+  int32_t beats, beat_held;     /* big-hit beats this bout, and the ticks the bout was held for them */
+  int32_t duel_tick;            /* the bout tick the last two were left (0: not yet) */
+  int32_t rumbles;              /* pad rumbles asked for this bout */
+  int beat, beat_cool;          /* ticks left in the beat; ticks until another may start */
+  bool duel;                    /* the last two: the camera eases back, the crowd and the music rise */
+  float duel_k, swell;          /* 0..1: the duel's camera ease; the crowd's swell */
   bool gassed[4];               /* the player has given it gas since the flag dropped */
   uint32_t hash, state_hash;
   /* the bout */
@@ -641,6 +648,9 @@ static void start_bout(int arena, bool with_human) {
   music(false);
   crowd_bed(true);
   engines(true);
+  G.beats = G.beat_held = G.duel_tick = G.rumbles = 0;
+  G.beat = G.beat_cool = 0;
+  G.duel = false, G.duel_k = G.swell = 0;
 }
 
 /* the title backdrop: the arena with the field idling in it */
@@ -689,10 +699,50 @@ static void cmd_bind(int argc, const char **argv, cw_reply *r) {
 }
 /* sw hint_countdown 1: the controls hint only through the countdown and only
  * on a single screen, as the game once drew it (the newcomer gate's control) */
-static int sw_hint_countdown;
+static int sw_hint_countdown, sw_no_handling_damage, sw_no_beat, sw_no_classes;
 static void cmd_sw(int argc, const char **argv, cw_reply *r) {
   if (argc > 2 && !strcmp(argv[1], "hint_countdown")) sw_hint_countdown = atoi(argv[2]);
-  cw_reply_printf(r, "{\"hint_countdown\":%d}", sw_hint_countdown);
+  /* no_classes 1: every body drives the same (the class gate's control) */
+  if (argc > 2 && !strcmp(argv[1], "no_classes")) sw_no_classes = atoi(argv[2]), sim_no_classes(sw_no_classes);
+  /* no_beat 1: a big hit runs on at full speed (the beat gate's control) */
+  if (argc > 2 && !strcmp(argv[1], "no_beat")) sw_no_beat = atoi(argv[2]);
+  /* no_handling_damage 1: hits leave the steering, grip and top speed alone (the pull gate's control) */
+  if (argc > 2 && !strcmp(argv[1], "no_handling_damage")) sw_no_handling_damage = atoi(argv[2]), sim_no_handling_damage(sw_no_handling_damage);
+  cw_reply_printf(r, "{\"hint_countdown\":%d,\"no_handling_damage\":%d,\"no_beat\":%d,\"no_classes\":%d}", sw_hint_countdown,
+                  sw_no_handling_damage, sw_no_beat, sw_no_classes);
+}
+/* study opening <n> | study pull: bouts and test drives run without drawing (study.c), for the gates */
+static void cmd_study(int argc, const char **argv, cw_reply *r) {
+  if (argc > 1 && !strcmp(argv[1], "opening")) {
+    static study_bout B[40];
+    int n = argc > 2 ? atoi(argv[2]) : 20;
+    n = n < 1 ? 1 : n > 40 ? 40 : n;
+    study_opening(n, B);
+    cw_reply_raw(r, "{\"bouts\":[");
+    for (int b = 0; b < n; b++)
+      cw_reply_printf(r, "%s{\"hp10\":%.1f,\"hunters10\":%.2f,\"wrecked\":%d}", b ? "," : "", B[b].hp10, B[b].hunters10, B[b].wrecked_tick);
+    cw_reply_raw(r, "]}");
+  } else if (argc > 1 && !strcmp(argv[1], "pull")) {
+    static const char *const ZN[ZONES + 1] = { "none", "front", "rear", "left", "right" };
+    cw_reply_raw(r, "{");
+    for (int z = -1; z < ZONES; z++) {
+      study_pull_result p;
+      study_pull(z, &p);
+      cw_reply_printf(r, "%s\"%s\":{\"turned\":%.2f,\"top\":%.2f,\"hp\":%.1f,\"bend\":%.4f,\"grip_l\":%.3f,\"grip_r\":%.3f}", z < 0 ? "" : ",",
+                      ZN[z + 1], p.turned_deg, p.top, p.hp, p.bend, p.grip_l, p.grip_r);
+    }
+    cw_reply_raw(r, "}");
+  } else if (argc > 1 && !strcmp(argv[1], "classes")) {
+    int n = argc > 2 ? atoi(argv[2]) : 400, wins[CAR_KINDS], starts[CAR_KINDS];
+    study_kind_drive d[CAR_KINDS];
+    study_classes(n < 1 ? 1 : n > 1000 ? 1000 : n, wins, starts, d);
+    cw_reply_raw(r, "{\"kinds\":[");
+    for (int k = 0; k < CAR_KINDS; k++)
+      cw_reply_printf(r, "%s{\"name\":\"%s\",\"class\":\"%s\",\"wins\":%d,\"starts\":%d,\"speed2\":%.2f,\"top\":%.2f,\"hp_after_hit\":%.1f}", k ? "," : "",
+                      CAR_SPEC[k].name, CAR_CLASS[k].name, wins[k], starts[k], d[k].speed2, d[k].top, d[k].hp_after_hit);
+    cw_reply_raw(r, "]}");
+  } else
+    cw_reply_error(r, "study opening <n> | study pull | study classes <n>");
 }
 /* the controls hint stays up from the countdown until that player gives it
  * gas (or ten seconds into the bout): a newcomer sees which button drives */
@@ -808,6 +858,10 @@ static void init(void *u) {
   cw_debug_field("players.thr", G.thr, CW_DBG_I32, 4);
   cw_debug_field("players.steer", G.steer, CW_DBG_I32, 4);
   cw_debug_field("hint.frames", G.hint_frames, CW_DBG_I32, 4);
+  cw_debug_i32("beat.count", &G.beats);
+  cw_debug_i32("beat.held", &G.beat_held);
+  cw_debug_i32("bout.duel_tick", &G.duel_tick);
+  cw_debug_i32("count.rumbles", &G.rumbles);
   cw_debug_i32("count.crashes", &G.crashes);
   cw_debug_i32("count.walls", &G.walls);
   cw_debug_i32("count.wrecks", &G.wrecks);
@@ -831,7 +885,8 @@ static void init(void *u) {
   cw_debug_command("bout", "bout [arena]: a quick match now", cmd_bout);
   cw_debug_command("bind", "bind <action> <bindings>: replace an action's bindings (binding text, as input.cfg writes it)", cmd_bind);
   cw_debug_command("players", "players <1..4>: humans in the next bout (splitscreen)", cmd_players);
-  cw_debug_command("sw", "sw hint_countdown <0|1>: 1 = the controls hint only through the countdown, single screen only (control)", cmd_sw);
+  cw_debug_command("sw", "sw hint_countdown|no_handling_damage|no_beat|no_classes <0|1>: the old behaviour back (the gates' controls)", cmd_sw);
+  cw_debug_command("study", "study opening <n> | study pull | study classes <n>: bouts and test drives run without drawing (the gates)", cmd_study);
   cw_debug_i32("views", &G.views);
   G.state_hash = 2166136261u;
   G.rule = RULE_LAST_RUNNING;
@@ -952,6 +1007,8 @@ static void chase_tick(rig *r, int me, t3_vec3 *eye_out, t3_vec3 *at_out, bool l
   float k = nviews > 1 ? 0.9f : 1;
   /* low and heavy: close behind the boot, a little above the roof */
   float dist = (6.3f + speed * 0.05f) * k, high = (2.15f + speed * 0.012f) * k;
+  /* the last two: the camera eases back and up a little, so the duel and the room round it both read */
+  dist *= 1 + 0.18f * G.duel_k, high *= 1 + 0.15f * G.duel_k;
   t3_vec3 look = { c->x + sy * 5, c->y + 1.0f, c->z + cy * 5 };
   /* in a pile the spot behind the boot is another car: come in closer behind
    * this one until it is clear, and only when nothing is clear, go up high
@@ -973,10 +1030,7 @@ static void chase_tick(rig *r, int me, t3_vec3 *eye_out, t3_vec3 *at_out, bool l
   spring3(&r->look, &r->look_v, look, 7.5f);
   *eye_out = r->eye;
   *at_out = r->look;
-  /* the engine through the seat: a fine shake with the revs */
-  float rum = 0.006f + 0.01f * c->rpm * (c->wrecked ? 0 : 1);
-  eye_out->y += rum * cw_sin(G.ticks * 2.9f + me);
-  eye_out->x += rum * 0.6f * cw_sin(G.ticks * 3.7f + 1);
+  /* (the camera never shakes: the engine and the hits are felt in the pad, rumble()) */
 }
 
 /* who to watch when no human is driving (or yours is a wreck): the car in
@@ -1083,12 +1137,7 @@ static void rig_tick(int v) {
   bool snapped = r->snap;
   r->snap = false;
   t3_vec3 e = r->cam_eye;
-  float sh = fx_shake();
-  if (sh > 0.001f) {
-    e.x += sh * 0.3f * cw_sin(G.ticks * 1.9f + v);
-    e.y += sh * 0.3f * cw_sin(G.ticks * 2.7f + 1 + v);
-    e.z += sh * 0.3f * cw_sin(G.ticks * 2.3f + 2 + v);
-  }
+  /* no shake: hits are felt in the pad (rumble) and seen in the sparks, the dust ring and the beat */
   if (e.y < 0.6f) e.y = 0.6f;
   cw_node3d_snapshot(r->cam);
   cw_node3d_set_position(r->cam, e);
@@ -1125,6 +1174,7 @@ static void camera_tick(void) {
 /* ── layout shared by the update (mouse hit tests) and the HUD ─────── */
 
 static cw_rect title_button(int i, float W, float H); /* (laid out with the title, by measured text) */
+static cw_rect title_car_drawn;                          /* the car line, where the title last drew it */
 static cw_rect pause_row(int i, float W, float H);    /* (laid out with the pause screen) */
 #define PAUSE_N 5 /* RESUME, GRAPHICS, TEXT SIZE, TEXT BACKGROUND, QUIT TO TITLE */
 /* the on-screen pause button (mouse and touch), top left */
@@ -1137,6 +1187,20 @@ static bool in_rect(cw_vec2 m, cw_rect r) { return m.x >= r.x && m.x < r.x + r.w
 
 /* ── the fixed tick ─────────────────────────────────────────────────── */
 
+/* a human's car took a knock: their pad thumps (heavy motor with the hit, a light buzz on top), never the camera */
+static void rumble(int car_i, float k, float scale) {
+  if (car_i < 0 || car_i >= MAXC || G.human_of[car_i] < 0 || G.human_of[car_i] >= 4) return;
+  int p = G.pl[G.human_of[car_i]];
+  float lo = fminf(1, k * 0.07f) * scale, hi = fminf(0.6f, k * 0.035f) * scale;
+  if (lo < 0.05f) return;
+  cw_input_rumble(p, lo, hi, (int)fminf(380, 90 + k * 14));
+  G.rumbles++;
+}
+/* the crowd's roar rises with the size of a hit and settles over a couple of seconds */
+static void crowd_swell(float k) {
+  if (k > G.swell) G.swell = fminf(1, k);
+}
+
 static void sim_sounds(void) {
   const sim *s = &G.S;
   for (int i = 0; i < s->ev_n; i++) {
@@ -1144,18 +1208,26 @@ static void sim_sounds(void) {
     switch (e->kind) {
     case EV_CRASH: {
       float k = e->k;
+      rumble(e->a, k, 1), rumble(e->b, k, 1);
+      if (k > 5) crowd_swell((k - 5) / 10);
+      if (k > 11) sfx(SFX_CHEER, fminf(0.8f, 0.3f + (k - 11) * 0.05f));
       if (k > 7) sfx_at(SFX_CRUNCH_BIG, e->at, fminf(1, 0.6f + k * 0.03f), 1.05f - fminf(0.25f, k * 0.01f));
       else if (k > 2.5f) sfx_at(SFX_CRUNCH, e->at, 0.4f + k * 0.07f, 1.1f - k * 0.02f);
       else sfx_at(SFX_THUD, e->at, 0.3f + k * 0.1f, 1);
       if (k > 8) sfx_at(SFX_GLASS, e->at, 0.6f, 1);
       break;
     }
-    case EV_WALL: sfx_at(e->k > 5 ? SFX_CRUNCH : SFX_THUD, e->at, 0.4f + fminf(0.5f, e->k * 0.05f), 0.85f); break;
-    case EV_LAND: sfx_at(e->k > 6 ? SFX_CRUNCH : SFX_THUD, e->at, 0.4f + fminf(0.5f, e->k * 0.05f), 0.8f); break;
+    case EV_WALL: sfx_at(e->k > 5 ? SFX_CRUNCH : SFX_THUD, e->at, 0.4f + fminf(0.5f, e->k * 0.05f), 0.85f), rumble(e->a, e->k, 0.8f); break;
+    case EV_LAND:
+      sfx_at(e->k > 6 ? SFX_CRUNCH : SFX_THUD, e->at, 0.4f + fminf(0.5f, e->k * 0.05f), 0.8f), rumble(e->a, e->k, 0.7f);
+      if (e->k > 6) crowd_swell(0.6f);
+      break;
     case EV_RIGHT: sfx_at(SFX_THUD, e->at, 0.35f, 1.2f); break;
     case EV_SCRAPE: sfx_at(SFX_SCRAPE, e->at, fminf(0.7f, e->k * 0.06f), 0.9f + fminf(0.3f, e->k * 0.02f)); break;
     case EV_WRECK: {
       sfx_at(SFX_BOOM, e->at, 1, 1);
+      rumble(e->a, 14, 1), rumble(e->b, 6, 1);
+      crowd_swell(1);
       sfx(SFX_CHEER, 0.9f);
       if (e->b >= 0) snprintf(G.feed, sizeof G.feed, "#%d %s WRECKED #%d %s!", G.look[e->b].number, driver(e->b), G.look[e->a].number, driver(e->a));
       else snprintf(G.feed, sizeof G.feed, "#%d %s IS DONE FOR!", G.look[e->a].number, driver(e->a));
@@ -1171,6 +1243,33 @@ static void sim_sounds(void) {
   }
 }
 
+#define BEAT_K 9.0f    /* tonne m/s: a hit this hard on a human's car gets the beat */
+#define BEAT_TICKS 6   /* 100 ms at a third of the speed */
+static void big_hit_beat(void) {
+  if (sw_no_beat || G.beat_cool > 0) return;
+  const sim *s = &G.S;
+  for (int i = 0; i < s->ev_n; i++) {
+    const struct sim_event *e = &s->ev[i];
+    if (e->kind != EV_CRASH || e->k < BEAT_K) continue;
+    if (G.human_of[e->a] < 0 && G.human_of[e->b] < 0) continue;
+    G.beat = BEAT_TICKS;
+    G.beat_cool = 90;
+    G.beats++;
+    return;
+  }
+}
+/* the last two: a call over the tannoy, the crowd up, the music up, the chase camera eased back */
+static void duel_check(void) {
+  const sim *s = &G.S;
+  if (G.duel || s->rule != RULE_LAST_RUNNING || s->phase != PH_GO || s->ncars <= 2 || s->alive != 2) return;
+  G.duel = true;
+  G.duel_tick = s->tick;
+  crowd_swell(1);
+  sfx(SFX_CHEER, 1);
+  snprintf(G.feed, sizeof G.feed, "LAST TWO STANDING!");
+  G.feed_ticks = 220;
+}
+
 static void fixed(void *u, double dt) {
   (void)u;
   (void)dt;
@@ -1180,6 +1279,10 @@ static void fixed(void *u, double dt) {
   for (int i = 0; i < SFX_COUNT; i++)
     if (A.cooldown[i] > 0) A.cooldown[i]--;
   if (G.feed_ticks > 0) G.feed_ticks--;
+  G.swell *= 0.985f;
+  G.duel_k += ((G.duel && G.state != GS_TITLE ? 1.0f : 0.0f) - G.duel_k) * 0.02f;
+  if (A.on && !CW_HANDLE_IS_NULL(A.crowd)) cw_voice_set_volume(A.crowd, 1 + 1.4f * G.swell + 0.4f * G.duel_k);
+  if (A.on) cw_bus_set_volume(A.music_bus, 0.28f * (1 + 0.5f * G.duel_k));
   cw_vec2 cs = cw_r2d_canvas_size(), m = mouse_canvas();
   bool confirm = any_pressed(G.m_ok) || any_pressed(G.a_start), back = any_pressed(G.a_esc);
   int dy = (any_pressed(G.m_down) ? 1 : 0) - (any_pressed(G.m_up) ? 1 : 0);
@@ -1199,6 +1302,14 @@ static void fixed(void *u, double dt) {
     for (int i = 0; i < 2; i++)
       if (in_rect(m, title_button(i, cs.x, cs.y))) hover = i;
     if (hover >= 0 && mouse_moved) G.menu = hover; /* moving the mouse is using it */
+    /* your car: left and right change it, a click or a tap on its line steps it on (kept in the save) */
+    int cdx = (cw_action_just_pressed(0, G.m_right) ? 1 : 0) - (cw_action_just_pressed(0, G.m_left) ? 1 : 0);
+    if (mouse_clicked && in_rect(m, title_car_drawn)) cdx = 1;
+    if (cdx && G.state_ticks > 20) {
+      SAVE.kind = (uint8_t)((SAVE.kind + cdx + CAR_KINDS) % CAR_KINDS);
+      sfx(SFX_MOVE, 0.6f);
+      save_write();
+    }
     bool go = G.state_ticks > 20 && (confirm || (mouse_clicked && hover >= 0));
     if (go && mouse_clicked && hover >= 0) G.menu = hover;
     if (go) {
@@ -1209,31 +1320,43 @@ static void fixed(void *u, double dt) {
     break;
   }
   case GS_BOUT: {
-    cin in[MAXC] = { 0 };
-    for (int i = 0; i < MAXC; i++) {
-      if (G.slot[i] == SLOT_HUMAN) in[i] = human_cin(i);
-      else if (G.slot[i] >= SLOT_ROOKIE) in[i] = ai_think(&G.S, i, G.slot[i] - SLOT_ROOKIE, &G.ai[i]);
+    /* the big-hit beat: for BEAT_TICKS after a big hit on a human's car the bout steps one tick in three (the sound
+     * runs on, the camera only follows), so the hit lands and is seen; the held ticks fire no events */
+    bool held = G.beat > 0 && (G.beat-- % 3) != 0;
+    if (G.beat_cool > 0) G.beat_cool--;
+    fx_slow(G.beat > 0);
+    if (held) {
+      G.S.ev_n = 0;
+      G.beat_held++;
+    } else {
+      cin in[MAXC] = { 0 };
+      for (int i = 0; i < MAXC; i++) {
+        if (G.slot[i] == SLOT_HUMAN) in[i] = human_cin(i);
+        else if (G.slot[i] >= SLOT_ROOKIE) in[i] = ai_think(&G.S, i, G.slot[i] - SLOT_ROOKIE, &G.ai[i]);
 #ifdef DERBY_RAM_TEST
-      if (i >= 1) in[i] = (cin){ 0 }; /* the stage holds still: the parked car waits to be wrecked */
+        if (i >= 1) in[i] = (cin){ 0 }; /* the stage holds still: the parked car waits to be wrecked */
 #endif
-    }
-    sim_step(&G.S, in);
-    for (int i = 0; i < MAXC; i++)
-      if (G.human_of[i] >= 0 && G.human_of[i] < 4) {
-        int h = G.human_of[i];
-        G.thr[h] = in[i].thr, G.steer[h] = in[i].steer;
-        if (G.S.phase == PH_COUNTDOWN) G.gassed[h] = false, G.hint_frames[h] = G.S.phase_ticks ? G.hint_frames[h] : 0;
-        else if (in[i].thr > 0) G.gassed[h] = true;
       }
-    static FILE *rec; /* dev aid: DERBY_RECORD=file logs every tick's input (tools/make-gate-script.mjs) */
-    static bool rec_checked;
-    if (!rec_checked) {
-      rec_checked = true;
-      if (getenv("DERBY_RECORD")) rec = fopen(getenv("DERBY_RECORD"), "w");
+      sim_step(&G.S, in);
+      for (int i = 0; i < MAXC; i++)
+        if (G.human_of[i] >= 0 && G.human_of[i] < 4) {
+          int h = G.human_of[i];
+          G.thr[h] = in[i].thr, G.steer[h] = in[i].steer;
+          if (G.S.phase == PH_COUNTDOWN) G.gassed[h] = false, G.hint_frames[h] = G.S.phase_ticks ? G.hint_frames[h] : 0;
+          else if (in[i].thr > 0) G.gassed[h] = true;
+        }
+      static FILE *rec; /* dev aid: DERBY_RECORD=file logs every tick's input (tools/make-gate-script.mjs) */
+      static bool rec_checked;
+      if (!rec_checked) {
+        rec_checked = true;
+        if (getenv("DERBY_RECORD")) rec = fopen(getenv("DERBY_RECORD"), "w");
+      }
+      if (rec) fprintf(rec, "%d %d %d %d\n", G.S.tick, in[0].thr, in[0].steer, in[0].btn), fflush(rec);
+      fx_events(&G.S);
+      sim_sounds();
+      big_hit_beat();
+      duel_check();
     }
-    if (rec) fprintf(rec, "%d %d %d %d\n", G.S.tick, in[0].thr, in[0].steer, in[0].btn), fflush(rec);
-    fx_events(&G.S);
-    sim_sounds();
     if (G.S.phase == PH_OVER && G.S.phase_ticks > 200) {
       G.state = GS_RESULTS;
       G.state_ticks = 0;
@@ -1496,7 +1619,7 @@ static void car_diagram(float cx, float cy, float s, int i) {
 static const char *prompt(void) {
   switch (G.state) {
   case GS_TITLE:
-    return glyphs() ? "{m_ok} drive   {m_up|m_down} choose" : on_touch() ? "tap to drive" : "click to drive";
+    return glyphs() ? "{m_ok} drive   {m_up|m_down} choose   {m_left|m_right} car" : on_touch() ? "tap to drive" : "click to drive";
   case GS_RESULTS: return glyphs() ? "{m_ok} to go again" : on_touch() ? "tap to go again" : "click to go again";
   default: return "";
   }
@@ -1512,6 +1635,7 @@ static const char *const TITLE_SUBS[2] = { "you and five bangers: last car runni
 static const char *const TITLE_TAG = "six bangers.  one dirt bowl.  last car running wins.";
 typedef struct title_lay {
   cw_rect button[2];
+  cw_rect car;          /* your car: its body and class, changed with left and right (or a tap) */
   float record_y, tags_y, tags_h, tag_y, hazard2_y, logo_size;
   bool tags;
 } title_lay;
@@ -1523,6 +1647,13 @@ static void title_seats(bool here[4], bool *others) {
     *others |= here[p];
   }
 }
+/* the car line on the title: "< SEDAN  LIGHT: quick and nimble, but it dents >" */
+static const char *const CAR_TITLE[CAR_KINDS] = { "SEDAN", "WAGON", "PICKUP", "VAN" };
+static const char *car_line(int k, char *buf, size_t n) {
+  if (glyphs()) snprintf(buf, n, "{m_left}  %s  %s: %s  {m_right}", CAR_TITLE[k], CAR_CLASS[k].name, CAR_CLASS[k].blurb);
+  else snprintf(buf, n, "%s  %s: %s", CAR_TITLE[k], CAR_CLASS[k].name, CAR_CLASS[k].blurb);
+  return buf;
+}
 static title_lay title_layout(float W, float H) {
   float s = H / 540.0f;
   title_lay L = { 0 };
@@ -1530,6 +1661,14 @@ static title_lay title_layout(float W, float H) {
   title_seats(here, &L.tags);
   float y = H - 6 * s - prompt_height(prompt(), W, 15 * s);
   if (SAVE.bouts) y -= tsz(small_font(), 14 * s) + 6 * s, L.record_y = y;
+  {
+    float ch = tsz(small_font(), 16 * s) + 12 * s, cw = 0;
+    char buf[160];
+    for (int k = 0; k < CAR_KINDS; k++) cw = fmaxf(cw, cw_prompt_text_size(small_font(), car_line(k, buf, sizeof buf), 0, 16 * s).x);
+    cw = fminf(cw + 28 * s, W - 24 * s);
+    y -= ch + 8 * s;
+    L.car = cw_rect_make(W * 0.5f - cw * 0.5f, y, cw, ch);
+  }
   y -= 10 * s;
   float bh = 8 * s + tsz(font_title, TITLE_ITEM * s) + 2 * s + tsz(small_font(), TITLE_SUB * s) + 10 * s, gap = 14 * s, bw = 300 * s;
   for (int i = 0; i < 2; i++) bw = fmaxf(bw, fmaxf(tw(font_title, TITLE_ITEMS[i], TITLE_ITEM * s), tw(small_font(), TITLE_SUBS[i], TITLE_SUB * s)) + 32 * s);
@@ -1561,7 +1700,14 @@ static cw_rect title_button(int i, float W, float H) {
 
 static void draw_title(float W, float H, float s) {
   title_lay L = title_layout(W, H);
-  title_drawn[0] = L.button[0], title_drawn[1] = L.button[1];
+  title_drawn[0] = L.button[0], title_drawn[1] = L.button[1], title_car_drawn = L.car;
+  {
+    char cb[160];
+    cw_r2d_rect(L.car, rgba(0.06f, 0.05f, 0.04f, 0.72f));
+    float th = tsz(small_font(), 16 * s);
+    cw_prompt_text(small_font(), car_line(SAVE.kind % CAR_KINDS, cb, sizeof cb), 0, cw_v2(L.car.x + L.car.w * 0.5f, L.car.y + (L.car.h - th) * 0.5f), 16 * s,
+                   rgba(0.95f, 0.88f, 0.74f, 1), CW_ALIGN_CENTER);
+  }
   hazard(cw_rect_make(W * 0.2f, H * 0.08f, W * 0.6f, 8 * s), 0.9f);
   logo(GAME_TITLE, 0, H * 0.115f, L.logo_size, rgba(0.88f, 0.85f, 0.78f, 1), W);
   hazard(cw_rect_make(W * 0.2f, L.hazard2_y, W * 0.6f, 8 * s), 0.9f);

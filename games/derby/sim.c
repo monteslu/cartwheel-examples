@@ -77,6 +77,19 @@ const car_spec CAR_SPEC[CAR_KINDS] = {
   [CAR_VAN] = { 2.45f, 1.0f, 2.15f, 2.0f, 0.22f, 1.6f, -1.2f, 0.35f, 0.32f, 0.9f, 1.08f, 1.2f, -2.4f, 1.72f, -2.45f, 0.58f, "van" },
 };
 
+const car_class CAR_CLASS[CAR_KINDS] = {
+  [CAR_SEDAN] = { 1.1f, 1.06f, 1.05f, 0.97f, "LIGHT", "quick and nimble, but it dents" },
+  [CAR_WAGON] = { 1.0f, 1.0f, 1.0f, 1.09f, "MIDDLE", "a long tail to swing" },
+  [CAR_PICKUP] = { 0.92f, 0.96f, 0.98f, 1.09f, "HEAVY", "a battering ram" },
+  [CAR_VAN] = { 0.9f, 0.94f, 0.97f, 1.1f, "HEAVY", "a brick: slow, and takes a beating" },
+};
+static bool no_classes; /* sim_no_classes: every body drives the same (a gate's control) */
+void sim_no_classes(bool on) { no_classes = on; }
+static const car_class *klass(const car *c) {
+  static const car_class SAME = { 1, 1, 1, 1, "", "" };
+  return no_classes ? &SAME : &CAR_CLASS[c->kind];
+}
+
 static float clampf(float x, float lo, float hi) { return x < lo ? lo : x > hi ? hi : x; }
 static uint32_t rnd(sim *s) {
   s->rng ^= s->rng << 13;
@@ -235,6 +248,8 @@ static void build_arena(sim *s) {
   }
 }
 
+static void side_grip(car *c);
+
 /* ── the cars in Box3D ──────────────────────────────────────────────── */
 
 /* mass, centre of mass and inertia as a full-size car's: a centre of mass a
@@ -308,6 +323,7 @@ static void build_car(sim *s, int i) {
     wd->handbrake_grip = MU_HB / MU_R;
   }
   cw_vehicle3d_init(&c->veh, c->body, &vd);
+  side_grip(c); /* its class's grip */
 }
 
 /* the planar summary and the pose, from the body */
@@ -402,6 +418,21 @@ void sim_init(sim *s, const bool on[MAXC], const int kind[MAXC], int rule, int b
 
 /* ── driving ────────────────────────────────────────────────────────── */
 
+/* Damage drives: a hit beside a front wheel bends it (the car pulls toward that side), a battered flank's tyres
+ * grip less (its rubbing panels and knocked suspension), and a failing engine tops out lower. */
+#define BEND_MAX 0.06f   /* radians: a pull a player holds off with a touch of steering */
+#define FLANK_GRIP 0.2f  /* share of a side's grip a wrecked flank loses */
+#define TOP_HURT 0.22f   /* share of top speed a dying engine loses */
+static bool no_handling_damage;
+void sim_no_handling_damage(bool on) { no_handling_damage = on; }
+static float top_k(const car *c) { return klass(c)->top * (no_handling_damage ? 1 : 1 - TOP_HURT * (1 - clampf(c->hp, 0, 100) / 100.0f)); }
+static void side_grip(car *c) {
+  for (int w = 0; w < 4; w++) {
+    float base = (w < 2 ? MU_F : MU_R) * klass(c)->grip, z = c->zone[w & 1 ? ZONE_RIGHT : ZONE_LEFT]; /* left is +x: wheels 0 and 2 */
+    c->veh.def.wheels[w].grip = no_handling_damage ? base : base * (1 - FLANK_GRIP * z);
+  }
+}
+
 static void drive(sim *s, car *c, cin in) {
   const car_spec *k = &CAR_SPEC[c->kind];
   float thr = in.thr / 127.0f, st = in.steer / 127.0f;
@@ -411,6 +442,7 @@ static void drive(sim *s, car *c, cin in) {
   /* steering: rate-limited, tighter at a crawl than flat out */
   float smax = STEER_MAX + (STEER_FAST - STEER_MAX) * clampf(speed / TOP_SPEED, 0, 1);
   float want = -st * smax; /* right turns the heading toward -x (the side vector is the car's left) */
+  want += c->bend; /* a bent front wheel pulls the car toward the side that was hit */
   float step = STEER_RATE * DT;
   c->steer += clampf(want - c->steer, -step, step);
   /* throttle forward; back on the stick brakes, then reverses */
@@ -418,7 +450,7 @@ static void drive(sim *s, car *c, cin in) {
   float health = c->wrecked ? 0 : 0.55f + 0.45f * c->hp / 100.0f; /* a battered engine pulls less */
   if (thr > 0) {
     if (v < -0.5f) br = BRAKE_ACC * thr;
-    else dr = DRIVE_ACC * thr * health * clampf(1 - v / TOP_SPEED, 0, 1);
+    else dr = DRIVE_ACC * klass(c)->acc * thr * health * clampf(1 - v / (TOP_SPEED * top_k(c)), 0, 1);
   } else if (thr < 0) {
     if (v > 0.5f) br = BRAKE_ACC * -thr;
     else dr = DRIVE_ACC * 0.7f * thr * health * clampf(1 + v / REV_SPEED, 0, 1);
@@ -528,9 +560,16 @@ static void hurt(sim *s, int i, float j, t3_vec3 p, int by, float scale) {
   t3_vec3 l = qrot_inv(c->q, vec(p.x - c->x, p.y - c->y, p.z - c->z));
   float f = l.z, sd = l.x;
   int zone = zone_at(c, f, sd);
-  float dmg = fmaxf(0, j - DMG_FLOOR) * DMG_K * ZONE_K[zone] * scale;
+  float dmg = fmaxf(0, j - DMG_FLOOR) * DMG_K * ZONE_K[zone] * scale / klass(c)->tough;
   if (dmg <= 0) return;
   c->zone[zone] = fminf(1, c->zone[zone] + dmg / 60.0f);
+  {
+    const car_spec *k = &CAR_SPEC[c->kind];
+    /* beside a front wheel: knocked out of true toward the side it came from */
+    if (!no_handling_damage && zone != ZONE_REAR && f > k->af - 0.9f && fabsf(sd) > k->hw * 0.4f)
+      c->bend = clampf(c->bend + (sd > 0 ? 1 : -1) * fminf(0.025f, dmg * 0.0012f), -BEND_MAX, BEND_MAX);
+    side_grip(c);
+  }
   /* a dent where it landed, deeper the harder */
   if (j > DMG_FLOOR + 0.6f) {
     const car_spec *k = &CAR_SPEC[c->kind];
@@ -566,6 +605,16 @@ static void hurt(sim *s, int i, float j, t3_vec3 p, int by, float scale) {
     int credit = by >= 0 ? by : (c->last_hit_by >= 0 && s->tick - c->last_hit_tick < 180 ? c->last_hit_by : -1);
     wreck(s, i, credit);
   }
+}
+
+void sim_hurt(sim *s, int i, int zone, float dmg) {
+  car *c = &s->c[i];
+  const car_spec *k = &CAR_SPEC[c->kind];
+  /* the contact point of a square hit on that zone, by the front wheel for a flank */
+  float f = zone == ZONE_FRONT ? k->hl : zone == ZONE_REAR ? -k->hl : k->af, sd = zone == ZONE_LEFT ? k->hw : zone == ZONE_RIGHT ? -k->hw : 0;
+  t3_vec3 p = qrot(c->q, vec(sd, 0.6f, f));
+  float j = dmg / (DMG_K * ZONE_K[zone]) + DMG_FLOOR;
+  hurt(s, i, j, vec(c->x + p.x, c->y + p.y, c->z + p.z), -1, 1);
 }
 
 /* one body's contacts with one other thing, summed over shape pairs */
@@ -683,6 +732,8 @@ void sim_step(sim *s, const cin in[MAXC]) {
       c->wrecked = false;
       c->hp = 100;
       for (int z = 0; z < ZONES; z++) c->zone[z] *= 0.5f;
+      c->bend *= 0.5f;
+      side_grip(c);
       set_mass(c, 1);
       cw_body3d_set_velocity(c->body, vec(0, 0, 0));
       cw_body3d_set_angular_velocity(c->body, vec(0, 0, 0));
