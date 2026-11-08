@@ -28,7 +28,9 @@ wrong and the rider tumbles through a full 3D crash. Up to four players race
 split screen in four lanes, one pad each: two share the screen top and
 bottom, three or four take its quarters (with three, the last quarter holds
 the race clock, a mini map of the course and the standings). Each player
-picks a rider and a bike before the run. The folding bike, cruiser, e-bike,
+picks a rider and a bike before the run. A pad that joined and then does
+nothing for five seconds does not hold the start: once P1 is ready, P1's (A)
+starts the race and the idle seat sits it out. The folding bike, cruiser, e-bike,
 DJ cargo tricycle, penny-farthing, BMX, and adult Big Wheel have distinct frame and wheel geometry. The DJ bike
 carries twin speakers, a sloped controller deck and laptop; its two 20-inch
 front wheels and cargo assembly steer together ahead of a 26-inch rear wheel.

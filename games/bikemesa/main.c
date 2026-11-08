@@ -976,6 +976,13 @@ static void cmd_bind(int argc, const char **argv, cw_reply *r) {
   cw_reply_str(r, list);
   cw_reply_raw(r, "}");
 }
+/* sw idle_wait 1: a seat that joined and never readies holds the race back
+ * until it does, as the game once did (the newcomer gate's control) */
+static int sw_idle_wait;
+static void cmd_sw(int argc, const char **argv, cw_reply *r) {
+  if (argc > 2 && !strcmp(argv[1], "idle_wait")) sw_idle_wait = atoi(argv[2]);
+  cw_reply_printf(r, "{\"idle_wait\":%d}", sw_idle_wait);
+}
 /* players n: riders in the next race (a test's way in to 3 and 4; riders without a pad idle) */
 static void cmd_players(int argc, const char **argv, cw_reply *r) {
   if (argc > 1) {
@@ -1609,6 +1616,7 @@ static void init(void *u) {
   cw_debug_field("sweep.fail", dbg_sweep_fail, CW_DBG_I32, 5);
   cw_debug_command("chocolate", "chocolate [crash|ride [1|2]]: inspect decals or exercise either river",cmd_chocolate);
   cw_debug_command("players", "players <1..4>: riders in the next race (split screen)", cmd_players);
+  cw_debug_command("sw", "sw idle_wait <0|1>: 1 = a joined seat that never readies holds the start (control)", cmd_sw);
   cw_debug_command("bind", "bind <action> <bindings>: replace an action's bindings (binding text, as input.cfg writes it)", cmd_bind);
   cw_debug_command("bike_pick", "bike_pick <0..6> <0..7>: inspect a frame and paint", cmd_bike_pick);
   cw_debug_command("progress", "progress [show | preset <n>]: the save data", cmd_progress);
@@ -2101,8 +2109,22 @@ static void slot_set(int p, int st) {
   G.slot[p] = st;
   G.slot_ticks[p] = 0;
 }
+/* a joined seat still choosing whose pad has done nothing for five seconds:
+ * once P1 is ready, P1's (A) starts without it (it sits this race out), so a
+ * pad that joined and was never played cannot hold the race back. A seat
+ * still picking is waited for. */
+#define SEAT_IDLE_TICKS 300
+static int seat_active[MAX_RIDERS]; /* G.ticks of the seat's last press */
+static bool seat_idle(int p) {
+  return p > 0 && G.slot[p] != SLOT_OUT && G.slot[p] != SLOT_READY && G.ticks - seat_active[p] > SEAT_IDLE_TICKS;
+}
+static bool idle_seats(void) {
+  for (int p = 1; p < MAX_RIDERS; p++)
+    if (seat_idle(p)) return true;
+  return false;
+}
 static void players_tick(cw_vec2 m, cw_vec2 cs, bool ok1) {
-  bool changed = false;
+  bool changed = false, go_now = false;
   for (int p = 0; p < MAX_RIDERS; p++) {
     G.slot_ticks[p]++;
     if (p > 0) {
@@ -2126,6 +2148,7 @@ static void players_tick(cw_vec2 m, cw_vec2 cs, bool ok1) {
       }
     }
     ok = ok && G.slot_ticks[p] > 10;
+    if (ok || back || step) seat_active[p] = G.ticks;
     switch (G.slot[p]) {
     case SLOT_OUT:
       if (ok) {
@@ -2180,9 +2203,13 @@ static void players_tick(cw_vec2 m, cw_vec2 cs, bool ok1) {
       break;
     case SLOT_READY:
       if (back) slot_set(p, SLOT_COLOR);
+      else if (ok && p == 0 && !sw_idle_wait && idle_seats()) go_now = true;
       break;
     }
   }
+  if (go_now)
+    for (int p = 1; p < MAX_RIDERS; p++)
+      if (seat_idle(p)) slot_set(p, SLOT_OUT);
   if (!players_set) G.players = joined_count();
   bool ready = true;
   for (int p = 0; p < MAX_RIDERS; p++) ready &= G.slot[p] == SLOT_OUT || G.slot[p] == SLOT_READY;
@@ -2764,7 +2791,7 @@ static void draw_player_views(float W, float H, float s) {
       chip(b, r.x + r.w * 0.5f, r.y + r.h - 76 * k, 24 * k, 1);
       text(b, r.x, r.y + r.h - 76 * k, 24 * k, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, r.w);
     }
-    const char *hint = st == SLOT_READY ? "{m_back} change" : v == 0 ? "{m_ok} select   {m_back} back" : st == SLOT_RIDER ? "{m_ok} select   {m_back} leave" : "{m_ok} select   {m_back} back";
+    const char *hint = st == SLOT_READY ? (v == 0 && !sw_idle_wait && idle_seats() ? "{m_ok} start now   {m_back} change" : "{m_back} change") : v == 0 ? "{m_ok} select   {m_back} back" : st == SLOT_RIDER ? "{m_ok} select   {m_back} leave" : "{m_ok} select   {m_back} back";
     if (v == 0 && on_touch()) hint = ""; /* a phone plays alone: this screen is for pads */
     ptext(hint, v, r.x, r.y + r.h - 36 * k, fmaxf(18 * k, 16 * s), rgba(1, 0.85f, 0.6f, 0.95f), CW_ALIGN_CENTER, r.w);
   }
