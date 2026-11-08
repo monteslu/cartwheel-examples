@@ -318,7 +318,7 @@ static void item_icon(int kind, cw_vec2 c, float r, float t) {
     cw_r2d_rect(cw_rect_make(b.x + r * 0.22f, b.y - r * 0.78f, r * 0.26f, r * 0.2f), MUSTARD);
     cw_r2d_line(cw_v2(b.x + r * 0.35f, b.y - r * 0.78f), cw_v2(b.x + r * 0.62f, b.y - r * 0.98f), r * 0.08f + 1, CREAM);
     float sp = 0.18f + 0.06f * cw_sin(t * 22);
-    cw_r2d_circle(cw_v2(b.x + r * 0.66f, b.y - r * 1.0f), r * sp, 10, (int)(t * 12) & 1 ? MUSTARD : RED);
+    cw_r2d_circle(cw_v2(b.x + r * 0.66f, b.y - r * 1.0f), r * sp, 10, (int)(t * 4) & 1 ? MUSTARD : RED); /* 2 Hz, never a strobe */
     break;
   }
   case IT_FLAK: {
@@ -339,7 +339,7 @@ static void item_icon(int kind, cw_vec2 c, float r, float t) {
     cw_r2d_circle(c, r * 0.55f, 24, rgba(0.45f, 0.75f, 1, 1));
     cw_r2d_circle(c, r * 0.3f, 18, rgba(0.9f, 0.97f, 1, 1));
     cw_r2d_circle_lines(c, r * 0.55f, 2, 24, INK);
-    if (kind == IT_DETONATE) cw_r2d_circle_lines(c, r * (0.9f + 0.15f * cw_sin(t * 14)), r * 0.12f + 1, 24, (int)(t * 8) & 1 ? RED : MUSTARD);
+    if (kind == IT_DETONATE) cw_r2d_circle_lines(c, r * (0.9f + 0.15f * cw_sin(t * 14)), r * 0.12f + 1, 24, (int)(t * 4) & 1 ? RED : MUSTARD); /* 2 Hz, never a strobe */
     break;
   }
   case IT_ROCKETS: missiles_icon(c, r, 4); break;
@@ -491,7 +491,7 @@ static void hud_speed(const hv *g) {
   cw_r2d_circle_lines(cw_v2(cx, cy), R + 6 * s, 3 * s, 40, alpha(INK, 0.5f));
   if (glow > 0.01f) {
     cw_r2d_set_blend(CW_BLEND_ADD);
-    float pulse = 0.65f + 0.35f * cw_sin(g->S->tick * 0.7f);
+    float pulse = 0.65f + 0.35f * cw_sin(g->S->tick * 0.2f); /* 1.9 Hz (it pulsed at 6.7 Hz) */
     cw_r2d_arc(cw_v2(cx, cy), R + 4 * s, R + 18 * s * (0.6f + glow * 0.7f), a0 - 0.1f, a0 + sweep + 0.1f, 40, rgba(1.0f, 0.5f, 0.1f, 0.35f * glow * pulse));
     cw_r2d_set_blend(CW_BLEND_ALPHA);
   }
@@ -761,7 +761,7 @@ static void hud_lapflash(const hv *g) {
     fmt_time(t, sizeof t, h->last_lap);
     snprintf(sub, sizeof sub, h->last_lap_best ? "%s   BEST LAP SO FAR" : "Last lap %s", t);
   }
-  banner(g, b, g->compact ? NULL : sub, h->lap_final ? (((g->S->tick / 8) & 1) ? RUST : MUSTARD) : MUSTARD, (float)h->lap_t / 150.0f, g->y + g->h * 0.27f, g->compact ? 40 : 54);
+  banner(g, b, g->compact ? NULL : sub, h->lap_final ? (((g->S->tick / 15) & 1) ? RUST : MUSTARD) : MUSTARD, (float)h->lap_t / 150.0f, g->y + g->h * 0.27f, g->compact ? 40 : 54);
 }
 
 static void hud_finish(const hv *g) {
@@ -825,15 +825,28 @@ static void hud_incoming(const hv *g) {
   bool on = best < 1e8f;
   if (on && !was[g->v]) audio_ui(AUI_COUNT);
   was[g->v] = on;
-  if (!on) return;
-  float s = g->s, near = clamp01(1 - fmaxf(best, 0) / 70.0f);
-  float pulse = 0.55f + 0.45f * cw_sin((float)S->tick * (0.25f + 0.5f * near));
+  /* the warning fades in and out and holds through a missile's aim wavering on and off a lane from tick to tick
+   * (it blinked frame by frame then): its strength, side and nearness ease */
+  static float shown[MAXV], eside[MAXV], enear[MAXV];
+  static int hold[MAXV]; /* frames the warning stays up after a missile last looked aimed: half a second */
+  float s = g->s;
+  if (on) {
+    float nr = clamp01(1 - fmaxf(best, 0) / 70.0f);
+    if (shown[g->v] < 0.02f) eside[g->v] = side, enear[g->v] = nr;
+    eside[g->v] += (side - eside[g->v]) * 0.15f, enear[g->v] += (nr - enear[g->v]) * 0.15f;
+  }
+  if (on) hold[g->v] = 30;
+  else if (hold[g->v] > 0) hold[g->v]--;
+  shown[g->v] += ((hold[g->v] > 0 ? 1.0f : 0.0f) - shown[g->v]) * (hold[g->v] > 0 ? 0.2f : 0.08f);
+  if (shown[g->v] < 0.02f) return;
+  float near = enear[g->v];
+  side = eside[g->v];
   float cx = g->x + g->w * 0.5f + cw_clampf(side / 6.0f, -1, 1) * 120 * s, cy = g->y + g->h - 120 * s;
   if (U.touch_on) cy -= 136 * s;
-  cw_color c = alpha(RED, 0.5f + 0.5f * pulse);
+  cw_color c = alpha(RED, 0.9f * shown[g->v]); /* steady while up: the arrows growing as the missile closes are the urgency, not a blink */
   for (int k = 0; k < 2; k++) tri(cw_v2(cx, cy - (float)k * 16 * s), (18 + 8 * near) * s, -CW_PI * 0.5f, c);
   /* close in: the cue to hop it */
-  tx_o(U.f_title, best < 14 ? "HOP! (DRIFT)" : "INCOMING", cx, cy + 26 * s, (20 + 8 * near) * s, c, (txopt){ .align = CW_ALIGN_CENTER });
+  tx_o(U.f_title, near > 0.8f ? "HOP! (DRIFT)" : "INCOMING", /* from the eased nearness: the words never swap back and forth */ cx, cy + 26 * s, (20 + 8 * near) * s, c, (txopt){ .align = CW_ALIGN_CENTER });
 }
 
 static cw_rect pause_button_rect(const hv *g) {
@@ -885,7 +898,7 @@ static void hud_view(int v, float W, float H, int nviews) {
   if (h->shield_t > 0) hud_edges(&g, SKY, 0.6f * (1 - (float)h->shield_t / 24.0f), edge_depth);
   if (h->fall_t > 0) hud_edges(&g, CREAM, 0.55f * (1 - (float)h->fall_t / 40.0f), 0.2f);
   if (h->boost_t > 0) hud_edges(&g, TEAL, 0.3f * (1 - (float)h->boost_t / 20.0f), 0.1f);
-  if (g.k->respawn_ticks > 0 && (g.k->respawn_ticks / 5) & 1) cw_r2d_rect(cw_rect_make(g.x, g.y, g.w, g.h), rgba(1, 1, 1, 0.06f));
+  if (g.k->respawn_ticks > 0 && (g.k->respawn_ticks / 15) & 1) cw_r2d_rect( /* 2 Hz while the kart comes back, never a strobe */cw_rect_make(g.x, g.y, g.w, g.h), rgba(1, 1, 1, 0.06f));
   if (S->battle) {
     hud_battle_view(&g, nviews);
     cw_r2d_pop_clip();

@@ -119,8 +119,8 @@ void balloons_frame(const sim *s, float alpha) {
     float t = (float)s->tick / 60.0f;
     for (int j = 0; j < NB; j++) {
       bool popping = j == b->pop_slot && b->pop_t > 0;
-      /* just popped: the rest blink while the kart cannot lose another */
-      bool vis = (j < n || popping) && !k->parked && !(k->ram_cool > 0 && !popping && ((k->ram_cool / 6) & 1));
+      /* just popped: the rest blink slowly (2 Hz, never a strobe) while the kart cannot lose another */
+      bool vis = (j < n || popping) && !k->parked && !(k->ram_cool > 0 && !popping && ((k->ram_cool / 15) & 1));
       b->ball[j]->visible = vis;
       b->str[j]->visible = vis && !popping;
       if (!vis) continue;

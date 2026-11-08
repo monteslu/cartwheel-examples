@@ -217,15 +217,25 @@ void kartgfx_tick(const sim *s) {
     c[KP_STEER] = k->steer, c[KP_CHEER] = st->cheer, c[KP_FLAIL] = k->spin_ticks > 0 ? 1.0f : 0.0f;
     float bl = boosting ? clampf_((float)k->boost_ticks / 12.0f, 0.25f, 1.0f) : 0.0f;
     float idle = clampf_((a_f - 4.0f) / 10.0f, 0, 1) * 0.28f;
-    bool pop = a_f < -5.0f && ((s->tick * 7 + i * 3) % 13) == 0;
-    c[KP_BOOST] = bl > idle ? bl : idle;
-    if (pop && c[KP_BOOST] < 0.3f) c[KP_BOOST] = 0.3f;
-    c[KP_BRAKE] = (a_f < -4.0f && !air) ? 1.0f : 0.0f;
+    bool pop = a_f < -5.0f && ((s->tick + i * 7) % 26) == 0; /* a backfire now and then (2.3 Hz at most), never a flicker */
+    {
+      /* the flame grows and shrinks over a few ticks: a backfire's one-tick pop or a boost's start switched the cones
+       * on in one frame, a flash when the kart is right in front of the camera */
+      float want = bl > idle ? bl : idle;
+      if (pop && want < 0.3f) want = 0.3f;
+      c[KP_BOOST] += (want - c[KP_BOOST]) * (want > c[KP_BOOST] ? 0.35f : 0.15f);
+    }
+    /* the brake lights come up over a few ticks and fade over more: a driver feathering the brakes (or the computer's
+     * on-off braking) glows, never blinks the tail lights red at the rate of the pedal */
+    {
+      float want = (a_f < -4.0f && !air) ? 1.0f : 0.0f;
+      c[KP_BRAKE] += (want - c[KP_BRAKE]) * (want > c[KP_BRAKE] ? 0.2f : 0.06f);
+    }
     c[KP_SHIELD] = (float)k->shield_ticks;
     c[KP_TRICK] = st->trick_ang, c[KP_FLIP] = flip;
     c[KP_SHAKE] = (k->spin_ticks > 0 && k->spin_kind == SPIN_SHOCK) ? 1.0f : 0.0f;
     c[KP_HOP] = hop, c[KP_DRIFT] = dk * (float)k->drift_level;
-    c[KP_FLASH] = c[KP_SHAKE] * (0.5f + 0.5f * sinf((float)s->tick * 1.7f));
+    c[KP_FLASH] = c[KP_SHAKE] * (0.6f + 0.4f * sinf((float)s->tick * 0.24f)); /* a shocked kart's paint glows and swells at 2.3 Hz (it pulsed at 16 Hz) */
     c[KP_SPEED] = k->speed, c[KP_ACCEL] = a_f, c[KP_LAT] = lat;
     if (st->cur[KP_TRICK] == 0 && st->prev[KP_TRICK] == 0) st->trick_kind = st->trick_kind;
     st->trick_kind = st->trick_kind % 3;
@@ -464,8 +474,8 @@ void kartgfx_frame(const sim *s, float alpha) {
     if (r->torso) r->torso->visible = close;
     if (r->head) r->head->visible = close;
 
-    /* flicker while it comes back */
-    r->root->visible = !(k->respawn_ticks > 0 && ((k->respawn_ticks / 4) & 1));
+    /* a slow blink while it comes back (2 Hz: never a strobe) */
+    r->root->visible = !(k->respawn_ticks > 0 && ((k->respawn_ticks / 15) & 1));
     r->shield_mat->opacity = 0;
 
     /* the root: trick and tumble about the body's middle */
@@ -528,9 +538,9 @@ void kartgfx_frame(const sim *s, float alpha) {
     pose_driver(r, P, tsec, st->trick_kind == 0 || k->finished);
     rig_sync_parts(r);
     ground_probe(s, i, r, alpha);
-    /* the shield bubble: pulses, flickers out in its last seconds */
+    /* the shield bubble: pulses, blinks out slowly (2 Hz) in its last seconds */
     int sht = (int)P[KP_SHIELD];
-    bool shield_on = sht > 0 && (sht > 90 || ((sht / 6) & 1));
+    bool shield_on = sht > 0 && (sht > 90 || ((sht / 15) & 1));
     r->shield->visible = shield_on;
     if (shield_on) {
       float pulse = 1.0f + 0.03f * sinf(tsec * 7.0f);
@@ -595,8 +605,10 @@ static void pose_driver(kart_rig *r, const float *P, float tsec, bool both_hands
     /* flames: nested cones that stretch and flicker with the boost */
     float bo = P[KP_BOOST];
     for (int f = 0; f < vg->nflame; f++) {
-      bool on = bo > 0.02f;
-      float fk = 0.8f + 0.2f * sinf(tsec * 61.0f + (float)f * 2.1f) + 0.12f * sinf(tsec * 97.0f + (float)f);
+      /* not while the kart is spun or tumbling: the cones swung through the chase camera, big orange sweeps across the view */
+      bool on = bo > 0.02f && P[KP_FLAIL] < 0.5f && P[KP_FLIP] == 0;
+      /* the flame wavers in length slowly (under 3 Hz: a flame at 10 Hz and more lit the screen's bottom as a flicker) */
+      float fk = 0.9f + 0.06f * sinf(tsec * 13.0f + (float)f * 2.1f) + 0.04f * sinf(tsec * 17.0f + (float)f);
       float len = (0.12f + 1.15f * bo) * fk;
       float rad = 0.07f + 0.1f * bo;
       for (int l = 0; l < 2; l++) {
@@ -607,7 +619,7 @@ static void pose_driver(kart_rig *r, const float *P, float tsec, bool both_hands
       }
     }
     /* tail lights brighten on the brakes */
-    r->mat[S_TAIL]->emissive_intensity = 1.0f + 2.8f * P[KP_BRAKE] + 1.5f * (bo > 0.5f ? 1.0f : 0.0f);
+    r->mat[S_TAIL]->emissive_intensity = 1.0f + 2.8f * P[KP_BRAKE] + 1.5f * clampf_((bo - 0.3f) / 0.4f, 0, 1);
     /* a shock lights the paint */
     r->mat[S_PAINT]->emissive_intensity = 2.2f * P[KP_FLASH];
     r->mat[S_PAINT2]->emissive = r->mat[S_PAINT]->emissive;

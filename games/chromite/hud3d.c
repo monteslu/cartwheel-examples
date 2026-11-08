@@ -118,7 +118,7 @@ static void column_fill(column *c, float fill, float over, t3_color col, float f
     float k = 0.02f;
     if (i < lit) {
       k = 0.5f + 0.5f * (float)i / c->n;
-      if (i == lit - 1) k *= 0.7f + 0.3f * sinf(t * 24);
+      if (i == lit - 1) k *= 0.7f + 0.3f * sinf(t * 11); /* a 1.8 Hz pulse */
       float pd = fabsf((float)i / c->n - pulse);
       if (pd < 0.07f) k += (0.07f - pd) * 8;
       k += over * (0.8f + 0.4f * sinf(t * 9 + i));

@@ -72,7 +72,7 @@ void fx_init(cw_node scene, int theme);
 void fx_reset(void);
 void fx_events(const sim *s);       /* this tick's sim events -> effects */
 void fx_tick(const sim *s);         /* fixed tick */
-float fx_shake(void);               /* camera shake amount */
+float fx_shake_bug(void);           /* PUG_SHAKE_BUG (native, the camera gate's control only): the old shake's amount */
 void fx_confetti(t3_vec3 at, int team);
 void fx_set_trail(int pug, int kind);  /* the boost trail cosmetic */
 

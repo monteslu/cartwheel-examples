@@ -508,6 +508,20 @@ static float ease_out_back(float x) {
 }
 
 /* every frame: boxes, hazards and blasts posed between the last two ticks */
+static t3_vec3 EYE[4];
+static int NEYE;
+void items_set_eyes(const t3_vec3 *e, int n) {
+  NEYE = n > 4 ? 4 : n < 0 ? 0 : n;
+  for (int i = 0; i < NEYE; i++) EYE[i] = e[i];
+}
+/* 0 right at a view's eye, 1 from 4.5 m out: a missile flying up behind a kart passes through the chase camera, and its
+ * additive flame swept across the whole view in a frame or two, a flash at every close call */
+static float eye_fade(t3_vec3 p) {
+  float d = 1e9f;
+  for (int i = 0; i < NEYE; i++) d = fminf(d, v3len(v3sub(p, EYE[i])));
+  return cw_clampf((d - 1.5f) / 3.0f, 0, 1);
+}
+
 void items_frame(const sim *s, float alpha) {
   if (!I.built) return;
   if (!s) s = I.sim;
@@ -546,7 +560,7 @@ void items_frame(const sim *s, float alpha) {
   for (int k = 0; k < MAXK; k++) {
     const kart *kk = &s->k[k];
     bool on = kk->on && kk->rail_charge > 0;
-    I.aim[k]->visible = on && (kk->rail_charge > 14 || fmodf(t * 30.0f, 1.0f) < 0.6f);
+    I.aim[k]->visible = on; /* shown steady while charging (it flickered at the frame rate) */
     if (!on) continue;
     t3_vec3 f = kart_fwd(kk);
     f.y = 0;
@@ -577,7 +591,7 @@ void items_frame(const sim *s, float alpha) {
     if (z->kind == HZ_ORB) {
       t3_vec3 p = v3sub(z->p, v3mul(z->f, z->speed / (float)TICK_HZ * (1.0f - alpha)));
       t3_object_set_position(I.orb[h], p.x, p.y, p.z);
-      float pulse = 1.1f + 0.18f * sinf(t * 18.0f + (float)h), late = z->life < 40 ? 0.3f * sinf(t * 40.0f) : 0;
+      float pulse = 1.1f + 0.18f * sinf(t * 18.0f + (float)h), late = z->life < 40 ? 0.3f * sinf(t * 14.0f) : 0; /* about to burst: a quicker swell (2.2 Hz), not a flicker */
       t3_object_set_scale(I.orb_halo[h], pulse + late, pulse + late, pulse + late);
       t3_object_set_rotation(I.orb[h], t * 3.0f, t * 4.0f, 0);
     } else if (z->kind == HZ_PELLET) {
@@ -615,7 +629,7 @@ void items_frame(const sim *s, float alpha) {
       t3_object_set_position(I.bomb[h], z->p.x, z->p.y + 0.15f, z->p.z);
       t3_object_set_quaternion(I.bomb[h], q);
       t3_object_set_scale(I.bomb[h], sc, sc, sc);
-      I.bomb_spark[h]->visible = fmodf(t * 17.0f + (float)h * 0.3f, 1.0f) < 0.6f;
+      I.bomb_spark[h]->visible = true; /* a steady spark on the fuse, not a light switched at 17 Hz */
     }
     if (is_m || is_h) {
       t3_object *o = is_h ? I.homing[h] : I.miss[h];
@@ -629,11 +643,11 @@ void items_frame(const sim *s, float alpha) {
       t3_quat q = t3_quat_multiply(from_to(v3(0, 0, 1), f), t3_quat_from_axis_angle(v3(0, 0, 1), (float)z->age * 0.35f));
       t3_object_set_position(o, p.x, p.y, p.z);
       t3_object_set_quaternion(o, q);
-      float k = 0.8f + 0.25f * sinf(t * 70.0f + (float)h) + 0.1f * sinf(t * 113.0f);
+      float k = 0.85f + 0.15f * sinf(t * 14.0f + (float)h) + 0.05f * sinf(t * 9.0f); /* a flame that wavers (2.2 Hz), never flickers */
       t3_object **fl = is_h ? I.homing_flame[h] : I.miss_flame[h];
-      float ramp = cw_clampf((float)z->age / 6.0f, 0, 1);
-      t3_object_set_scale(fl[0], 0.34f, 0.34f, 1.1f * k * ramp);
-      t3_object_set_scale(fl[1], 0.18f, 0.18f, 0.65f * k * ramp);
+      float ramp = cw_clampf((float)z->age / 6.0f, 0, 1) * eye_fade(p);
+      t3_object_set_scale(fl[0], 0.34f * ramp + 1e-4f, 0.34f * ramp + 1e-4f, 1.1f * k * ramp + 1e-4f);
+      t3_object_set_scale(fl[1], 0.18f * ramp + 1e-4f, 0.18f * ramp + 1e-4f, 0.65f * k * ramp + 1e-4f);
       if (is_h && z->target >= 0 && z->target < MAXK) {
         marked[z->target] = true;
         float d = v3len(v3sub(s->k[z->target].p, z->p));
@@ -657,9 +671,9 @@ void items_frame(const sim *s, float alpha) {
       t3_vec3 p = v3add(z->p, v3(0, bob + (1.0f - drop) * 0.7f, 0));
       t3_object_set_position(I.mine[h], p.x, p.y, p.z);
       t3_object_set_rotation(I.mine[h], 0.2f, t * 0.7f + (float)h, 0.1f);
-      /* the armed light blinks faster for a while after it is laid, then settles */
+      /* the armed light blinks quicker for a while after it is laid, then settles (2.2 Hz at most: never a strobe) */
       bool armed = z->age > 45;
-      float rate = armed ? 1.6f : 7.0f;
+      float rate = armed ? 1.2f : 2.2f;
       I.mine_light[h]->visible = fmodf(t * rate + (float)h * 0.37f, 1.0f) < 0.45f;
     }
   }
@@ -713,13 +727,15 @@ void items_frame(const sim *s, float alpha) {
     if (!r->visible) continue;
     t3_vec3 p = v3sub(s->k[k].p, v3mul(s->k[k].v, (1.0f - alpha) / (float)TICK_HZ));
     float danger = cw_clampf(1.0f - near_d[k] / 70.0f, 0, 1);
-    float pulse = 1.0f + (0.06f + 0.14f * danger) * sinf(t * (8.0f + 14.0f * danger));
+    /* the lock-on ring on a targeted kart swells (1.3 to 2.2 Hz) and turns slowly: a segmented red ring spun fast and
+     * pulsed at 3.5 Hz flickered red across the kart many times a second */
+    float pulse = 1.0f + (0.06f + 0.1f * danger) * sinf(t * (8.0f + 6.0f * danger));
     t3_object_set_position(r, p.x, p.y + 0.15f, p.z);
-    t3_object_set_quaternion(r, t3_quat_multiply(from_to(v3(0, 1, 0), kart_up(&s->k[k])), t3_quat_from_axis_angle(v3(0, 1, 0), t * (2.0f + 4.0f * danger))));
+    t3_object_set_quaternion(r, t3_quat_multiply(from_to(v3(0, 1, 0), kart_up(&s->k[k])), t3_quat_from_axis_angle(v3(0, 1, 0), t * (0.4f + 0.4f * danger))));
     float sc = 1.35f * pulse * (1.0f + 0.3f * (1.0f - danger));
     t3_object_set_scale(r, sc, sc, sc);
   }
-  I.reticle_mat->opacity = 0.65f + 0.3f * sinf(t * 12.0f);
+  I.reticle_mat->opacity = 0.7f + 0.15f * sinf(t * 6.0f);
   /* blasts */
   for (int i = 0; i < NFX; i++) {
     const fxrec *f = &I.fx[i];

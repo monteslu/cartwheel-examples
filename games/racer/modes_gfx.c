@@ -265,8 +265,10 @@ static void assault_frame(const sim *s, float t) {
     float hit = M.as_hit[o];
     M.as_hit[o] = fmaxf(hit - 1.0f / 20.0f, 0);
     float c[3] = { 1.0f, 0.78f, 0.22f };
-    if (b->kind == AO_HOLD && s->as_holder[o] == -2 && fmodf(t * 4.0f, 1.0f) < 0.5f) c[0] = 1.0f, c[1] = 0.15f, c[2] = 0.1f;
-    else if (b->kind == AO_HOLD && s->as_holder[o] >= 0) memcpy(c, TEAM_RGB[s->as_att & 1], sizeof c);
+    if (b->kind == AO_HOLD && s->as_holder[o] == -2) { /* contested: a 1.5 Hz pulse toward red, never a switch */
+      float on = 0.5f + 0.5f * sinf(t * 9.4f);
+      c[0] = 1.0f, c[1] = 0.78f - 0.63f * on, c[2] = 0.22f - 0.12f * on;
+    } else if (b->kind == AO_HOLD && s->as_holder[o] >= 0) memcpy(c, TEAM_RGB[s->as_att & 1], sizeof c);
     t3_color lc = lin(c[0] + hit, c[1] + hit, c[2] + hit);
     M.as_ring_mat[o]->color = lc, M.as_wall_mat[o]->color = lc, M.as_beam_mat[o]->color = lc;
     float frac = b->kind == AO_DESTROY && b->hp > 0 ? (float)s->as_hp[o] / (float)b->hp : 1.0f;
@@ -366,11 +368,11 @@ void modes_gfx_frame(const sim *s, float alpha) {
   float c[3] = { 1.0f, 0.8f, 0.25f };
   if (s->hill_holder >= 0 && s->hill_holder < MAXK) memcpy(c, KART_RGB[s->k[s->hill_holder].colour & 7], sizeof c);
   else if (s->hill_holder == -2) {
-    bool on = fmodf(t * 4.0f, 1.0f) < 0.5f;
-    c[0] = 1.0f, c[1] = on ? 0.15f : 0.5f, c[2] = on ? 0.1f : 0.2f;
+    float on = 0.5f + 0.5f * sinf(t * 9.4f); /* contested: it pulses red and pale, 1.5 Hz, a swell not a switch */
+    c[0] = 1.0f, c[1] = 0.5f - 0.35f * on, c[2] = 0.2f - 0.1f * on;
   }
   /* about to move: it blinks */
-  float blink = s->hill_left < 5 * TICK_HZ && fmodf(t * 3.0f, 1.0f) < 0.4f ? 0.35f : 1.0f;
+  float blink = s->hill_left < 5 * TICK_HZ ? 0.675f + 0.325f * cosf(t * 12.57f) : 1.0f; /* a 2 Hz pulse, never a strobe */
   t3_color lc = lin(c[0], c[1], c[2]);
   M.hill_ring_mat->color = lc, M.hill_disc_mat->color = lc, M.hill_wall_mat->color = lc;
   M.hill_ring_mat->opacity = 0.9f * blink;

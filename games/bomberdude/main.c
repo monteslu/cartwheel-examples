@@ -112,6 +112,8 @@ static struct {
   ai_mem ai[MAXP];
   /* camera */
   t3_vec3 cam_at, cam_eye;
+  bool cam_snap_seen;
+  int cam_jolts; /* frames the camera's eye jolted (cam.jolts: never, unless BOMBER_SHAKE_BUG) */
   bool cam_snap;
   /* mouse walking: the tile player 1 is walking to */
   /* floating callouts over the arena (render only): power-ups, knockouts */
@@ -642,6 +644,7 @@ static void init(void *u) {
   cw_debug_field("round.kos", G.kos, CW_DBG_I32, MAXP);
   cw_debug_field("round.placed", G.placed, CW_DBG_I32, MAXP);
   cw_debug_i32("ticks", &G.ticks);
+  cw_debug_i32("cam.jolts", &G.cam_jolts);
   cw_debug_field("players.pos", G.pos, CW_DBG_I32, MAXP * 2);
   cw_debug_field("players.slot", G.slots, CW_DBG_I32, MAXP);
   cw_debug_field("players.input", G.in_dbg, CW_DBG_U8, MAXP);
@@ -777,6 +780,7 @@ static void camera_tick(void) {
   if (art_cam && sscanf(art_cam, "%f %f %f %f %f %f", &eye.x, &eye.y, &eye.z, &at.x, &at.y, &at.z) == 6) fast = true;
 #endif
   if (G.cam_snap || fast) {
+    G.cam_snap_seen = true; /* a cut, not a jolt */
     G.cam_at = at;
     G.cam_eye = eye;
     G.cam_snap = false;
@@ -786,13 +790,24 @@ static void camera_tick(void) {
     G.cam_eye.x += (eye.x - G.cam_eye.x) * k, G.cam_eye.y += (eye.y - G.cam_eye.y) * k, G.cam_eye.z += (eye.z - G.cam_eye.z) * k;
   }
   t3_vec3 e = G.cam_eye;
-  int sh = fx_shake();
+  /* the camera never shakes (blasts rumble the pads and ring the floor instead); cam.jolts counts frames whose eye
+   * moved unlike the smooth follow (a second difference over 0.03 m), which only BOMBER_SHAKE_BUG, the camera gate's
+   * control, can make happen */
+  int sh = fx_shake_bug();
   if (sh > 0) {
     float a = 0.012f * sh;
     e.x += a * cw_sin(G.ticks * 1.9f);
     e.y += a * cw_sin(G.ticks * 2.7f + 1);
     e.z += a * cw_sin(G.ticks * 2.3f + 2);
   }
+  { static t3_vec3 p1, p2; static int seen;
+    if (G.cam_snap_seen || fast) seen = 0;
+    if (seen >= 2) {
+      float jx = e.x - 2 * p1.x + p2.x, jy = e.y - 2 * p1.y + p2.y, jz = e.z - 2 * p1.z + p2.z;
+      if (jx * jx + jy * jy + jz * jz > 0.03f * 0.03f) G.cam_jolts++;
+    }
+    p2 = p1, p1 = e, seen = seen < 2 ? seen + 1 : 2;
+    G.cam_snap_seen = false; }
   cw_node3d_set_position(G.camera, e);
   cw_node3d_look_at(G.camera, G.cam_at, (t3_vec3){ 0, 1, 0 });
 }

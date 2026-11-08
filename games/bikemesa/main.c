@@ -138,6 +138,28 @@ typedef struct rider_t {
 } rider_t;
 static rider_t RD[MAX_RIDERS];
 static rider_t *P = RD;
+/* cam.jolts: frames whose camera, as drawn (the camera node's global transform), stood off the follow camera the
+ * game placed it at by over a millimetre: a shake is exactly that offset. Never, unless BIKEMESA_SHAKE_BUG, the camera
+ * gate's control: the camera never shakes, a crash and a hard landing are felt in the rider's pad */
+static int cam_jolts;
+static void jolt_check(cw_node cam, t3_vec3 follow, bool live) { /* live: riding (the replay and other screens place the camera elsewhere) */
+  static cw_node last_cam;
+  static t3_vec3 last_follow;
+  static bool have;
+  if (have && live && last_cam.id == cam.id) { /* last frame's placement, now that the tree has drawn it */
+    const t3_mat4 *m = cw_node3d_global_transform(cam);
+    if (m) {
+      float dx = m->e[12] - last_follow.x, dy = m->e[13] - last_follow.y, dz = m->e[14] - last_follow.z;
+      if (dx * dx + dy * dy + dz * dz > 1e-6f) cam_jolts++;
+    }
+  }
+  last_cam = cam, last_follow = follow, have = live;
+}
+static bool shake_bug(void) {
+  static int bug = -1;
+  if (bug < 0) bug = getenv("BIKEMESA_SHAKE_BUG") != NULL;
+  return bug;
+}
 static int PL; /* the player whose controls are read (rider P's) */
 static int NRID = 1; /* riders in this race (1: solo) */
 static void use_rider(int i);
@@ -1131,7 +1153,7 @@ static void camera_tick(void) {
   }
 }
 
-/* drawing: the eased camera between the last two ticks, a little shake */
+/* drawing: the eased camera between the last two ticks (it never shakes) */
 static void camera_frame(double alpha) {
   cw_node cam = NRID > 1 ? P->cam : G.camera;
   if (!cw_node_valid(cam)) return;
@@ -1175,11 +1197,13 @@ static void camera_frame(double alpha) {
     }
   }
 #endif
-  if (P->shake > 0) {
+  t3_vec3 follow = eye;
+  if (P->shake > 0 && shake_bug()) { /* the old shake, for the camera gate's control only */
     float k = 0.01f * P->shake;
     eye.x += k * cw_sin(G.ticks * 1.9f);
     eye.y += k * cw_sin(G.ticks * 2.7f + 1);
   }
+  jolt_check(cam, follow, G.state == GS_RIDE && P->down_ticks == 0);
   cw_node3d_set_position(cam, eye);
   cw_node3d_look_at(cam, at, (t3_vec3){ 0, 1, 0 });
 }
@@ -1559,6 +1583,7 @@ static void init(void *u) {
   cw_debug_field("race.colors", G.color, CW_DBG_I32, MAX_RIDERS);
   cw_debug_i32("bike.lane_ticks", &RD[0].lane_t);
   cw_debug_i32("ticks", &G.ticks);
+  cw_debug_i32("cam.jolts", &cam_jolts);
   cw_debug_i32("ride.ticks", &G.ride_ticks);
   cw_debug_i32("crashes", &P->crashes);
   cw_debug_i32("checkpoint", &P->checkpoint);
@@ -1768,6 +1793,7 @@ static void ride_post(void) {
     P->combo = P->combo_ticks = 0;
     game_sfx(SFX_CRASH, 1);
     P->shake = 24;
+    if (!G.attract) cw_input_rumble((int)(P - RD), 0.8f, 0.5f, 320); /* the crash in the hands, never in the camera */
     fx_burst(b->x, b->y, 0);
     if (!G.attract) banner("WIPEOUT!", 90);
     P->crash_rec = P->ring_n;
@@ -1786,6 +1812,7 @@ static void ride_post(void) {
       game_sfx(SFX_LAND, cw_clampf(air / 60.0f, 0.3f, 1));
       fx_burst(b->x - 0.4f, b->y - 0.3f, 1);
       P->shake = air > 50 ? 10 : 4;
+      if (!G.attract) cw_input_rumble((int)(P - RD), air > 50 ? 0.5f : 0.25f, 0.2f, air > 50 ? 160 : 90); /* a hard landing thumps the pad */
     }
     float err;
     int pose[4];

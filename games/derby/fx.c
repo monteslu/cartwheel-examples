@@ -29,6 +29,7 @@
  * bare steel round every dent): a decal stamped on a body would not follow
  * the dents that land after it. */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "cartwheel/math.h"
@@ -243,7 +244,19 @@ void fx_volumetric(bool on) {
 
 float fx_shake(void) { return FX.shake; }
 
+/* a flash swells over a tenth of a second and fades over a second, and a new one starts at most every 24 ticks
+ * (two and a half a second): a pile-up of hits inside that time feeds the flash already rising instead of starting
+ * another, so stacked crashes never strobe */
+#define FLASH_RISE 6
+#define FLASH_GAP 24
 static void flash(t3_vec3 at, float energy) {
+  int young = -1;
+  for (int k = 0; k < 3; k++)
+    if (FX.flash_age[k] > 0 && FX.flash_age[k] < FLASH_GAP && (young < 0 || FX.flash_age[k] < FX.flash_age[young])) young = k;
+  if (young >= 0) {
+    if (FX.flash_age[young] <= FLASH_RISE && energy > FX.flash_e[young]) FX.flash_e[young] = energy;
+    return;
+  }
   int i = FX.next_flash++ % 3;
   if (!cw_node_valid(FX.flash[i])) return;
   cw_node3d_set_position(FX.flash[i], at);
@@ -419,11 +432,17 @@ void fx_tick(const sim *s) {
     bool lit = lvl >= 3;
     cw_node_set(FX.fire_light[i], "visible", cw_val_bool(lit));
     if (lit) {
+      /* a slow waver, never a flicker: two sines under 3 Hz (1.8 and 2.7) and a hashed wobble eased between
+       * knots 24 ticks apart (the hash is from the tick: every host the same) */
       float t = (float)FX.ticks;
-      uint32_t hh = (uint32_t)(FX.ticks / 3) * 2654435761u ^ (uint32_t)i * 40503u;
-      hh = (hh ^ (hh >> 15)) * 2246822519u;
-      float jit = (float)((hh >> 8) & 0xffff) / 65535.0f - 0.5f;
-      float fl = 0.74f + 0.14f * cw_sin(t * 0.37f + i * 1.7f) + 0.08f * cw_sin(t * 1.13f + i) + 0.12f * jit;
+      uint32_t k0 = (uint32_t)(FX.ticks / 24), k1 = k0 + 1;
+      uint32_t h0 = (k0 * 2654435761u ^ (uint32_t)i * 40503u), h1 = (k1 * 2654435761u ^ (uint32_t)i * 40503u);
+      h0 = (h0 ^ (h0 >> 15)) * 2246822519u, h1 = (h1 ^ (h1 >> 15)) * 2246822519u;
+      float j0 = (float)((h0 >> 8) & 0xffff) / 65535.0f - 0.5f, j1 = (float)((h1 >> 8) & 0xffff) / 65535.0f - 0.5f;
+      float u = (float)(FX.ticks % 24) / 24.0f;
+      u = u * u * (3 - 2 * u);
+      float jit = j0 + (j1 - j0) * u;
+      float fl = 0.78f + 0.10f * cw_sin(t * 0.19f + i * 1.7f) + 0.06f * cw_sin(t * 0.28f + i) + 0.12f * jit;
       float e = lvl == 3 ? 46 * fminf(1, (600 - c->wreck_ticks) / 150.0f + 0.15f) : 4.5f * (0.85f + 0.15f * cw_sin(t * 0.09f + i));
       cw_node3d_set_position(FX.fire_light[i], (t3_vec3){ hood.x, hood.y + (lvl == 3 ? 0.9f : 0.35f), hood.z });
       cw_node_set(FX.fire_light[i], "energy", cw_val_float(e * fl));
@@ -447,8 +466,9 @@ void fx_tick(const sim *s) {
     int a = FX.flash_age[i];
     float e = 0;
     if (a > 0) {
-      e = a < 3 ? FX.flash_e[i] * a / 3 : FX.flash_e[i] * cw_exp(-(a - 3) * 0.12f);
-      FX.flash_age[i] = a < 45 ? a + 1 : 0;
+      float u = (float)a / FLASH_RISE;
+      e = a < FLASH_RISE ? FX.flash_e[i] * u * u * (3 - 2 * u) : FX.flash_e[i] * cw_exp(-(a - FLASH_RISE) * 0.06f);
+      FX.flash_age[i] = a < 66 ? a + 1 : 0;
     }
     cw_node_set(FX.flash[i], "energy", cw_val_float(e));
   }

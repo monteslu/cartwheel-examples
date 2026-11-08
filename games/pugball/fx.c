@@ -11,12 +11,14 @@
  *             whack), a dust ring where it bounces hard
  *   goals     the cat goes up in a puff of fur: a fireball, a shockwave
  *             ring, confetti in the scorers' colour from both posts,
- *             fireworks over the stands, a flash, a shake
+ *             fireworks over the stands, a flash, the pads rumble (never camera shake)
  *   demos     a cartoon explosion of smoke, sparks and stars
  *   pads      a sparkle as the boost is taken */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
+#include "cartwheel/input.h"
 #include "cartwheel/math.h"
 #include "cartwheel/particles.h"
 #include "world.h"
@@ -198,7 +200,17 @@ void fx_init(cw_node scene, int theme) {
   FX.ready = true;
 }
 
-float fx_shake(void) { return FX.shake; }
+/* The camera never shakes: goals, hard hits and demolitions are felt in the pads and seen in the sparks and stars.
+ * FX.shake only counts for PUG_SHAKE_BUG, the camera gate's control, which puts the old shake back so the gate can
+ * show it would see it */
+float fx_shake_bug(void) {
+  static int bug = -1;
+  if (bug < 0) bug = getenv("PUG_SHAKE_BUG") != NULL;
+  return bug ? FX.shake : 0;
+}
+static void rumble_all(float low, float high, int ms) {
+  for (int p = 0; p < 4; p++) cw_input_rumble(p, low, high, ms);
+}
 
 static void flash(t3_vec3 at, float energy) {
   int i = FX.next_flash++ % 3;
@@ -240,6 +252,7 @@ static void goal(const sim *s, const struct sim_event *e) {
   flash((t3_vec3){ c.x, c.y + 1, c.z }, 60);
   flash((t3_vec3){ 0, 4, side * (AL - 6) }, 30);
   FX.shake = 1;
+  rumble_all(0.6f, 0.4f, 260);
 }
 
 void fx_events(const sim *s) {
@@ -253,6 +266,7 @@ void fx_events(const sim *s) {
         burst_at(FX.stars[FX.stars_i++ % 3], e->at);
         flash(e->at, 10 * e->k);
         FX.shake = fmaxf(FX.shake, 0.25f * e->k);
+        rumble_all(fminf(0.5f, 0.3f * e->k), 0.15f, 90);
       }
       break;
     case EV_BOUNCE:
@@ -271,6 +285,7 @@ void fx_events(const sim *s) {
       burst_at(FX.stars[FX.stars_i++ % 3], e->at);
       flash(e->at, 25);
       FX.shake = fmaxf(FX.shake, 0.6f);
+      rumble_all(0.7f, 0.5f, 200);
       break;
     case EV_GOAL: goal(s, e); break;
     default: break;

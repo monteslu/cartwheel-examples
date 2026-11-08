@@ -144,6 +144,7 @@ void items_build(cw_node scene, const sim *s);
 void items_reset(void);
 void items_tick(const sim *s);       /* fixed tick: boxes, missiles, oil, mines placed from the sim */
 void items_frame(const sim *s, float alpha); /* every frame: boxes, hazards and blasts posed between the last two ticks (s may be NULL) */
+void items_set_eyes(const t3_vec3 *e, int n); /* the views' eyes: a missile's flame fades out right at a camera */
 void item_icon_color(int item, float rgb[3]); /* the colour of an item (IT_*), for icons and trails */
 
 #endif

@@ -1393,7 +1393,8 @@ static void build_cage(cw_node root, const track *t, int i0, int i1, pcol c1, pc
     pm_layer(b, PL_METAL);
     pm_ring(b, Rr, 0.42f, 28, 6, K.hull2);
     pm_layer(b, PL_GLOW);
-    pm_ring(b, Rr - 0.5f, 0.12f, 28, 4, glow(((i / 12) & 1) ? c1 : c2, 3.4f));
+    /* glowing, not blazing: the cage's rings sweep overhead about three and a half times a second at racing speed */
+    pm_ring(b, Rr - 0.5f, 0.12f, 28, 4, glow(((i / 12) & 1) ? c1 : c2, 2.2f));
     pm_pop(b);
     /* ribbons: the same angle in the road's frame at both ends, so they twist with the road */
     pm *rb = pmc_at(PLAIN, a->p);

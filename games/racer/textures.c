@@ -531,8 +531,9 @@ static void g_road_stone(float u, float v, texel *t) {
   t->ao = 0.8f + 0.2f * dome - joint * 0.5f;
 }
 
-/* futuristic roadway: near-black panels, glowing edge rails (cyan), a dashed centre (magenta), lane
- * studs and panel seams that pulse along the road */
+/* futuristic roadway: near-black panels, glowing edge rails (cyan), a solid centre line (magenta), lane
+ * studs and panel seams. The centre line is unbroken: glowing dashes on near-black passed under a kart's nose at
+ * about 4.5 a second, a regular flicker at the bottom of the screen */
 static void g_road_tech(float u, float v, texel *t) {
   float x = u * 16, y = v * 8;
   float n = rfbm(u, v, 8, 4, 181), fine = h01((int)(u * 1024), (int)(v * 512), 182);
@@ -547,8 +548,7 @@ static void g_road_tech(float u, float v, texel *t) {
   t->r += mesh * 0.015f, t->g += mesh * 0.03f, t->b += mesh * 0.045f;
   float rail = band(u, 0.075f, 0.0075f, 0.003f) + band(u, 0.925f, 0.0075f, 0.003f);
   float rail_halo = band(u, 0.075f, 0.02f, 0.02f) + band(u, 0.925f, 0.02f, 0.02f);
-  float dash = sstep(0.06f, 0.09f, fractf(v)) * (1 - sstep(0.5f, 0.53f, fractf(v)));
-  float cen = band(u, 0.5f, 0.007f, 0.003f) * dash;
+  float cen = band(u, 0.5f, 0.007f, 0.003f);
   float stud = 0;
   for (int i = 1; i <= 3; i += 2) {
     float dx = (u - 0.25f * i) * 16, dy = (fractf(v * 4) - 0.5f) * 2;
@@ -559,7 +559,7 @@ static void g_road_tech(float u, float v, texel *t) {
   mixc(t, 0.2f, 0.75f, 1.0f, stud * 0.9f);
   emit(t, 0.1f, 0.85f, 1.0f, clamp01(rail) * 1.0f + clamp01(rail_halo) * 0.12f);
   emit(t, 0.95f, 0.2f, 0.85f, clamp01(cen) * 1.0f);
-  emit(t, 0.15f, 0.55f, 1.0f, stud * 0.8f + (seam + seam2) * 0.1f * (0.4f + 0.6f * n));
+  emit(t, 0.15f, 0.55f, 1.0f, stud * 0.4f + (seam + seam2) * 0.1f * (0.4f + 0.6f * n));
   mixc(t, 0.02f, 0.04f, 0.07f, (seam + seam2) * 0.5f);
   t->h = 0.6f + 0.1f * n - (seam + seam2) * 0.5f + clamp01(rail) * 0.1f;
   t->rough = 0.3f + 0.2f * n + 0.15f * fine - clamp01(rail) * 0.15f;
@@ -1080,14 +1080,16 @@ static void g_stripes(float u, float v, texel *t) {
   t->ao = 0.85f + 0.15f * n - seam * 0.1f;
 }
 
-/* boost chevrons: bright arrows pointing along +v on a dark navy ground, two per 6 m repeat, a border rail
- * each side. u 0..1 across the pad (about 11 m), v along (6 m). The arrows glow (emissive map). */
+/* boost chevrons: glowing arrows pointing along +v on a deep teal ground, two per 6 m repeat, a border rail
+ * each side. u 0..1 across the pad (about 11 m), v along (6 m). The arrows glow (emissive map). A kart crosses the
+ * stripes at about 9 a second, so they are soft-edged and the ground is not far below them in brightness: bright
+ * arrows on a near-black ground strobed the bottom of the screen at that rate */
 static void g_arrows(float u, float v, texel *t) {
   float xm = (u - 0.5f) * 11.0f;
   float k = 0.62f;                                 /* how far the arms sweep back, metres per metre */
   float tt = (v * 6.0f + k * fabsf(xm)) / 3.0f;    /* chevron coordinate, one per 3 m */
   float f = fractf(tt);
-  float arm = sstep(0.0f, 0.04f, f) * (1 - sstep(0.4f, 0.44f, f));  /* arm 1.2 m thick along v */
+  float arm = sstep(0.0f, 0.14f, f) * (1 - sstep(0.3f, 0.44f, f));  /* arm 1.2 m thick along v, soft edges */
   float inner = sstep(0.1f, 0.14f, f) * (1 - sstep(0.3f, 0.34f, f));
   float fade = 1 - sstep(4.6f, 5.2f, fabsf(xm));   /* tapers off before the rails */
   arm *= fade;
@@ -1096,17 +1098,19 @@ static void g_arrows(float u, float v, texel *t) {
   float n = fbm(u, v, 8, 3, 391), fine = h01((int)(u * 512), (int)(v * 512), 392);
   float hexx = fabsf(fractf(xm * 1.0f) - 0.5f), hexy = fabsf(fractf(v * 6.0f * 1.1547f + 0.5f * floorf(xm)) - 0.5f);
   float mesh = sstep(0.42f, 0.5f, fmaxf(hexx, hexy)) * 0.6f;
-  rgb(t, 0.03f + 0.01f * n, 0.06f + 0.02f * n, 0.14f + 0.04f * n);
+  rgb(t, 0.10f + 0.02f * n, 0.30f + 0.04f * n, 0.45f + 0.05f * n);
   t->b += mesh * 0.04f, t->g += mesh * 0.02f;
-  mixc(t, 0.15f, 0.85f, 1.0f, arm);
-  mixc(t, 0.9f, 1.0f, 1.0f, arm * inner);
+  /* the arrows differ from the ground more in hue than in brightness (a third brighter at most): they read as arrows
+   * and still do not flash as they pass under a kart */
+  mixc(t, 0.15f, 0.85f, 1.0f, arm * 0.4f);
+  mixc(t, 0.6f, 0.95f, 1.0f, arm * inner * 0.3f);
   mixc(t, 0.15f, 0.85f, 1.0f, rail);
   /* arrow glow: strong on the arm, white hot at the core, a soft halo around the arm */
   float halo = fade * (sstep(-0.08f, 0.0f, f) * (1 - sstep(0.0f, 0.04f, f)) + sstep(0.4f, 0.44f, f) * (1 - sstep(0.44f, 0.54f, f))) * 0.25f;
-  emit(t, 0.15f, 0.85f, 1.0f, arm * 0.85f + rail * 0.8f + halo);
-  emit(t, 0.9f, 1.0f, 1.0f, arm * inner * 0.6f);
+  emit(t, 0.08f, 0.3f, 0.4f, 0.7f); /* the ground glows a little too: the arrows stand out without a dark gap between them */
+  emit(t, 0.15f, 0.85f, 1.0f, arm * 0.25f + rail * 0.8f + halo * 0.5f);
   t->h = 0.5f + arm * 0.1f + 0.05f * fine - mesh * 0.1f;
-  t->rough = 0.35f - 0.2f * arm + 0.1f * n;
+  t->rough = 0.4f + 0.1f * n; /* one sheen over arrows and ground: a glossy arrow flashed the sky at the camera */
   t->ao = 0.95f;
 }
 

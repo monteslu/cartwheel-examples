@@ -667,7 +667,7 @@ static void hud_assault_score(const hv *g, const bhud *h) {
   /* your kart's hit points: wrecked at none, back at your spawn */
   float frac = clamp01((float)k->hp / (float)KART_HP), bw = 150 * s, bh = 10 * s, by = y + 104 * s;
   cw_r2d_rect(cw_rect_make(x - 2 * s, by - 2 * s, bw + 4 * s, bh + 4 * s), alpha(INK, 0.85f));
-  cw_color hc = frac < 0.3f && ((S->tick / 8) & 1) ? RED : frac < 0.3f ? RUST : LIME;
+  cw_color hc = frac < 0.3f && ((S->tick / 15) & 1) ? RED : frac < 0.3f ? RUST : LIME;
   cw_r2d_rect(cw_rect_make(x, by, bw * frac, bh), hc);
   tx_o(U.f_small, "ARMOUR", x + bw + 10 * s, by + bh * 0.5f, hpx(13, s, 9), CREAM, (txopt){ .align = CW_ALIGN_LEFT, .outline = 1.4f * s });
 }

@@ -20,13 +20,16 @@
  *             detail Low and Medium light every other tile of an arm,
  *             brighter, High and Ultra every tile
  *   other     sparkles on pick-ups, a bubble's pop, knockout stars and fur,
- *             teleport glints, dust where sudden-death walls land; camera
- *             shake on booms
+ *             teleport glints, dust where sudden-death walls land; pad
+ *             rumble and a ring of bent air along the floor on booms (never camera shake)
  * All of it reads the simulation's events; nothing here feeds the rules. */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "cartwheel/decals.h"
+#include "cartwheel/explosions.h"
+#include "cartwheel/input.h"
 #include "cartwheel/math.h"
 #include "cartwheel/particles.h"
 #include "cartwheel/quality.h"
@@ -59,6 +62,8 @@ static struct {
   int next_s;
   int16_t plank_of[SHARDS]; /* the shard each drawn plank instance shows + 1 (its colour is there), 0 none */
   int shake;
+  cw_node wave[3];
+  int wave_i;
   int ticks;
   cw_node flash[3];
   int flash_age[3];
@@ -198,6 +203,15 @@ void fx_init(cw_node scene, int theme) {
     b->smoke = pnode(FX.root, "Smoke", SMOKE, 500 + i);
   }
   for (int i = 0; i < 4; i++) FX.dust[i] = pnode(FX.root, "Dust", DUST, 600 + i);
+  for (int i = 0; i < 3; i++) {
+    cw_node w = FX.wave[i] = cw_node_new("Shockwave3D", "Wave");
+    cw_node_add_child(FX.root, w);
+    cw_node_set(w, "ground", cw_val_bool(true));
+    cw_node_set(w, "autostart", cw_val_bool(false));
+    cw_node_set(w, "duration", cw_val_float(0.45f));
+    cw_node_set(w, "thickness", cw_val_float(0.7f));
+    cw_node_set(w, "strength", cw_val_float(0.4f));
+  }
   for (int i = 0; i < 4; i++) FX.sparkle[i] = pnode(FX.root, "Sparkle", SPARKLE, 700 + i);
   for (int i = 0; i < 2; i++) FX.pop[i] = pnode(FX.root, "Pop", POP, 800 + i);
   for (int i = 0; i < 2; i++) FX.stars[i] = pnode(FX.root, "Stars", STARS, 900 + i);
@@ -269,7 +283,17 @@ void fx_init(cw_node scene, int theme) {
   FX.ready = true;
 }
 
-int fx_shake(void) { return FX.shake; }
+/* The camera never shakes: a blast is felt in the pads (every player's, by how big it is) and seen as a ring of
+ * bent air along the ground. FX.shake only counts for BOMBER_SHAKE_BUG, the camera gate's control, which puts the old
+ * shake back so the gate can show it would see it */
+int fx_shake_bug(void) {
+  static int bug = -1;
+  if (bug < 0) bug = getenv("BOMBER_SHAKE_BUG") != NULL;
+  return bug ? FX.shake : 0;
+}
+static void rumble_all(float low, float high, int ms) {
+  for (int p = 0; p < 4; p++) cw_input_rumble(p, low, high, ms);
+}
 
 void fx_confetti(t3_vec3 at) {
   if (!FX.ready) return;
@@ -318,6 +342,19 @@ static void blast(const sim *s, int cx, int cy, int range) {
   cw_node_set(d, "size", cw_val_vec3(sz, sz, 1.4f));
   FX.scorch_a[si] = 0.85f;
   FX.shake = CW_MIN(FX.shake + 7, 16);
+  rumble_all(0.45f + 0.05f * (float)CW_MIN(range, 6), 0.25f, 160);
+  { cw_node w = FX.wave[FX.wave_i++ % 3]; /* the blast's ring of bent air along the floor */
+    if (cw_node_valid(w)) {
+      cw_node3d_set_position(w, (t3_vec3){ c.x, 0.3f, c.z });
+      cw_node_set(w, "max_radius", cw_val_float(1.6f + 0.9f * (float)CW_MIN(range, 5)));
+      cw_node3d_global_transform(w);
+      cw_shockwave_fire(w);
+    } }
+  /* the flash swells over six ticks and fades over most of a second, and a new one starts at most every 24 ticks: a
+   * chain of blasts inside that time feeds the flash already rising instead of starting another (no strobing) */
+  int young = -1;
+  for (int k = 0; k < 3; k++) if (FX.flash_age[k] > 0 && FX.flash_age[k] < 24) young = k;
+  if (young >= 0) return;
   int fi = FX.next_flash++ % 3;
   if (cw_node_valid(FX.flash[fi])) {
     cw_node3d_set_position(FX.flash[fi], (t3_vec3){ c.x, 1.1f, c.z });
@@ -354,7 +391,7 @@ void fx_events(const sim *s) {
     switch (e->kind) {
     case EV_BOOM: blast(s, e->x, e->y, e->b); break;
     case EV_VENT: blast(s, e->x, e->y, 1); break;
-    case EV_CANNON: FX.shake = CW_MIN(FX.shake + 5, 16); burst_at(FX.dust[FX.dust_i++ % 4], (t3_vec3){ at.x, 1.2f, at.z }); break;
+    case EV_CANNON: FX.shake = CW_MIN(FX.shake + 5, 16); rumble_all(0.3f, 0.2f, 120); burst_at(FX.dust[FX.dust_i++ % 4], (t3_vec3){ at.x, 1.2f, at.z }); break;
     case EV_CRATE: splinter(s, e->x, e->y); break;
     case EV_PICK: burst_at(FX.sparkle[FX.sparkle_i++ % 4], at); break;
     case EV_BUBBLE: burst_at(FX.pop[FX.pop_i++ % 2], (t3_vec3){ at.x, 0.55f, at.z }); break;
@@ -366,6 +403,7 @@ void fx_events(const sim *s) {
     case EV_SD_WALL:
       burst_at(FX.dust[FX.dust_i++ % 4], (t3_vec3){ at.x, 0.1f, at.z });
       FX.shake = CW_MIN(FX.shake + 3, 16);
+      rumble_all(0.2f, 0.1f, 90);
       break;
     default: break;
     }
@@ -384,8 +422,8 @@ void fx_tick(const sim *s) {
       int f = s->fire[y][x];
       if (f <= 0) continue;
       int age = 36 - f, sh = s->fire_shape[y][x];
-      float grow = cw_clampf(age / 3.0f, 0, 1), fade = f < 14 ? f / 14.0f : 1;
-      float flick = 0.9f + 0.1f * cw_sin(t * 0.9f + x * 1.7f + y * 2.3f);
+      float grow = cw_clampf(age / 4.0f, 0, 1), fade = f < 14 ? f / 14.0f : 1; /* swells over four frames */
+      float flick = 0.92f + 0.08f * cw_sin(t * 0.25f + x * 1.7f + y * 2.3f); /* a 2.4 Hz waver (it flickered at 8.6 Hz) */
       float hgt = 0.95f * grow * (0.35f + 0.65f * fade) * flick; /* rises at once, sinks as it dies */
       float wid = 0.74f * (0.55f + 0.45f * fade);                 /* the bar thins as it dies, never past the tile */
       /* one slab per axis the tile burns along (a centre tile, or two arms crossing, gets both) */
@@ -426,7 +464,7 @@ void fx_tick(const sim *s) {
         if (half && !(sh & 1) && ((x + y) & 1)) continue;
         int age = 36 - f;
         float grow = cw_clampf(age / 3.0f, 0, 1), fade = f < 14 ? f / 14.0f : 1;
-        float flick = 0.85f + 0.15f * cw_sin(t * 1.3f + x * 2.1f + y * 1.3f);
+        float flick = 0.85f + 0.15f * cw_sin(t * 0.17f + x * 2.1f + y * 1.3f); /* a slow waver (1.6 Hz), never a flicker */
         float e = (sh & 1 ? 16.0f : 10.0f) * grow * fade * fade * flick * (half ? 1.5f : 1);
         float cool = cw_clampf(age / 30.0f, 0, 1);
         cw_node l = FX.fire_light[lit++];
@@ -486,8 +524,9 @@ void fx_tick(const sim *s) {
     int a = FX.flash_age[i];
     float e = 0;
     if (a > 0) {
-      e = a < 3 ? 14.0f * a / 3 : 14.0f * cw_exp(-(a - 3) * 0.12f);
-      FX.flash_age[i] = a < 40 ? a + 1 : 0;
+      float u = (float)a / 6.0f;
+      e = a < 6 ? 14.0f * u * u * (3 - 2 * u) : 14.0f * cw_exp(-(a - 6) * 0.07f);
+      FX.flash_age[i] = a < 60 ? a + 1 : 0;
     }
     cw_node_set(FX.flash[i], "energy", cw_val_float(e));
     float k = cw_clampf(a / 20.0f, 0, 1);

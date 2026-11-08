@@ -249,6 +249,7 @@ void world_set_eyes(const t3_vec3 *e, int n) {
   W.neye = n > 4 ? 4 : n;
   for (int i = 0; i < W.neye; i++) W.eye[i] = e[i];
   kartgfx_set_eyes(e, n);
+  items_set_eyes(e, n);
 }
 
 void world_frame(double alpha) {
@@ -291,8 +292,9 @@ void world_frame(double alpha) {
   kartgfx_frame(NULL, (float)alpha); /* models agent: the karts and the items posed between ticks */
   items_frame(NULL, (float)alpha);
   if (W.boost) {
-    /* the chevrons run forward (toward +v) about 14 m/s, 6 m per repeat, and the pad breathes */
-    tex_scroll(TEX_ARROWS, 0, -fractf_(W.frame_time * 14.0f / 6.0f));
-    W.boost->emissive_intensity = 2.5f + 0.7f * sinf(W.frame_time * 9.0f);
+    /* the chevrons run forward (toward +v) at 34 m/s, near a boosting kart's own speed, 6 m per repeat, and the pad
+     * breathes: a kart crossing arrows that crawled at 14 m/s saw them pass under it about 9 times a second */
+    tex_scroll(TEX_ARROWS, 0, -fractf_(W.frame_time * 34.0f / 6.0f));
+    W.boost->emissive_intensity = 1.6f + 0.3f * sinf(W.frame_time * 9.0f); /* a soft glow: the pad driven onto at speed fills the bottom of the view */
   }
 }

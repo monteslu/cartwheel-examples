@@ -1,0 +1,19 @@
+[
+  { "name": "derby-auto", "gate": "derby-auto", "frames": 3200, "note": "computer cars: crashes, wrecks, fires, failing headlamps" },
+  { "name": "derby-ram", "gate": "derby-ram", "frames": 1750, "note": "repeated rams: stacked crash flashes" },
+  { "name": "derby-split4", "gate": "derby-split4", "frames": 700, "note": "four views at once" },
+  { "name": "bomberdude-auto", "gate": "bomberdude-auto", "frames": 2700, "note": "bombs, chains of blasts, pickups" },
+  { "name": "bomberdude-neon", "gate": "bomberdude-neon", "frames": 1200, "note": "the neon arena's lights" },
+  { "name": "pugball-auto", "gate": "pugball-auto", "frames": 2400, "note": "a match: boosts, goals, the goal celebration" },
+  { "name": "pugball-kickoff", "gate": "pugball-kickoff", "frames": 740, "note": "menus into a kickoff" },
+  { "name": "bikemesa-crash", "gate": "bikemesa-crash", "frames": 960, "note": "a crash and the replay" },
+  { "name": "bikemesa-ride", "gate": "bikemesa-ride", "frames": 2800, "note": "a ride with tricks" },
+  { "name": "spout-auto", "gate": "spout-auto", "frames": 1500, "note": "the spout climbing" },
+  { "name": "spout-sun", "gate": "spout-sun", "frames": 1720, "note": "the sun level" },
+  { "name": "chromite-fight", "gate": "chromite-fight", "frames": 900, "note": "shots, hits and explosions" },
+  { "name": "chromite-destruct", "gate": "chromite-destruct", "frames": 300, "note": "the self-destruct blast" },
+  { "name": "chromite-auto", "gate": "chromite-auto", "frames": 2400, "note": "a computer run through waves" },
+  { "name": "racer-battle", "gate": "racer-battle", "frames": 3000, "note": "weapons and hits in a battle arena" },
+  { "name": "racer-salt", "gate": "racer-salt", "frames": 3000, "note": "a race: boosts and pickups", "knownFail": "racer: 4 flashes a second where 3 is the limit, in close-call collisions where large translucent orange shapes sweep across the camera (being found and fixed)" },
+  { "name": "racer-orbit", "gate": "racer-orbit", "frames": 3000, "note": "the orbit track's lights", "knownFail": "racer: 4 flashes a second where 3 is the limit, in close-call collisions where large translucent orange shapes sweep across the camera (being found and fixed)" }
+]

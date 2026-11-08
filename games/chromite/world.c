@@ -993,11 +993,11 @@ void world_sync(const sim *prev, const sim *cur, float a, float t, int state) {
     T3_OBJ(W.shield)->visible = W.shield_mat->opacity > 0.01f;
     float heat = h->engine_heat;
     W.engine->color = (t3_color){ lerp(0.5f, 1, 1 - heat), lerp(0.25f, 0.65f, heat), lerp(0.1f, 1, heat) };
-    W.engine->intensity = 6 + 2 * sinf(t * 40);
+    W.engine->intensity = 6 + 1.2f * sinf(t * 12) + 0.6f * sinf(t * 7.3f); /* the engine's light wavers under 2 Hz, never flickers */
     /* the flames: long and blue when healthy, short and ragged when hurt */
     for (int i = 0; i < W.hero_flames; i++) {
-      float fl = (0.75f + 0.25f * sinf(t * 53 + i * 2.1f) * sinf(t * 31 + i)) * (0.55f + 0.45f * heat);
-      t3_object_set_scale(W.hero_spin[i], 1 + 0.15f * sinf(t * 47 + i), 1, fl);
+      float fl = (0.8f + 0.2f * sinf(t * 15 + i * 2.1f) * sinf(t * 9 + i)) * (0.55f + 0.45f * heat); /* the flames waver slowly */
+      t3_object_set_scale(W.hero_spin[i], 1 + 0.1f * sinf(t * 13 + i), 1, fl);
     }
   }
 

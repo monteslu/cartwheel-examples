@@ -37,10 +37,10 @@ static const char *const R_DRIFT[] = { "amount", "40", "lifetime", "0.36", "life
   "emission_extents", "vec3(0.75, 0.03, 0.1)", "direction", "vec3(0, 0.6, -1)", "spread", "50", "speed_min", "5", "speed_max", "11",
   "gravity", "vec3(0, -15, 0)", "draw_mode", "STRETCHED", "stretch", "0.07", "size", "0.022", "size_random", "0.4",
   "color_ramp", "\"0 0.5 0.8 1 1, 1 0.1 0.3 1 0\"", "energy", "8", "blend", "ADD", "local_coords", "false", NULL };
-static const char *const R_FLAME[] = { "amount", "60", "lifetime", "0.34", "lifetime_random", "0.3", "emission_shape", "BOX",
+static const char *const R_FLAME[] = { "amount", "36", "lifetime", "0.34", "lifetime_random", "0.3", "emission_shape", "BOX",
   "emission_extents", "vec3(0.3, 0.06, 0.04)", "direction", "vec3(0, 0.05, -1)", "spread", "6", "speed_min", "5", "speed_max", "9",
   "gravity", "vec3(0, 0.5, 0)", "size", "0.42", "size_random", "0.3", "size_curve", "\"0 0.7, 0.3 1, 1 0.1\"",
-  "color_ramp", "\"0 1 1 1 1, 0.15 0.55 0.8 1 1, 0.5 0.2 0.35 1 0.8, 1 0.05 0.1 0.6 0\"", "energy", "4", "blend", "ADD",
+  "color_ramp", "\"0 0.75 0.9 1 0.7, 0.15 0.55 0.8 1 0.8, 0.5 0.2 0.35 1 0.6, 1 0.05 0.1 0.6 0\"", "energy", "1.2", "blend", "ADD",
   "local_coords", "false", NULL };
 static const char *const R_SPRAY[] = { "amount", "70", "lifetime", "0.7", "lifetime_random", "0.4", "emission_shape", "BOX",
   "emission_extents", "vec3(0.9, 0.05, 0.2)", "direction", "vec3(0, 1, -0.3)", "spread", "50", "speed_min", "3", "speed_max", "9",
@@ -91,7 +91,8 @@ static const char *const R_TRAIL_SMOKE[] = { "amount", "60", "lifetime", "1.4", 
 static const char *const R_TRAIL_FLAME[] = { "amount", "40", "lifetime", "0.3", "lifetime_random", "0.3", "emission_shape", "SPHERE",
   "emission_radius", "0.1", "direction", "vec3(0, 0, -1)", "spread", "12", "speed_min", "3", "speed_max", "7",
   "size", "0.4", "size_curve", "\"0 0.7, 0.3 1, 1 0.1\"",
-  "color_ramp", "\"0 1 0.95 0.6 1, 0.3 1 0.5 0.1 1, 1 0.4 0.08 0.02 0\"", "energy", "4", "blend", "ADD", "local_coords", "false", NULL };
+  "color_ramp", "\"0 1 0.95 0.6 1, 0.3 1 0.5 0.1 1, 1 0.4 0.08 0.02 0\"", "energy", "4", "blend", "ADD", "local_coords", "false",
+  "camera_fade", "4", NULL }; /* a missile past the camera: its flame fades out close up instead of washing over the view */
 
 /* ── helpers ────────────────────────────────────────────────────────── */
 
@@ -182,6 +183,7 @@ typedef struct kfx {
   cw_node root;
   emit puff, drift, flame, spray, stars;
   int puff_mode, drift_level, flame_src, stars_mode;
+  int light_cool; /* ticks before a scrape or a bump may light the road again: grinding a wall lit it every 3 ticks */
   int flame_size;      /* quantised */
   float sl;            /* speed lines, smoothed */
   int prev_dlvl;       /* drift level last tick (the release event arrives after it was reset) */
@@ -497,13 +499,16 @@ static void on_event(const sim *s, const struct sim_event *e) {
     FX.k[a].wall_cool = 3;
     burst(NEXT(grind, grind_i), e->at, up, fwd);
     if (e->k > 0.5f) chips_burst(e->at, up, kr[0], kr[1], kr[2]);
-    if (e->k > 0.3f) light_flash(e->at, 6 + 10 * e->k, 5, 0.2f, 1, 0.75f, 0.35f);
+    if (e->k > 0.3f && FX.k[a].light_cool == 0) light_flash(e->at, 6 + 10 * e->k, 5, 0.2f, 1, 0.75f, 0.35f), FX.k[a].light_cool = 24;
     break;
   }
   case EV_BUMP: {
     spark_burst(e->at, v3(0, 1, 0), fwd, 1, 0.85f, 0.4f);
     if (e->k > 0.4f && ka) chips_burst(e->at, up, kr[0], kr[1], kr[2]);
-    flare_at(e->at, 0.35f + 0.35f * e->k, 1, 0.8f, 0.4f);
+    if (!ka || FX.k[a].light_cool == 0) {
+      flare_at(e->at, 0.35f + 0.35f * e->k, 1, 0.8f, 0.4f);
+      if (ka) FX.k[a].light_cool = 24;
+    }
     break;
   }
   case EV_TRICK:
@@ -725,6 +730,7 @@ static void kart_tick(const sim *s, int i) {
   bool race = s->phase != PH_GRID;
 
   if (f->wall_cool > 0) f->wall_cool--;
+  if (f->light_cool > 0) f->light_cool--;
   if (f->rough_cool > 0) f->rough_cool--;
   if (f->fall_ticks > 0) f->fall_ticks--;
 
@@ -789,7 +795,9 @@ static void kart_tick(const sim *s, int i) {
       if (f->flame_src >= 10) r = DRIFT_RGB[f->flame_src - 10][0], g = DRIFT_RGB[f->flame_src - 10][1], b = DRIFT_RGB[f->flame_src - 10][2];
       else r = C[f->flame_src][0], g = C[f->flame_src][1], b = C[f->flame_src][2];
       char s2[200];
-      snprintf(s2, sizeof s2, "\"0 1 1 1 1, 0.15 %.2f %.2f %.2f 1, 0.5 %.2f %.2f %.2f 0.8, 1 %.2f %.2f %.2f 0\"", r, g, b, r * 0.6f, g * 0.6f, b * 0.9f, r * 0.2f,
+      /* no white-hot core: the exhaust's puffs bloomed white at the bottom of the screen in pulses, a flicker under a boost */
+      snprintf(s2, sizeof s2, "\"0 %.2f %.2f %.2f 0.7, 0.15 %.2f %.2f %.2f 0.8, 0.5 %.2f %.2f %.2f 0.6, 1 %.2f %.2f %.2f 0\"", 0.5f + 0.5f * r,
+               0.5f + 0.5f * g, 0.5f + 0.5f * b, r, g, b, r * 0.6f, g * 0.6f, b * 0.9f, r * 0.2f,
                g * 0.2f, b * 0.6f);
       fx_set_str(f->flame.n, "color_ramp", s2);
       f->flame_src = -1;
@@ -797,7 +805,8 @@ static void kart_tick(const sim *s, int i) {
     int q = (int)(CW_CLAMP(k->boost_k, 0.8f, 1.6f) * 4.0f) + (k->boost_ticks > 25 ? 8 : 0);
     if (q != f->flame_size) {
       f->flame_size = q;
-      cw_node_set(f->flame.n, "size", cw_val_float(0.3f + 0.1f * (float)(q & 7) + (q >= 8 ? 0.12f : 0)));
+      /* a jet, not a string of glowing balls: big additive puffs left behind a kart at speed pulsed at the bottom of the view */
+      cw_node_set(f->flame.n, "size", cw_val_float(0.16f + 0.05f * (float)(q & 7) + (q >= 8 ? 0.06f : 0)));
     }
   }
   emit_set(&f->flame, boosting);
@@ -920,7 +929,7 @@ static void kart_tick(const sim *s, int i) {
 static void light_update(light *l) {
   if (!cw_node_valid(l->n)) return;
   if (l->e0 <= 0) return;
-  float e = l->age < 2 ? l->e0 * (float)(l->age + 1) / 2 : l->e0 * cw_exp(-(float)(l->age - 2) * l->decay);
+  float e = l->age < 4 ? l->e0 * (float)(l->age + 1) / 4 : l->e0 * cw_exp(-(float)(l->age - 4) * l->decay); /* rises over four frames */
   l->age++;
   if (e < 0.4f) {
     cw_node_set(l->n, "visible", cw_val_bool(false));
@@ -993,7 +1002,7 @@ static void hazards_tick(const sim *s) {
     emit_set(&FX.tflame[t], true);
     if (nm < 2 && cw_node_valid(FX.mlight[nm].n)) {
       cw_node3d_set_position(FX.mlight[nm].n, tail);
-      float fl = 26 + 8 * cw_sin((float)(FX.ticks * 3 + h * 7));
+      float fl = 26 + 3 * cw_sin((float)FX.ticks * 0.2f + (float)(h * 7)); /* the trail light wavers at 1.9 Hz (it flickered at 29 Hz) */
       cw_node_set(FX.mlight[nm].n, "visible", cw_val_bool(true));
       cw_node_set(FX.mlight[nm].n, "energy", cw_val_float(fl));
       cw_node_set(FX.mlight[nm].n, "range", cw_val_float(9));

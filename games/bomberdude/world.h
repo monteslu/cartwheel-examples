@@ -46,7 +46,7 @@ void fx_init(cw_node scene, int theme);
 void fx_reset(void);
 void fx_events(const sim *s);       /* this tick's sim events -> effects */
 void fx_tick(const sim *s);         /* fixed tick */
-int fx_shake(void);                 /* camera shake ticks */
+int fx_shake_bug(void);             /* BOMBER_SHAKE_BUG (native, the camera gate's control only): the old shake's ticks */
 void fx_confetti(t3_vec3 at);       /* a celebration */
 
 /* scenery.c: the arena's surroundings and weather */

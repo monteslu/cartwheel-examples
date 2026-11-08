@@ -1076,7 +1076,7 @@ static void draw_hud(float W, float H, float s) {
   }
   if (h->armed > 0)
     pspaced_block(prompt_touch() ? "self-destruct armed :   again to fire" : "self-destruct armed :   {item} again", 16 * s, H * 0.62f, 18 * s,
-                  rgba(1, 0.3f, 0.2f, 0.6f + 0.4f * sinf(frame_t * 20)), W - 32 * s, true);
+                  rgba(1, 0.3f, 0.2f, 0.6f + 0.4f * sinf(frame_t * 10)) /* a 1.6 Hz pulse */, W - 32 * s, true);
   if (S->past_warn > 0.05f && S->mode == PLAY_ON) {
     cw_r2d_set_blend(CW_BLEND_ADD);
     vgrad(cw_rect_make(0, H - 90 * s, W, 90 * s), rgba(0.6f, 0.02f, 0.02f, 0), rgba(0.6f * S->past_warn, 0.03f, 0.02f, 0.5f * (0.6f + 0.4f * sinf(frame_t * 18))));

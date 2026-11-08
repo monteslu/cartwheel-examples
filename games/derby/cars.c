@@ -1496,7 +1496,8 @@ void car_pose(car_model *m, const car *c, int ticks) {
     t3_object_set_rotation(m->hood, m->hood_a, 0, 0);
   }
   bool lit = !c->wrecked;
-  float flicker = c->hp < 35 && lit ? 0.6f + 0.4f * cw_sin(ticks * 0.9f + m->number) : 1;
+  /* a failing lamp sags and recovers slowly (two sines near 1 Hz and 0.6 Hz, never a flicker) */
+  float flicker = c->hp < 35 && lit ? 0.7f + 0.15f * cw_sin(ticks * 0.11f + m->number) + 0.15f * cw_sin(ticks * 0.065f + 2.3f * m->number) : 1;
   m->lamp_mat->emissive_intensity = lit ? 3 * flicker : 0;
   m->tail_mat->emissive_intensity = lit ? 1.5f : 0;
   m->beams_on = lit;

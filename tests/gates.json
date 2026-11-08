@@ -1,5 +1,10 @@
 [
   {
+    "name": "flash-sweep",
+    "script": "tests/flash-sweep.mjs",
+    "note": "no game strobes: every entry of tests/flash-sweep.json (a stretch of each game's brightest play, natively on GL) checked frame by frame with the engine's tools/flash-check.mjs (WCAG 2.3.1 / Harding general and red flash limits, no regular flicker above 3 Hz); each entry's control, the same frames with an 8 Hz full-screen strobe laid over them, must fail"
+  },
+  {
     "name": "bomberdude-title",
     "app": "bomberdude",
     "frames": 120,
@@ -246,6 +251,27 @@
       "note": "WebGPU on every host: the same dual cart on romdev and Chromium against native WebGPU."
     },
     "note": "BomberDude (games/bomberdude): the rules are integer only (sim.c), so the named state must match exactly on every host; pixels within the usual tolerance (sub-pixel grass blades and particles). The menus played by the compiled-in pad script, then four CPUs (the _auto build plays player 1 itself) to a round winner (knocked-out CPUs ride the rim; two left standing, the clock drops to 30 s); runs on input-free hosts too."
+  },
+  {
+    "name": "bomberdude-no-shake",
+    "app": "bomberdude_auto",
+    "hosts": [
+      "native"
+    ],
+    "frames": 1800,
+    "fields": [
+      "ticks",
+      "cam.jolts"
+    ],
+    "expect": {
+      "cam.jolts": 0
+    },
+    "controlEnv": {
+      "BOMBER_SHAKE_BUG": "1"
+    },
+    "controlField": "cam.jolts",
+    "controlFrames": 1800,
+    "note": "the camera never shakes: a computer match with its blasts, cannons and sudden-death walls, and cam.jolts counts frames whose eye moved unlike the smooth follow (a second difference over 0.03 m; cuts excluded). Blasts rumble the pads and ring the floor instead. The control (BOMBER_SHAKE_BUG, native) puts the old shake on the eye: its cam.jolts must differ. Native only: carts have no environment."
   },
   {
     "name": "bomberdude-neon",
@@ -1120,6 +1146,49 @@
       "note": "WebGPU on every host: the same dual cart on romdev and Chromium against native WebGPU."
     },
     "note": "Pugball (games/pugball): the match runs on Box3D (cartwheel's world3d and vehicle3d), deterministic at any worker count, so the named state must match exactly on every host; pixels within the usual tolerance (sub-pixel grass blades, crowd and particles). Four CPUs (the menus played by the compiled-in pad script) to the first goal; runs on input-free hosts too. At frame 3700 the goal's slow-motion replay is showing (game.state 7, match.replays 1)."
+  },
+  {
+    "name": "pugball-no-shake",
+    "app": "pugball_auto",
+    "hosts": [
+      "native"
+    ],
+    "frames": 2400,
+    "fields": [
+      "ticks",
+      "cam.jolts"
+    ],
+    "expect": {
+      "cam.jolts": 0
+    },
+    "controlEnv": {
+      "PUG_SHAKE_BUG": "1"
+    },
+    "controlField": "cam.jolts",
+    "controlFrames": 2400,
+    "note": "the camera never shakes: a computer match with its goals, hard hits and demolitions, and cam.jolts counts frames whose eye moved unlike a smooth follow (a second difference over 0.03 m; a move of a metre in a frame is a cut). They rumble the pads instead. The control (PUG_SHAKE_BUG, native) puts the old shake on the eye: its cam.jolts must differ. Native only: carts have no environment."
+  },
+  {
+    "name": "bikemesa-no-shake",
+    "app": "bikemesa",
+    "hosts": [
+      "native"
+    ],
+    "frames": 2800,
+    "input": "bikemesa-ride.json",
+    "fields": [
+      "ticks",
+      "cam.jolts"
+    ],
+    "expect": {
+      "cam.jolts": 0
+    },
+    "controlEnv": {
+      "BIKEMESA_SHAKE_BUG": "1"
+    },
+    "controlField": "cam.jolts",
+    "controlFrames": 2800,
+    "note": "the camera never shakes: a ride with jumps, tricks and hard landings, and cam.jolts counts frames whose camera as drawn (the camera node's global transform) stood off the follow camera the game placed it at by over a millimetre while riding. Hard landings and crashes rumble the rider's pad instead. The control (BIKEMESA_SHAKE_BUG, native) puts the old landing and crash shake on the eye: its cam.jolts must differ. Native only: carts have no environment."
   },
   {
     "name": "pugball-cup1",
@@ -5556,7 +5625,9 @@
   },
   {
     "name": "racer-trial",
-    "env": { "CW_RUN_TIMEOUT_MS": "900000" },
+    "env": {
+      "CW_RUN_TIMEOUT_MS": "900000"
+    },
     "app": "racer",
     "frames": 12000,
     "startCmds": [
@@ -5792,7 +5863,8 @@
     "name": "quality-grounding",
     "script": "tests/quality-grounding.mjs",
     "note": "nothing floats on Very Low: the autopilot of each game in play (racer, pugball, bomberdude, chromite, spout; BikeMesa by eye; derby in quality-grounding-derby-1 to -4) keeps at least 90% of the shadows High draws at the base of every caster big enough to read on screen (chromite 80%: a pipe lit by a lamp), on GL and WebGPU (the engine's tests/quality-grounding.mjs). Control: a frame with no shadows must fail"
-  },  {
+  },
+  {
     "name": "quality-grounding-derby-1",
     "script": "tests/quality-grounding-derby-1.mjs",
     "note": "nothing floats in derby at night, Very Low on GL: its autopilot's bout every 50 frames from 300 to 900 keeps 90% of the shadows High draws at the casters' bases over the sweep and 80% in each frame of 5 bases or more (the engine's tests/quality-grounding.mjs: a wall or a row of stands judged at the foot nearest the camera, what stands around the camera not judged). Controls: each frame and the whole sweep with no shadows must fail"
@@ -5812,7 +5884,6 @@
     "script": "tests/quality-grounding-derby-4.mjs",
     "note": "nothing floats in derby at night, Low on WebGPU: its autopilot's bout every 50 frames from 300 to 900 keeps 90% of the shadows High draws at the casters' bases over the sweep and 80% in each frame of 5 bases or more (the engine's tests/quality-grounding.mjs: a wall or a row of stands judged at the foot nearest the camera, what stands around the camera not judged). Controls: each frame and the whole sweep with no shadows must fail"
   },
-
   {
     "name": "bomberdude-save-migration",
     "script": "tests/bomberdude-save-migration.mjs",

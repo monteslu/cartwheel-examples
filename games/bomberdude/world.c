@@ -581,7 +581,7 @@ static void pose_critter(pstate *ps, const sim *s, int i) {
   bool surprised = sq > 0.3f;
   c->mouth_o->visible = surprised;
   c->mouth_smile->visible = !surprised;
-  c->bubble->visible = p->bubble > 0 || (p->invuln > 0 && (p->invuln / 4) % 2);
+  c->bubble->visible = p->bubble > 0 || (p->invuln > 0 && (p->invuln / 15) % 2) /* a slow blink: 2 Hz, never a strobe */;
   float wb = cw_sin(t * 0.12f + i) * 0.04f;
   c->bubble->scale = (t3_vec3){ 1 + wb, 1 - wb, 1 + wb };
   ps->squash *= 0.86f;

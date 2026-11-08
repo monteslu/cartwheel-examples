@@ -33,6 +33,7 @@ static struct {
   int next[KINDS_FX];
   t3_light *flash[FLASHES];
   float flash_e[FLASHES], flash_k[FLASHES];
+  float flash_up[FLASHES]; /* 0..1: a blast's light swells over three frames before it fades, never on at full in one */
   int next_flash;
   queued q[QUEUE];
   int qn;
@@ -222,6 +223,7 @@ static void flash(float x, float y, float energy, float r, float g, float b) {
   FX.flash[i]->color = (t3_color){ r, g, b };
   FX.flash_e[i] = energy;
   FX.flash_k[i] = 0.86f;
+  FX.flash_up[i] = 0;
 }
 
 static void ring(float x, float y, float size) {
@@ -368,8 +370,9 @@ void fx_update(float dt) {
   (void)dt;
   fx_lights_live = 0;
   for (int i = 0; i < FLASHES; i++) {
-    FX.flash[i]->intensity = FX.flash_e[i];
-    FX.flash_e[i] *= FX.flash_k[i];
+    float up = FX.flash_up[i] = fminf(1.0f, FX.flash_up[i] + 1.0f / 3.0f);
+    FX.flash[i]->intensity = FX.flash_e[i] * up * up * (3 - 2 * up);
+    if (up >= 1.0f) FX.flash_e[i] *= FX.flash_k[i]; /* the fade starts once it is up */
     if (FX.flash_e[i] < 0.5f) FX.flash_e[i] = 0;
     else fx_lights_live++;
   }

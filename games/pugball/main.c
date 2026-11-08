@@ -48,6 +48,7 @@
 #include "world.h"
 
 #define STADIUMS 5
+static int cam_jolts; /* see jolt_track */
 static const char *const STADIUM_TITLES[STADIUMS] = { "Barkley Park", "Neon Kennel Bowl", "Sunset Sands", "Frosty Backyard",
                                                       "Royal Rose Garden" };
 static const float THEME_RGB[TH_KINDS][3] = { { 0.45f, 0.85f, 0.35f }, { 0.7f, 0.4f, 1 }, { 1, 0.65f, 0.35f }, { 0.6f, 0.85f, 1 },
@@ -1067,6 +1068,7 @@ static void init(void *u) {
   cw_debug_i32("count.pads", &G.pads);
   cw_debug_i32("count.bounces", &G.bounces);
   cw_debug_i32("ticks", &G.ticks);
+  cw_debug_i32("cam.jolts", &cam_jolts);
   cw_debug_i32("cam.ballcam", &G.ballcam); /* bit p: pad p's ball cam */
   cw_debug_i32("cam.views", &G.nviews);  /* split screen: the views drawn (0: one camera) */
   cw_debug_u32("sim.hash", &G.hash);
@@ -1221,6 +1223,25 @@ static void sun_follow(void) {
   cw_node3d_set_position(G.sun, v3sub(c, v3mul(f, 70)));
 }
 
+/* cam.jolts: frames whose eye moved unlike a smooth follow (a second difference over 0.03 m; a move of a metre or
+ * more in a frame is a cut, not a jolt, and so is a snap the camera code makes, or a switch between the broadcast camera
+ * (src 0) and the chase camera (src 1)); counted in a match only. Never, unless PUG_SHAKE_BUG, the camera gate's control */
+static void jolt_track(t3_vec3 e, int src, bool cut) {
+  static t3_vec3 p1, p2;
+  static int seen, last_src = -1;
+  if (cut || src != last_src) seen = 0;
+  last_src = src;
+  if (seen >= 1) {
+    t3_vec3 d = v3sub(e, p1);
+    if (v3dot(d, d) > 1.0f) seen = 0;
+  }
+  if (seen >= 2) {
+    t3_vec3 j = v3add(v3sub(e, v3mul(p1, 2)), p2);
+    if (v3dot(j, j) > 0.03f * 0.03f) cam_jolts++, cw_info("pugball: camera jolt at tick %d: %.3f m (camera %d)", G.ticks, (double)sqrtf(v3dot(j, j)), src);
+  }
+  p2 = p1, p1 = e, seen = seen < 2 ? seen + 1 : 2;
+}
+
 static void camera_tick(void) {
   if (!cw_node_valid(G.camera)) return;
   bool was_chase = G.chase_on;
@@ -1358,13 +1379,15 @@ static void camera_tick(void) {
     G.cam_eye = v3add(G.cam_eye, v3mul(v3sub(eye, G.cam_eye), k_eye));
   }
   t3_vec3 e = G.cam_eye;
-  float sh = fx_shake();
+  float sh = fx_shake_bug();
   if (sh > 0.001f) {
     e.x += sh * 0.35f * cw_sin(G.ticks * 1.9f);
     e.y += sh * 0.35f * cw_sin(G.ticks * 2.7f + 1);
     e.z += sh * 0.35f * cw_sin(G.ticks * 2.3f + 2);
   }
   /* the camera node renders between this tick's view and the last (a cut snaps) */
+  /* counted in play only: the menus move their showcase camera from shot to shot on purpose */
+  if (!G.chase_on) jolt_track(e, 0, snapped || G.state != GS_MATCH);
   cw_node3d_snapshot(G.camera);
   cw_node3d_set_position(G.camera, e);
   cw_node3d_look_at(G.camera, G.cam_at, (t3_vec3){ 0, 1, 0 });
@@ -1487,9 +1510,9 @@ static void chase_view(int h, int me, cw_node cam, double alpha, double now, flo
   if (!cam_posts) near_k = 1; /* (the old framing, with the control) */
   t3_vec3 look = v3add(P, v3add(v3mul(back, -2.5f * near_k), (t3_vec3){ 0, 0.35f + (0.55f + G.cf_lift[h]) * near_k, 0 })); /* (no lift toward a high cat when cramped) */
   cam_near_k = near_k;
-  float sh = fx_shake();
+  float sh = fx_shake_bug(); /* the camera never shakes: only the gate's control puts it back */
   if (sh > 0.001f) {
-    eye.x += sh * 0.3f * cw_sin((float)now * 31);  /* a rumble, not a rattle */
+    eye.x += sh * 0.3f * cw_sin((float)now * 31);
     eye.y += sh * 0.3f * cw_sin((float)now * 23 + 1);
   }
   cw_node3d_set_position(cam, eye);
@@ -1504,6 +1527,7 @@ static void chase_view(int h, int me, cw_node cam, double alpha, double now, flo
     cw_node_set(cam, "fov", cw_val_float(G.cf_fov[h]));
     if (h == 0) fov_now = G.cf_fov[0];
   }
+  if (cam.id == G.camera.id) jolt_track(eye, 1, false);
   if (cam.id == G.camera.id) {
     G.cam_eye = eye;
     G.cam_at = look;
@@ -3158,17 +3182,29 @@ static void draw_hud(float W, float H, float s) {
     cw_vec2 cc, ct;
     kick_dodged = 0;
     kick_cat[2] = 0;
+    /* the side it stepped to holds (the cat bobbing on the block's edge flipped it left, right and back frame by frame,
+     * the big number jumping across the screen), and it stays stepped aside half a second after the cat clears it */
+    static int kick_side; /* 0 centred, 1 right of the cat, -1 left */
+    static int kick_hold;
+    float want = cx;
     if (project(S->ball, W, H, &cc) && project(v3add(S->ball, (t3_vec3){ 0, RB, 0 }), W, H, &ct)) {
       float cr = fabsf(cc.y - ct.y) * 1.15f + 12 * s;
       kick_cat[0] = (int32_t)cc.x, kick_cat[1] = (int32_t)cc.y, kick_cat[2] = (int32_t)(fabsf(cc.y - ct.y));
       bool over = cc.x + cr > cx - bw * 0.5f && cc.x - cr < cx + bw * 0.5f && cc.y + cr > y0 && cc.y - cr < ly + lh;
       if (over && kick_dodge) {
         float right = cc.x + cr + 16 * s + bw * 0.5f, left = cc.x - cr - 16 * s - bw * 0.5f;
-        cx = W - right > left ? right : left;
-        cx = cw_clampf(cx, bw * 0.5f + 12 * s, W - bw * 0.5f - 12 * s);
+        if (kick_side == 0) kick_side = W - right > left ? 1 : -1;
+        kick_hold = 30;
+        want = cw_clampf(kick_side > 0 ? right : left, bw * 0.5f + 12 * s, W - bw * 0.5f - 12 * s);
         kick_dodged = 1;
-      }
+      } else if (kick_side != 0 && kick_hold > 0) { /* clear of the cat a moment before it comes back to the middle */
+        kick_hold--;
+        float right = cc.x + cr + 16 * s + bw * 0.5f, left = cc.x - cr - 16 * s - bw * 0.5f;
+        want = cw_clampf(kick_side > 0 ? right : left, bw * 0.5f + 12 * s, W - bw * 0.5f - 12 * s);
+        kick_dodged = 1;
+      } else kick_side = 0;
     }
+    cx = want;
     kick_rect = cw_rect_make(cx - bw * 0.5f, y0, bw, ly + lh - y0);
     kick_rect_dbg[0] = (int32_t)kick_rect.x, kick_rect_dbg[1] = (int32_t)kick_rect.y, kick_rect_dbg[2] = (int32_t)kick_rect.w, kick_rect_dbg[3] = (int32_t)kick_rect.h;
     digits(buf, cx - bw * 0.5f, y0 + (dh - measure_digits(buf, dsz).height) * 0.5f, dsz, rgba(1, 0.9f, 0.4f, 1 - f * 0.3f), CW_ALIGN_CENTER, bw);
