@@ -298,10 +298,10 @@ them.
 
 `tests/racer-grounded.mjs` plays racer's cart through romdev on GL and WebGPU on
 every map and checks that the karts sit on the road: the player's kart throws its
-shadow at every preset (the same paused frame drawn with it and without), and over
-a lap the cart measures every frame each kart's drawn tyres against the road under
-them. Its controls (`sw sun_short 1`, `sw wheel_lag 1`) bring back the old way and
-must fail.
+shadow and darkens the road where it meets it at every preset (the same paused frame
+drawn with them and without), and over a lap the cart measures every frame each
+kart's drawn tyres against the road under them. Its controls (`sw sun_short 1` with
+`sw contact 0`, and `sw wheel_lag 1`) bring back the old way and must fail.
 
 Without GPU hardware, `CW_TEST_GPU=software` runs on Mesa's software
 renderers (llvmpipe for GL, lavapipe for WebGPU), as CI does:

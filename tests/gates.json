@@ -5850,6 +5850,6 @@
   {
     "name": "racer-grounded",
     "script": "tests/racer-grounded.mjs",
-    "note": "racer through romdev, GL and WebGPU, every map: on a race built below High (as Auto builds one on a slow machine, and three or four views do) the player's kart throws its shadow on the road at every preset (the same paused frame with and without it); and over a lap with the bot at the wheel the cart measures every frame each kart's drawn tyres against the road under them, none more than 50 mm above it while its physics wheels are on it. Controls: sw sun_short 1 (the sun's shadow camera 70 m deep below High, which ended short of the road) leaves no shadow; sw wheel_lag 1 (the wheels drawn a tick behind the chassis) puts karts above the road."
+    "note": "racer through romdev, GL and WebGPU, every map: on a race built below High (as Auto builds one on a slow machine, and three or four views do) the player's kart throws its shadow on the road and darkens it where it meets it at every preset (the same paused frame with and without them); and over a lap with the bot at the wheel the cart measures every frame each kart's drawn tyres against the road under them, none more than 50 mm above it while its physics wheels are on it. Controls: sw sun_short 1 with sw contact 0 (the sun's shadow camera 70 m deep below High, which ended short of the road, and no dark under the karts) leaves nothing under the kart; sw wheel_lag 1 (the wheels drawn a tick behind the chassis) puts karts above the road."
   }
 ]
