@@ -121,6 +121,12 @@ static struct {
   cw_action k2_left, k2_right, k2_up, k2_down, k2_bomb, k2_act;
   /* dev aids, read once at start */
   bool cam_close;           /* BOMBERDUDE_CAM_CLOSE: the camera close on player 1 */
+  int32_t revenge;          /* Battle: knocked-out players ride the rim (on unless BOMBERDUDE_REVENGE=0 or the revenge request) */
+  int32_t idle_max;         /* this round: the longest stretch any seat had nothing it could do (ticks) */
+  int idle[MAXP];
+  int32_t throws_dbg[MAXP], riding_dbg[MAXP];
+  int32_t hint_rider;       /* debug: the player the rider hint is drawn for (-1 none) */
+  int32_t ride_hint_off;    /* sw ride_hint 0: a knocked-out person is told nothing (the newcomer gate's control) */
   int boom_tick;            /* BOMBERDUDE_BOOM: a big blast mid-arena at that tick (-1 none) */
   FILE *rec;                /* BOMBERDUDE_RECORD: every tick's input logged (tools/make-gate-script.mjs) */
 } G;
@@ -366,6 +372,8 @@ static void save_check(void) {
   SAVE.slot[0] = SLOT_HUMAN; /* player 1 is always you */
 }
 static bool stage_open(int i) { return i == 0 || (i < ARENAS && SAVE.cleared[i - 1]); }
+/* Battle fights anywhere from the start; Adventure opens its stages in order (a beaten one gets its star) */
+static bool arena_open(int i) { return G.mode == MODE_BATTLE ? i >= 0 && i < ARENAS : stage_open(i); }
 static void save_preset(int n) { /* test / dev hook: stages 1..n beaten */
   save_reset();
   for (int i = 0; i < n && i < ARENAS; i++) SAVE.cleared[i] = SAVE.shown[i] = 1;
@@ -440,6 +448,12 @@ static void start_round(void) {
   bool on[MAXP];
   for (int i = 0; i < MAXP; i++) on[i] = G.slot[i] != SLOT_OFF;
   sim_load(&G.S, G.info, on, 1000u + (uint32_t)G.round * 7919u);
+  G.S.revenge = G.mode == MODE_BATTLE && G.revenge; /* knocked-out players ride the rim */
+  G.idle_max = 0;
+  memset(G.idle, 0, sizeof G.idle);
+  memset(G.throws_dbg, 0, sizeof G.throws_dbg);
+  memset(G.riding_dbg, 0, sizeof G.riding_dbg);
+  G.hint_rider = -1;
   if (getenv("BOMBERDUDE_ROUND_SECS")) { /* dev aid */
     G.S.round_ticks = atoi(getenv("BOMBERDUDE_ROUND_SECS")) * 60;
     sim_refresh(&G.S); /* the danger map reads it (sudden death) */
@@ -508,6 +522,14 @@ static void enter_arena_select(void) {
 /* ── debug channel ──────────────────────────────────────────────────── */
 
 static int pending_arena = -1;
+static void cmd_ride_hint(int argc, const char **argv, cw_reply *r) {
+  if (argc >= 2) G.ride_hint_off = atoi(argv[1]) == 0;
+  cw_reply_printf(r, "{\"ride_hint\":%d}", !G.ride_hint_off);
+}
+static void cmd_revenge(int argc, const char **argv, cw_reply *r) {
+  if (argc >= 2) G.revenge = atoi(argv[1]) != 0;
+  cw_reply_printf(r, "{\"revenge\":%d}", G.revenge);
+}
 /* bind <action> <bindings>: replace an action's bindings (cartwheel/input.h
  * binding text, "pad:north, key:v"), as a player rebinding a control would;
  * every prompt shows the new binding from that frame (tests of the prompts) */
@@ -628,6 +650,15 @@ static void init(void *u) {
   cw_debug_i32("twist.belt_moves", &G.S.belt_moves);
   cw_debug_i32("twist.slides", &G.S.slides);
   cw_debug_i32("round.chains", &G.chains);
+  cw_debug_i32("round.throws", &G.S.rev_throws);
+  cw_debug_i32("round.swaps", &G.S.rev_swaps);
+  cw_debug_i32("round.idle_max", &G.idle_max);
+  cw_debug_field("players.throws", G.throws_dbg, CW_DBG_I32, MAXP);
+  cw_debug_field("players.riding", G.riding_dbg, CW_DBG_I32, MAXP);
+  cw_debug_i32("game.revenge", &G.revenge);
+  cw_debug_i32("hud.ride_hint", &G.hint_rider);
+  cw_debug_command("ride_hint", "ride_hint <0|1>: tell a knocked-out person how to ride the rim (0: the newcomer gate control)", cmd_ride_hint);
+  cw_debug_command("revenge", "revenge <0|1>: knocked-out players ride the rim and throw bombs in (Battle; from the next round)", cmd_revenge);
   cw_debug_u32("sim.hash", &G.hash);
   cw_debug_u32("state.hash", &G.state_hash);
   cw_debug_u32("tex.hash", &tex_hash);
@@ -644,6 +675,7 @@ static void init(void *u) {
   cw_debug_command("progress", "progress [show | preset <0..8>]: the save data; preset n = stages 1..n beaten", cmd_progress);
   G.state_hash = 2166136261u;
   G.cam_close = getenv("BOMBERDUDE_CAM_CLOSE") != NULL;
+  G.revenge = !(getenv("BOMBERDUDE_REVENGE") && !atoi(getenv("BOMBERDUDE_REVENGE")));
   const char *boom = getenv("BOMBERDUDE_BOOM");
   G.boom_tick = boom ? atoi(boom) : -1;
   if (getenv("BOMBERDUDE_RECORD")) G.rec = fopen(getenv("BOMBERDUDE_RECORD"), "w");
@@ -704,7 +736,8 @@ static uint8_t human_input(int i) {
 
 static void camera_tick(void) {
   if (!cw_node_valid(G.camera)) return;
-  t3_vec3 at = { 0, 0, -0.15f }, eye = { 0, 15.6f, 10.7f };
+  /* about 52 degrees down, as close as keeps the whole arena (and a rider on any rim wall) in a 16:9 frame */
+  t3_vec3 at = { 0, 0, 0.3f }, eye = { 0, 13.6f, 10.9f };
   int t = G.state_ticks;
   bool fast = false;
   switch (G.state) {
@@ -716,7 +749,7 @@ static void camera_tick(void) {
     break;
   case GS_INTRO: { /* a swoop down from high over the arena */
     float k = cw_clampf(t / 110.0f, 0, 1), e = 1 - (1 - k) * (1 - k) * (1 - k);
-    eye = (t3_vec3){ 6 * (1 - e), 15.6f + 7 * (1 - e), 10.7f - 7 * (1 - e) };
+    eye = (t3_vec3){ 6 * (1 - e), 13.6f + 7 * (1 - e), 10.9f - 7 * (1 - e) };
     fast = true;
     break;
   }
@@ -1106,6 +1139,7 @@ static void sim_sounds(void) {
     if (e->kind == EV_PICK) add_pop(e->x, e->y, e->b, e->a);
     if (e->kind == EV_KO) add_pop(e->x, e->y, -1, e->a);
     if (e->kind == EV_BUBBLE) add_pop(e->x, e->y, -2, e->a);
+    if (e->kind == EV_SWAP) add_pop(e->x, e->y, -3, e->a);
     switch (e->kind) {
     case EV_DROP: sfx_at(SFX_FUSE, e->x, e->y, 0.6f); break;
     case EV_BOOM: sfx_at(e->b >= 4 ? SFX_BOOM_BIG : SFX_BOOM, e->x, e->y, 1); break;
@@ -1118,6 +1152,9 @@ static void sim_sounds(void) {
     case EV_VENT: sfx_at(SFX_VENT, e->x, e->y, 0.9f); break;
     case EV_CANNON: sfx_at(SFX_CANNON, e->x, e->y, 1); break;
     case EV_SD_WALL: sfx_at(SFX_THUD, e->x, e->y, 0.5f); break;
+    case EV_THROW: sfx_at(SFX_KICK, e->x, e->y, 0.7f); break;
+    case EV_LAND: sfx_at(SFX_THUD, e->x, e->y, 0.6f); break;
+    case EV_SWAP: sfx_at(SFX_UNLOCK, e->x, e->y, 1); break;
     default: break;
     }
   }
@@ -1306,7 +1343,7 @@ static void fixed(void *u, double dt) {
     if (G.unlock_tile >= 0 && ++G.unlock_ticks == 24) sfx(SFX_UNLOCK, 1);
     bool pick = G.state_ticks > 10 && (confirm || (mouse_clicked && hover >= 0));
     if (pick && mouse_clicked && hover >= 0) G.cursor = hover;
-    if (pick && !stage_open(G.cursor)) {
+    if (pick && !arena_open(G.cursor)) {
       G.bump_tile = G.cursor;
       G.bump_ticks = 18;
       sfx(SFX_LOCKED, 1);
@@ -1337,6 +1374,14 @@ static void fixed(void *u, double dt) {
     bool before = G.S.tick < G.S.round_ticks;
     sim_step(&G.S, in);
     memcpy(G.in_dbg, in, sizeof G.in_dbg);
+    for (int i = 0; i < MAXP; i++) G.throws_dbg[i] = G.S.p[i].throws, G.riding_dbg[i] = G.S.p[i].ghost && !G.S.p[i].alive;
+    G.hint_rider = -1;
+    for (int i = 0; i < MAXP; i++)
+      if ((G.slot[i] == SLOT_HUMAN || G.slot[i] == SLOT_KEYS2) && G.S.p[i].ghost && !G.S.p[i].alive && !G.S.over_tick && G.S.tick - G.S.p[i].ko_tick < 360 && !G.ride_hint_off) G.hint_rider = i;
+    for (int i = 0; i < MAXP; i++) { /* the longest any seat in the round has gone with nothing it can do */
+      G.idle[i] = G.S.p[i].on && !sim_can_act(&G.S, i) && !G.S.over_tick ? G.idle[i] + 1 : 0;
+      if (G.idle[i] > G.idle_max) G.idle_max = G.idle[i];
+    }
     if (G.rec) fprintf(G.rec, "%d %d %d %d %d\n", G.S.tick, in[0], in[1], in[2], in[3]), fflush(G.rec);
     if (before && G.S.tick >= G.S.round_ticks) sfx(SFX_ALARM, 1);
     fx_events(&G.S);
@@ -1607,9 +1652,11 @@ static const char *menu_prompt(void) {
 }
 
 /* the controls, shown on the title and in the pause menu */
+static const char *const RIDE_HINT = "OUT!  ride the wall: {left|right|up|down}    throw a bomb in: {bomb}    hit someone to swap back in";
+static const char *const RIDE_HINT_TOUCH = "OUT!  ride the wall: the stick    throw a bomb in: BOMB    hit someone to swap back in";
 static const char *controls_line(void) {
   if (ON_TOUCH) return "move: the stick (left thumb, anywhere)    BOMB and ACTION: the buttons (right thumb)";
-  return "move: {left|right|up|down}    bomb: {bomb}    detonate / stop a kick: {act}    pause: {pause}";
+  return "move: {left|right|up|down}    bomb: {bomb}    detonate / stop a kick / glove throw: {act}    pause: {pause}";
 }
 
 static void glow_cursor(cw_rect r, float s, float rad, bool dim) {
@@ -1695,7 +1742,7 @@ static void draw_arena_select(float W, float H, float s) {
     bool cur = i == G.cursor;
     bool unlocking = i == G.unlock_tile && G.unlock_ticks < 80;
     float ut = unlocking ? (float)G.unlock_ticks : 999;
-    bool locked = !stage_open(i) || (unlocking && ut < 24);
+    bool locked = !arena_open(i) || (unlocking && ut < 24);
     if (i == G.bump_tile && G.bump_ticks > 0) r.x += cw_sin(G.bump_ticks * 1.7f) * 7 * s * G.bump_ticks / 18.0f;
     if (unlocking && ut >= 24) {
       float k = (ut - 24) / 56, pop = 1 + 0.14f * cw_sin(k * 3.1415927f) * (1 - k);
@@ -1741,8 +1788,7 @@ static void draw_arena_select(float W, float H, float s) {
     float a = cw_clampf((110 - G.unlock_ticks) / 20.0f, 0, 1);
     bold(buf, 0, L.head_y, 50 * s, rgba(1, 0.92f, 0.4f, a), CW_ALIGN_CENTER, W);
   }
-  const char *b = stage_open(G.cursor) ? ARENA_BLURB[G.cursor] : G.mode == MODE_ADVENTURE ? "Beat the stage before it to open this one."
-                                                                                           : "Beat it in Adventure to fight here.";
+  const char *b = arena_open(G.cursor) ? ARENA_BLURB[G.cursor] : "Beat the stage before it to open this one.";
   if (!L.titles) { /* the tiles have no room for their titles: the cursor's names itself */
     snprintf(buf, sizeof buf, "%s:  %s", ARENA_TITLES[G.cursor], b);
     b = buf;
@@ -1783,13 +1829,14 @@ static void icon_speed(float x, float y, float sz, float al) {
 #define CARD_NAME 15
 #define CARD_STAT 15
 #define CARD_TAG 14
-static const char *const TAG_NAME[4] = { "KICK", "REMOTE", "PIERCE", "BUBBLE" };
+static const char *const TAG_NAME[5] = { "KICK", "REMOTE", "PIERCE", "BUBBLE", "GLOVE" };
 static int card_tags(const player *p, const char **out) {
   int n = 0;
   if (p->kick) out[n++] = TAG_NAME[0];
   if (p->remote) out[n++] = TAG_NAME[1];
   if (p->pierce) out[n++] = TAG_NAME[2];
   if (p->bubble) out[n++] = TAG_NAME[3];
+  if (p->glove) out[n++] = TAG_NAME[4];
   return n;
 }
 static void card_name(int i, char *buf, size_t cap) {
@@ -1836,7 +1883,7 @@ static hud_layout hud_layout_of(float W, float H) {
     card_name(i, buf, sizeof buf);
     content = fmaxf(content, measure(buf, CARD_NAME * s).width + 6 * s + G.wins_needed * L.star * 2.3f);
     content = fmaxf(content, stat_line(&G.S.p[i], 0, 0, s, 1, false));
-    const char *tags[4];
+    const char *tags[5];
     most_tags = (int)fmaxf((float)most_tags, (float)card_tags(&G.S.p[i], tags));
   }
   /* room for the widest tag beside one other, so a card does not jump in width when one arrives */
@@ -1848,7 +1895,7 @@ static hud_layout hud_layout_of(float W, float H) {
   int tag_rows = 0;
   for (int i = 0; i < MAXP; i++) {
     if (G.slot[i] == SLOT_OFF) continue;
-    const char *tags[4];
+    const char *tags[5];
     int n = card_tags(&G.S.p[i], tags), rows = n ? 1 : 0;
     float x = 0;
     for (int k = 0; k < n; k++) {
@@ -1914,7 +1961,7 @@ static void draw_hud(float W, float H, float s) {
     y += L.h_name;
     stat_line(p, cx, y, s, al, true);
     y += L.h_stat;
-    const char *tags[4];
+    const char *tags[5];
     int n = card_tags(p, tags);
     float ex = cx;
     for (int k = 0; k < n; k++) {
@@ -1928,9 +1975,11 @@ static void draw_hud(float W, float H, float s) {
   /* who is who: a bobbing team marker over every human's critter */
   for (int i = 0; i < MAXP; i++) {
     const player *p = &G.S.p[i];
-    if ((G.slot[i] != SLOT_HUMAN && G.slot[i] != SLOT_KEYS2) || !p->alive) continue;
+    bool riding = !p->alive && p->ghost && world_rider_shown(i);
+    if ((G.slot[i] != SLOT_HUMAN && G.slot[i] != SLOT_KEYS2) || (!p->alive && !riding)) continue;
     cw_vec2 sp;
-    if (!project((t3_vec3){ wx(p->x), 1.55f + 0.06f * cw_sin(G.ticks * 0.12f + i), wz(p->y) }, W, H, &sp)) continue;
+    t3_vec3 at = riding ? (t3_vec3){ wx(p->gx), world_rim_top(tile_of(p->gx), tile_of(p->gy)), wz(p->gy) } : (t3_vec3){ wx(p->x), 0, wz(p->y) };
+    if (!project((t3_vec3){ at.x, at.y + 1.55f + 0.06f * cw_sin(G.ticks * 0.12f + i), at.z }, W, H, &sp)) continue;
     cw_color tc = rgba(TEAM_RGB[i][0], TEAM_RGB[i][1], TEAM_RGB[i][2], 1);
     cw_vec2 tri[3] = { { sp.x - 7 * s, sp.y - 6 * s }, { sp.x + 7 * s, sp.y - 6 * s }, { sp.x, sp.y + 4 * s } };
     cw_r2d_polygon(tri, 3, tc);
@@ -1940,7 +1989,7 @@ static void draw_hud(float W, float H, float s) {
   /* every lit bomb shows its fuse burning down as a ring over it */
   for (int i = 0; i < MAXB; i++) {
     const bomb *b = &G.S.bombs[i];
-    if (!b->live || G.S.over_tick) continue;
+    if (!b->live || b->air || G.S.over_tick) continue; /* a thrown one shows its fuse once it lands */
     cw_vec2 sp;
     if (!project((t3_vec3){ wx(b->x), 1.0f, wz(b->y) }, W, H, &sp)) continue;
     float r = 9 * s;
@@ -1956,14 +2005,14 @@ static void draw_hud(float W, float H, float s) {
     cw_r2d_arc(sp, rm - 1.5f * s, rm + 1.5f * s, -1.5707963f, -1.5707963f + 6.2831853f * f, n - 1, fc);
   }
   /* callouts: what a pick-up gave, who got knocked out */
-  static const char *const PU_LABEL[PU_KINDS] = { "", "+BOMB", "+FIRE", "+SPEED", "KICK!", "REMOTE!", "PIERCE!", "BUBBLE!" };
+  static const char *const PU_LABEL[PU_KINDS] = { "", "+BOMB", "+FIRE", "+SPEED", "KICK!", "REMOTE!", "PIERCE!", "BUBBLE!", "GLOVE!" };
   for (int i = 0; i < G.npops; i++) {
     cw_vec2 sp;
     float age = (float)G.pops[i].age;
     if (!project((t3_vec3){ tx_w(G.pops[i].x), 1.2f + age * 0.012f, tz_w(G.pops[i].y) }, W, H, &sp)) continue;
     float a = age < 60 ? 1 : 1 - (age - 60) / 20.0f, grow = age < 8 ? 0.8f + 0.025f * age : 1; /* from 80%: never under the body size */
     int k = G.pops[i].kind, w = G.pops[i].who;
-    const char *label = k == -1 ? "KO!" : k == -2 ? "POP!" : PU_LABEL[k];
+    const char *label = k == -1 ? "KO!" : k == -2 ? "POP!" : k == -3 ? "BACK IN!" : PU_LABEL[k];
     cw_color c = k == -1 ? rgba(1, 0.35f, 0.25f, a) : rgba(TEAM_RGB[w][0] * 0.4f + 0.6f, TEAM_RGB[w][1] * 0.4f + 0.6f, TEAM_RGB[w][2] * 0.4f + 0.6f, a);
     bold(label, sp.x - 150 * s, sp.y - 20 * s, (k == -1 ? 30 : 22) * s * grow, c, CW_ALIGN_CENTER, 300 * s);
   }
@@ -1996,7 +2045,13 @@ static void draw_hud(float W, float H, float s) {
     bold(word, 0, by + 6 * s + h1 + h2 * (1 - pop) * 0.5f, 56 * s * pop, G.state_ticks >= 100 ? rgba(1, 0.4f, 0.25f, a) : rgba(1, 1, 1, a), CW_ALIGN_CENTER, W);
     if (G.round == 1 && G.state_ticks < 100 && G.info && G.info->blurb) prompt_line_above(G.info->blurb, W, H - 24 * s, 18 * s, 1);
   }
-  if (G.state == GS_PLAY && G.S.tick < 240) {
+  int rider = -1; /* a person just knocked out: how riding the rim works, for its first six seconds */
+  for (int i = 0; i < MAXP && G.state == GS_PLAY && !G.S.over_tick; i++)
+    if ((G.slot[i] == SLOT_HUMAN || G.slot[i] == SLOT_KEYS2) && G.S.p[i].ghost && !G.S.p[i].alive && G.S.tick - G.S.p[i].ko_tick < 360) rider = i;
+  if (rider >= 0) {
+    float a = cw_clampf((360 - (G.S.tick - G.S.p[rider].ko_tick)) / 30.0f, 0, 1);
+    prompt_line_above(G.ride_hint_off ? "OUT!" : ON_TOUCH ? RIDE_HINT_TOUCH : RIDE_HINT, W, H - 10 * s, 16 * s, a);
+  } else if (G.state == GS_PLAY && G.S.tick < 240) {
     const char *how = controls_line();
     float a = cw_clampf((240 - G.S.tick) / 30.0f, 0, 1);
     prompt_line_above(how, W, H - 10 * s, 16 * s, a);
@@ -2074,6 +2129,19 @@ static void draw_round_end(float W, float H, float s) {
   for (int i = 0; i < MAXP; i++) n += G.slot[i] != SLOT_OFF;
   float cw2 = 120 * s, x0 = (W - n * cw2) * 0.5f;
   int k = 0;
+  { /* the round in one line: who knocked out the most, the chains, who fought back in from the rim */
+    int best = -1, back = -1;
+    for (int i = 0; i < MAXP; i++) {
+      if (G.slot[i] == SLOT_OFF) continue;
+      if (G.S.p[i].kos > 0 && (best < 0 || G.S.p[i].kos > G.S.p[best].kos)) best = i;
+      if (G.S.p[i].swaps > 0 && (back < 0 || G.S.p[i].swaps > G.S.p[back].swaps)) back = i;
+    }
+    char recap[160] = "", part[64];
+    if (best >= 0) snprintf(part, sizeof part, "most KOs: %s (%d)", CRIT_NAME[G.crit[best]], G.S.p[best].kos), strcat(recap, part);
+    if (G.S.chains > 0) snprintf(part, sizeof part, "%schains: %d", recap[0] ? "    " : "", G.S.chains), strcat(recap, part);
+    if (back >= 0) snprintf(part, sizeof part, "%sback in from the wall: %s", recap[0] ? "    " : "", CRIT_NAME[G.crit[back]]), strcat(recap, part);
+    if (recap[0]) prompt_line_above(recap, W, H * 0.74f - 44 * s, 17 * s, in);
+  }
   glass(cw_rect_make(x0 - 10 * s, H * 0.74f - 36 * s, n * cw2 + 20 * s, 96 * s), in);
   for (int i = 0; i < MAXP; i++) {
     if (G.slot[i] == SLOT_OFF) continue;

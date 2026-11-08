@@ -35,8 +35,8 @@ enum {                                                   /* floor features */
 };
 enum { D_NONE = -1, D_E = 0, D_N = 1, D_W = 2, D_S = 3 }; /* +x, -y (up the screen), -x, +y */
 
-/* power-ups (the eighth is this game's own: a bubble that takes one blast) */
-enum { PU_NONE, PU_BOMB, PU_FIRE, PU_SPEED, PU_KICK, PU_REMOTE, PU_PIERCE, PU_BUBBLE, PU_KINDS };
+/* power-ups (the eighth is this game's own: a bubble that takes one blast; the glove throws a bomb over what is in the way) */
+enum { PU_NONE, PU_BOMB, PU_FIRE, PU_SPEED, PU_KICK, PU_REMOTE, PU_PIERCE, PU_BUBBLE, PU_GLOVE, PU_KINDS };
 
 /* themes / twists, one per arena */
 enum { TH_MEADOW, TH_FROST, TH_FORGE, TH_TEMPLE, TH_CANDY, TH_NEON, TH_PIRATE, TH_DESERT, TH_KINDS };
@@ -57,6 +57,8 @@ typedef struct bomb {
   int age;
   int id;             /* drop order, for visuals and the remote's oldest-first */
   bool belt;          /* riding a belt (slow, stops on each centre) */
+  int air, air_total; /* thrown from the rim: ticks of flight left (not on the grid until it lands), of this hop */
+  int from_x, from_y; /* thrown: where this hop started (sub units) */
 } bomb;
 
 typedef struct player {
@@ -66,7 +68,7 @@ typedef struct player {
   int dir;            /* facing */
   int moving;         /* ticks moved in a row (0 = standing) */
   int bombs, range, speed;  /* capacity, blast length, sub units per tick */
-  bool kick, remote, pierce;
+  bool kick, remote, pierce, glove;
   int bubble;         /* shields left */
   int invuln;         /* ticks of grace after a bubble pops */
   int ko_tick;        /* sim tick when knocked out */
@@ -79,6 +81,13 @@ typedef struct player {
   uint8_t last_in;
   int bomb_buf;       /* ticks a bomb press keeps trying */
   bool pref_vert;     /* with two directions held, try the vertical one first (it was pressed last) */
+  /* revenge (sim.revenge): a knocked-out player rides the rim and throws bombs
+   * in; one of them knocking out a live player swaps the two */
+  bool ghost;
+  int rim;            /* place along the rim, sub units from the top-left corner, clockwise */
+  int gx, gy;         /* where that is (sub units, over the rim walls) */
+  int throw_cool;     /* ticks until it may throw again */
+  int throws, swaps;  /* this round (stats; throws counts glove throws too) */
 } player;
 
 typedef struct sim {
@@ -111,6 +120,8 @@ typedef struct sim {
   int cannon_t;                /* pirate: cannon cycle */
   int chains;                  /* bombs set off by another's blast */
   int belt_moves, slides;      /* twist counters (gates) */
+  bool revenge;                /* knocked-out players ride the rim (Battle): set after sim_load */
+  int rev_throws, rev_swaps;   /* this round (gates) */
   uint32_t hash;
   /* the CPUs' and the danger preview's view of the state, rebuilt by
    * sim_refresh after every change (sim_load, sim_step, sim_force_bomb):
@@ -124,7 +135,10 @@ typedef struct sim {
 
 enum {
   EV_DROP, EV_BOOM, EV_CRATE, EV_PICK, EV_KO, EV_BUBBLE, EV_KICK, EV_BUMP, EV_TELE, EV_VENT_WARN, EV_VENT,
-  EV_CANNON_WARN, EV_CANNON, EV_SD_WALL, EV_ITEM_BURN, EV_STEP
+  EV_CANNON_WARN, EV_CANNON, EV_SD_WALL, EV_ITEM_BURN, EV_STEP,
+  EV_THROW, /* a rider throws: x, y its rim tile, a = who, b = the bomb */
+  EV_LAND,  /* a thrown bomb lands: x, y, a = owner, b = the bomb */
+  EV_SWAP   /* a rider's bomb knocked someone out: x, y, a = the rider (back in), b = who it hit */
 };
 
 /* the arena an Arena node describes (assets/scenes/arena*.cwscene) */
@@ -153,6 +167,12 @@ int sim_bomb_at(const sim *s, int cx, int cy);            /* index or -1 */
 void sim_refresh(sim *s); /* rebuilds bomb_at and danger: after any change to the state outside sim.c (a dev aid) */
 uint32_t sim_rand(sim *s);
 void sim_force_bomb(sim *s, int cx, int cy, int range); /* dev aid */
+#define RIM_LEN ((2 * (GW - 2) + 2 * (GH - 2)) * SUB) /* the loop a rider goes round, sub units */
+#define THROW_COOL 150 /* ticks between one rider's throws */
+#define THROW_IN 3     /* a thrown bomb lands this many tiles in from the rim, or bounces on to the next open tile */
+bool sim_can_act(const sim *s, int who); /* alive, or a rider whose next throw is ready */
+void sim_rim_tile(int r, int *cx, int *cy, int *dir); /* the rim tile at rim place r and the way into the arena */
+bool sim_throw_target(const sim *s, int r, int *cx, int *cy); /* where a throw from r lands now (false: over the far side) */
 static inline int tile_of(int v) { return v / SUB; }
 static inline int centre_of(int t) { return t * SUB + SUB / 2; }
 

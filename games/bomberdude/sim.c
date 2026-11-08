@@ -55,7 +55,7 @@ static bool in_grid(int cx, int cy) { return cx >= 0 && cy >= 0 && cx < GW && cy
 
 int sim_bomb_at(const sim *s, int cx, int cy) {
   for (int i = 0; i < MAXB; i++)
-    if (s->bombs[i].live && s->bombs[i].cx == cx && s->bombs[i].cy == cy) return i;
+    if (s->bombs[i].live && !s->bombs[i].air && s->bombs[i].cx == cx && s->bombs[i].cy == cy) return i;
   return -1;
 }
 
@@ -75,13 +75,68 @@ int sim_alive(const sim *s) {
   return n;
 }
 
+/* ── the rim (revenge) ──────────────────────────────────────────────── */
+
+#define RIM_E0 ((GW - 2) * SUB) /* top, left to right */
+#define RIM_E1 ((GH - 2) * SUB) /* right side, top to bottom */
+
+static int rim_wrap(int r) { return ((r % RIM_LEN) + RIM_LEN) % RIM_LEN; }
+
+void sim_rim_tile(int r, int *cx, int *cy, int *dir) {
+  r = rim_wrap(r);
+  if (r < RIM_E0) *cx = 1 + r / SUB, *cy = 0, *dir = D_S;
+  else if ((r -= RIM_E0) < RIM_E1) *cx = GW - 1, *cy = 1 + r / SUB, *dir = D_W;
+  else if ((r -= RIM_E1) < RIM_E0) *cx = GW - 2 - r / SUB, *cy = GH - 1, *dir = D_N;
+  else r -= RIM_E0, *cx = 0, *cy = GH - 2 - r / SUB, *dir = D_E;
+}
+
+/* the rim place's position (sub units): over the middle of the rim walls */
+static void rim_pos(int r, int *x, int *y) {
+  r = rim_wrap(r);
+  if (r < RIM_E0) *x = SUB + r, *y = SUB / 2;
+  else if ((r -= RIM_E0) < RIM_E1) *x = (GW - 1) * SUB + SUB / 2, *y = SUB + r;
+  else if ((r -= RIM_E1) < RIM_E0) *x = (GW - 1) * SUB - r, *y = (GH - 1) * SUB + SUB / 2;
+  else r -= RIM_E0, *x = SUB / 2, *y = (GH - 1) * SUB - r;
+}
+
+/* the rim place nearest a tile: on the closest side, level with it */
+static int rim_nearest(int cx, int cy) {
+  int top = cy, bottom = GH - 1 - cy, left = cx, right = GW - 1 - cx;
+  int m = CW_MIN(CW_MIN(top, bottom), CW_MIN(left, right));
+  int ax = CW_MAX(1, CW_MIN(GW - 2, cx)), ay = CW_MAX(1, CW_MIN(GH - 2, cy));
+  if (m == top) return (ax - 1) * SUB + SUB / 2;
+  if (m == right) return RIM_E0 + (ay - 1) * SUB + SUB / 2;
+  if (m == bottom) return RIM_E0 + RIM_E1 + (GW - 2 - ax) * SUB + SUB / 2;
+  return 2 * RIM_E0 + RIM_E1 + (GH - 2 - ay) * SUB + SUB / 2;
+}
+
+static bool interior(int cx, int cy) { return cx > 0 && cy > 0 && cx < GW - 1 && cy < GH - 1; }
+
+bool sim_throw_target(const sim *s, int r, int *cx, int *cy) {
+  int rx, ry, d;
+  sim_rim_tile(r, &rx, &ry, &d);
+  for (int k = THROW_IN;; k++) {
+    int x = rx + DX[d] * k, y = ry + DY[d] * k;
+    if (!interior(x, y)) return false;
+    if (s->block[y][x] == C_EMPTY && sim_bomb_at(s, x, y) < 0) {
+      *cx = x, *cy = y;
+      return true;
+    }
+  }
+}
+
+bool sim_can_act(const sim *s, int who) {
+  const player *p = &s->p[who];
+  return p->on && (p->alive || (p->ghost && p->throw_cool == 0 && s->over_tick == 0));
+}
+
 /* ── loading an arena ───────────────────────────────────────────────── */
 
 static int pick_item(sim *s, int theme) {
   /* about a third of the crates hide something; candy crates are generous */
   int chance = theme == TH_CANDY ? 50 : 36;
   if (rnd_n(s, 100) >= chance) return PU_NONE;
-  static const int W[PU_KINDS] = { 0, 28, 28, 16, 9, 5, 6, 8 };
+  static const int W[PU_KINDS] = { 0, 26, 26, 15, 9, 5, 6, 8, 5 };
   int r = rnd_n(s, 100);
   for (int k = 1; k < PU_KINDS; k++) {
     if (r < W[k]) return k;
@@ -144,6 +199,15 @@ void sim_load(sim *s, const arena_info *a, const bool on[MAXP], uint32_t seed) {
       int x = spawn_x[i] + (k == 1) - (k == 2), y = spawn_y[i] + (k == 3) - (k == 4);
       if (in_grid(x, y)) maybe[y][x] = 0;
     }
+  /* and a pocket round each start: the two tiles along each lane from it, and
+   * the tiles one step off those lanes, so a first bomb dropped at the start
+   * always has a corner to hide round */
+  for (int i = 0; i < MAXP; i++)
+    for (int dy = -2; dy <= 2; dy++)
+      for (int dx = -2; dx <= 2; dx++) {
+        int d = IABS(dx) + IABS(dy), x = spawn_x[i] + dx, y = spawn_y[i] + dy;
+        if (in_grid(x, y) && (d <= 2 || (d == 3 && dx && dy))) maybe[y][x] = 0;
+      }
   for (int y = 0; y < GH; y++)
     for (int x = 0; x < GW; x++) {
       if (maybe[y][x]) {
@@ -338,8 +402,33 @@ static bool drop_bomb(sim *s, int who) {
   return true;
 }
 
-static void act(sim *s, int who) {
+/* the glove: the bomb underfoot, or else the one just ahead, flies THROW_IN tiles the way the player
+ * pushes (or faces), over crates, walls and bombs; it comes down on the first open tile from there */
+static bool glove_throw(sim *s, int who, uint8_t in) {
   player *p = &s->p[who];
+  int d = dir_of_input(in, p->pref_vert ? D_E : D_N);
+  if (d == D_NONE) d = p->dir;
+  int cx = tile_of(p->x), cy = tile_of(p->y), bi = sim_bomb_at(s, cx, cy);
+  if (bi < 0) bi = sim_bomb_at(s, cx + DX[d], cy + DY[d]);
+  if (bi < 0 || s->bombs[bi].slide_dir != D_NONE) return false;
+  bomb *b = &s->bombs[bi];
+  int k = THROW_IN;
+  while (k > 0 && !interior(b->cx + DX[d] * k, b->cy + DY[d] * k)) k--;
+  if (k == 0) return false;
+  b->from_x = b->x, b->from_y = b->y;
+  b->cx += DX[d] * k, b->cy += DY[d] * k;
+  b->x = centre_of(b->cx), b->y = centre_of(b->cy);
+  b->air = b->air_total = 10 + 6 * k;
+  b->pass = 0;
+  b->belt = false;
+  p->throws++;
+  event(s, EV_THROW, cx, cy, who, bi);
+  return true;
+}
+
+static void act(sim *s, int who, uint8_t in) {
+  player *p = &s->p[who];
+  if (p->glove && glove_throw(s, who, in)) return;
   /* remote: the oldest of mine goes off; otherwise stop my kicked bombs */
   int oldest = -1;
   for (int i = 0; i < MAXB; i++) {
@@ -370,6 +459,7 @@ static void pick_up(sim *s, int who) {
   case PU_REMOTE: p->remote = true; break;
   case PU_PIERCE: p->pierce = true; break;
   case PU_BUBBLE: if (p->bubble < 1) p->bubble = 1; break;
+  case PU_GLOVE: p->glove = true; break;
   }
   event(s, EV_PICK, cx, cy, who, it);
 }
@@ -426,6 +516,65 @@ static void move_player(sim *s, int who, uint8_t in) {
   }
 }
 
+/* a rider on the rim: along it with the stick (each side's own two ways),
+ * a press of bomb throws one in */
+static void ride(sim *s, int who, uint8_t now, uint8_t pressed) {
+  player *p = &s->p[who];
+  if (p->throw_cool > 0) p->throw_cool--;
+  if (s->over_tick) return;
+  int rx, ry, side;
+  sim_rim_tile(p->rim, &rx, &ry, &side);
+  /* clockwise along this side: top east, right south, bottom west, left north */
+  int cw = side == D_S ? D_E : side == D_W ? D_S : side == D_N ? D_W : D_N, ccw = (cw + 2) % 4;
+  int d = dir_of_input(now, p->pref_vert ? D_E : D_N);
+  int step = 16;
+  if (d == cw) p->rim = rim_wrap(p->rim + step), p->dir = d, p->moving++;
+  else if (d == ccw) p->rim = rim_wrap(p->rim - step), p->dir = d, p->moving++;
+  else p->moving = 0;
+  rim_pos(p->rim, &p->gx, &p->gy);
+  if ((pressed & IN_BOMB) && p->throw_cool == 0) {
+    int tx, ty, slot = -1;
+    for (int i = 0; i < MAXB && slot < 0; i++)
+      if (!s->bombs[i].live) slot = i;
+    if (slot >= 0 && sim_throw_target(s, p->rim, &tx, &ty)) {
+      bomb *b = &s->bombs[slot];
+      *b = (bomb){ .live = true, .owner = who, .cx = tx, .cy = ty, .x = centre_of(tx), .y = centre_of(ty), .fuse = BOMB_FUSE, .range = 2,
+                   .slide_dir = D_NONE, .id = ++s->bomb_ids, .air = 32, .air_total = 32, .from_x = p->gx, .from_y = p->gy };
+      p->throw_cool = THROW_COOL;
+      p->throws++;
+      s->rev_throws++;
+      event(s, EV_THROW, rx, ry, who, slot);
+    }
+  }
+}
+
+/* a thrown bomb comes down: on an open tile it stays; on a crate, wall or
+ * bomb it bounces one tile on; past the far side it is gone */
+static void land(sim *s, int bi) {
+  bomb *b = &s->bombs[bi];
+  int cx = b->cx, cy = b->cy;
+  if (s->block[cy][cx] == C_EMPTY && sim_bomb_at(s, cx, cy) < 0) {
+    b->age = 0;
+    for (int i = 0; i < MAXP; i++) {
+      const player *q = &s->p[i];
+      if (q->on && q->alive && IABS(q->x - b->x) < SUB && IABS(q->y - b->y) < SUB) b->pass |= (uint8_t)(1u << i);
+    }
+    event(s, EV_LAND, cx, cy, b->owner, bi);
+    return;
+  }
+  int dx = b->x - b->from_x, dy = b->y - b->from_y;
+  int d = IABS(dx) > IABS(dy) ? (dx > 0 ? D_E : D_W) : (dy > 0 ? D_S : D_N);
+  int nx = cx + DX[d], ny = cy + DY[d];
+  if (!interior(nx, ny)) {
+    b->live = false;
+    return;
+  }
+  b->from_x = b->x, b->from_y = b->y;
+  b->cx = nx, b->cy = ny;
+  b->x = centre_of(nx), b->y = centre_of(ny);
+  b->air = b->air_total = 14;
+}
+
 static void knock_out(sim *s, int who, int by) {
   player *p = &s->p[who];
   if (!p->alive) return;
@@ -441,6 +590,35 @@ static void knock_out(sim *s, int who, int by) {
   p->ko_by = by;
   if (by >= 0 && by != who) s->p[by].kos++;
   event(s, EV_KO, tile_of(p->x), tile_of(p->y), who, by);
+  if (s->revenge) {
+    /* out: up onto the rim, level with where it fell */
+    p->ghost = true;
+    p->rim = rim_nearest(tile_of(p->x), tile_of(p->y));
+    rim_pos(p->rim, &p->gx, &p->gy);
+    p->throw_cool = 90;
+    player *q = by >= 0 && by != who ? &s->p[by] : NULL;
+    if (q && q->on && q->ghost && !q->alive) {
+      /* a rider's bomb got someone: the rider drops back in where they stood */
+      q->alive = true;
+      q->ghost = false;
+      q->x = centre_of(tile_of(p->x));
+      q->y = centre_of(tile_of(p->y));
+      q->dir = D_S;
+      q->moving = 0;
+      q->bombs = 1;
+      q->range = 2;
+      q->speed = 14;
+      q->kick = q->remote = q->pierce = false;
+      q->bubble = 0;
+      q->invuln = FIRE_TICKS + 30; /* the fire it lands in */
+      q->slide_dir = D_NONE;
+      q->tele_cool = 0;
+      q->bomb_buf = 0;
+      q->swaps++;
+      s->rev_swaps++;
+      event(s, EV_SWAP, tile_of(q->x), tile_of(q->y), by, who);
+    }
+  }
   /* remote bombs left behind go off on their own */
   for (int i = 0; i < MAXB; i++)
     if (s->bombs[i].live && s->bombs[i].owner == who && s->bombs[i].fuse < 0) s->bombs[i].fuse = 60 + i * 4;
@@ -556,6 +734,14 @@ void sim_step(sim *s, const uint8_t in[MAXP]) {
     }
   for (int i = 0; i < MAXP; i++) {
     player *p = &s->p[i];
+    if (p->on && !p->alive && p->ghost) {
+      uint8_t now = in ? in[i] : 0, pressed = now & ~p->last_in;
+      p->last_in = now;
+      bool pv = pressed & (IN_UP | IN_DOWN), ph = pressed & (IN_LEFT | IN_RIGHT);
+      if (pv != ph) p->pref_vert = pv;
+      ride(s, i, now, pressed);
+      continue;
+    }
     if (!p->on || !p->alive) continue;
     uint8_t now = in ? in[i] : 0, pressed = now & ~p->last_in;
     p->last_in = now;
@@ -564,7 +750,7 @@ void sim_step(sim *s, const uint8_t in[MAXP]) {
       /* a press is held for a few ticks: one a moment early (still on the last tile's bomb) still drops */
       if (pressed & IN_BOMB) p->bomb_buf = 8;
       if (p->bomb_buf > 0) p->bomb_buf = drop_bomb(s, i) ? 0 : p->bomb_buf - 1;
-      if (pressed & IN_ACT) act(s, i);
+      if (pressed & IN_ACT) act(s, i, now);
     }
     bool pv = pressed & (IN_UP | IN_DOWN), ph = pressed & (IN_LEFT | IN_RIGHT);
     if (pv != ph) p->pref_vert = pv;
@@ -575,6 +761,10 @@ void sim_step(sim *s, const uint8_t in[MAXP]) {
   for (int i = 0; i < MAXB; i++) {
     bomb *b = &s->bombs[i];
     if (!b->live) continue;
+    if (b->air > 0) { /* in flight: not on the grid yet */
+      if (--b->air == 0) land(s, i);
+      continue;
+    }
     b->age++;
     for (int k = 0; k < MAXP; k++) {
       const player *q = &s->p[k];
@@ -639,11 +829,11 @@ void sim_step(sim *s, const uint8_t in[MAXP]) {
     for (int i = 0; i < GW * GH; i++) h = (h ^ bytes[k][i]) * 16777619u;
   for (int i = 0; i < MAXP; i++) {
     const player *p = &s->p[i];
-    int32_t v[] = { p->alive, p->x, p->y, p->bombs, p->range, p->speed, p->bubble };
-    for (int k = 0; k < 7; k++) h = (h ^ (uint32_t)v[k]) * 16777619u;
+    int32_t v[] = { p->alive, p->x, p->y, p->bombs, p->range, p->speed, p->bubble, p->ghost, p->rim, p->throw_cool };
+    for (int k = 0; k < 10; k++) h = (h ^ (uint32_t)v[k]) * 16777619u;
   }
   for (int i = 0; i < MAXB; i++)
-    if (s->bombs[i].live) h = (h ^ (uint32_t)(s->bombs[i].x * 31 + s->bombs[i].y * 17 + s->bombs[i].fuse)) * 16777619u;
+    if (s->bombs[i].live) h = (h ^ (uint32_t)(s->bombs[i].x * 31 + s->bombs[i].y * 17 + s->bombs[i].fuse + s->bombs[i].air * 7)) * 16777619u;
   s->hash = h;
   sim_refresh(s);
 }
@@ -655,7 +845,7 @@ void sim_step(sim *s, const uint8_t in[MAXP]) {
  * cannons; 999 = safe */
 static void danger_map(const sim *s, int16_t out[GH][GW]) {
   int t[MAXB];
-  for (int i = 0; i < MAXB; i++) t[i] = !s->bombs[i].live ? -1 : s->bombs[i].fuse < 0 ? 240 : s->bombs[i].fuse;
+  for (int i = 0; i < MAXB; i++) t[i] = !s->bombs[i].live ? -1 : s->bombs[i].fuse < 0 ? 240 : s->bombs[i].fuse + s->bombs[i].air;
   /* chains: a bomb in another's blast goes when that one does, if sooner */
   for (int pass = 0; pass < 6; pass++) {
     bool changed = false;
@@ -727,7 +917,7 @@ static void danger_map(const sim *s, int16_t out[GH][GW]) {
 void sim_refresh(sim *s) {
   memset(s->bomb_at, -1, sizeof s->bomb_at);
   for (int i = MAXB - 1; i >= 0; i--) /* down, so the lowest index wins as in sim_bomb_at */
-    if (s->bombs[i].live && in_grid(s->bombs[i].cx, s->bombs[i].cy)) s->bomb_at[s->bombs[i].cy][s->bombs[i].cx] = (int8_t)i;
+    if (s->bombs[i].live && !s->bombs[i].air && in_grid(s->bombs[i].cx, s->bombs[i].cy)) s->bomb_at[s->bombs[i].cy][s->bombs[i].cx] = (int8_t)i;
   danger_map(s, s->danger);
 }
 

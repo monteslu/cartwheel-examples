@@ -4,9 +4,12 @@
  *             GPUParticles3D: a white-hot burst at the bomb, a sheet of
  *             flame along each arm of the cross (box emitters sized to the
  *             arm), sparks that bounce off the scene's depth, embers and a
- *             smoke column; plus the fire cross itself as two layers of
- *             emissive instanced blobs (a glowing core inside an orange
- *             skin) that swell, flicker and die with the simulation's fire
+ *             smoke column; plus the fire cross itself: on every burning
+ *             tile a rounded slab of flame (an orange skin round a white-hot
+ *             core) that runs the tile's whole length along its arm, so the
+ *             slabs of an arm join into one bar with a hard edge exactly at
+ *             the last tile the fire reaches; they rise, flicker and sink
+ *             with the simulation's fire
  *   crates    splinter into instanced planks that tumble and bounce (CPU,
  *             fixed tick, cartwheel math), with a dust puff
  *   decals    scorch marks under every blast (Decal3D), fading slowly
@@ -226,14 +229,14 @@ void fx_init(cw_node scene, int theme) {
   fm->transparent = true;
   fm->opacity = 0.85f;
   fm->depth_write = false;
-  FX.flame = imesh("Flame", t3_icosahedron_geometry_new(0.5f, 2), fm, MAXI);
+  FX.flame = imesh("Flame", geo_rounded_box(1, 1, 1, 0.22f, 3), fm, 2 * MAXI);
   FX.flame->mesh.base.render_order = 5;
   t3_material *cm = t3_mesh_standard_material_new(0xffffff);
   cm->color = lin(0.15f, 0.1f, 0);
   cm->emissive = lin(1, 0.72f, 0.12f);
   cm->emissive_intensity = 3.0f;
   cm->roughness = 1;
-  FX.core = imesh("Core", t3_icosahedron_geometry_new(0.5f, 2), cm, MAXI);
+  FX.core = imesh("Core", geo_rounded_box(1, 1, 1, 0.2f, 3), cm, 2 * MAXI);
   /* crate planks */
   t3_material *pm = t3_mesh_standard_material_new(0xffffff);
   pm->roughness = 0.8f;
@@ -381,23 +384,32 @@ void fx_tick(const sim *s) {
       int f = s->fire[y][x];
       if (f <= 0) continue;
       int age = 36 - f, sh = s->fire_shape[y][x];
-      float grow = cw_clampf(age / 4.0f, 0, 1), fade = f < 14 ? f / 14.0f : 1;
-      float k = grow * fade * (0.92f + 0.08f * cw_sin(t * 0.9f + x * 1.7f + y * 2.3f));
-      float lx = 0.85f, lz = 0.85f, ly = 1.25f;
-      if (sh & 1) lx = lz = 1.15f, ly = 1.6f;
-      else {
-        if (sh & 2) lx = 1.2f, lz = 0.72f;
-        if (sh & 4) lz = 1.2f, lx = sh & 2 ? 1.2f : 0.72f;
-        if (sh & 16) { lx *= 0.85f; lz *= 0.85f; }
+      float grow = cw_clampf(age / 3.0f, 0, 1), fade = f < 14 ? f / 14.0f : 1;
+      float flick = 0.9f + 0.1f * cw_sin(t * 0.9f + x * 1.7f + y * 2.3f);
+      float hgt = 0.62f * grow * (0.35f + 0.65f * fade) * flick; /* rises at once, sinks as it dies */
+      float wid = 0.74f * (0.55f + 0.45f * fade);                 /* the bar thins as it dies, never past the tile */
+      /* one slab per axis the tile burns along (a centre tile, or two arms crossing, gets both) */
+      for (int axis = 0; axis < 2; axis++) {
+        bool along = (sh & 1) || (sh & (axis ? 4 : 2));
+        if (!along) continue;
+        int dx = axis ? 0 : 1, dy = axis ? 1 : 0;
+        float len = 1.0f, off = 0;
+        if ((sh & 16) && !(sh & 1)) { /* the arm's end: stop short of the tile's far edge, round it off */
+          bool plus = x + dx < GW && y + dy < GH && s->fire[y + dy][x + dx] > 0;
+          bool minus = x - dx >= 0 && y - dy >= 0 && s->fire[y - dy][x - dx] > 0;
+          if (plus != minus) len = 0.9f, off = plus ? 0.05f : -0.05f;
+        }
+        float h = (sh & 1) ? hgt * 1.2f : hgt;
+        float sx = axis ? wid : len, sz = axis ? len : wid;
+        t3_mat4 m;
+        t3_vec3 at = { tx_w(x) + dx * off, h * 0.5f + 0.02f, tz_w(y) + dy * off };
+        t3_mat4_compose(&m, at, (t3_quat){ 0, 0, 0, 1 }, (t3_vec3){ sx, h, sz });
+        t3_instanced_mesh_set_matrix_at(FX.flame, nfire, &m);
+        float kc = age < 8 ? 0.75f : 0.55f; /* the white-hot core, widest at the bang */
+        t3_mat4_compose(&m, (t3_vec3){ at.x, h * 0.42f + 0.02f, at.z }, (t3_quat){ 0, 0, 0, 1 },
+                        (t3_vec3){ axis ? wid * kc : len, h * 0.8f, axis ? len : wid * kc });
+        t3_instanced_mesh_set_matrix_at(FX.core, nfire++, &m);
       }
-      t3_mat4 m;
-      float wob = cw_sin(t * 0.7f + x * 3.1f + y) * 0.06f;
-      t3_mat4_compose(&m, (t3_vec3){ tx_w(x), 0.45f + wob, tz_w(y) }, (t3_quat){ 0, 0, 0, 1 },
-                      (t3_vec3){ lx * k, ly * k, lz * k });
-      t3_instanced_mesh_set_matrix_at(FX.flame, nfire, &m);
-      float kc = k * (age < 8 ? 0.8f : 0.55f);
-      t3_mat4_compose(&m, (t3_vec3){ tx_w(x), 0.42f, tz_w(y) }, (t3_quat){ 0, 0, 0, 1 }, (t3_vec3){ lx * kc, ly * kc * 0.9f, lz * kc });
-      t3_instanced_mesh_set_matrix_at(FX.core, nfire++, &m);
     }
   FX.flame->count = FX.core->count = nfire;
   /* firelight: a light over each burning tile (every other one on Low and

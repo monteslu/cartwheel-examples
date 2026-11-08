@@ -274,7 +274,7 @@ t3_object *model_bomb(int team, t3_material **glow_out, t3_material **band_out, 
 
 static const float ITEM_RGB[PU_KINDS][3] = {
   { 1, 1, 1 }, { 0.3f, 0.35f, 0.5f }, { 1, 0.42f, 0.15f }, { 0.25f, 0.75f, 1 }, { 0.95f, 0.3f, 0.35f },
-  { 0.65f, 0.4f, 1 }, { 0.8f, 0.85f, 0.95f }, { 0.55f, 0.95f, 0.95f } };
+  { 0.65f, 0.4f, 1 }, { 0.8f, 0.85f, 0.95f }, { 0.55f, 0.95f, 0.95f }, { 1, 0.75f, 0.2f } };
 
 static t3_material *emissive_mat(float r, float g, float b, float k) {
   t3_material *m = phys(lin(r, g, b), 0.4f, 0);
@@ -393,6 +393,22 @@ t3_object *model_item(int kind) {
     blob(icon, b, 0.15f, 0.15f, 0.15f, 0, 0.16f, 0);
     blob(icon, white, 0.03f, 0.03f, 0.02f, 0.06f, 0.24f, 0.12f);
     t3_release(b);
+    break;
+  }
+  case PU_GLOVE: { /* a padded glove, fingers up */
+    t3_material *r = phys(lin(0.95f, 0.75f, 0.2f), 0.35f, 0);
+    r->clearcoat = 1;
+    t3_geometry *palm = geo_rounded_box(0.18f, 0.16f, 0.1f, 0.045f, 3), *finger = geo_rounded_box(0.045f, 0.1f, 0.06f, 0.02f, 2);
+    t3_geometry *cuff = geo_rounded_box(0.2f, 0.06f, 0.12f, 0.02f, 2);
+    part(icon, palm, r, 0, 0.16f, 0);
+    for (int k = 0; k < 4; k++) part(icon, finger, r, -0.065f + k * 0.043f, 0.27f, 0);
+    t3_mesh *th = part(icon, finger, r, 0.11f, 0.17f, 0);
+    t3_object_set_rotation(&th->base, 0, 0, -0.8f);
+    part(icon, cuff, white, 0, 0.06f, 0);
+    t3_release(palm);
+    t3_release(finger);
+    t3_release(cuff);
+    t3_release(r);
     break;
   }
   default: break;

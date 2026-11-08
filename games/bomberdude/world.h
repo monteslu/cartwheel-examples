@@ -63,5 +63,7 @@ void world_tick(const sim *s);      /* fixed tick: animation state */
 void world_title_pose(int ticks);   /* the title: critters on parade */
 void world_set_humans(uint8_t mask); /* bit p: player p is a person (the ring under their feet) */
 void world_podium(const sim *s, const int wins[MAXP], int winner); /* the match is over: the podium */
+float world_rim_top(int cx, int cy); /* the top of the rim wall there (a rider stands on it) */
+bool world_rider_shown(int i);       /* player i is drawn riding the rim */
 
 #endif

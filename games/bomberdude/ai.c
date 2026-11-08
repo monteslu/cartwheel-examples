@@ -146,8 +146,73 @@ static int bombs_out(const sim *s, int me) {
   return n;
 }
 
+/* a rival in the cross a bomb at (cx, cy) of range 2 would burn (walls and crates stop it) */
+static bool rival_on(const sim *s, int me, int x, int y) {
+  for (int i = 0; i < MAXP; i++) {
+    const player *q = &s->p[i];
+    if (i != me && q->on && q->alive && tile_of(q->x) == x && tile_of(q->y) == y) return true;
+  }
+  return false;
+}
+static bool hits_rival(const sim *s, int me, int cx, int cy) {
+  if (rival_on(s, me, cx, cy)) return true;
+  for (int d = 0; d < 4; d++)
+    for (int k = 1; k <= 2; k++) {
+      int x = cx + DX[d] * k, y = cy + DY[d] * k;
+      if (x < 0 || y < 0 || x >= GW || y >= GH || s->block[y][x] != C_EMPTY) break;
+      if (rival_on(s, me, x, y)) return true;
+    }
+  return false;
+}
+
+/* a CPU riding the rim (revenge): go to the nearest rim place whose throw
+ * lands a rival in its cross, or failing that the place level with the
+ * nearest rival, and throw when there */
+static uint8_t ride_think(const sim *s, int me, int level, ai_mem *m) {
+  const player *p = &s->p[me];
+  if (s->tick < m->next_think) return m->held & (uint8_t)~IN_BOMB;
+  m->next_think = s->tick + (level == 0 ? 20 : level == 1 ? 8 : 3);
+  int places = RIM_LEN / SUB, best = -1, best_d = 1 << 30;
+  for (int k = 0; k < places; k++) {
+    int r = k * SUB + SUB / 2, tx, ty;
+    if (!sim_throw_target(s, r, &tx, &ty) || !hits_rival(s, me, tx, ty)) continue;
+    int d = IABS(((r - p->rim) % RIM_LEN + RIM_LEN + RIM_LEN / 2) % RIM_LEN - RIM_LEN / 2);
+    if (d < best_d) best = r, best_d = d;
+  }
+  bool aimed = best >= 0;
+  if (!aimed) { /* nobody in reach: level with the nearest rival */
+    int near = -1, nd = 1 << 30;
+    for (int i = 0; i < MAXP; i++) {
+      const player *q = &s->p[i];
+      if (i == me || !q->on || !q->alive) continue;
+      int d = IABS(q->x - p->gx) + IABS(q->y - p->gy);
+      if (d < nd) near = i, nd = d;
+    }
+    if (near < 0) return m->held = 0;
+    for (int k = 0; k < places; k++) { /* the place whose rim tile is closest to that rival */
+      int r = k * SUB + SUB / 2, rx, ry, dir;
+      sim_rim_tile(r, &rx, &ry, &dir);
+      int d = IABS(rx - tile_of(s->p[near].x)) * 4 + IABS(ry - tile_of(s->p[near].y)) * 4 +
+              ((dir == D_S || dir == D_N) ? IABS(rx - tile_of(s->p[near].x)) * 8 : IABS(ry - tile_of(s->p[near].y)) * 8);
+      if (d < best_d) best = r, best_d = d;
+    }
+  }
+  int delta = ((best - p->rim) % RIM_LEN + RIM_LEN + RIM_LEN / 2) % RIM_LEN - RIM_LEN / 2;
+  uint8_t out = 0;
+  if (IABS(delta) > 24) {
+    int rx, ry, side;
+    sim_rim_tile(p->rim, &rx, &ry, &side);
+    int cw = side == D_S ? D_E : side == D_W ? D_S : side == D_N ? D_W : D_N;
+    out = DIR_IN[delta > 0 ? cw : (cw + 2) % 4];
+  } else if (p->throw_cool == 0 && (aimed || level > 0) && (rnd(m) % 100) < (uint32_t)(level == 0 ? 50 : 90))
+    out = IN_BOMB;
+  m->held = out;
+  return out;
+}
+
 uint8_t ai_think(const sim *s, int me, int level, ai_mem *m) {
   const player *p = &s->p[me];
+  if (p->on && !p->alive && p->ghost && !s->over_tick) return ride_think(s, me, level, m);
   if (!p->on || !p->alive || s->over_tick) return 0;
   int mx = tile_of(p->x), my = tile_of(p->y);
   int tpt = (SUB + p->speed - 1) / p->speed; /* ticks per tile */
@@ -177,6 +242,24 @@ uint8_t ai_think(const sim *s, int me, int level, ai_mem *m) {
       break;
     }
   }
+
+  /* the glove (normal and hard): the bomb underfoot or just ahead, thrown when it would land clean beside a rival */
+  if (p->glove && level > 0 && !(m->held & IN_ACT) && !(out & IN_ACT))
+    for (int d = 0; d < 4; d++) {
+      int bx = mx, by = my, bi = s->bomb_at[my][mx];
+      if (bi < 0) {
+        bx = mx + DX[d], by = my + DY[d];
+        bi = bx >= 0 && by >= 0 && bx < GW && by < GH ? s->bomb_at[by][bx] : -1;
+      }
+      if (bi < 0 || s->bombs[bi].slide_dir != D_NONE) continue;
+      int k = THROW_IN;
+      while (k > 0 && !(bx + DX[d] * k > 0 && by + DY[d] * k > 0 && bx + DX[d] * k < GW - 1 && by + DY[d] * k < GH - 1)) k--;
+      int tx = bx + DX[d] * k, ty = by + DY[d] * k;
+      if (k == 0 || s->block[ty][tx] != C_EMPTY || s->bomb_at[ty][tx] >= 0 || !hits_rival(s, me, tx, ty)) continue;
+      m->held = (uint8_t)(DIR_IN[d] | IN_ACT);
+      m->next_think = s->tick + 1;
+      return m->held;
+    }
 
   if (in_danger) {
     /* a spare bomb dropped on the way out, when it pays and the way stays open (chains) */

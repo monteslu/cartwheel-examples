@@ -40,7 +40,7 @@ static const look LOOKS[TH_KINDS] = {
   [TH_PIRATE] = { TEX_DECK, TEX_DECK, TEX_DECK, TEX_CRATE, { 1.3f, 1.25f, 1.15f }, { 1.18f, 1.12f, 1.05f }, { 1.1f, 1.05f, 1 },
                   { 1.35f, 1.15f, 0.95f }, { 1.2f, 1.05f, 0.85f }, 0.9f, 1.0f, 0.7f, 0.2f },
   [TH_DESERT] = { TEX_SAND, TEX_SANDSTONE, TEX_SANDSTONE, TEX_CRATE, { 1, 1, 1 }, { 0.95f, 0.92f, 0.88f },
-                  { 1, 0.97f, 0.93f }, { 0.95f, 0.88f, 0.8f }, { 0.95f, 0.85f, 0.7f }, 1.0f, 1.2f, 0.95f, 0 },
+                  { 1, 0.97f, 0.93f }, { 0.95f, 0.88f, 0.8f }, { 0.5f, 0.3f, 0.2f }, 1.0f, 1.2f, 0.95f, 0 }, /* dark weathered crates: they stand out from the sand */
 };
 
 typedef struct ragdoll {
@@ -60,6 +60,8 @@ typedef struct pstate {
   int celebrate;            /* victory hop ticks */
   ragdoll rd;
   bool was_alive;
+  bool riding;              /* revenge: up on the rim wall */
+  int ride_ticks;           /* since it climbed up there */
 } pstate;
 
 static struct {
@@ -450,6 +452,14 @@ void world_build(cw_node scene, const sim *s, const int crit[MAXP]) {
   W.ready = true;
 }
 
+/* the top of the rim wall at (cx, cy): where a rider stands */
+float world_rim_top(int cx, int cy) {
+  (void)cx;
+  if (!W.ready) return 0.9f;
+  return cy == GH - 1 ? 0.42f : LOOKS[W.theme].wall_h; /* the near wall is low (world_tick) */
+}
+bool world_rider_shown(int i) { return W.ready && i >= 0 && i < MAXP && W.on[i] && W.ps[i].riding; }
+
 /* ── animation ──────────────────────────────────────────────────────── */
 
 static float approach_angle(float a, float target, float k) { return a + cw_wrap_angle(target - a) * k; }
@@ -576,6 +586,43 @@ static void pose_critter(pstate *ps, const sim *s, int i) {
   c->bubble->scale = (t3_vec3){ 1 + wb, 1 - wb, 1 + wb };
   ps->squash *= 0.86f;
   if (ps->celebrate > 0) ps->celebrate++;
+}
+
+/* a knocked-out critter riding the rim: on top of the wall, facing in,
+ * waddling along it, both arms up as it throws */
+static void pose_rider(pstate *ps, const sim *s, int i) {
+  critter *c = &ps->c;
+  const player *p = &s->p[i];
+  int t = W.ticks, rx, ry, side;
+  sim_rim_tile(p->rim, &rx, &ry, &side);
+  ps->ride_ticks++;
+  float target_yaw = side == D_E ? 1.5707963f : side == D_W ? -1.5707963f : side == D_N ? 3.1415927f : 0;
+  ps->yaw = approach_angle(ps->yaw, target_yaw, 0.25f);
+  bool moving = p->moving > 0 && s->over_tick == 0;
+  if (moving) ps->phase += 0.3f;
+  float sw = moving ? cw_sin(ps->phase) : 0, bob = moving ? fabsf(cw_sin(ps->phase)) : 0;
+  float pop = cw_clampf(ps->ride_ticks / 14.0f, 0, 1), k = pop < 1 ? pop * (1.25f - 0.25f * pop) : 1;
+  float throwing = p->throw_cool > THROW_COOL - 18 ? (p->throw_cool - (THROW_COOL - 18)) / 18.0f : 0;
+  c->root->position = (t3_vec3){ wx(p->gx), world_rim_top(rx, ry) + bob * 0.06f, wz(p->gy) };
+  t3_object_set_rotation(c->root, 0, ps->yaw, moving ? sw * 0.12f : 0);
+  c->root->scale = (t3_vec3){ 1.15f * k, 1.15f * k, 1.15f * k };
+  c->root->visible = true;
+  c->body->scale = (t3_vec3){ 1 + throwing * 0.08f, 1 - throwing * 0.1f, 1 + throwing * 0.08f };
+  float arm = throwing > 0 ? 2.8f * throwing : 0.5f + 0.3f * cw_sin(t * 0.1f + i); /* arms half up: ready to throw */
+  t3_object_set_rotation(c->arm[0], sw * 0.6f, 0, -0.15f - arm);
+  t3_object_set_rotation(c->arm[1], -sw * 0.6f, 0, 0.15f + arm);
+  t3_object_set_rotation(c->foot[0], -sw * 0.7f, 0, 0);
+  t3_object_set_rotation(c->foot[1], sw * 0.7f, 0, 0);
+  c->foot[0]->position.y = 0.06f + (sw > 0 ? sw * 0.06f : 0);
+  c->foot[1]->position.y = 0.06f + (sw < 0 ? -sw * 0.06f : 0);
+  t3_object_set_rotation(c->head, 0.15f, 0, 0); /* looking down into the arena */
+  t3_object_set_rotation(c->ear[0], 0, 0, 0.1f);
+  t3_object_set_rotation(c->ear[1], 0, 0, -0.1f);
+  t3_object_set_rotation(c->tail, 0, cw_sin(t * 0.2f + i) * 0.5f, 0);
+  c->lids[0]->visible = c->lids[1]->visible = false;
+  c->mouth_o->visible = throwing > 0;
+  c->mouth_smile->visible = throwing <= 0;
+  c->bubble->visible = false;
 }
 
 /* the podium: three lacquered steps, the critters on them by wins */
@@ -807,9 +854,17 @@ void world_tick(const sim *s) {
     float pulse = cw_sin(b->age * rate);
     float sx = 1 + 0.06f * pulse, sy = 1 - 0.07f * pulse;
     o->position = (t3_vec3){ wx(b->x), drop, wz(b->y) };
+    if (b->air > 0) { /* thrown: an arc from the rider's paws (or the last bounce) to the tile */
+      int fx = tile_of(b->from_x), fy = tile_of(b->from_y);
+      bool from_rim = fx == 0 || fy == 0 || fx == GW - 1 || fy == GH - 1;
+      float k = 1 - (float)b->air / (float)CW_MAX(1, b->air_total), h0 = from_rim ? world_rim_top(fx, fy) + 0.9f : 0;
+      float apex = from_rim ? 2.2f : 0.8f;
+      o->position = (t3_vec3){ wx(b->from_x) + (wx(b->x) - wx(b->from_x)) * k, h0 * (1 - k) + 4 * apex * k * (1 - k), wz(b->from_y) + (wz(b->y) - wz(b->from_y)) * k };
+      sx = sy = 1;
+    }
     o->scale = (t3_vec3){ sx, sy, sx };
-    float roll = b->slide_dir == D_NONE ? 0 : b->age * 0.35f;
-    t3_object_set_rotation(o, b->slide_dir == D_N || b->slide_dir == D_S ? roll * (b->slide_dir == D_S ? 1 : -1) : 0, 0,
+    float roll = b->air > 0 ? (b->air_total - b->air) * 0.3f : b->slide_dir == D_NONE ? 0 : b->age * 0.35f;
+    t3_object_set_rotation(o, b->air > 0 ? roll : b->slide_dir == D_N || b->slide_dir == D_S ? roll * (b->slide_dir == D_S ? 1 : -1) : 0, 0,
                            b->slide_dir == D_E || b->slide_dir == D_W ? roll * (b->slide_dir == D_W ? 1 : -1) : 0);
     float hot = b->fuse >= 0 && b->fuse < 70 ? (70 - b->fuse) / 70.0f : 0;
     W.bomb_glow[i]->emissive_intensity = hot * hot * (2.5f + 2.5f * (pulse * 0.5f + 0.5f));
@@ -832,9 +887,10 @@ void world_tick(const sim *s) {
   for (int i = 0; i < MAXP; i++)
     if (W.ring[i]) {
       const player *p = &s->p[i];
-      W.ring[i]->visible = (W.humans >> i & 1) && p->alive && !W.podium;
+      bool riding = !p->alive && W.ps[i].riding;
+      W.ring[i]->visible = (W.humans >> i & 1) && (p->alive || riding) && !W.podium;
       float k = 1 + 0.06f * cw_sin(t * 0.15f);
-      W.ring[i]->position = (t3_vec3){ wx(p->x), 0.03f, wz(p->y) };
+      W.ring[i]->position = riding ? (t3_vec3){ wx(p->gx), world_rim_top(tile_of(p->gx), tile_of(p->gy)) + 0.03f, wz(p->gy) } : (t3_vec3){ wx(p->x), 0.03f, wz(p->y) };
       W.ring[i]->scale = (t3_vec3){ k, k, k };
     }
   /* critters */
@@ -848,10 +904,18 @@ void world_tick(const sim *s) {
     pstate *ps = &W.ps[i];
     const player *p = &s->p[i];
     if (ps->was_alive && !p->alive) ko_start(ps, s, i);
+    if (!ps->was_alive && p->alive) ps->rd.on = ps->riding = false, ps->squash = 1; /* swapped back in */
     ps->was_alive = p->alive;
     if (ps->rd.on) ko_tick(ps);
+    if (!p->alive && p->ghost && !ps->riding && (!ps->rd.on || ps->rd.ticks >= 80)) { /* the tumble done: up on the rim */
+      ps->rd.on = false;
+      ps->riding = true;
+      ps->ride_ticks = 0;
+    }
+    if (!p->ghost) ps->riding = false;
     if (s->winner == i && ps->celebrate == 0 && !ps->rd.on) ps->celebrate = 1;
-    pose_critter(ps, s, i);
+    if (ps->riding) pose_rider(ps, s, i);
+    else pose_critter(ps, s, i);
     if (W.podium) podium_pose(ps, i);
   }
 }

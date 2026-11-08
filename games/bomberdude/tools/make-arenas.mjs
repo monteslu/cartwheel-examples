@@ -31,7 +31,7 @@ const THEMES = ['MEADOW', 'FROST', 'FORGE', 'TEMPLE', 'CANDY', 'NEON', 'PIRATE',
 
 const ARENAS = [
   {
-    title: 'Clover Commons', theme: 'MEADOW', blurb: 'A sunny lawn. Nothing up its sleeve.', crate: 72, seed: 11, cpu: 1, cpuLevel: 0, secs: 150,
+    title: 'Clover Commons', theme: 'MEADOW', blurb: 'A sunny lawn. Nothing up its sleeve.', crate: 64, seed: 11, cpu: 1, cpuLevel: 0, secs: 150,
     layout: `
 ###############
 #1.?????????.4#
@@ -50,7 +50,7 @@ const ARENAS = [
       ground: [0.3, 0.42, 0.18], ambient: [1, 0.92, 0.8], hemi: 0.25, grade: 'meadow' },
   },
   {
-    title: 'Frostbite Pond', theme: 'FROST', blurb: 'Ice! Once you start sliding, you keep sliding.', crate: 64, seed: 23, cpu: 1, cpuLevel: 1, secs: 150,
+    title: 'Frostbite Pond', theme: 'FROST', blurb: 'Ice! Once you start sliding, you keep sliding.', crate: 58, seed: 23, cpu: 1, cpuLevel: 1, secs: 150,
     layout: `
 ###############
 #1.??IIIII??.4#
@@ -69,7 +69,7 @@ const ARENAS = [
       ground: [0.8, 0.86, 0.95], ambient: [0.75, 0.85, 1], hemi: 0.3, grade: 'frost' },
   },
   {
-    title: 'Ember Forge', theme: 'FORGE', blurb: 'The vents glow, then they roar. Mind the glow.', crate: 70, seed: 37, cpu: 2, cpuLevel: 0, secs: 150,
+    title: 'Ember Forge', theme: 'FORGE', blurb: 'The vents glow, then they roar. Mind the glow.', crate: 62, seed: 37, cpu: 2, cpuLevel: 0, secs: 150,
     layout: `
 ###############
 #1.?????????.4#
@@ -88,7 +88,7 @@ const ARENAS = [
       ground: [0.12, 0.08, 0.06], ambient: [1, 0.55, 0.3], hemi: 0.18, grade: 'forge' },
   },
   {
-    title: 'Jungle Temple', theme: 'TEMPLE', blurb: 'Step on a glyph, come out of its twin.', crate: 66, seed: 41, cpu: 2, cpuLevel: 1, secs: 160,
+    title: 'Jungle Temple', theme: 'TEMPLE', blurb: 'Step on a glyph, come out of its twin.', crate: 60, seed: 41, cpu: 2, cpuLevel: 1, secs: 160,
     layout: `
 ###############
 #1.?????????.4#
@@ -107,7 +107,7 @@ const ARENAS = [
       ground: [0.2, 0.3, 0.12], ambient: [0.85, 1, 0.8], hemi: 0.25, grade: 'temple' },
   },
   {
-    title: 'Gumdrop Gardens', theme: 'CANDY', blurb: 'Jelly crates wobble off the first blast. Hit them twice.', crate: 60, seed: 53, cpu: 3, cpuLevel: 0, secs: 170,
+    title: 'Gumdrop Gardens', theme: 'CANDY', blurb: 'Jelly crates wobble off the first blast. Hit them twice.', crate: 44, seed: 53, cpu: 3, cpuLevel: 0, secs: 170,
     layout: `
 ###############
 #1.?????????.4#
@@ -126,7 +126,7 @@ const ARENAS = [
       ground: [0.95, 0.7, 0.8], ambient: [1, 0.85, 0.95], hemi: 0.3, grade: 'candy' },
   },
   {
-    title: 'Neon Nights', theme: 'NEON', blurb: 'The belts never stop. Neither does the city.', crate: 66, seed: 67, cpu: 3, cpuLevel: 1, secs: 170,
+    title: 'Neon Nights', theme: 'NEON', blurb: 'The belts never stop. Neither does the city.', crate: 64, seed: 67, cpu: 3, cpuLevel: 1, secs: 170,
     layout: `
 ###############
 #1.?????????.4#
@@ -146,7 +146,7 @@ const ARENAS = [
       ground: [0.05, 0.05, 0.08], ambient: [0.6, 0.5, 1], hemi: 0.9, grade: 'neon', moon: 2.6, night: [0.012, 0.014, 0.03] },
   },
   {
-    title: 'Powder Deck', theme: 'PIRATE', blurb: 'When a cannon glows, its whole row is about to burn.', crate: 68, seed: 79, cpu: 3, cpuLevel: 1, secs: 170,
+    title: 'Powder Deck', theme: 'PIRATE', blurb: 'When a cannon glows, its whole row is about to burn.', crate: 62, seed: 79, cpu: 3, cpuLevel: 1, secs: 170,
     layout: `
 #########k#####
 #1.?????????.4#
@@ -165,7 +165,7 @@ c?????????????#
       ground: [0.08, 0.2, 0.3], ambient: [1, 0.8, 0.6], hemi: 0.22, grade: 'pirate' },
   },
   {
-    title: 'Sandstorm Ruins', theme: 'DESERT', blurb: 'Sand drags your feet. The storms hide the bombs.', crate: 70, seed: 97, cpu: 3, cpuLevel: 2, secs: 180,
+    title: 'Sandstorm Ruins', theme: 'DESERT', blurb: 'Sand drags your feet. The storms hide the bombs.', crate: 62, seed: 97, cpu: 3, cpuLevel: 2, secs: 180,
     layout: `
 ###############
 #1.:::???:::.4#
