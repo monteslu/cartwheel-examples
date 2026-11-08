@@ -6,7 +6,7 @@ carts and desktop and Android builds are on its GitHub release. Entries name the
 ## v0.19.8 (2026-11-08)
 
 - **bikemesa**: The program table has the two states the rider pick and the first track draw at Low and Very Low on WebGPU (the grass and the low terrain). A machine that Auto stepped down saw the red no-program banner over the rider pick, and no grass. `tests/bikemesa-low-programs.mjs` checks the title, the rider pick alone and in split screen, and the first seconds of track 1 at both presets on GL and WebGPU through romdev
-- **racer**: The karts throw their shadows below High again (the sun's shadow box ended short of the road, so the karts looked to hover), and each wheel is drawn on the road from the pose the kart is drawn at, not a tick behind. `tests/racer-grounded.mjs` gates both on every map
+- **racer**: The karts throw their shadows below High again (the sun's shadow box ended short of the road, so the karts looked to hover), each kart darkens the road where it meets it (so it sits on the road in the shade of a stand or a bridge and on the night map too), and each wheel is drawn on the road from the pose the kart is drawn at, not a tick behind. `tests/racer-grounded.mjs` gates all three on every map, on GL and WebGPU
 
 ## v0.19.7 (2026-11-08)
 
