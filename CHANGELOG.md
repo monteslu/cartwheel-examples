@@ -3,6 +3,11 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.19.5 (2026-11-08)
+
+- **All games**: Engine v0.38.1. Every cart's manifest says which version it is: a release's carts carry the release's version (every cart said 0.1.0 before), and a cart built from any other commit says `<last tag>-dev.g<commit>`, so it is never taken for a release. The engine works the version out from the checkout on every build; `project.cwproj` no longer carries one. Engine v0.37.0 and v0.38.0 (the 2D renderer's HDR canvas, post chain, tiled lights and global illumination) come with it
+- **All games**: The desktop and Android packages take the same version as the carts (`cwexport` follows the engine's rule), and the release checks that every cart's manifest and every package's name carry the tag's version (`tests/cart-version.mjs`, which every build runs on the carts too; its control, a cart rewritten to another version, must fail)
+
 ## v0.19.4 (2026-11-07)
 
 - **derby**: At night Very Low and Low light the arena with two floodlights as lights that cast, one from each end of a long side, a little flatter than before, in place of one on Very Low and four on Low. The cars are shaded from both ends and stand on their shadows through the whole bout, not only at one moment of it. Low costs 0.37 / 0.38 of High (GL / WebGPU), down from 0.54 / 0.59, and Very Low 0.28 / 0.29; the range gates hold derby to 0.30 and 0.44
