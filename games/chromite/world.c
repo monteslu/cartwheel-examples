@@ -933,7 +933,9 @@ void world_sync(const sim *prev, const sim *cur, float a, float t, int state) {
     cw_node3d_set_position(W.pit_fog[i], (t3_vec3){ 0, GROUND_Y - PIT_D * 0.5f, sp.z + (PIT_Z0 + PIT_Z1) * 0.5f });
     t3_object_set_position(W.pit_light[i], 3 * sinf(t * 0.4f + i), -PIT_D + 4, (PIT_Z0 + PIT_Z1) * 0.5f + 5 * sinf(t * 0.25f + i * 2));
   }
-  if (W.planet) t3_object_set_rotation(W.planet, 0.35f, 0, travel * -0.004f); /* it turns under the ring as the ring flies on */
+  /* its equator faces up (the camera looks down on it, and an equirect map pinches at the poles); it turns about
+   * its axis under the ring as the ring flies on */
+  if (W.planet) t3_object_set_rotation(W.planet, 1.5707963f, travel * -0.004f, 0);
   if (W.lava_mat) {
     t3_texture *lt = W.lava_mat->emissive_map;
     if (lt) lt->offset.y = -travel * 0.02f - t * 0.03f; /* the melt creeps along its channel */
