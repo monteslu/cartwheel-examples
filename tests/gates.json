@@ -186,6 +186,7 @@
     "name": "bomberdude-auto",
     "app": "bomberdude_auto",
     "frames": 6400,
+    "input": "bomberdude-auto-steps.json",
     "maxGt16": 0.05,
     "fields": [
       "game.state",

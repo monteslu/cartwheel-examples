@@ -84,6 +84,9 @@ save('bomberdude-menu2p.json', merge(MENU_2P, true));
 const rec = join(ROOT, 'out', 'bb', 'rec.txt');
 if (existsSync(rec)) save('bomberdude-round.json', merge([...MENU_2P, ...recorded(rec, 1700)], true));
 save('bomberdude-cpu.json', merge(MENU_CPU, false));
+// the _auto round (bomberdude-auto): no input of its own, only empty entries every 1500 frames, so romdev steps the
+// six-thousand-frame round in pieces (one long step outlasts its HTTP request on WebGPU)
+save('bomberdude-auto-steps.json', [1500, 3000, 4500, 6000].map((frame) => ({ frame })));
 // the round with player 2 idle from the start (the control: different outcome)
 if (existsSync(rec)) save('bomberdude-round-p2idle.json', merge([...MENU_2P, ...recorded(rec, 1700).filter((e) => e.pad === 1)], true));
 
