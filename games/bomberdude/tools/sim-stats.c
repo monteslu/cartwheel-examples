@@ -127,14 +127,19 @@ int main(int argc, char **argv) {
     S.revenge = revenge;
     ai_mem m[MAXP];
     for (int i = 0; i < MAXP; i++) ai_reset(&m[i], i, 2);
+    int lv[MAXP] = { 2, 2, 2, 2 }; /* SIM_LEVELS=2111: each seat's CPU level (the _auto build: P1 hard, the rest normal) */
+    for (int i = 0; i < MAXP && getenv("SIM_LEVELS") && getenv("SIM_LEVELS")[i]; i++) lv[i] = getenv("SIM_LEVELS")[i] - '0';
     while (S.winner == -2 && S.tick < 60 * 400) {
       uint8_t in[MAXP] = { 0 };
-      for (int i = 0; i < np; i++) in[i] = ai_think(&S, i, 2, &m[i]);
+      for (int i = 0; i < np; i++) in[i] = ai_think(&S, i, lv[i], &m[i]);
       sim_step(&S, in);
       fprintf(f, "%d %d %d %d %d\n", S.tick, in[0], in[1], in[2], in[3]);
+      if (getenv("SIM_HASH_AT") && S.tick == atoi(getenv("SIM_HASH_AT"))) printf("tick %d hash %u\n", S.tick, S.hash);
     }
     fclose(f);
-    printf("recorded %d ticks, chains %d, winner %d\n", S.tick, S.chains, S.winner);
+    int kos = 0;
+    for (int i = 0; i < MAXP; i++) kos += S.p[i].kos;
+    printf("recorded %d ticks, chains %d, winner %d, kos %d, swaps %d\n", S.tick, S.chains, S.winner, kos, S.rev_swaps);
     return 0;
   }
   printf("arena                 contact_s  first_ko_s  self_ko_10s%%  round_s  worst_idle_s  rev_throws  rev_swaps  unsafe_starts  glove_throws\n");

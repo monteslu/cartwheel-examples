@@ -1155,6 +1155,7 @@ static void sim_sounds(void) {
     case EV_THROW: sfx_at(SFX_KICK, e->x, e->y, 0.7f); break;
     case EV_LAND: sfx_at(SFX_THUD, e->x, e->y, 0.6f); break;
     case EV_SWAP: sfx_at(SFX_UNLOCK, e->x, e->y, 1); break;
+    case EV_HURRY: sfx(SFX_ALARM, 0.8f); break;
     default: break;
     }
   }
@@ -2030,6 +2031,10 @@ static void draw_hud(float W, float H, float s) {
   }
   snprintf(buf, sizeof buf, "ROUND %d", G.round);
   text(buf, tr.x - 20 * s, tr.y + tr.h + 4 * s, 14 * s, rgba(1, 0.95f, 0.85f, 0.85f), CW_ALIGN_CENTER, tr.w + 40 * s);
+  if (G.S.hurry_tick && G.S.tick - G.S.hurry_tick < 150 && !G.S.over_tick) {
+    float a = cw_clampf((150 - (G.S.tick - G.S.hurry_tick)) / 30.0f, 0, 1), p = 1 + 0.08f * cw_sin(G.ticks * 0.3f);
+    bold("HURRY UP!", 0, H * 0.4f, 64 * s * p, rgba(1, 0.75f, 0.2f, a), CW_ALIGN_CENTER, W);
+  }
   if (sd && G.S.tick - G.S.round_ticks < 150) {
     float a = cw_clampf((150 - (G.S.tick - G.S.round_ticks)) / 30.0f, 0, 1), p = 1 + 0.08f * cw_sin(G.ticks * 0.3f);
     bold("SUDDEN DEATH!", 0, H * 0.4f, 64 * s * p, rgba(1, 0.35f, 0.2f, a), CW_ALIGN_CENTER, W);

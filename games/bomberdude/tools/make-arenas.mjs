@@ -31,7 +31,7 @@ const THEMES = ['MEADOW', 'FROST', 'FORGE', 'TEMPLE', 'CANDY', 'NEON', 'PIRATE',
 
 const ARENAS = [
   {
-    title: 'Clover Commons', theme: 'MEADOW', blurb: 'A sunny lawn. Nothing up its sleeve.', crate: 64, seed: 11, cpu: 1, cpuLevel: 0, secs: 150,
+    title: 'Clover Commons', theme: 'MEADOW', blurb: 'A sunny lawn. Nothing up its sleeve.', crate: 58, seed: 11, cpu: 1, cpuLevel: 0, secs: 150,
     layout: `
 ###############
 #1.?????????.4#

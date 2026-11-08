@@ -136,7 +136,7 @@ static int pick_item(sim *s, int theme) {
   /* about a third of the crates hide something; candy crates are generous */
   int chance = theme == TH_CANDY ? 50 : 36;
   if (rnd_n(s, 100) >= chance) return PU_NONE;
-  static const int W[PU_KINDS] = { 0, 26, 26, 15, 9, 5, 6, 8, 5 };
+  static const int W[PU_KINDS] = { 0, 26, 26, 15, 9, 5, 6, 8, 2 };
   int r = rnd_n(s, 100);
   for (int k = 1; k < PU_KINDS; k++) {
     if (r < W[k]) return k;
@@ -684,6 +684,13 @@ static void hazards(sim *s) {
   if (s->theme == TH_DESERT) {
     if (s->storm > 0) s->storm--;
     else if (s->tick % 900 == 600) s->storm = 360;
+  }
+  /* hurry up: with riders a two-player end game can dodge on for minutes in an open arena, so once only two
+   * of three or four are standing the clock drops to HURRY_TICKS (sudden death after it) */
+  if (s->revenge && s->nplayers > 2 && !s->hurry_tick && s->over_tick == 0 && sim_alive(s) == 2 && s->round_ticks - s->tick > HURRY_TICKS) {
+    s->round_ticks = s->tick + HURRY_TICKS;
+    s->hurry_tick = s->tick;
+    event(s, EV_HURRY, GW / 2, GH / 2, -1, -1);
   }
   /* sudden death */
   if (s->tick >= s->round_ticks && s->over_tick == 0 && s->sd_index < s->sd_count && (s->tick - s->round_ticks) % SD_STEP == 0) {

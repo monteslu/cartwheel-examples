@@ -148,25 +148,25 @@
         0
       ],
       "round.tick": 1701,
-      "round.chains": 1,
-      "round.picked": 6,
+      "round.chains": 5,
+      "round.picked": 9,
       "round.placed": [
-        12,
-        10,
+        13,
+        18,
         0,
         0
       ],
       "players.pos": [
-        781,
-        1408,
-        1768,
-        2432,
+        896,
+        1037,
+        896,
+        1146,
         0,
         0,
         0,
         0
       ],
-      "sim.hash": 2074098157,
+      "sim.hash": 567628671,
       "round.alive": 2
     },
     "controlInput": "bomberdude-round-p2idle.json",
@@ -185,7 +185,7 @@
   {
     "name": "bomberdude-auto",
     "app": "bomberdude_auto",
-    "frames": 2700,
+    "frames": 6400,
     "maxGt16": 0.05,
     "fields": [
       "game.state",
@@ -218,22 +218,22 @@
     "expect": {
       "game.state": 5,
       "round": 1,
-      "round.winner": 0,
+      "round.winner": 2,
       "match.wins": [
+        0,
+        0,
         1,
-        0,
-        0,
         0
       ],
       "round.kos": [
         0,
         0,
-        0,
-        1
+        2,
+        0
       ],
-      "sim.hash": 2881232325
+      "sim.hash": 21549866
     },
-    "controlFrames": 2300,
+    "controlFrames": 6000,
     "webgpu": {
       "vsGl": 0.25,
       "maxGt16": 0.05,
@@ -244,7 +244,7 @@
       ],
       "note": "WebGPU on every host: the same dual cart on romdev and Chromium against native WebGPU."
     },
-    "note": "BomberDude (games/bomberdude): the rules are integer only (sim.c), so the named state must match exactly on every host; pixels within the usual tolerance (sub-pixel grass blades and particles). The menus played by the compiled-in pad script, then four CPUs (the _auto build plays player 1 itself) to a round winner; runs on input-free hosts too."
+    "note": "BomberDude (games/bomberdude): the rules are integer only (sim.c), so the named state must match exactly on every host; pixels within the usual tolerance (sub-pixel grass blades and particles). The menus played by the compiled-in pad script, then four CPUs (the _auto build plays player 1 itself) to a round winner (knocked-out CPUs ride the rim; two left standing, the clock drops to 30 s); runs on input-free hosts too."
   },
   {
     "name": "bomberdude-neon",
@@ -283,8 +283,8 @@
     "expect": {
       "game.state": 4,
       "game.arena": 6,
-      "twist.belt_moves": 705,
-      "sim.hash": 3626739971
+      "twist.belt_moves": 937,
+      "sim.hash": 1159750680
     },
     "controlInput": "bomberdude-frost.json",
     "webgpu": {
@@ -336,8 +336,8 @@
     "expect": {
       "game.state": 4,
       "game.arena": 2,
-      "twist.slides": 2,
-      "sim.hash": 3448193767
+      "twist.slides": 131,
+      "sim.hash": 1872857120
     },
     "controlInput": "bomberdude-neon.json",
     "webgpu": {
@@ -397,10 +397,10 @@
       "round.placed": [
         0,
         2,
-        2,
-        2
+        1,
+        1
       ],
-      "sim.hash": 253097767
+      "sim.hash": 955126304
     },
     "controlInput": "bomberdude-idle.json",
     "webgpu": {
@@ -458,7 +458,7 @@
         4,
         4
       ],
-      "sim.hash": 3375757602
+      "sim.hash": 2738860771
     },
     "controlInput": "bomberdude-start.json",
     "webgpu": {
@@ -516,14 +516,14 @@
         4
       ],
       "players.pos": [
-        640,
+        790,
         384,
-        3200,
+        3204,
         2944,
-        640,
+        384,
+        2386,
         2944,
-        3456,
-        640
+        1384
       ],
       "round.placed": [
         1,
@@ -531,7 +531,7 @@
         1,
         1
       ],
-      "sim.hash": 4271964199
+      "sim.hash": 1180036496
     },
     "controlInput": "bomberdude-idle.json",
     "webgpu": {

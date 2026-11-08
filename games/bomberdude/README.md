@@ -70,7 +70,8 @@ A) is a round straight away: you and three CPUs on Clover Commons.
   first bomb dropped at the start always has a corner to hide round (tools/sim-stats.c counts starts without one: 0).
 - Battle: a knocked-out critter climbs onto the rim wall and rides it (the stick, along each side), throwing a bomb
   in with the bomb button every 2.5 seconds; it lands three tiles in, or bounces on to the next open tile. A rider
-  whose bomb knocks someone out drops back in where they stood, and they go up on the wall. The screen tells a person
+  whose bomb knocks someone out drops back in where they stood, and they go up on the wall. With three or four
+  players, once only two are standing the clock drops to 30 seconds (HURRY UP!), then sudden death. The screen tells a person
   just knocked out how. Every arena is open in Battle from the start; Adventure opens its stages in order.
 - The glove power-up: the action button throws the bomb underfoot, or the one just ahead, three tiles the way you push.
 - Touch: one tap starts QUICK BATTLE; the stick walks and corners, BOMB

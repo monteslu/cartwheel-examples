@@ -122,6 +122,7 @@ typedef struct sim {
   int belt_moves, slides;      /* twist counters (gates) */
   bool revenge;                /* knocked-out players ride the rim (Battle): set after sim_load */
   int rev_throws, rev_swaps;   /* this round (gates) */
+  int hurry_tick;              /* revenge, three or four players: when only two were left standing and the clock jumped to HURRY_TICKS left (0: not yet) */
   uint32_t hash;
   /* the CPUs' and the danger preview's view of the state, rebuilt by
    * sim_refresh after every change (sim_load, sim_step, sim_force_bomb):
@@ -138,6 +139,7 @@ enum {
   EV_CANNON_WARN, EV_CANNON, EV_SD_WALL, EV_ITEM_BURN, EV_STEP,
   EV_THROW, /* a rider throws: x, y its rim tile, a = who, b = the bomb */
   EV_LAND,  /* a thrown bomb lands: x, y, a = owner, b = the bomb */
+  EV_HURRY, /* two left standing: the clock jumps to HURRY_TICKS before sudden death */
   EV_SWAP   /* a rider's bomb knocked someone out: x, y, a = the rider (back in), b = who it hit */
 };
 
@@ -168,6 +170,7 @@ void sim_refresh(sim *s); /* rebuilds bomb_at and danger: after any change to th
 uint32_t sim_rand(sim *s);
 void sim_force_bomb(sim *s, int cx, int cy, int range); /* dev aid */
 #define RIM_LEN ((2 * (GW - 2) + 2 * (GH - 2)) * SUB) /* the loop a rider goes round, sub units */
+#define HURRY_TICKS 1800 /* revenge: the time left once only two are standing (it never adds time) */
 #define THROW_COOL 150 /* ticks between one rider's throws */
 #define THROW_IN 3     /* a thrown bomb lands this many tiles in from the rim, or bounces on to the next open tile */
 bool sim_can_act(const sim *s, int who); /* alive, or a rider whose next throw is ready */
