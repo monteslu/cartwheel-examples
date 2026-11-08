@@ -445,13 +445,14 @@ static void build_goals(cw_node root) {
 
 /* ── boost pads ─────────────────────────────────────────────────────── */
 
-#define PAD_GLOW 6.0f
+#define PAD_GLOW 2.4f
 
 static void build_pads(cw_node root, const sim *s) {
-  /* a full pad glows hot orange past the bloom's threshold, so it reads across the pitch by day; an empty one is a
-   * dark steel ring with no glow at all: full and empty tell apart at a glance */
-  t3_material *lit = phys(lin(1, 0.5f, 0.08f), 0.3f, 0);
-  lit->emissive = lin(1, 0.42f, 0.04f);
+  /* a full pad glows a saturated orange (bright enough to bloom, not so bright the tone map bleaches it to cream), so
+   * it reads across the pitch by day; an empty one is a dark steel ring with no glow at all: full and empty tell apart
+   * at a glance */
+  t3_material *lit = phys(lin(0.9f, 0.3f, 0.03f), 0.3f, 0);
+  lit->emissive = lin(1, 0.3f, 0.02f);
   lit->emissive_intensity = PAD_GLOW;
   W.pad_lit_mat = lit;
   t3_retain(lit);
