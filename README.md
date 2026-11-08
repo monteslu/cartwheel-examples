@@ -145,7 +145,7 @@ on four long maps (a tower-to-tower asteroid in space with teleports up the
 towers and a drive off the roof, a red canyon, two dams across a flooded
 canyon with a broken bridge to jump, and a low-gravity orbital foundry) with
 team-colour outlines, king of
-the mountain, and assault after UT99's: one team storms a fortress stage by
+the mountain, and assault: one team storms a fortress stage by
 stage (blow the gates, break the targets, hold the zones, get out) while the
 other holds it with gun nests, then they swap and the second attack has to
 beat the first one's time. Four assault maps: a beach landing up a sea cliff,
@@ -155,7 +155,9 @@ for the combo), rocket pods and a rail lance to the item boxes. One player
 against seven CPU drivers, or two to four on a split
 screen, one pad each. A pad that joined and then does nothing for five
 seconds on the ride pick does not hold the race: P1's READY! button turns to
-START NOW and the idle seat sits the race out. `games/racer/`
+START NOW and the idle seat sits the race out. The race ends 40 seconds after
+the first person over the line (with nobody racing, the first kart), so a
+slow newcomer is never cut off because the computer field is home. `games/racer/`
 
 ### spout
 
@@ -287,6 +289,12 @@ node tests/gate.mjs bikemesa-ride derby-auto          # some gates, every host t
 [testing guide](https://github.com/monteslu/cartwheel-engine/blob/main/docs/guides/testing.md)
 covers the hosts (native, Chromium, wasmcart-native, romdev), the test GPU
 settings it expects in `~/.config/cartwheel/`, and the gate format.
+
+The newcomer gates (`tests/<game>-newcomer.mjs`, and `tests/racer-slow-finish.mjs`)
+play a game's built cart through romdev on GL and WebGPU the way a first-time
+player would: only by what the screen shows, slowly, and beside a second pad
+that joined and then sits idle. AGENTS.md describes what every game needs from
+them.
 
 Without GPU hardware, `CW_TEST_GPU=software` runs on Mesa's software
 renderers (llvmpipe for GL, lavapipe for WebGPU), as CI does:

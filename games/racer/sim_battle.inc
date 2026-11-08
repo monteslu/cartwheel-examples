@@ -1352,7 +1352,7 @@ static void as_half_start(sim *s) {
   s->battle_left = s->battle_limit;
 }
 
-/* the match's winner once the second half is over (UT99's rule: only breaking through counts, never the objectives short
+/* the match's winner once the second half is over (the rule: only breaking through counts, never the objectives short
  * of it). The second attackers through in their time (which is the first's): theirs. Not through: the first attackers' if
  * they were, a draw if neither was */
 static int as_winner(const sim *s) {

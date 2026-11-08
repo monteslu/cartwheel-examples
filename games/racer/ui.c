@@ -822,7 +822,8 @@ static void draw_battle_results(float W, float H, float s);
 /* sw idle_wait <0|1>: the newcomer gate's control (ui_screens.inc) */
 static void cmd_sw(int argc, const char **argv, cw_reply *r) {
   if (argc > 2 && !strcmp(argv[1], "idle_wait")) sw_idle_wait = atoi(argv[2]);
-  cw_reply_printf(r, "{\"idle_wait\":%d}", sw_idle_wait);
+  if (argc > 2 && !strcmp(argv[1], "dnf_any")) sim_dnf_any = atoi(argv[2]);
+  cw_reply_printf(r, "{\"idle_wait\":%d,\"dnf_any\":%d}", sw_idle_wait, sim_dnf_any);
 }
 
 void ui_init(void) {
@@ -884,7 +885,8 @@ void ui_init(void) {
   cw_debug_i32("ui.pending", &U.pending);
   cw_debug_i32("ui.sel", &U.sel);
   cw_debug_i32("ui.humans", &U.setup.humans);
-  cw_debug_command("sw", "sw idle_wait <0|1>: 1 = the ride pick waits for every seat, an idle one too (control)", cmd_sw);
+  cw_debug_i32("ui.map", &U.map); /* the map the map pick has selected (a save remembers the last one) */
+  cw_debug_command("sw", "sw idle_wait <0|1>: 1 = the ride pick waits for every seat, an idle one too (control); sw dnf_any <0|1>: 1 = a race ends 40 s after the first kart home, a computer one too (control)", cmd_sw);
   cw_debug_field("save.version", &SAVE.version, CW_DBG_U16, 1);
   cw_debug_i32("save.migrated", &save_migrated);
   cw_debug_field("save.size", &SAVE.size, CW_DBG_U16, 1);

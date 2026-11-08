@@ -5826,5 +5826,25 @@
     "name": "pugball-newcomer",
     "script": "tests/pugball-newcomer.mjs",
     "note": "pugball through romdev, GL and WebGPU, by the pad and only what the screen shows: the first kickoff teaches how to drive (the throttle is on the triggers) and P1 reaches the cat, alone and with a second pad that joined on the team sheet and idles (split screen: the line in both views). Control: sw split_how 0 (the line left out of split screen, as before) leaves P1, pushing the stick as anyone tries first, short of the cat."
+  },
+  {
+    "name": "bikemesa-newcomer",
+    "script": "tests/bikemesa-newcomer.mjs",
+    "note": "bikemesa through romdev, GL and WebGPU, by the screen's prompts: alone to the results, and with a second pad that joined the rider pick and idles (P1 starts now, the idle seat sits the race out). Control: sw idle_wait 1 keeps P1 on the pick."
+  },
+  {
+    "name": "derby-newcomer",
+    "script": "tests/derby-newcomer.mjs",
+    "note": "derby through romdev, GL and WebGPU: the controls hint stays up until each player gives it gas, on one screen and in every split view, with a second pad joined and idle. Control: sw hint_countdown 1 (the hint only during the countdown, none in split screen)."
+  },
+  {
+    "name": "racer-newcomer",
+    "script": "tests/racer-newcomer.mjs",
+    "note": "racer through romdev, GL and WebGPU, by the screen's prompts: a race starts alone, and in split screen with a second pad that joined and idles (P1's START NOW, the idle seat sits the race out). Control: sw idle_wait 1 keeps P1 on the ride pick."
+  },
+  {
+    "name": "racer-slow-finish",
+    "script": "tests/racer-slow-finish.mjs",
+    "note": "racer through romdev, GL and WebGPU: a newcomer who sits at the lights for two and a half minutes, then holds the gas steered by the assist alone, finishes the first race though the computer field was home more than 40 s before. Control: sw dnf_any 1 (40 s after the first kart home, a computer one too) ends the race with the player short of the line."
   }
 ]

@@ -27,6 +27,8 @@
 #include "arena.h"
 #include "game.h"
 
+int sim_dnf_any;
+
 #define DT (1.0f / TICK_HZ)
 
 enum { L_TRACK, L_WALL, L_KART, L_GHOST };
@@ -1826,9 +1828,12 @@ void sim_step(sim *s, const kin in_raw[MAXK]) {
     bool timeout = false;
     if (s->finished_count > 0) {
       int first_finish = 1 << 30;
+      /* the clock that ends the race for the rest starts when a person crosses the line (with nobody racing, the
+         first kart): a newcomer still on the course is never cut off because the computer field has finished */
       for (int i = 0; i < MAXK; i++)
-        if (s->k[i].on && s->k[i].finished && s->k[i].finish_tick < first_finish) first_finish = s->k[i].finish_tick;
-      timeout = s->race_ticks - first_finish > 40 * TICK_HZ;
+        if (s->k[i].on && s->k[i].finished && (s->k[i].human || !any_human || sim_dnf_any) && s->k[i].finish_tick < first_finish)
+          first_finish = s->k[i].finish_tick;
+      timeout = first_finish < (1 << 30) && s->race_ticks - first_finish > 40 * TICK_HZ;
     }
     if ((any_human && all_humans_done) || s->finished_count >= s->nkarts || timeout) {
       s->phase = PH_DONE;

@@ -423,5 +423,8 @@ struct map_def {
 extern const map_def *const MAPS[NMAPS];
 extern const map_def *const ARENAS[NARENAS]; /* the battle arenas (maps.c) */
 extern const map_def map_test; /* the proving ground: RACER_MAP=-1 */
+/* sw dnf_any <0|1>: 1 = a race ends 40 s after the first kart over the line, a computer one too (the newcomer gate's
+   control); 0 (the game) = 40 s after the first person over the line, so nobody still driving is cut off by the field */
+extern int sim_dnf_any;
 
 #endif

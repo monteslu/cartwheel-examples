@@ -1008,6 +1008,7 @@ static void init(void *u) {
   G.a_reset = cw_action_find("reset");
   cw_debug_i32("ticks", &G.ticks);
   cw_debug_i32("race.phase", &G.phase);
+  cw_debug_i32("race.ticks", &G.S.race_ticks); /* ticks since the lights went out */
   cw_debug_field("karts.boxes", G.boxes, CW_DBG_I32, MAXK); /* item boxes taken */
   cw_debug_i32("race.loaded", &G.loaded);
   cw_debug_i32("views", &G.views);
