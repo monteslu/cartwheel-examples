@@ -69,7 +69,7 @@ async function exhibition(backend, ctl) {
 async function match(backend, pre, stadium = 1) {
   await load(backend, pre);
   await cmd(`stadium ${stadium}`);
-  for (let f = 0; f < 120 && +(await rd('game.state')) !== 3; f += 10) await step(10);
+  for (let f = 0; f < 900 && +(await rd('game.state')) !== 3; f += 10) await step(10); // (a cold first load takes longer)
 }
 
 async function kickoff(backend, ctl) {
