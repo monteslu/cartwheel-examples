@@ -805,6 +805,18 @@ static void begin_cup(int stadium) {
 /* ── debug channel ──────────────────────────────────────────────────── */
 
 static int pending_stadium = -1;
+/* split screen's first kickoff: the views that showed their player how to
+ * drive this frame (hud.how_views); sw split_how 0 leaves the line out of
+ * split screen, as the game once did (the control of tests/pugball-newcomer.mjs) */
+static int32_t how_views, split_how = 1;
+static void cmd_sw(int argc, const char **argv, cw_reply *r) {
+  if (argc < 3 || strcmp(argv[1], "split_how")) {
+    cw_reply_error(r, "usage: sw split_how <0|1>");
+    return;
+  }
+  split_how = atoi(argv[2]) != 0;
+  cw_reply_printf(r, "{\"split_how\":%d}", (int)split_how);
+}
 /* bind <action> <bindings>: replace an action's bindings (cartwheel/input.h
  * binding text, "pad:north, key:v"), as a player rebinding a control would;
  * every prompt shows the new binding from that frame (tests of the prompts) */
@@ -1020,6 +1032,8 @@ static void init(void *u) {
   cw_debug_bytes("save.bytes", &SAVE, sizeof SAVE);
   cw_debug_i32("save.migrated", &dbg_migrated);
   cw_debug_command("stadium", "stadium <1..5>: an exhibition there now", cmd_stadium);
+  cw_debug_i32("hud.how_views", &how_views); /* split screen: the views showing the controls this frame */
+  cw_debug_command("sw", "sw split_how <0|1>: the controls line in each split-screen view at the first kickoff (0: left out, as before)", cmd_sw);
   cw_debug_command("bind", "bind <action> <bindings>: replace an action's bindings (binding text, as input.cfg writes it)", cmd_bind);
   cw_debug_command("camtrace2", "camtrace2 [0|1]: log the drawn camera and the pug's screen place every frame", cmd_camlog);
   cw_tree_add_hook(cw_scene_app_tree(), 2, 10, cam_log, NULL); /* after the nodes write their objects */
@@ -2357,6 +2371,16 @@ static void prompt_line_for(const char *s, int player, float W, float y, float s
   ptext(s, player, 0, y, size, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, W);
 }
 static void prompt_line(const char *s, float W, float y, float size) { prompt_line_for(s, 0, W, y, size); }
+/* a prompt line centred in the column x .. x + w, its text from y down
+ * (a split-screen view's own line) */
+static void prompt_line_in(const char *s, int player, float x, float w, float y, float size) {
+  cw_font f = ui_font(size);
+  float drawn = cw_text_drawn_size(f, size), padx = drawn * 0.8f, pady = drawn * 0.3f;
+  s = prompt_wrap(s, player, size, w - 2 * padx - w * 0.04f);
+  cw_vec2 m = psize(f, s, player, size);
+  round_rect(cw_rect_make(x + w * 0.5f - m.x * 0.5f - padx, y - pady, m.x + 2 * padx, m.y + 2 * pady), drawn * 0.7f, rgba(0.06f, 0.04f, 0.12f, 0.55f));
+  ptext(s, player, x, y, size, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, w);
+}
 /* a prompt line whose chip ends at bottom */
 static void prompt_line_above_for(const char *s, int player, float W, float bottom, float size) {
   float pady = cw_text_drawn_size(ui_font(size), size) * 0.3f;
@@ -2884,6 +2908,7 @@ static void minimap(cw_rect r, float s) {
 /* one human's corner of the HUD in its view: the boost gauge and which
  * camera it has at the bottom, its name at the top, on the view's outer side
  * (clear of the scoreboard where the views meet) */
+static bool view_how; /* the view shows the controls line (its camera chip steps aside) */
 static void view_hud(int i, float W, float s) {
   const sim *S = &G.S;
   char buf[16];
@@ -2897,11 +2922,16 @@ static void view_hud(int i, float W, float s) {
   const char *cam = bc ? "BALL CAM" : "CAR CAM";
   float ch = measure(cam, 14 * s).height, cy = gy - r * 1.12f - ch - 8 * s, cw2 = measure(cam, 14 * s).width;
   float ccx = left ? fmaxf(gx, HV.x + cw2 * 0.5f + 20 * s) : fminf(gx, HV.x + HV.w - cw2 * 0.5f - 20 * s); /* the chip stays in its view */
-  chip(cam, ccx, cy, 14 * s, 1);
-  text(cam, ccx - cw2, cy, 14 * s, bc ? rgba(1, 0.85f, 0.35f, 1) : rgba(0.75f, 0.9f, 1, 1), CW_ALIGN_CENTER, 2 * cw2);
+  if (!view_how) {
+    chip(cam, ccx, cy, 14 * s, 1);
+    text(cam, ccx - cw2, cy, 14 * s, bc ? rgba(1, 0.85f, 0.35f, 1) : rgba(0.75f, 0.9f, 1, 1), CW_ALIGN_CENTER, 2 * cw2);
+  }
   if (left) text(buf, HV.x + 12 * s, HV.y + 8 * s, 22 * s, tc, CW_ALIGN_LEFT, 0);
   else text(buf, HV.x, HV.y + 8 * s, 22 * s, tc, CW_ALIGN_RIGHT, HV.w - 12 * s);
 }
+
+/* the controls, as the first kickoff shows them (each player's own glyphs) */
+#define HOW_PAD "{thr_fwd} go   {thr_back} back   {steer_l|steer_r} steer   {jump} jump   {boost} boost   {slide} powerslide   {ballcam} ball cam"
 
 static void draw_hud(float W, float H, float s) {
   const sim *S = &G.S;
@@ -2909,6 +2939,7 @@ static void draw_hud(float W, float H, float s) {
   const cw_view *vs = NULL;
   int nv = G.nviews ? cw_pipeline_views(cw_pipeline_of(cw_scene_app_tree()), &vs) : 0;
   bool split = nv >= 2 && (G.state == GS_MATCH || G.state == GS_PAUSE);
+  how_views = 0;
   if (split) {
     /* each view: its own pug's chevron, the cat's edge arrow, its corner of
      * the HUD and, at a kickoff, the countdown */
@@ -2921,13 +2952,22 @@ static void draw_hud(float W, float H, float s) {
       HV.corner = view_corner(W, s);
       if (!S->p[i].dead) marker(v3add(S->p[i].p, (t3_vec3){ 0, 1.15f, 0 }), buf, tc, W, H, s, true);
       marker(S->ball, "CAT", rgba(1, 0.68f, 0.3f, 1), W, H, s, false);
+      view_how = S->phase == PH_KICKOFF && S->tick < 200 && split_how && G.state == GS_MATCH;
       view_hud(i, W, s);
+      view_how = false;
       float vk = HV.h / H; /* the view's share of the height */
       if (S->phase == PH_KICKOFF) {
         int n = 3 - S->phase_ticks / 60;
         float f = (S->phase_ticks % 60) / 60.0f, pop = 1 + 0.35f * (1 - f) * (1 - f);
         snprintf(buf, sizeof buf, "%d", n < 1 ? 1 : n);
         digits(buf, HV.x, HV.y + HV.h * 0.2f, 96 * s * vk * pop, rgba(1, 0.9f, 0.4f, 1 - f * 0.3f), CW_ALIGN_CENTER, HV.w);
+        /* the first kickoff: how to drive, for this view's player (the
+         * throttle is on the triggers, not the stick: nobody guesses it),
+         * under the countdown and clear of the shared scoreboard and gauges */
+        if (S->tick < 200 && split_how && G.state == GS_MATCH) { /* the camera chip stepped aside for it */
+          prompt_line_in(HOW_PAD, G.human_of[i], HV.x, HV.w, HV.y + HV.h * 0.5f, 16 * s);
+          how_views++;
+        }
       } else if (S->phase == PH_PLAY && S->phase_ticks < 50 && S->tick > 200) {
         float f = S->phase_ticks / 50.0f;
         bold("GO!", HV.x, HV.y + HV.h * 0.16f, 110 * s * vk * (1 + 0.3f * (1 - f)), rgba(1, 0.75f, 0.2f, 1 - f), CW_ALIGN_CENTER, HV.w);
@@ -3027,9 +3067,9 @@ static void draw_hud(float W, float H, float s) {
     text(G.feed, fx, fy, 16 * s, rgba(1, 0.85f, 0.6f, a), CW_ALIGN_CENTER, fw);
   }
   if (S->phase == PH_KICKOFF && S->tick < 200 && !split) {
-    const char *how = on_touch() ? "left thumb: steer and go   right thumb: jump, boost, slide"
-                                 : "{thr_fwd} go   {thr_back} back   {steer_l|steer_r} steer   {jump} jump   {boost} boost   {slide} powerslide   {ballcam} ball cam";
+    const char *how = on_touch() ? "left thumb: steer and go   right thumb: jump, boost, slide" : HOW_PAD;
     prompt_line_above(how, W, H - 10 * s, 16 * s);
+    how_views = 1;
   }
 }
 

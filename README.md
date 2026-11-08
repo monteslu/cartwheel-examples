@@ -110,7 +110,11 @@ players share the screen, one pad each: pads 2-4 join on the team sheet and
 pick their side, and CPUs fill the other slots. Two players split the screen
 top and bottom, three or four take its quarters (with three, the last
 quarter holds the score, the clock and a mini map of the pitch). Each player
-has a chase camera with its own ball cam and boost gauge. The sun casts
+has a chase camera with its own ball cam and boost gauge. The first kickoff
+shows how to drive (the throttle is on the triggers) under the countdown, in
+every player's view with that player's own buttons, alone or split (gate
+`pugball-newcomer`: a newcomer reaches the cat with a second pad joined and
+idle; the control, `sw split_how 0`, leaves the line out). The sun casts
 cascaded shadows; at night the floodlight ring lights the pitch (clustered
 spot lights, the corner pylons casting shadows). The goal nets are cloth that
 billows when the cat hits them, and the stands ring with each stadium's

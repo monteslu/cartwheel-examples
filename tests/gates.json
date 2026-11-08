@@ -5821,5 +5821,10 @@
     "name": "pugball-save-migration",
     "script": "tests/pugball-save-migration.mjs",
     "note": "pugball: an older save still loads with its contents and the text settings at their defaults; a saved text size of 200% with the panel background comes back; a damaged save starts fresh; an empty save too"
+  },
+  {
+    "name": "pugball-newcomer",
+    "script": "tests/pugball-newcomer.mjs",
+    "note": "pugball through romdev, GL and WebGPU, by the pad and only what the screen shows: the first kickoff teaches how to drive (the throttle is on the triggers) and P1 reaches the cat, alone and with a second pad that joined on the team sheet and idles (split screen: the line in both views). Control: sw split_how 0 (the line left out of split screen, as before) leaves P1, pushing the stick as anyone tries first, short of the cat."
   }
 ]
