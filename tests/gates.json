@@ -5851,12 +5851,12 @@
   {
     "name": "chromite-rules",
     "script": "tests/chromite-rules.mjs",
-    "note": "chromite natively on GL: one GAME OVER on the results card (control sw double_over 1 draws two); modern rules, an enemy that gets past costs score and the chain, never a ship (control sw rules 1, classic, spends ships); the chain and point-blank kills pay more than flat kills on the fight script (control sw no_chain 1); a boss that falls holds the fight 3 ticks, rumbles and turns its fire into score chips (control never fires); a boss at 45% has lost three of six plates and charges its second attack (control unhurt); the super bomb cancels rounds into chips (control armed only)."
+    "note": "chromite natively on GL: one GAME OVER on the results card (control sw double_over 1 draws two); under the modern rules {fire} on the card continues the run (control classic: the title); modern rules, an enemy that gets past costs score and the chain, never a ship (control sw rules 1, classic, spends ships); the chain and point-blank kills pay more than flat kills on the fight script (control sw no_chain 1); a boss that falls holds the fight 3 ticks, rumbles and turns its fire into score chips (control never fires); a boss at 45% has lost three of six plates and charges its second attack (control unhurt); the super bomb cancels rounds into chips (control armed only)."
   },
   {
     "name": "chromite-newcomer",
     "script": "tests/chromite-newcomer.mjs",
-    "note": "chromite through romdev, GL and WebGPU: a newcomer launches from the title prompt beside a second pad that pressed Start and idles, and plays level 1 by the screen alone (it slides under the lowest chrome shape, holds fire and sidesteps the magenta and cyan rounds it sees coming) to level 2. Control: sw rules 1 (classic: every enemy that gets past costs a ship) leaves it short of level 2."
+    "note": "chromite through romdev, GL and WebGPU: a newcomer launches from the title prompt beside a second pad that pressed Start and idles, and plays level 1 by what the world draws (view.enemies, view.rounds: it slides under the lowest craft, holds fire and sidesteps rounds coming down its column, looking every 10 frames), taking the card's continue when its ships run out, to level 2. Control: sw rules 1 (classic: every enemy that gets past costs a ship) leaves it short of level 2."
   },
   {
     "name": "racer-slow-finish",

@@ -167,6 +167,7 @@ typedef struct sim {
 } sim;
 
 void sim_new_game(sim *S, int level, float base_skill, uint32_t seed, int rules);
+void sim_continue(sim *S);           /* modern rules: play on from where the last ship went */
 void sim_last_ship_down(sim *S);     /* the die debug command: the last ship goes now */
 int sim_multiplier10(const sim *S); /* the score multiplier now, in tenths (10 = x1.0) */
 extern int sim_sw_no_chain;          /* sw no_chain 1: kills score flat, as the original (a control) */

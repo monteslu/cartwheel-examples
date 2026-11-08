@@ -801,12 +801,17 @@ static void fixed(void *u, double dt) {
 #ifdef CHROMITE_AUTOPILOT
     if (G.state_ticks > 420) new_game(1);
 #endif
-    /* modern rules, after a death: {fire} continues from the start of this level (the score starts again; the
+    /* modern rules, after a death: {fire} continues where the run ended (the score starts again; the
      * high score table already has this run), {back} or Start goes to the title. Classic: any press, the title. */
     bool can_continue = can_continue_now();
     if (G.state_ticks > 60 && can_continue && (pressed(G.a_fire) || (mouse_clicked && input_mode == DEV_TOUCH))) {
       G.continues++;
-      new_game(G.S.level);
+      sim_continue(&G.S);
+      G.prev = G.S;
+      G.state = GS_PLAY;
+      G.state_ticks = 300; /* no level banner again */
+      G.pb_ticks = G.esc_ticks = 0, G.esc_cost = G.esc_last = 0;
+      music(1);
     } else if (G.state_ticks > 60 && (pressed(G.a_start) || (!can_continue && (pressed(G.a_fire) || mouse_clicked)) || (can_continue && (pressed(G.a_back) || mouse_right_clicked)))) {
       G.state = GS_TITLE;
       G.state_ticks = 0;
@@ -1238,7 +1243,7 @@ static void draw_over(float W, float H, float s) {
     spaced(b, 0, y, 16 * s, rgba(1, 0.7f, 0.5f, a), CW_ALIGN_CENTER, W);
     y += spaced_size(b, 16 * s).y + 6 * s;
   }
-  const char *p = can_continue_now() ? (prompt_touch() ? "tap to continue from this level" : "{fire} : continue from this level      {back} : title")
+  const char *p = can_continue_now() ? (prompt_touch() ? "tap to continue" : "{fire} : continue      {back} : title")
                                      : prompt_touch() ? "tap to continue" : "press {fire} to continue";
   float ph = pspaced_block(p, 16 * s, 0, 16 * s, rgba(1, 1, 1, 1), W - 32 * s, false);
   pspaced_block(p, 16 * s, fmaxf(y + 10 * s, fminf(H * 0.82f, H - 8 * s - ph)), 16 * s, rgba(0.5f, 0.56f, 0.72f, a * 0.8f), W - 32 * s, true);

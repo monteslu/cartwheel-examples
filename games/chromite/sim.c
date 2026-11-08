@@ -174,6 +174,22 @@ static void hero_damage(sim *S, float d) {
   }
 }
 
+/* a continue (modern rules): the ship comes back where the run ended, with three ships and the score from zero;
+ * the fight carries on (the rounds in flight are gone, so it does not die on arrival) */
+void sim_continue(sim *S) {
+  if (S->mode != PLAY_DEAD) return;
+  memset(S->eb, 0, sizeof S->eb);
+  hero_reset(S);
+  S->h.lives = 2;
+  S->h.dont_show = 60;
+  S->score = 0;
+  S->next_life = LIFE_SCORE;
+  S->chain = S->chain_timer = 0;
+  S->hero_death = 0;
+  S->mode = PLAY_ON;
+  S->mode_ticks = 0;
+}
+
 void sim_last_ship_down(sim *S) {
   S->h.lives = 0;
   S->h.shields = 0;

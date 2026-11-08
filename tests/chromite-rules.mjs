@@ -3,6 +3,8 @@
 //               control sw double_over 1 (the dying HUD's own GAME OVER under the card, as it once was) draws two
 //   modern      a pilot who never fires lets the first waves through: they cost score and the chain, never a ship
 //               (escapes > 0, losses 0); control sw rules 1 (classic, the original's rule) spends ships
+//   continue    modern rules: {fire} on the results card plays on from where the last ship went (3 ships, the score from
+//               zero); control: classic, the same press goes to the title
 //   chain       the autopilot's first 40 s score more with the chain than with flat kills (sw no_chain 1, the control), and
 //               the chain grows past 3
 //   boss        a command craft brought up and finished (`boss`, `boss low`): the fight holds 3 ticks, the pad rumbles,
@@ -38,6 +40,14 @@ const over = run('over', 440, { input: 'chromite-start.json', cmds: ['@120 die']
 check('game over: one GAME OVER on the card', over['game.state'] === 4 && over['over.headings'] === 1, `state ${over['game.state']}, headings ${over['over.headings']}`);
 const overCtl = run('over-control', 440, { input: 'chromite-start.json', cmds: ['sw double_over 1', '@120 die'] });
 check('control (sw double_over 1): the card shows two', overCtl['game.state'] === 4 && overCtl['over.headings'] === 2, `state ${overCtl['game.state']}, headings ${overCtl['over.headings']}`);
+
+// a continue: after the last ship goes (frame 120), {fire} on the card (frame 500) plays on where it ended
+const cont = run('continue', 560, { input: 'chromite-continue.json', cmds: ['@120 die'] });
+check('modern: {fire} on the card continues the run', cont['game.state'] === 1 && cont.continues === 1 && cont.lives === 2,
+  `state ${cont['game.state']}, continues ${cont.continues}, lives ${cont.lives}`);
+const contCtl = run('continue-control', 560, { input: 'chromite-continue.json', cmds: ['sw rules 1', '@120 die'] });
+check('control (classic): the same press goes to the title', contCtl['game.state'] === 0 && contCtl.continues === 0,
+  `state ${contCtl['game.state']}, continues ${contCtl.continues}`);
 
 // modern rules: never fire for 40 s; the first waves get past
 const idle = run('modern', 2400, { input: 'chromite-start.json' });
