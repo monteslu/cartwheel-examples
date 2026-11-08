@@ -6,7 +6,8 @@
 // The two-player round (tests/bomberdude-round.json): pads 1 and 2 go
 // through the menus (pad 2 joins, the other slots are switched off, arena
 // 1), then play a round whose moves were recorded from two hard CPUs
-// (BOMBERDUDE_RECORD=out/bb/rec.txt BOMBERDUDE_PLAYERS=2 BOMBERDUDE_CPU_ONLY=1 BOMBERDUDE_ARENA=1);
+// (SIM_RECORD=out/bb/rec.txt SIM_ARENA=1 SIM_PLAYERS=2 build/sim-stats 1 2 1, tools/sim-stats.c: the same
+// rules and CPUs as BOMBERDUDE_RECORD=out/bb/rec.txt BOMBERDUDE_PLAYERS=2 BOMBERDUDE_CPU_ONLY=1 BOMBERDUDE_ARENA=1);
 // it has a chain reaction and power-up pickups in its first 1700 ticks.
 // PLAY_FRAME is the engine frame that runs the round's first tick (measured:
 // run the menu prefix and read round.tick).

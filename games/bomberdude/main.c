@@ -1377,7 +1377,7 @@ static void fixed(void *u, double dt) {
     for (int i = 0; i < MAXP; i++) G.throws_dbg[i] = G.S.p[i].throws, G.riding_dbg[i] = G.S.p[i].ghost && !G.S.p[i].alive;
     G.hint_rider = -1;
     for (int i = 0; i < MAXP; i++)
-      if ((G.slot[i] == SLOT_HUMAN || G.slot[i] == SLOT_KEYS2) && G.S.p[i].ghost && !G.S.p[i].alive && !G.S.over_tick && G.S.tick - G.S.p[i].ko_tick < 360 && !G.ride_hint_off) G.hint_rider = i;
+      if ((G.slot[i] == SLOT_HUMAN || G.slot[i] == SLOT_KEYS2) && G.S.p[i].ghost && !G.S.p[i].alive && !G.S.over_tick && sim_can_act(&G.S, i) && G.S.tick - G.S.p[i].ko_tick < 450 && !G.ride_hint_off) G.hint_rider = i;
     for (int i = 0; i < MAXP; i++) { /* the longest any seat in the round has gone with nothing it can do */
       G.idle[i] = G.S.p[i].on && !sim_can_act(&G.S, i) && !G.S.over_tick ? G.idle[i] + 1 : 0;
       if (G.idle[i] > G.idle_max) G.idle_max = G.idle[i];
@@ -2047,9 +2047,9 @@ static void draw_hud(float W, float H, float s) {
   }
   int rider = -1; /* a person just knocked out: how riding the rim works, for its first six seconds */
   for (int i = 0; i < MAXP && G.state == GS_PLAY && !G.S.over_tick; i++)
-    if ((G.slot[i] == SLOT_HUMAN || G.slot[i] == SLOT_KEYS2) && G.S.p[i].ghost && !G.S.p[i].alive && G.S.tick - G.S.p[i].ko_tick < 360) rider = i;
+    if ((G.slot[i] == SLOT_HUMAN || G.slot[i] == SLOT_KEYS2) && G.S.p[i].ghost && !G.S.p[i].alive && G.S.tick - G.S.p[i].ko_tick >= 90 && G.S.tick - G.S.p[i].ko_tick < 450) rider = i;
   if (rider >= 0) {
-    float a = cw_clampf((360 - (G.S.tick - G.S.p[rider].ko_tick)) / 30.0f, 0, 1);
+    float a = cw_clampf((450 - (G.S.tick - G.S.p[rider].ko_tick)) / 30.0f, 0, 1);
     prompt_line_above(G.ride_hint_off ? "OUT!" : ON_TOUCH ? RIDE_HINT_TOUCH : RIDE_HINT, W, H - 10 * s, 16 * s, a);
   } else if (G.state == GS_PLAY && G.S.tick < 240) {
     const char *how = controls_line();
