@@ -819,6 +819,12 @@ static void draw_battle_results(float W, float H, float s);
 
 /* ── the screen flow ────────────────────────────────────────────────── */
 
+/* sw idle_wait <0|1>: the newcomer gate's control (ui_screens.inc) */
+static void cmd_sw(int argc, const char **argv, cw_reply *r) {
+  if (argc > 2 && !strcmp(argv[1], "idle_wait")) sw_idle_wait = atoi(argv[2]);
+  cw_reply_printf(r, "{\"idle_wait\":%d}", sw_idle_wait);
+}
+
 void ui_init(void) {
   U.device = DEV_PAD; /* until the first frame asks the engine */
   U.a_start = cw_action_find("start");
@@ -877,6 +883,8 @@ void ui_init(void) {
   cw_debug_i32("ui.device", &U.device); /* 0 mouse, 1 pad, 2 keys, 3 touch */
   cw_debug_i32("ui.pending", &U.pending);
   cw_debug_i32("ui.sel", &U.sel);
+  cw_debug_i32("ui.humans", &U.setup.humans);
+  cw_debug_command("sw", "sw idle_wait <0|1>: 1 = the ride pick waits for every seat, an idle one too (control)", cmd_sw);
   cw_debug_field("save.version", &SAVE.version, CW_DBG_U16, 1);
   cw_debug_i32("save.migrated", &save_migrated);
   cw_debug_field("save.size", &SAVE.size, CW_DBG_U16, 1);

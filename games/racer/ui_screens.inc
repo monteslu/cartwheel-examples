@@ -411,10 +411,38 @@ static void assign_humans(int n) {
   for (int i = 0; i < MAXV; i++) cw_input_assign(i, i < n ? U.slot_pad[i] : -1, i == 0 ? (CW_DEVICE_KEYBOARD | CW_DEVICE_MOUSE | CW_DEVICE_TOUCH) : 0);
 }
 
+/* a seat on the ride pick whose pad has pressed nothing for five seconds and is not ready: once P1 is ready, P1's
+ * (A) starts without it (it sits the race out), so a pad that joined and was never played cannot hold the race
+ * back. A seat still picking is waited for. sw idle_wait 1 (the newcomer gate's control) waits for every seat. */
+#define SEAT_IDLE_TICKS 300
+static int seat_still[MAXV]; /* ticks since the seat's pad last pressed anything on the ride pick */
+static int sw_idle_wait;
+static bool seat_idle(int i) { return i > 0 && i < U.setup.humans && !U.ready[i] && seat_still[i] > SEAT_IDLE_TICKS && !sw_idle_wait; }
+static bool idle_seats(void) {
+  for (int i = 1; i < U.setup.humans; i++)
+    if (seat_idle(i)) return true;
+  return false;
+}
+/* the idle seats leave: the rest close up in order and keep their picks */
+static void drop_idle_seats(void) {
+  int n = U.setup.humans, k = 0;
+  for (int i = 0; i < n; i++) {
+    if (seat_idle(i)) {
+      U.joined[U.slot_pad[i]] = false;
+      continue;
+    }
+    U.veh[k] = U.veh[i], U.col[k] = U.col[i], U.ready[k] = U.ready[i], U.veh_anim[k] = U.veh_anim[i], U.veh_dir[k] = U.veh_dir[i];
+    U.pnav[k] = U.pnav[i], U.psel[k] = U.psel[i], seat_still[k] = seat_still[i];
+    k++;
+  }
+  U.setup.humans = k;
+  assign_humans(k);
+}
+
 static void enter_vehicle(int n) {
   U.setup.humans = n;
   unique_colours(n);
-  for (int i = 0; i < n; i++) U.ready[i] = false, U.veh_anim[i] = 30, U.veh_dir[i] = 1;
+  for (int i = 0; i < n; i++) U.ready[i] = false, U.veh_anim[i] = 30, U.veh_dir[i] = 1, seat_still[i] = 0;
   memset(U.pnav, 0, sizeof U.pnav);
   goto_mode(M_VEHICLE);
 }
@@ -669,10 +697,12 @@ static void tick_join(float W, float H) {
 
 static void tick_vehicle(float W, float H) {
   int n = U.setup.humans;
-  bool all = true;
+  bool all = true, go_now = false;
   for (int i = 0; i < n; i++) {
     int hx = (cw_action_pressed(i, U.m_right) ? 1 : 0) - (cw_action_pressed(i, U.m_left) ? 1 : 0);
     int hy = (cw_action_pressed(i, U.m_down) ? 1 : 0) - (cw_action_pressed(i, U.m_up) ? 1 : 0);
+    if (hx || hy || cw_action_pressed(i, U.m_ok) || cw_action_pressed(i, U.a_back)) seat_still[i] = 0;
+    else seat_still[i]++;
     int dx, dy;
     nav_step(&U.pnav[i], hx, hy, &dx, &dy);
     if (U.veh_anim[i] < 60) U.veh_anim[i]++;
@@ -692,7 +722,13 @@ static void tick_vehicle(float W, float H) {
         }
       }
     } else if (cw_action_just_pressed(i, U.a_back)) U.ready[i] = false, sfx_back();
+    else if (i == 0 && (cw_action_just_pressed(0, U.m_ok) || cw_action_just_pressed(0, U.a_start)) && idle_seats()) go_now = true;
     if (!U.ready[i]) all = false;
+  }
+  if (go_now) {
+    sfx_ok();
+    drop_idle_seats();
+    n = U.setup.humans;
   }
   /* the mouse and taps run player 1's panel */
   vlay l;
@@ -1360,7 +1396,7 @@ static void draw_vpanel(int i, int n, float W, float H, float s) {
   /* ready */
   cw_rect rb = SHIFT(l.ready);
   slab(rb, 10 * sp, ready ? LIME : (i == 0 && pointer_mode() && in_rect(N.m, l.ready)) ? alpha(MUSTARD, 0.95f) : alpha(MUSTARD, 0.85f), sp);
-  const char *rl = ready ? "READY!" : (i == 0 ? dev_hint("{m_ok} READY", "{m_ok} READY", "READY", "READY") : "{m_ok} READY");
+  const char *rl = ready ? (i == 0 && idle_seats() ? "{m_ok} START NOW" : "READY!") : (i == 0 ? dev_hint("{m_ok} READY", "{m_ok} READY", "READY", "READY") : "{m_ok} READY");
   prompt_player = i; /* this seat's pad */
   tx_o(U.f_title, rl, rb.x + rb.w * 0.5f + 4 * sp, rb.y + rb.h * 0.5f, 18 * sp, INK, (txopt){ .align = CW_ALIGN_CENTER, .outline = 0.01f, .no_shadow = true });
   prompt_player = 0;

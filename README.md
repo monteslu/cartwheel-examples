@@ -153,7 +153,9 @@ a jungle temple keep, a prison breakout down a canyon and an oil rig over
 open sea. The arenas add flak, shock orbs (set one off with a blaster bolt
 for the combo), rocket pods and a rail lance to the item boxes. One player
 against seven CPU drivers, or two to four on a split
-screen, one pad each. `games/racer/`
+screen, one pad each. A pad that joined and then does nothing for five
+seconds on the ride pick does not hold the race: P1's READY! button turns to
+START NOW and the idle seat sits the race out. `games/racer/`
 
 ### spout
 
