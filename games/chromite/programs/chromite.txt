@@ -28,3 +28,6 @@ physical+env+cc+l1001+xcluster_plain_gi
 physical+map+rep+nmap+ao+rmap+mmap+env+cc+sheen+l1001+xcluster_plain_gi
 physical+env+l1001+xcluster_plain_gi
 physical+trans+env+cc+l1001+xcluster_plain_gi
+basic+map+trans+instbig
+standard+emap+l1001+xcluster_plain_gi
+standard+emap+l1001+xcluster_gi

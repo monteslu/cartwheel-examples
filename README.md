@@ -69,11 +69,20 @@ the same game. `games/bomberdude/` (its
 
 A vertical shooter after Chromium B.S.U. (2000): its rules, enemy
 behaviours and wave scripts re-implemented, its craft, logo
-and instruments rebuilt in 3D. Fly a chrome cargo ship up over a scrolling
-fortress deck of worn, rusted plating; shields soak most of each hit, the
-hull takes the rest, and every enemy that gets past costs a ship. Three
-guns, power-ups for shields, repairs and ammunition, a self-destruct that
-sets off a super bomb, and two command craft at the end of the levels. The
+and instruments rebuilt in 3D. Fly a chrome cargo ship up over three stage
+worlds in turn: a fortress deck of worn, rusted plating with pits down to the
+machinery under it, an orbital ring of girders over a planet, and a foundry
+with rivers of melt. Shields soak most of each hit and the hull takes the
+rest. Kills in quick succession chain a score multiplier (up to x5), kills
+made up close score double, and a falling command craft or the super bomb
+turns enemy fire into score chips. An enemy that gets past costs points and
+the chain; the classic rules (title menu) make it cost a ship, as the
+original did. Enemy rounds are magenta and cyan with white cores, the ship's
+own fire is dimmer, and the ship shows its hit point. Three guns, power-ups
+for shields, repairs and ammunition, a self-destruct that sets off a super
+bomb, and two command craft whose armour plates blow off as they weaken
+(at half, a second attack, always charged first). Hits, bombs and a command
+craft's fall rumble the pad. The
 chrome reflects the deck sliding by below and the explosions beside it: a
 ReflectionProbe3D captures a stand-in of the deck every other frame. Every
 blast is a light of its own and every deck lamp lights the plating round it,

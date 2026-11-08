@@ -87,9 +87,10 @@ void hud3d_build(t3_object *parent) {
   H.cell_mat->transparent = true;
   H.cell_mat->depth_write = false;
   H.cap = t3_material_clone(model_mat(M_CHROME));
-  column_build(&H.col[0], 0.048f, 1.3f, CELLS);
-  column_build(&H.col[1], 0.048f, 1.3f, CELLS);
-  for (int g = 0; g < GUNS; g++) column_build(&H.stock[g], 0.016f, 0.7f, 12);
+  /* thick enough to read at a glance while dodging */
+  column_build(&H.col[0], 0.072f, 1.3f, CELLS);
+  column_build(&H.col[1], 0.072f, 1.3f, CELLS);
+  for (int g = 0; g < GUNS; g++) column_build(&H.stock[g], 0.024f, 0.7f, 12);
   for (int i = 0; i < SPARE; i++) {
     int ns = 0;
     H.ships[i] = model_new(CK_HERO, H.root, H.ship_spin[i], &ns);
@@ -154,7 +155,7 @@ void hud3d_sync(const sim *S, float t, t3_vec3 eye, t3_vec3 at, float fov_deg, f
   t3_quat q = t3_quat_from_rotation_matrix(&basis);
   const hero *h = &S->h;
   float col_h = H.col[0].h, y_mid = -1 + (col_h * 0.5f + 0.32f) / hh;
-  float sx = 1 - 0.3f / hw;
+  float sx = 1 - 0.34f / hw;
   float xs[2] = { -sx, sx };
   for (int i = 0; i < 2; i++) {
     t3_vec3 p = screen_at(eye, f, right, up, d, hh, hw, xs[i], y_mid);
@@ -167,7 +168,7 @@ void hud3d_sync(const sim *S, float t, t3_vec3 eye, t3_vec3 at, float fov_deg, f
   static const t3_color AC[GUNS] = { { 1.0f, 0.55f, 0.06f }, { 0.12f, 1.0f, 0.18f }, { 0.6f, 0.12f, 1.0f } };
   for (int g = 0; g < GUNS; g++) {
     column *c = &H.stock[g];
-    t3_vec3 p = screen_at(eye, f, right, up, d, hh, hw, -sx + (0.13f + 0.05f * g) / hw, -1 + (c->h * 0.5f + 0.32f) / hh);
+    t3_vec3 p = screen_at(eye, f, right, up, d, hh, hw, -sx + (0.16f + 0.065f * g) / hw, -1 + (c->h * 0.5f + 0.32f) / hh);
     t3_object_set_position(c->root, p.x, p.y, p.z);
     t3_object_set_quaternion(c->root, q);
     column_fill(c, h->ammo[g] / AMMO_MAX, 0, AC[g], 0, t + g * 0.3f);

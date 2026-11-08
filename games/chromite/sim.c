@@ -83,13 +83,14 @@ static int enemy_add(sim *S, int kind, float x, float y, float rand_fact) {
     case EK_BOSS1: e->hp = -10000 * S->skill, e->vel = 0.02f, e->age = 600; break;
     }
     e->max_hp = -e->hp;
-    if (kind >= EK_BOSS0) S->boss = i;
+    if (kind >= EK_BOSS0) S->boss = i, e->plates = BOSS_PLATES;
     return i;
   }
   return -1;
 }
 
 static void ebullet_add(sim *S, int kind, float x, float y, float vx, float vy) {
+  if (S->mode == PLAY_DEAD) return; /* the fleet holds its fire over the wreck: nothing shoots behind the game over card */
   for (int i = 0; i < MAX_EBULLETS; i++) {
     ebullet *b = &S->eb[i];
     if (b->live) continue;
@@ -171,6 +172,12 @@ static void hero_damage(sim *S, float d) {
     h->damage = 0;
     start_death(S);
   }
+}
+
+void sim_last_ship_down(sim *S) {
+  S->h.lives = 0;
+  S->h.shields = 0;
+  hero_damage(S, 2 * HERO_HULL);
 }
 
 static void add_life(sim *S) {
@@ -285,6 +292,8 @@ static void move_clamp(enemy *e) {
   if (e->x < -FIELD_X) e->x = -FIELD_X;
   if (e->x > FIELD_X) e->x = FIELD_X;
 }
+
+static void boss_phase2(sim *S, enemy *e, float hx, float hy);
 
 static void enemy_step(sim *S, int idx) {
   enemy *e = &S->en[idx];
@@ -505,13 +514,75 @@ static void enemy_step(sim *S, int idx) {
     break;
   }
   }
+  if (e->kind >= EK_BOSS0) boss_phase2(S, e, hx, hy);
+}
+
+int sim_sw_no_chain;
+
+int sim_multiplier10(const sim *S) {
+  if (sim_sw_no_chain || S->chain <= 1) return 10;
+  int c = S->chain - 1;
+  return 10 + (c > CHAIN_CAP ? CHAIN_CAP : c);
+}
+
+/* enemy fire turned into score chips (a boss falling, the super bomb's wave): each round pays CANCEL_SCORE
+ * times the multiplier, and the first MAX_CHIPS of a tick are kept for the chips the world draws flying home */
+static void cancel_round(sim *S, ebullet *b) {
+  b->live = false;
+  S->cancelled++;
+  if (S->mode == PLAY_ON || S->mode == PLAY_LEVEL_OVER) S->score += CANCEL_SCORE * sim_multiplier10(S) / 10;
+  if (S->chips_n < MAX_CHIPS) S->chip_x[S->chips_n] = b->x, S->chip_y[S->chips_n] = b->y, S->chips_n++;
+}
+
+/* a boss's second attack, once half its plates are gone, always charged for BOSS_TELL frames first: the
+ * first craft throws a ring of flak all round, the second a fan of five slugs at the ship */
+static void boss_phase2(sim *S, enemy *e, float hx, float hy) {
+  if (e->plates > BOSS_PLATES / 2) return;
+  int every = e->kind == EK_BOSS0 ? 140 : 110;
+  float in = e->age - floorf(e->age / every) * every; /* frames into this cycle */
+  if (in > every - BOSS_TELL) {
+    float k = (in - (every - BOSS_TELL)) / BOSS_TELL;
+    if (k > e->pre_fire) e->pre_fire = k;
+    if (crossed(e->age + BOSS_TELL, every)) event(S, EV_BOSS_TELL, e->kind, e->x, e->y);
+  }
+  if (!crossed(e->age, every)) return;
+  if (e->kind == EK_BOSS0) {
+    for (int k = 0; k < 14; k++) {
+      float a = k * 6.2831853f / 14 + e->age * 0.01f;
+      ebullet_add(S, EA_FLAK, e->x + cw_cos(a) * 1.5f, e->y + cw_sin(a) * 1.0f, cw_cos(a) * 0.16f * S->skill, cw_sin(a) * 0.16f * S->skill);
+    }
+    event(S, EV_ESHOT, EA_FLAK, e->x, e->y);
+  } else {
+    float ax = hx - e->x, ay = hy - (e->y - 1.5f), d = sqrtf(ax * ax + ay * ay);
+    if (d < 0.001f) d = 0.001f;
+    for (int k = -2; k <= 2; k++) {
+      float a = k * 0.22f, c = cw_cos(a), sn = cw_sin(a);
+      float vx = (ax * c - ay * sn) / d, vy = (ax * sn + ay * c) / d;
+      ebullet_add(S, EA_SLUG, e->x, e->y - 1.5f, vx * 0.5f, vy * 0.5f);
+    }
+    event(S, EV_ESHOT, EA_SLUG, e->x, e->y);
+  }
 }
 
 static void kill_enemy(sim *S, int i) {
   enemy *e = &S->en[i];
   if (!e->live) return;
   e->live = false;
-  if (S->mode != PLAY_DEAD) S->score += ENEMY_SCORE[e->kind];
+  if (S->mode != PLAY_DEAD) {
+    /* the chain: a kill inside the window of the last one grows it, and the multiplier with it */
+    S->chain = S->chain_timer > 0 ? S->chain + 1 : 1;
+    S->chain_timer = CHAIN_WINDOW;
+    if (S->chain > S->chain_best) S->chain_best = S->chain;
+    int64_t pts = (int64_t)ENEMY_SCORE[e->kind] * sim_multiplier10(S) / 10;
+    /* point blank: a kill made close to the ship scores double (the risk pays) */
+    float dx = e->x - S->h.x, dy = e->y - S->h.y;
+    if (!sim_sw_no_chain && sim_hero_visible(S) && dx * dx + dy * dy < (POINT_BLANK + HALF_W[e->kind] * 0.5f) * (POINT_BLANK + HALF_W[e->kind] * 0.5f)) {
+      pts *= 2;
+      S->point_blanks++;
+      event(S, EV_POINT_BLANK, e->kind, e->x, e->y);
+    }
+    S->score += pts;
+  }
   S->kills++;
   S->kills_by[e->kind]++;
   event(S, EV_KILL, e->kind, e->x, e->y);
@@ -521,7 +592,10 @@ static void kill_enemy(sim *S, int i) {
     S->boss = -1;
     for (int j = 0; j < MAX_ENEMIES; j++)
       if (S->en[j].live) kill_enemy(S, j);
-    for (int j = 0; j < MAX_EBULLETS; j++) S->eb[j].live = false;
+    int was = S->cancelled;
+    for (int j = 0; j < MAX_EBULLETS; j++)
+      if (S->eb[j].live) cancel_round(S, &S->eb[j]);
+    if (S->cancelled > was) event(S, EV_CANCEL, S->cancelled - was, e->x, e->y);
     if (S->mode == PLAY_ON) S->mode = PLAY_LEVEL_OVER, S->mode_ticks = 0, S->success = 500;
   }
 }
@@ -549,6 +623,15 @@ static void fleet_step(sim *S) {
         }
       }
       S->boss_hp = f;
+      /* armour: a plate blows off the rim each sixth of the hull; half gone, the second attack starts */
+      int plates = (int)ceilf(f * BOSS_PLATES - 0.001f);
+      if (plates < 0) plates = 0;
+      while (e->plates > plates && e->live) {
+        e->plates--;
+        float a = (e->plates + 0.5f) * 1.0471976f;
+        event(S, EV_PLATE, e->plates, e->x - cw_cos(a) * HALF_W[e->kind] * 0.75f, e->y + cw_sin(a) * HALF_H[e->kind] * 0.6f);
+        if (e->plates == BOSS_PLATES / 2) event(S, EV_BOSS_PHASE, e->kind, e->x, e->y);
+      }
     }
     if (e->kind != EK_GNAT && e->y < -8) {
       float w = 1 - (e->y + 14) / 6;
@@ -557,11 +640,21 @@ static void fleet_step(sim *S) {
     if (e->y < -14) {
       e->live = false;
       if (e->kind >= EK_BOSS0) S->boss = -1;
-      if (S->mode == PLAY_ON) {
+      if (S->mode == PLAY_ON && S->rules == RULES_CLASSIC) {
         S->h.lives--;
         S->losses++;
         event(S, EV_LOSE, e->kind, e->x, -9);
         if (S->h.lives < 0) start_death(S);
+      } else if (S->mode == PLAY_ON) {
+        /* modern: the one that got past costs twice its worth (at least 250) and the chain, never a ship */
+        int64_t cost = 2 * (int64_t)ENEMY_SCORE[e->kind];
+        if (cost < 250) cost = 250;
+        if (cost > S->score) cost = S->score;
+        S->score -= cost;
+        S->escape_cost += cost;
+        S->escapes++;
+        S->chain = 0, S->chain_timer = 0;
+        event(S, EV_ESCAPE, e->kind, e->x, -9);
       }
     }
   }
@@ -656,13 +749,15 @@ static void super_bomb(sim *S) {
       if (e->hp > 0) kill_enemy(S, j);
     }
   }
-  /* the wave burns away enemy fire it passes */
+  /* the wave turns the enemy fire it passes into score chips */
+  int was = S->cancelled;
   for (int i = 0; i < MAX_EBULLETS; i++) {
     ebullet *b = &S->eb[i];
     if (!b->live) continue;
     float dx = b->x, dy = b->y + 15;
-    if (dx * dx + dy * dy < h->bomb * 0.1f * h->bomb * 0.1f) b->live = false;
+    if (dx * dx + dy * dy < h->bomb * 0.1f * h->bomb * 0.1f) cancel_round(S, b);
   }
+  if (S->cancelled > was) event(S, EV_CANCEL, S->cancelled - was, 0, -15);
   h->bomb += 2 * K;
   if (h->bomb > 300) h->bomb = 0;
 }
@@ -731,9 +826,10 @@ static void level_start(sim *S) {
   script_build(S);
 }
 
-void sim_new_game(sim *S, int level, float base_skill, uint32_t seed) {
+void sim_new_game(sim *S, int level, float base_skill, uint32_t seed, int rules) {
   decays();
   memset(S, 0, sizeof *S);
+  S->rules = rules;
   cw_rng_seed(&S->rng, seed);
   S->level = level < 1 ? 1 : level;
   S->skill = base_skill + 0.5f + (S->level - 1) * 0.05f;
@@ -758,7 +854,9 @@ void sim_next_level(sim *S) {
 
 void sim_step(sim *S, const sim_input *in) {
   S->ev_n = 0;
+  S->chips_n = 0;
   S->tick++;
+  if (S->chain_timer > 0 && --S->chain_timer == 0) S->chain = 0; /* a gap breaks the chain */
   S->mode_ticks++;
   S->frame += K;
   if (S->mode == PLAY_ON) release_script(S);
@@ -780,5 +878,6 @@ uint32_t sim_hash(const sim *S) {
   h = cw_hash32(S->en, sizeof S->en, h);
   h = cw_hash32(S->eb, sizeof S->eb, h);
   h = cw_hash32(&S->frame, sizeof S->frame, h);
+  h = cw_hash32(&S->chain, sizeof S->chain, h);
   return h;
 }

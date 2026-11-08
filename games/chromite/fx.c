@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "cartwheel/explosions.h"
 #include "cartwheel/particles.h"
 #include "game.h"
 
@@ -36,6 +37,8 @@ static struct {
   queued q[QUEUE];
   int qn;
   cw_node exhaust[2];
+  cw_node wave[3]; /* Shockwave3D rings that bend the picture: big kills, a command craft falling, the super bomb */
+  int next_wave;
   t3_mesh *rings[4];
   t3_material *ring_mat[4];
   float ring_age[4], ring_size[4];
@@ -139,6 +142,14 @@ void fx_init(cw_node parent) {
       FX.n[k][i] = pnode(nm, RECIPE[k], seed++);
     }
   }
+  for (int i = 0; i < 3; i++) {
+    char nm[24];
+    snprintf(nm, sizeof nm, "wave%d", i);
+    FX.wave[i] = cw_node_new("Shockwave3D", nm);
+    cw_node_set(FX.wave[i], "autostart", cw_val_bool(false));
+    cw_node_set(FX.wave[i], "ground", cw_val_bool(true)); /* in the play plane, which the camera looks down on */
+    cw_node_add_child(FX.root, FX.wave[i]);
+  }
   for (int i = 0; i < 2; i++) {
     char nm[24];
     snprintf(nm, sizeof nm, "exhaust%d", i);
@@ -223,6 +234,19 @@ static void ring(float x, float y, float size) {
   T3_OBJ(FX.rings[i])->visible = true;
 }
 
+/* a ring that bends the picture as it runs out: impact without any flash */
+static void wave(float x, float y, float radius, float seconds, float strength) {
+  if (!FX.ready) return;
+  cw_node n = FX.wave[FX.next_wave];
+  FX.next_wave = (FX.next_wave + 1) % 3;
+  cw_node3d_set_position(n, to_world(x, y));
+  cw_node_set(n, "max_radius", cw_val_float(radius));
+  cw_node_set(n, "duration", cw_val_float(seconds));
+  cw_node_set(n, "thickness", cw_val_float(radius * 0.12f));
+  cw_node_set(n, "strength", cw_val_float(strength));
+  cw_shockwave_fire(n);
+}
+
 static void queue(int delay, int kind, float x, float y, float size) {
   if (FX.qn < QUEUE) FX.q[FX.qn++] = (queued){ delay, kind, x, y, size };
 }
@@ -265,6 +289,7 @@ void fx_events(const sim *S) {
       else if (e->a == EK_STRAIGHT) blast(1, e->x, e->y);
       else if (e->a < EK_BOSS0) {
         blast(2, e->x, e->y);
+        wave(e->x, e->y, 6, 0.6f, 0.35f);
         for (int k = 0; k < 4; k++) queue(6 + k * 7, 1, e->x + jit(i, k) * 1.2f, e->y + jit(i, k + 9) * 1.2f, 0);
       }
       break;
@@ -274,7 +299,15 @@ void fx_events(const sim *S) {
         queue(k * 5, k % 4 == 3 ? 2 : 1, e->x + cosf(a) * r, e->y + sinf(a) * r * 0.6f, 0);
       }
       queue(125, 3, e->x, e->y, 0);
+      wave(e->x, e->y, 14, 1.0f, 0.9f);
       break;
+    case EV_PLATE: /* an armour plate blows off the rim: a blast, chrome shards and smoke where it was */
+      blast(1, e->x, e->y);
+      burst(DEBRIS, e->x, e->y, 0.2f);
+      burst(SMOKE, e->x, e->y, 0.4f);
+      break;
+    case EV_BOSS_PHASE: wave(e->x, e->y, 9, 0.7f, 0.6f); break; /* half its armour gone: a ring bends the picture */
+    case EV_BOMB: wave(e->x, e->y, 30, 3.0f, 0.8f); break; /* runs out with the bomb's own ring */
     case EV_HIT:
       if (S->tick % 2 == 0 || e->a == GUN_PURPLE) burst(SPARK, e->x, e->y, 0);
       break;

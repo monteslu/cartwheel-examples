@@ -379,7 +379,7 @@ static void build_boss(kind_def *k, bool second) {
   static const float SAUCER[] = { 0, -0.55f, 0.9f, -0.5f, 1.0f, -0.3f, 1.0f, 0.0f, 0.95f, 0.2f, 0.6f, 0.4f, 0, 0.45f };
   piece *s = add(k, lathe_z(SAUCER, 7, 40), M_RUST, 0, 0, 0);
   s->rx = -1.5707963f, s->sx = W, s->sz = W * 0.55f, s->sy = 1;
-  /* lobes along the rim */
+  /* lobes along the rim: the armour plates, parts 1..6 (world.c hides them as they blow off; keep them here) */
   for (int i = 0; i < 6; i++) {
     float a = (i + 0.5f) * 1.0471976f, x = W * 0.78f * cw_cos(a), z = W * 0.43f * cw_sin(a);
     add(k, ellipsoid(0.45f, 0.35f, 0.4f, 18), M_RUST_DARK, x, 0.05f, z);

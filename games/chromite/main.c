@@ -10,8 +10,14 @@
  *             and sets off a super bomb); Start / Esc pauses. Touch: a
  *             floating stick on the left, FIRE and BOMB on the right.
  *   rules     the original's: shields soak 80% of each hit while they last,
- *             the hull takes the rest; do not let any enemy get past (each
- *             one costs a life); an extra ship every 50000
+ *             the hull takes the rest; an extra ship every 50000. An enemy
+ *             that gets past costs points and the chain (modern, the
+ *             default) or a ship (classic, the original's; title menu)
+ *   score     kills within CHAIN_WINDOW of each other chain a multiplier
+ *             (up to x5), a kill up close scores double, enemy fire a boss's
+ *             fall or the super bomb cancels pays as score chips
+ *   feel      hits, bombs and a boss's fall rumble the pad; a boss's fall
+ *             holds the fight 3 ticks (no screen shake)
  *   save      high scores per skill, the furthest level reached, the
  *             graphics preset (cw_app_desc.save)
  *
@@ -51,7 +57,7 @@ typedef struct save_data {
   int32_t hi[SKILLS][5];
   int32_t hi_level[SKILLS][5];
   int32_t best_level;
-  uint8_t skill, start_level, quality_v1, pad;
+  uint8_t skill, start_level, quality_v1, rules; /* rules: RULES_MODERN (0, what older saves hold there) or RULES_CLASSIC */
   uint32_t quality; /* cw_quality_saved(), 0 = none chosen */
   uint8_t text_size, text_bg, pad2[2]; /* cw_text_scale_saved() (0 = none chosen), cw_text_backdrop_get() */
   uint32_t checksum;
@@ -124,6 +130,8 @@ static struct {
   int variation;
   int32_t live_enemies, live_ebullets, score32, lives, level, losses, kills;
   float shields, damage;
+  int32_t pb_ticks, esc_ticks; /* the HUD's point-blank and got-past words: ticks left */
+  int64_t esc_cost, esc_last;
 } G;
 
 static int32_t input_mode;
@@ -135,6 +143,18 @@ static int32_t input_mode;
  * rules never see them), for lighting work. */
 static int32_t cheat_level, cheat_boss, cheat_gallery, cheat_blasts;
 static int32_t dbg_skill, dbg_hi0, dbg_armed;
+/* the rules and the score system, for the gates */
+static int32_t dbg_boss_plates = -1, dbg_boss_tells;
+static int32_t dbg_rules, dbg_chain, dbg_chain_best, dbg_mult10, dbg_escapes, dbg_point_blanks, dbg_cancelled, dbg_hitstop_ticks;
+/* rumble requests made (presentation; the engine's cw.rumble shows the last one) */
+static int32_t rumbles;
+/* GAME OVER headings drawn on the last frame (the card must draw exactly one) */
+static int32_t over_headings, over_headings_drawing;
+/* sw double_over 1: the dying HUD keeps its own GAME OVER under the results card, as it once did (a control) */
+static int32_t sw_double_over;
+/* hit-stop: ticks the fight holds still when a command craft falls */
+#define HITSTOP_BOSS 3
+static int32_t hitstop;
 static uint32_t dbg_mouse;
 static bool device_used;
 /* the control scheme (input.mode): moving the mouse makes the ship follow it,
@@ -265,7 +285,37 @@ static void music(int which) {
   A.music = cw_audio_play(m, &(cw_play_desc){ .loop = true, .fade_in = 1.5f, .bus = A.music_bus });
 }
 
+/* the pad answers what the ship feels: hits, the bomb, a command craft falling (no screen shake) */
+static void rumble(float low, float high, int ms) {
+  cw_input_rumble(0, low, high, ms);
+  rumbles++;
+}
+static void feel_events(const sim *S) {
+  for (int i = 0; i < S->ev_n; i++) {
+    const sim_event *e = &S->ev[i];
+    switch (e->type) {
+    case EV_HERO_HIT:
+      if (e->a < 0) rumble(0.25f, 0.2f, 60); /* rubbing a craft */
+      else if (S->h.shields > 0) rumble(0.15f, 0.4f, 90);
+      else rumble(0.5f, 0.6f, 150);
+      break;
+    case EV_HERO_DIE: rumble(0.9f, 0.7f, 500); break;
+    case EV_BOMB: rumble(0.7f, 0.3f, 420); break;
+    case EV_BOSS_DIE: rumble(1, 0.6f, 700), hitstop = HITSTOP_BOSS; break;
+    case EV_PLATE: rumble(0.45f, 0.35f, 200); break;
+    case EV_BOSS_PHASE: rumble(0.8f, 0.5f, 420); break;
+    case EV_ESCAPE:
+    case EV_LOSE: rumble(0.35f, 0.15f, 180); break;
+    case EV_KILL:
+      if (e->a == EK_TANK || e->a == EK_RAYGUN) rumble(0.3f, 0.25f, 110);
+      break;
+    default: break;
+    }
+  }
+}
+
 static void play_events(const sim *S) {
+  feel_events(S);
   for (int i = 0; i < S->ev_n; i++) {
     const sim_event *e = &S->ev[i];
     switch (e->type) {
@@ -277,7 +327,11 @@ static void play_events(const sim *S) {
     case EV_PICKUP: sfx_at(SFX_PICKUP, 0.8f, e->x); break;
     case EV_SHOT: sfx_at(e->a == GUN_DEFAULT ? SFX_SHOT : e->a == GUN_GREEN ? SFX_LANCE : SFX_HAMMER, e->a == GUN_DEFAULT ? 0.18f : 0.35f, e->x); break;
     case EV_LIFE: sfx(SFX_LIFE, 0.9f); break;
-    case EV_LOSE: sfx(SFX_LOSE, 0.9f); break;
+    case EV_LOSE:
+    case EV_ESCAPE: sfx(SFX_LOSE, 0.9f); break;
+    case EV_CANCEL: sfx(SFX_PICKUP, 0.7f); break;
+    case EV_PLATE: sfx_at(SFX_BIG, 0.8f, e->x); break;
+    case EV_BOSS_TELL: sfx_at(SFX_ARMED, 0.6f, e->x); break;
     case EV_BOMB: sfx(SFX_BOMB, 1); break;
     case EV_ARMED: sfx(SFX_ARMED, 0.8f); break;
     default: break;
@@ -303,20 +357,30 @@ static void load_world(int variation) {
   cw_node3d_look_at(G.sun, (t3_vec3){ 0, -10, 0 }, (t3_vec3){ 0, 1, 0 });
   world_build(G.scene, variation);
   fx_init(G.scene);
-  static const char *const GRADE[3] = { "\"grade_steel.cube\"", "\"grade_rust.cube\"", "\"grade_toxic.cube\"" };
-  cw_node post = cw_node_get(G.scene, "Post");
+  /* each stage world its own grade and air: the fortress steel-blue in its haze, the orbital ring cold and clear
+   * over the planet (thin haze far down), the foundry warm with smoke over the melt */
+  static const char *const GRADE[3] = { "\"grade_steel.cube\"", "\"grade_steel.cube\"", "\"grade_rust.cube\"" };
+  static const float HAZE[3][5] = { { 0.055f, -14, 0.03f, 0.036f, 0.046f }, { 0.012f, -60, 0.02f, 0.035f, 0.07f }, { 0.07f, -14, 0.06f, 0.03f, 0.02f } };
+  cw_node post = cw_node_get(G.scene, "Post"), haze = cw_node_get(G.scene, "Haze");
   cw_value v;
   if (cw_node_valid(post) && cw_value_parse(GRADE[variation % 3], CW_T_STRING, &v)) cw_node_set(post, "lut", v);
+  if (cw_node_valid(haze)) {
+    const float *h = HAZE[variation % 3];
+    cw_node_set(haze, "density", cw_val_float(h[0]));
+    cw_node_set(haze, "base_height", cw_val_float(h[1]));
+    cw_node_set(haze, "color", cw_val_color(h[2], h[3], h[4], 1));
+  }
   G.variation = variation;
 }
 
 static void new_game(int level) {
-  sim_new_game(&G.S, level, SKILL_BASE[SAVE.skill], 0xc4801eu + (uint32_t)level * 7919u);
+  sim_new_game(&G.S, level, SKILL_BASE[SAVE.skill], 0xc4801eu + (uint32_t)level * 7919u, SAVE.rules == RULES_CLASSIC ? RULES_CLASSIC : RULES_MODERN);
   if ((level - 1) % 3 != G.variation) load_world((level - 1) % 3);
   G.prev = G.S;
   G.state = GS_PLAY;
   G.state_ticks = 0;
   G.level_shown = 0;
+  G.pb_ticks = G.esc_ticks = 0, G.esc_cost = G.esc_last = 0, hitstop = 0;
   music(1);
 }
 
@@ -365,6 +429,29 @@ static sim_input autopilot(const sim *S) {
 
 static cw_font font_ui, font_title;
 static void sync_hook(cw_tree *t, double alpha, void *u);
+
+static void cmd_sw(int argc, const char **argv, cw_reply *r) {
+  if (argc > 2 && !strcmp(argv[1], "no_chain")) sim_sw_no_chain = atoi(argv[2]);
+  if (argc > 2 && !strcmp(argv[1], "double_over")) sw_double_over = atoi(argv[2]);
+  if (argc > 2 && !strcmp(argv[1], "rules")) SAVE.rules = atoi(argv[2]) ? RULES_CLASSIC : RULES_MODERN;
+  cw_reply_printf(r, "{\"no_chain\":%d,\"double_over\":%d,\"rules\":%d}", sim_sw_no_chain, sw_double_over, SAVE.rules);
+}
+static void cmd_boss(int argc, const char **argv, cw_reply *r) {
+  /* boss: the level jumps to its command craft (cheat.boss); boss low: the craft that is up has one hit left in it */
+  if (argc > 1 && !strcmp(argv[1], "low")) {
+    if (G.S.boss >= 0 && G.S.en[G.S.boss].live) G.S.en[G.S.boss].hp = -1;
+  } else if (argc > 1 && !strcmp(argv[1], "half")) {
+    if (G.S.boss >= 0 && G.S.en[G.S.boss].live) G.S.en[G.S.boss].hp = -0.45f * G.S.en[G.S.boss].max_hp;
+  } else
+    cheat_boss = 1;
+  cw_reply_printf(r, "{\"boss\":%d}", G.S.boss);
+}
+static bool die_pending;
+static void cmd_die(int argc, const char **argv, cw_reply *r) {
+  (void)argc, (void)argv;
+  die_pending = true;
+  cw_reply_raw(r, "{\"ok\":true}");
+}
 
 static void init(void *u) {
   (void)u;
@@ -424,12 +511,27 @@ static void init(void *u) {
   cw_debug_u32("model.hash", &model_hash);
   cw_debug_u32("world.hash", &world_hash);
   cw_debug_i32("fx.lights", &fx_lights_live);
+  cw_debug_i32("rules", &dbg_rules);
+  cw_debug_i32("chain", &dbg_chain);
+  cw_debug_i32("chain.best", &dbg_chain_best);
+  cw_debug_i32("chain.mult10", &dbg_mult10);
+  cw_debug_i32("escapes", &dbg_escapes);
+  cw_debug_i32("point_blanks", &dbg_point_blanks);
+  cw_debug_i32("cancelled", &dbg_cancelled);
+  cw_debug_i32("hitstop.ticks", &dbg_hitstop_ticks);
+  cw_debug_i32("rumbles", &rumbles);
+  cw_debug_i32("boss.plates", &dbg_boss_plates);
+  cw_debug_i32("boss.tells", &dbg_boss_tells);
+  cw_debug_i32("over.headings", &over_headings);
+  cw_debug_command("sw", "sw no_chain <0|1>: 1 = kills score flat (control); sw double_over <0|1>: 1 = the dying HUD draws its GAME OVER under the results card too (control); sw rules <0|1>: 1 = classic rules from the next game", cmd_sw);
+  cw_debug_command("boss", "boss: jump to the level's command craft; boss low: the craft that is up has one hit left; boss half: it is down to 45%", cmd_boss);
+  cw_debug_command("die", "die: the ship loses its last life now (game over tests)", cmd_die);
   cw_tree_add_hook(cw_scene_app_tree(), 2, 0, sync_hook, NULL);
   cw_debug_i32("probe.refreshes", &probe_refreshes);
   cw_debug_i32("probe.every", &probe_every);
   G.variation = -1;
   load_world(0);
-  sim_new_game(&G.S, 1, SKILL_BASE[SAVE.skill], 0xc4801eu);
+  sim_new_game(&G.S, 1, SKILL_BASE[SAVE.skill], 0xc4801eu, RULES_MODERN);
   G.S.mode = PLAY_LEVEL_OVER; /* the title: the deck scrolls, nothing spawns */
   G.S.success = 1e9f;
   G.S.h.y = -7.2f; /* the ship idles low on the title, under the menu */
@@ -493,7 +595,7 @@ static void record_score(void) {
 }
 
 /* the title menu's layout, from the size its words draw at (drawn below; the pointer here shares it) */
-enum { MENU_N = 6 };
+enum { MENU_N = 7, M_NEW = 0, M_SKILL, M_LEVEL, M_RULES, M_GFX, M_TEXT, M_TEXTBG };
 typedef struct title_geo {
   float x0, y0, pitch, bar_h, lh, panel_w; /* the menu: rows from y0, a bar per row */
   int first, n;                            /* the rows shown (a long menu scrolls with the choice) */
@@ -504,14 +606,15 @@ static title_geo title_layout(float W, float H, float s);
 static title_geo title_drawn; /* the last drawn layout: the pointer reads it (prompts are measured only while drawing) */
 static void menu_step(int dx) {
   int max_level = SAVE.best_level < MAX_START_LEVEL ? SAVE.best_level : MAX_START_LEVEL;
-  if (G.cursor == 1) SAVE.skill = (uint8_t)((SAVE.skill + dx + SKILLS) % SKILLS);
-  if (G.cursor == 2) SAVE.start_level = (uint8_t)(1 + (SAVE.start_level - 1 + dx + max_level) % max_level);
-  if (G.cursor == 3) {
+  if (G.cursor == M_SKILL) SAVE.skill = (uint8_t)((SAVE.skill + dx + SKILLS) % SKILLS);
+  if (G.cursor == M_LEVEL) SAVE.start_level = (uint8_t)(1 + (SAVE.start_level - 1 + dx + max_level) % max_level);
+  if (G.cursor == M_RULES) SAVE.rules = SAVE.rules == RULES_CLASSIC ? RULES_MODERN : RULES_CLASSIC;
+  if (G.cursor == M_GFX) {
     cw_quality_cycle(), SAVE.quality = cw_quality_saved();
     if (tex_stale()) load_world(G.variation);
   }
-  if (G.cursor == 4) dx < 0 ? cw_text_scale_cycle_back() : cw_text_scale_cycle();
-  if (G.cursor == 5) {
+  if (G.cursor == M_TEXT) dx < 0 ? cw_text_scale_cycle_back() : cw_text_scale_cycle();
+  if (G.cursor == M_TEXTBG) {
     cw_text_backdrop_cycle();
     if (dx < 0) cw_text_backdrop_cycle(); /* three settings: twice forward is one back */
   }
@@ -519,7 +622,7 @@ static void menu_step(int dx) {
 }
 
 static void title_input(void) {
-  /* the menu: start, skill, start level, graphics, text size, text background */
+  /* the menu: start, skill, start level, rules, graphics, text size, text background */
   int dy = (pressed(G.a_down) ? 1 : 0) - (pressed(G.a_up) ? 1 : 0);
   int dx = (pressed(G.a_right) ? 1 : 0) - (pressed(G.a_left) ? 1 : 0);
   if (dy) G.cursor = (G.cursor + dy + MENU_N) % MENU_N, sfx(SFX_SELECT, 0.5f);
@@ -539,16 +642,16 @@ static void title_input(void) {
         if (mouse_clicked) G.cursor = i, click = true;
       }
     }
-    if (click && (G.cursor == 1 || G.cursor == 2)) {
+    if (click && (G.cursor == M_SKILL || G.cursor == M_LEVEL || G.cursor == M_RULES)) {
       menu_step(1);
       click = false;
     }
   }
   bool go = pressed(G.a_start) || pressed(G.a_fire) || click || (mouse_clicked && input_mode == DEV_TOUCH && G.cursor == 0);
   if (G.state_ticks > 20 && go) {
-    if (G.cursor >= 3) {
+    if (G.cursor >= M_GFX) {
       menu_step(1);
-    } else if (G.cursor == 1 || G.cursor == 2) {
+    } else if (G.cursor == M_SKILL || G.cursor == M_LEVEL || G.cursor == M_RULES) {
       G.cursor = 0;
     } else {
       sfx(SFX_PICKUP, 0.8f);
@@ -588,6 +691,12 @@ static void fixed(void *u, double dt) {
   }
   case GS_PLAY: {
     G.prev = G.S;
+    if (die_pending && G.S.mode == PLAY_ON) sim_last_ship_down(&G.S), die_pending = false;
+    if (hitstop > 0) { /* the fight holds still a few ticks as a command craft goes (the effects keep playing) */
+      hitstop--;
+      dbg_hitstop_ticks++;
+      break;
+    }
     sim_input in = { 0 };
     in.x = cw_action_strength(0, G.a_right) - cw_action_strength(0, G.a_left);
     in.y = cw_action_strength(0, G.a_up) - cw_action_strength(0, G.a_down);
@@ -609,6 +718,15 @@ static void fixed(void *u, double dt) {
     sim_step(&G.S, &in);
     play_events(&G.S);
     fx_events(&G.S);
+    world_chips_spawn(&G.S);
+    for (int i = 0; i < G.S.ev_n; i++) dbg_boss_tells += G.S.ev[i].type == EV_BOSS_TELL;
+    for (int i = 0; i < G.S.ev_n; i++) {
+      if (G.S.ev[i].type == EV_POINT_BLANK) G.pb_ticks = 70;
+      if (G.S.ev[i].type == EV_ESCAPE) G.esc_ticks = 110, G.esc_cost = G.S.escape_cost - G.esc_last;
+    }
+    G.esc_last = G.S.escape_cost;
+    if (G.pb_ticks > 0) G.pb_ticks--;
+    if (G.esc_ticks > 0) G.esc_ticks--;
     if (G.S.mode == PLAY_LEVEL_OVER && G.S.success <= 0) {
       G.state = GS_CLEAR;
       G.state_ticks = 0;
@@ -677,6 +795,10 @@ static void fixed(void *u, double dt) {
   for (int i = 0; i < MAX_EBULLETS; i++) nb += G.S.eb[i].live;
   G.live_enemies = ne, G.live_ebullets = nb;
   dbg_skill = SAVE.skill, dbg_hi0 = SAVE.hi[SAVE.skill][0], dbg_armed = G.S.h.armed > 0;
+  dbg_rules = G.state == GS_TITLE ? SAVE.rules : G.S.rules;
+  dbg_chain = G.S.chain, dbg_chain_best = G.S.chain_best, dbg_mult10 = sim_multiplier10(&G.S);
+  dbg_boss_plates = G.S.boss >= 0 && G.S.en[G.S.boss].live ? G.S.en[G.S.boss].plates : -1;
+  dbg_escapes = G.S.escapes, dbg_point_blanks = G.S.point_blanks, dbg_cancelled = G.S.cancelled;
 }
 
 /* ── per frame: the 3D world follows the sim (interpolated) ─────────── */
@@ -843,6 +965,7 @@ static void hgrad(cw_rect r, cw_color left, cw_color right) {
   cw_r2d_triangles((cw_texture){ 0 }, v, 4, idx, 6);
 }
 
+#define OVER_Y 0.22f /* the GAME OVER heading's place, a share of the height (the dying HUD and the results card) */
 static void draw_hud(float W, float H, float s) {
   const sim *S = &G.S;
   const hero *h = &S->h;
@@ -863,6 +986,26 @@ static void draw_hud(float W, float H, float s) {
         rgba(0.01f, 0.015f, 0.025f, 0));
   text(font_title, b, 26 * s, 14 * s, 26 * s, rgba(0.8f, 0.86f, 0.95f, 0.95f), CW_ALIGN_LEFT, 0, 3 * s);
   spaced(lv, 28 * s, ly, 14 * s, rgba(0.5f, 0.58f, 0.72f, 0.85f), CW_ALIGN_LEFT, 0);
+  /* the chain: its count and multiplier under the level line, a bar that drains until the next kill must come */
+  float cy = ly + ls.y + 8 * s;
+  if (S->chain >= 2 && G.state != GS_OVER) {
+    int m = sim_multiplier10(S);
+    snprintf(b, sizeof b, "chain %d   x%d.%d", S->chain, m / 10, m % 10);
+    cw_vec2 cs = spaced_size(b, 16 * s);
+    float heat = cw_clampf((S->chain - 1) / (float)CHAIN_CAP, 0, 1);
+    spaced(b, 28 * s, cy, 16 * s, rgba(1, 0.85f - 0.4f * heat, 0.35f - 0.2f * heat, 0.95f), CW_ALIGN_LEFT, 0);
+    float bw = fmaxf(cs.x, 120 * s), fill = cw_clampf((float)S->chain_timer / CHAIN_WINDOW, 0, 1);
+    cw_r2d_rect(cw_rect_make(28 * s, cy + cs.y + 3 * s, bw, 4 * s), rgba(0.05f, 0.04f, 0.02f, 0.6f));
+    cw_r2d_rect(cw_rect_make(28 * s, cy + cs.y + 3 * s, bw * fill, 4 * s), rgba(1, 0.7f, 0.25f, 0.9f));
+    cy += cs.y + 12 * s;
+  }
+  if (G.pb_ticks > 0 && G.state != GS_OVER) /* a point-blank kill: the word holds, then fades */
+    spaced("point blank  x2", 28 * s, cy, 16 * s, rgba(1, 0.5f, 0.85f, cw_clampf(G.pb_ticks / 20.0f, 0, 1)), CW_ALIGN_LEFT, 0);
+  if (G.esc_ticks > 0 && G.state != GS_OVER) { /* modern rules: what the last one through cost, over the red bar */
+    snprintf(b, sizeof b, "got past   -%lld", (long long)G.esc_cost);
+    cw_vec2 es = spaced_size(b, 16 * s);
+    spaced(b, 0, H - 14 * s - 2 * es.y, 16 * s, rgba(1, 0.4f, 0.3f, cw_clampf(G.esc_ticks / 20.0f, 0, 1)), CW_ALIGN_CENTER, W);
+  }
   /* the boss: a hairline gauge across the top */
   if (S->boss_hp >= 0) {
     float bw = W * 0.36f, bx = (W - bw) * 0.5f, by = 22 * s;
@@ -877,11 +1020,15 @@ static void draw_hud(float W, float H, float s) {
     float a = cw_clampf(G.state_ticks / 30.0f, 0, 1) * cw_clampf((260 - G.state_ticks) / 50.0f, 0, 1);
     snprintf(b, sizeof b, "LEVEL %d", S->level);
     heading(b, 0, H * 0.3f, 54 * s, a, CW_ALIGN_CENTER, W);
-    spaced("do not allow -any- enemies to get past", 16 * s, H * 0.3f + fmaxf(74 * s, heading_h(b, 54 * s, 0) + 12 * s), 17 * s, rgba(0.7f, 0.76f, 0.88f, a),
+    spaced(S->rules == RULES_CLASSIC ? "do not allow -any- enemies to get past" : "kill fast to chain   do not let them get past", 16 * s, H * 0.3f + fmaxf(74 * s, heading_h(b, 54 * s, 0) + 12 * s), 17 * s, rgba(0.7f, 0.76f, 0.88f, a),
            CW_ALIGN_CENTER, W - 32 * s);
   }
   if (S->mode == PLAY_LEVEL_OVER) heading("LEVEL COMPLETE", 0, H * 0.32f, 46 * s, cw_clampf((500 - S->success) / 30.0f, 0, 1), CW_ALIGN_CENTER, W);
-  if (S->mode == PLAY_DEAD) heading("GAME OVER", 0, H * 0.36f, 60 * s, cw_clampf((50 - S->hero_death) / 30.0f, 0, 1), CW_ALIGN_CENTER, W);
+  /* the words come up where the results card keeps them (draw_over), which then draws them alone: one GAME OVER */
+  if (S->mode == PLAY_DEAD && (G.state != GS_OVER || sw_double_over)) {
+    heading("GAME OVER", 0, H * (sw_double_over ? 0.36f : OVER_Y), 60 * s, cw_clampf((50 - S->hero_death) / 30.0f, 0, 1), CW_ALIGN_CENTER, W);
+    over_headings_drawing++;
+  }
   if (h->armed > 0)
     pspaced_block(prompt_touch() ? "self-destruct armed :   again to fire" : "self-destruct armed :   {item} again", 16 * s, H * 0.62f, 18 * s,
                   rgba(1, 0.3f, 0.2f, 0.6f + 0.4f * sinf(frame_t * 20)), W - 32 * s, true);
@@ -929,10 +1076,11 @@ static void menu_lines(char lines[MENU_N][64]) {
   snprintf(lines[0], 64, "new game");
   snprintf(lines[1], 64, "skill%s%s", sep, SKILL_NAME[SAVE.skill]);
   snprintf(lines[2], 64, "level%s%d", sep, SAVE.start_level);
-  snprintf(lines[3], 64, "graphics%s%s", sep, cw_quality_label());
-  snprintf(lines[4], 64, "text size%s%s", sep, cw_text_scale_label());
-  snprintf(lines[5], 64, "text background%s%s", sep, bg);
-  for (int i = 3; i < MENU_N; i++)
+  snprintf(lines[M_RULES], 64, "rules%s%s", sep, SAVE.rules == RULES_CLASSIC ? "classic" : "modern");
+  snprintf(lines[M_GFX], 64, "graphics%s%s", sep, cw_quality_label());
+  snprintf(lines[M_TEXT], 64, "text size%s%s", sep, cw_text_scale_label());
+  snprintf(lines[M_TEXTBG], 64, "text background%s%s", sep, bg);
+  for (int i = M_GFX; i < MENU_N; i++)
     for (char *c = lines[i]; *c; c++) *c = (char)(*c >= 'A' && *c <= 'Z' ? *c + 32 : *c);
 }
 static const char *title_hint(void) { return prompt_touch() ? "tap to launch" : "{up|down} : choose      {fire} : launch"; }
@@ -1014,8 +1162,10 @@ static void draw_title(float W, float H, float s) {
   }
   pspaced_block(title_hint(), 16 * s, g.prompt_y, 16 * s, rgba(0.5f, 0.56f, 0.7f, 0.55f + 0.25f * sinf(frame_t * 2.5f)), W - 32 * s, true);
   /* the original's ticker */
-  float tw = W * 3, off = fmodf(frame_t * 90 * s, tw * 0.5f);
-  spaced("do not allow -any- enemies to get past", W - off, g.ticker_y, 15 * s, rgba(0.35f, 0.4f, 0.85f, 0.85f), CW_ALIGN_LEFT, 0);
+  const char *tick = SAVE.rules == RULES_CLASSIC ? "classic rules :   do not allow -any- enemies to get past"
+                                                : "kills in quick succession chain a multiplier   kills up close score double   an enemy that gets past costs points";
+  float off = fmodf(frame_t * 90 * s, W + spaced_size(tick, 15 * s).x);
+  spaced(tick, W - off, g.ticker_y, 15 * s, rgba(0.35f, 0.4f, 0.85f, 0.85f), CW_ALIGN_LEFT, 0);
 }
 
 static void draw_pause(float W, float H, float s) {
@@ -1029,8 +1179,10 @@ static void draw_pause(float W, float H, float s) {
 static void draw_over(float W, float H, float s) {
   float a = cw_clampf(G.state_ticks / 30.0f, 0, 1);
   cw_r2d_rect(cw_rect_make(0, 0, W, H), rgba(0, 0.005f, 0.02f, 0.55f * a));
-  heading("GAME OVER", 0, H * 0.22f, 60 * s, a, CW_ALIGN_CENTER, W);
-  float y = H * 0.22f + fmaxf(H * 0.16f, heading_h("GAME OVER", 60 * s, 0) + 12 * s);
+  /* after a death the HUD already brought the heading up at this place: it stays, the rest fades in under it */
+  heading("GAME OVER", 0, H * OVER_Y, 60 * s, G.S.mode == PLAY_DEAD ? 1 : a, CW_ALIGN_CENTER, W);
+  over_headings_drawing++;
+  float y = H * OVER_Y + fmaxf(H * 0.16f, heading_h("GAME OVER", 60 * s, 0) + 12 * s);
   char b[96];
   snprintf(b, sizeof b, "%08d", G.final_score);
   text(font_title, b, 0, y, 34 * s, rgba(0.85f, 0.9f, 1, a), CW_ALIGN_CENTER, W, 6 * s);
@@ -1038,7 +1190,7 @@ static void draw_over(float W, float H, float s) {
   snprintf(b, sizeof b, "level %d", G.final_level);
   spaced(b, 0, y, 14 * s, rgba(0.6f, 0.66f, 0.8f, a), CW_ALIGN_CENTER, W);
   y += fmaxf(H * 0.08f, spaced_size(b, 14 * s).y + 10 * s);
-  const char *verdict = G.rank == 1 ? "new high score !" : G.rank > 1 ? "not bad !" : "loser";
+  const char *verdict = G.rank == 1 ? "new high score !" : G.rank > 1 ? "not bad !" : "fly again";
   spaced(verdict, 0, y, 24 * s, G.rank ? rgba(1, 0.55f, 0.4f, a) : rgba(0.55f, 0.6f, 0.75f, a), CW_ALIGN_CENTER, W);
   y += fmaxf(H * 0.06f, spaced_size(verdict, 24 * s).y + 6 * s);
   if (G.rank > 1) {
@@ -1055,6 +1207,7 @@ static void render(void *u, double alpha) {
   (void)u;
   (void)alpha;
   cw_r2d_begin(&(cw_r2d_pass_desc){ .clear = false });
+  over_headings_drawing = 0;
   cw_vec2 cs = cw_r2d_canvas_size();
   float W = cs.x, H = cs.y, s = H / 540.0f;
   if (G.state == GS_TITLE) draw_title(W, H, s);
@@ -1069,6 +1222,7 @@ static void render(void *u, double alpha) {
     if (G.state == GS_OVER) draw_over(W, H, s);
   }
   cw_r2d_end();
+  over_headings = over_headings_drawing;
 }
 
 static void shutdown(void *u) {

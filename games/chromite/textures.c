@@ -379,8 +379,71 @@ t3_texture *tex_map_copy(int kind, float ru, float rv) {
   return finish(s->map->pixels, SIZES[kind], true, ru, rv);
 }
 
+/* ── the stage worlds' own maps ─────────────────────────────────── */
+
+static t3_texture *PLANET, *LAVA;
+
+/* the planet under the orbital ring (equirect, sRGB): deep oceans, continents in rust and ochre with pale
+ * deserts, white cloud bands; it sits far below the girders and turns slowly */
+t3_texture *planet_texture(void) {
+  if (PLANET) return PLANET;
+  enum { PW = 1024, PH = 512 };
+  uint8_t *px = malloc((size_t)PW * PH * 4);
+  for (int y = 0; y < PH; y++)
+    for (int x = 0; x < PW; x++) {
+      float u = (x + 0.5f) / PW, v = (y + 0.5f) / PH;
+      float land = fbm(u, v, 6, 3, 5, 201), dry = fbm(u, v, 12, 6, 3, 203);
+      float cloud = fbm(u, v, 8, 16, 4, 205) * 0.7f + fbm(u, v, 24, 12, 2, 207) * 0.3f;
+      float lat = fabsf(v - 0.5f) * 2;
+      float c[3];
+      float is_land = sstep(0.52f, 0.56f, land);
+      float sea = 0.6f + 0.4f * sstep(0.3f, 0.52f, land); /* shallows lighter */
+      c[0] = 0.015f * sea, c[1] = 0.05f * sea, c[2] = 0.13f * sea;
+      float lr = 0.28f + 0.2f * dry, lg = 0.14f + 0.1f * dry, lb = 0.07f + 0.04f * dry;
+      c[0] += (lr - c[0]) * is_land, c[1] += (lg - c[1]) * is_land, c[2] += (lb - c[2]) * is_land;
+      float ice = sstep(0.82f, 0.9f, lat + 0.05f * dry);
+      float cl = sstep(0.55f, 0.72f, cloud) * (0.6f + 0.4f * sstep(0.2f, 0.5f, cw_sin(v * 30 + 2 * cloud)));
+      float wht = fmaxf(ice, cl * 0.85f);
+      c[0] += (0.75f - c[0]) * wht, c[1] += (0.77f - c[1]) * wht, c[2] += (0.8f - c[2]) * wht;
+      uint8_t *p = px + ((size_t)y * PW + x) * 4;
+      for (int k = 0; k < 3; k++) p[k] = b8(c[k] <= 0.0031308f ? c[k] * 12.92f : 1.055f * cw_pow(clamp01(c[k]), 1 / 2.4f) - 0.055f);
+      p[3] = 255;
+    }
+  tex_hash = cw_hash32(px, (size_t)PW * PH * 4, tex_hash);
+  PLANET = t3_texture_new(PW, PH, px);
+  free(px);
+  PLANET->wrap_s = T3_REPEAT;
+  PLANET->generate_mipmaps = true;
+  PLANET->min_filter = T3_LINEAR_MIPMAP_LINEAR;
+  PLANET->color_space = T3_SRGB_COLOR_SPACE;
+  return PLANET;
+}
+
+/* the foundry's melt (sRGB, tiling): bright orange-yellow rivers between dark cooling crust, for an emissive map */
+t3_texture *lava_texture(void) {
+  if (LAVA) return LAVA;
+  enum { LN = 256 };
+  uint8_t *px = malloc((size_t)LN * LN * 4);
+  for (int y = 0; y < LN; y++)
+    for (int x = 0; x < LN; x++) {
+      float u = (x + 0.5f) / LN, v = (y + 0.5f) / LN;
+      float n = fbm(u, v, 4, 8, 5, 301), crack = fabsf(fbm(u, v, 8, 8, 4, 303) - 0.5f) * 2;
+      float hot = clamp01(sstep(0.35f, 0.0f, crack) * 0.9f + sstep(0.55f, 0.75f, n) * 0.6f);
+      float c[3] = { 0.04f + 1.0f * hot, 0.01f + 0.35f * hot * hot, 0.002f + 0.05f * hot * hot * hot };
+      uint8_t *p = px + ((size_t)y * LN + x) * 4;
+      for (int k = 0; k < 3; k++) p[k] = b8(c[k] <= 0.0031308f ? c[k] * 12.92f : 1.055f * cw_pow(clamp01(c[k]), 1 / 2.4f) - 0.055f);
+      p[3] = 255;
+    }
+  tex_hash = cw_hash32(px, (size_t)LN * LN * 4, tex_hash);
+  LAVA = finish(px, LN, true, 1, 1);
+  free(px);
+  return LAVA;
+}
+
 void tex_free_all(void) {
   built_quality = -1;
+  if (PLANET) t3_release(PLANET), PLANET = NULL;
+  if (LAVA) t3_release(LAVA), LAVA = NULL;
   for (int k = 0; k < MT_KINDS; k++) {
     mat_set *s = &SETS[k];
     if (!s->map) continue;

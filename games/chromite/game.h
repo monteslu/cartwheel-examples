@@ -69,6 +69,7 @@ typedef struct enemy {
   float phase;      /* render-only spin phase seed */
   float hit_flash;  /* presentation: 1 when hit, fades */
   float smoke;      /* bosses: time to the next damage puff */
+  int plates;       /* bosses: armour plates left on the rim (6; one blows off each sixth of its hull) */
 } enemy;
 
 typedef struct ebullet { bool live; int kind; float x, y, vx, vy; } ebullet;
@@ -93,6 +94,12 @@ enum {
   EV_RESPAWN,
   EV_SMOKE,      /* a damaged boss puffs smoke */
   EV_ARMED,      /* the self-destruct is armed */
+  EV_ESCAPE,     /* modern rules: an enemy got past, it cost score and the chain: a = kind */
+  EV_POINT_BLANK, /* a kill made close: its score doubled */
+  EV_CANCEL,     /* enemy fire turned into score chips: a = how many */
+  EV_PLATE,      /* a boss lost an armour plate: a = the plate (0..5), x, y where it was */
+  EV_BOSS_PHASE, /* a boss lost half its armour: its second attack starts */
+  EV_BOSS_TELL,  /* a boss is charging its second attack (it fires BOSS_TELL frames later) */
 };
 typedef struct sim_event { int type, a; float x, y; } sim_event;
 
@@ -115,8 +122,20 @@ typedef struct sim_input { float x, y; bool fire, item; } sim_input;
 
 enum { PLAY_ON, PLAY_LEVEL_OVER, PLAY_DEAD };
 
+/* the rules: modern (the default) costs score and the chain for an enemy that gets past; classic, the
+ * original's, costs a ship */
+enum { RULES_MODERN, RULES_CLASSIC };
+#define CHAIN_WINDOW 75   /* ticks after a kill in which the next kill grows the chain */
+#define CHAIN_CAP 40      /* the multiplier tops out at x5.0 (1 + chain / 10) */
+#define POINT_BLANK 3.2f  /* a kill this close to the ship (field units, centre to centre) scores double */
+#define MAX_CHIPS 256
+#define BOSS_PLATES 6
+#define BOSS_TELL 30      /* frames of warning (the rings charge) before a boss's second attack */
+#define CANCEL_SCORE 10   /* each enemy round turned into a chip, times the multiplier */
+
 typedef struct sim {
   int level;              /* 1.. */
+  int rules;              /* RULES_MODERN or RULES_CLASSIC */
   float skill;
   int tick;
   float frame;            /* the level's clock in 50 fps frames */
@@ -137,11 +156,20 @@ typedef struct sim {
   float hero_death;       /* game over zoom */
   int kills, kills_by[EK_KINDS], losses, deaths, shots;
   float boss_hp;          /* 0..1 for the HUD, -1 no boss */
+  int chain, chain_best;  /* kills in a row, each within CHAIN_WINDOW of the last */
+  int chain_timer;        /* ticks left to keep the chain */
+  int point_blanks, escapes, cancelled;
+  int64_t escape_cost;    /* score the escapes took (modern rules) */
+  int chips_n;            /* this tick's cancelled rounds, for the chips (render only) */
+  float chip_x[MAX_CHIPS], chip_y[MAX_CHIPS];
   sim_event ev[MAX_EVENTS];
   int ev_n;
 } sim;
 
-void sim_new_game(sim *S, int level, float base_skill, uint32_t seed);
+void sim_new_game(sim *S, int level, float base_skill, uint32_t seed, int rules);
+void sim_last_ship_down(sim *S);     /* the die debug command: the last ship goes now */
+int sim_multiplier10(const sim *S); /* the score multiplier now, in tenths (10 = x1.0) */
+extern int sim_sw_no_chain;          /* sw no_chain 1: kills score flat, as the original (a control) */
 void sim_next_level(sim *S);
 void sim_step(sim *S, const sim_input *in);
 uint32_t sim_hash(const sim *S);
@@ -163,6 +191,8 @@ t3_texture *env_logo_texture(void);
 void env_radiance(float x, float y, float z, float *rgb);
 t3_texture *tex_map_copy(int kind, float ru, float rv);
 void tex_free_all(void);
+t3_texture *planet_texture(void); /* the orbital stage's planet (equirect) */
+t3_texture *lava_texture(void);   /* the foundry stage's melt (tiling, for an emissive map) */
 bool tex_stale(void); /* the graphics preset changed since the maps were made */
 extern uint32_t tex_hash;
 
@@ -190,6 +220,7 @@ extern uint32_t model_hash;
 void world_build(cw_node root, int variation);
 void world_free(void);
 void world_sync(const sim *prev, const sim *cur, float alpha, float t, int state);
+void world_chips_spawn(const sim *S); /* the tick's cancelled rounds become score chips flying home */
 void world_camera(cw_node cam, const sim *S, float t, int state);
 extern uint32_t world_hash;
 t3_texture *world_halo_texture(void);
