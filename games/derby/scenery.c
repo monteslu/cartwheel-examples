@@ -314,15 +314,15 @@ static int flood_shadows = 4; /* scenery_flood_shadows */
 
 /* floodlight towers at the corners: a pole, a bank of lamps aimed in, a
  * beam through the haze (a cone of its own where the fog is not volumetric) */
-#define FLOOD_RGB 1, 0.88f, 0.74f, 1 /* a pale halogen white: the dirt and the paint take their own colours, the dust stays warm */
+#define FLOOD_RGB 1, 0.66f, 0.36f, 1 /* sodium: the warm dusk the bowl is lit by (a whiter flood read grey and flat on the sheets) */
 static void floodlights(cw_node root) {
   t3_material *st = phys(lin(0.5f, 0.5f, 0.52f), 0.5f, 1);
   tex_apply(st, TEX_STEEL, 1, 0.5f, 1);
   t3_material *lamp = phys(lin(1, 0.98f, 0.9f), 0.2f, 0);
-  lamp->emissive = lin(1, 0.9f, 0.78f);
+  lamp->emissive = lin(1, 0.72f, 0.42f);
   lamp->emissive_intensity = 14;
   t3_material *beam = t3_mesh_basic_material_new(0xffffff);
-  beam->color = lin(1, 0.86f, 0.7f);
+  beam->color = lin(1, 0.7f, 0.42f);
   beam->transparent = true;
   beam->opacity = 0.015f;
   beam->vertex_colors = true;
@@ -368,7 +368,7 @@ static void floodlights(cw_node root) {
     snprintf(name, sizeof name, "Tower%d", k);
     hang(root, name, g);
     t3_release(g);
-    /* the light itself: a pale halogen flood, whiter than the dust and the orange fires, clustered (LightingSettings in the
+    /* the light itself: a sodium flood, clustered (LightingSettings in the
      * arena scene), its shadow a tile of the shadow atlas: the cars, the
      * wall and the stands throw long shadows away from each corner. In the
      * volumetric haze it draws its own beam (scenery_volumetric) */
