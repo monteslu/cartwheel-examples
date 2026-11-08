@@ -27,6 +27,26 @@ node deps/cartwheel-sdk/linux-x64/tools/check-prompts.mjs games/<game>   # the b
   `node deps/cartwheel-sdk/<host>/tools/programs.mjs <app> --build build/native` and commit the generated files.
 - Generated assets come from each game's `tools/` scripts: change the script, rerun it and commit both.
 
+## Newcomer and idle-seat gates
+
+Bots and soaks know the map and always press something, so they cannot catch a game that only someone who already
+knows it can finish, or one that a second pad put down on the table holds hostage. Every game gets two gates of its
+own, both on the built cart through romdev, on GL and on WebGPU:
+
+- **Newcomer gate.** From power-on to the end of the first race, round, run or match, driven only by what the screen
+  shows: the title's prompts, the controls line, objective text, markers and arrows (read from the debug fields the
+  game draws them from), never a route the test knows in advance, and as slowly as a first-timer plays. Its control
+  turns the cue off or brings the old rule back (a `sw` debug switch) and must leave the player short of the goal.
+- **Idle-seat gate.** A second pad joins, then never touches anything. The first player must still reach play and
+  finish: no ready check or ride pick that waits for ever, no split view without its controls line, no round that
+  cannot end while the idle seat lives, no shared camera that holds the player back. Its control (a `sw` switch that
+  brings the old wait back) must fail.
+
+Pause, resume, retry and quit belong in one of the two. The existing ones show the shape:
+`tests/bikemesa-newcomer.mjs`, `tests/derby-newcomer.mjs`, `tests/pugball-newcomer.mjs`, `tests/racer-newcomer.mjs`
+and `tests/racer-slow-finish.mjs`. Each tears its romdev host down when it exits. Look at the frames they save: a
+frame hash cannot show that the way is readable. A new game is not done until both gates pass.
+
 ## Graphics presets and launcher art
 
 - Every game has the engine's five presets (Very Low first). A test of a preset or a setting value goes by name and by

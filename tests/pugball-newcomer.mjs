@@ -16,11 +16,16 @@ const CART = resolve(arg('--cart', join(ROOT, 'build/cart-wgpu/carts/pugball.was
 const BACKENDS = process.argv.includes('--gl') ? ['gl'] : process.argv.includes('--webgpu') ? ['webgpu'] : ['gl', 'webgpu'];
 const URL = process.env.ROMDEV_URL || 'http://127.0.0.1:7331';
 mkdirSync(OUT, { recursive: true });
+// every exit tears this session's romdev host down, a failed run too: a host left loaded holds the server's memory
+const bye = async (code) => {
+  try { await fetch('http://127.0.0.1:7331/tool/host', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION }, body: '{"op":"shutdown"}', signal: AbortSignal.timeout(30000) }); } catch {}
+  process.exit(code);
+};
 const tool = async (name, args) => {
   const r = await fetch(`${URL}/tool/${name}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION }, body: JSON.stringify(args) });
   const t = await r.text();
   let j; try { j = JSON.parse(t); } catch { j = t; }
-  if (!r.ok || j?.error) { console.error(`romdev ${name}: ${t.slice(0, 400)}`); process.exit(3); }
+  if (!r.ok || j?.error) { console.error(`romdev ${name}: ${t.slice(0, 400)}`); await bye(3); }
   return j;
 };
 const rd = async (n) => { const v = await tool('wasm', { op: 'read', name: n }); return v.values ?? v.value; };
@@ -41,7 +46,7 @@ const REACH = 450; // the cat's radius and a pug's half length, with room: P1 is
 // kickoff as the screen taught it (or did not)
 async function run(backend, tag, idle, pre) {
   const l = await tool('loadMedia', { platform: 'wasmcart', path: CART, gpuPower: 'low-power', ...(backend === 'gl' ? { wgpu: false } : {}) });
-  if (!l.loaded) { console.error(JSON.stringify(l).slice(0, 300)); process.exit(3); }
+  if (!l.loaded) { console.error(JSON.stringify(l).slice(0, 300)); await bye(3); }
   await step(30);
   if (pre) await tool('wasm', { op: 'command', text: pre });
   // each screen pressed until it gives way to the next (game.state: 0 title, 1 team sheet, 2 stadium, 3 match)
@@ -49,14 +54,14 @@ async function run(backend, tag, idle, pre) {
     for (let n = 0; n < 12 && (await rd('game.state')) !== state; n++) { await press(port, b); await step(20); }
     return (await rd('game.state')) === state;
   };
-  if (!(await until(1, 0, 'south'))) { console.error('the team sheet never opened'); process.exit(3); } // EXHIBITION (selected already)
+  if (!(await until(1, 0, 'south'))) { console.error('the team sheet never opened'); await bye(3); } // EXHIBITION (selected already)
   // pads 2-4: A joins, B leaves (the sheet keeps the last match's players, so a seat may be taken already)
   await step(20);
   const humans = async () => (await rd('players.slot')).filter((k) => k === 1).length;
   for (let n = 0; n < 4 && (await humans()) !== (idle ? 2 : 1); n++) { await press(1, idle ? 'south' : 'east'); await step(10); }
-  if ((await humans()) !== (idle ? 2 : 1)) { console.error('the team sheet would not seat', idle ? 2 : 1, 'player(s)'); process.exit(3); }
-  if (!(await until(2, 0, 'start'))) { console.error('Start never kicked off'); process.exit(3); }     // the team sheet: Start kicks off
-  if (!(await until(3, 0, 'south'))) { console.error('the stadium never opened'); process.exit(3); }   // the first stadium
+  if ((await humans()) !== (idle ? 2 : 1)) { console.error('the team sheet would not seat', idle ? 2 : 1, 'player(s)'); await bye(3); }
+  if (!(await until(2, 0, 'start'))) { console.error('Start never kicked off'); await bye(3); }     // the team sheet: Start kicks off
+  if (!(await until(3, 0, 'south'))) { console.error('the stadium never opened'); await bye(3); }   // the first stadium
   const views = +(await rd('cam.views'));
   // the countdown: what the screen shows P1
   let shown = 0;
@@ -97,4 +102,4 @@ for (const backend of BACKENDS) {
 }
 await pads({}, {});
 console.log(fail ? `${fail} FAILED` : 'all ok');
-process.exit(fail ? 1 : 0);
+await bye(fail ? 1 : 0);
