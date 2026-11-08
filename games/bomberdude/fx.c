@@ -224,17 +224,17 @@ void fx_init(cw_node scene, int theme) {
   t3_material *fm = t3_mesh_standard_material_new(0xffffff);
   fm->color = lin(0.12f, 0.03f, 0);
   fm->emissive = lin(1, 0.3f, 0.0f);
-  fm->emissive_intensity = 2.2f;
+  fm->emissive_intensity = 3.2f;
   fm->roughness = 1;
   fm->transparent = true;
-  fm->opacity = 0.85f;
+  fm->opacity = 0.6f;
   fm->depth_write = false;
   FX.flame = imesh("Flame", geo_rounded_box(1, 1, 1, 0.22f, 3), fm, 2 * MAXI);
   FX.flame->mesh.base.render_order = 5;
   t3_material *cm = t3_mesh_standard_material_new(0xffffff);
   cm->color = lin(0.15f, 0.1f, 0);
-  cm->emissive = lin(1, 0.72f, 0.12f);
-  cm->emissive_intensity = 3.0f;
+  cm->emissive = lin(1, 0.85f, 0.45f);
+  cm->emissive_intensity = 6.0f;
   cm->roughness = 1;
   FX.core = imesh("Core", geo_rounded_box(1, 1, 1, 0.2f, 3), cm, 2 * MAXI);
   /* crate planks */
@@ -386,7 +386,7 @@ void fx_tick(const sim *s) {
       int age = 36 - f, sh = s->fire_shape[y][x];
       float grow = cw_clampf(age / 3.0f, 0, 1), fade = f < 14 ? f / 14.0f : 1;
       float flick = 0.9f + 0.1f * cw_sin(t * 0.9f + x * 1.7f + y * 2.3f);
-      float hgt = 0.62f * grow * (0.35f + 0.65f * fade) * flick; /* rises at once, sinks as it dies */
+      float hgt = 0.95f * grow * (0.35f + 0.65f * fade) * flick; /* rises at once, sinks as it dies */
       float wid = 0.74f * (0.55f + 0.45f * fade);                 /* the bar thins as it dies, never past the tile */
       /* one slab per axis the tile burns along (a centre tile, or two arms crossing, gets both) */
       for (int axis = 0; axis < 2; axis++) {
