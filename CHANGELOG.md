@@ -3,6 +3,11 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.19.6 (2026-11-08)
+
+- **All games**: Engine v0.38.3 (from v0.38.1). The engine's grounding check judges a wall or a row of stands at its foot nearest the camera and leaves out what stands around the camera (the wall ring, the floor), instead of the middle of its box; cascaded sun shadows skip their lookups where no cascade weighs in. Every game has a program for everything it draws at every preset on GL and WebGPU with the new engine, and the quality range gates pass with the limits of v0.19.4
+- **derby**: The grounding sweep no longer needs a size cap of its own. A frame with fewer than 5 bases counts toward the sweep but is not judged alone. The sweep runs as four gates, quality-grounding-derby-1 to -4 (Very Low and Low, GL and WebGPU)
+
 ## v0.19.5 (2026-11-08)
 
 - **All games**: Engine v0.38.1. Every cart's manifest says which version it is: a release's carts carry the release's version (every cart said 0.1.0 before), and a cart built from any other commit says `<last tag>-dev.g<commit>`, so it is never taken for a release. The engine works the version out from the checkout on every build; `project.cwproj` no longer carries one. Engine v0.37.0 and v0.38.0 (the 2D renderer's HDR canvas, post chain, tiled lights and global illumination) come with it
