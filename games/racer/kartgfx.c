@@ -35,11 +35,15 @@ typedef struct kstate {
 /* sw wheel_lag <0|1>: 1 = the wheels drawn from the vehicle controller's own casts, a tick behind the drawn chassis (the old
  * way: tests/racer-grounded.mjs's control) */
 int kartgfx_wheel_lag;
+/* sw contact <0|1>: 0 = no dark under the karts where they meet the road (the old way: the control of
+ * tests/racer-grounded.mjs, with sw sun_short 1) */
+int kartgfx_contact = 1;
 
 static struct {
   kart_rig rig[MAXK];
   kstate st[MAXK];
   cw_node node[MAXK];
+  cw_node contact[MAXK]; /* the dark under each kart where it meets the road (ground_probe places it) */
   const sim *sim;
 } K;
 
@@ -88,6 +92,19 @@ void kartgfx_build(cw_node parent, const sim *s) {
     cw_node3d_set_position(K.node[i], k->p);
     cw_node3d_set_quaternion(K.node[i], k->q);
     K.st[i].first = true;
+    /* the dark where it meets the road: the light the kart keeps off the road under it (ambient occlusion). The sun's
+     * shadow alone left a kart in the shade of a stand, on a night map, or below Medium (no ambient occlusion there)
+     * with nothing under it, and a kart with nothing under it looks to hover. A shallow box projected down onto the
+     * road (and the bottoms of the tyres) under the kart, placed every frame by ground_probe */
+    const vehicle_def *vd = &VEH[k->veh % NVEH];
+    cw_node d = cw_node_new("Decal3D", "Contact");
+    cw_node_add_child(parent, d);
+    cw_node_set(d, "blend", cw_val_enum("MULTIPLY"));
+    cw_node_set(d, "normal_fade", cw_val_float(0.35f));
+    cw_node_set(d, "edge_fade", cw_val_float(0.3f));
+    cw_node_set(d, "size", cw_val_vec3(vd->wid * 2.5f, vd->len * 2.3f, 0.7f));
+    cw_node_set(d, "visible", cw_val_bool(false));
+    K.contact[i] = d;
   }
 }
 
@@ -239,6 +256,7 @@ static t3_quat qaxis(float x, float y, float z, float a) { return t3_quat_from_a
 static t3_quat qmul(t3_quat a, t3_quat b) { return t3_quat_multiply(a, b); }
 
 static void pose_driver(kart_rig *r, const float *P, float tsec, bool both_hands);
+static t3_quat quat_basis(t3_vec3 x, t3_vec3 y, t3_vec3 z);
 
 /* ── the drawn tyres against the road under them ──────────────────────
  * Every frame, each kart's four tyres as drawn (the node between its last two ticks, the rig's root, the wheel pivots)
@@ -367,6 +385,22 @@ static void ground_probe(const sim *s, int i, const kart_rig *r, float alpha) {
   for (int j = 0; j < 2; j++) {
     const float *P = j ? st->prev : st->cur;
     anim = anim || P[KP_HOP] != 0 || P[KP_FLIP] != 0 || P[KP_TRICK] != 0;
+  }
+  /* the dark under it (kartgfx_build): on the road under the kart's middle, along the road's up, as dark as the kart is
+   * near the road (gone by a metre and a half up: a jump's flight) */
+  if (cw_node_valid(K.contact[i])) {
+    cw_node cd = K.contact[i];
+    t3_vec3 hit, n;
+    bool show = kartgfx_contact && KS.kart != i && r->root->visible && sim_ground_ray(v3add(p, v3mul(up, 1.0f)), v3mul(up, -4.0f), &hit, &n);
+    float h = best > 1e8f ? 9 : fmaxf(best, 0), fade = show ? fmaxf(0, 1 - h / 1.5f) : 0;
+    if (fade > 0) {
+      t3_vec3 fw = t3_vec3_apply_quat((t3_vec3){ 0, 0, 1 }, q);
+      fw = v3norm(v3sub(fw, v3mul(n, v3dot(fw, n))));
+      cw_node3d_set_position(cd, v3add(hit, v3mul(n, 0.12f)));
+      cw_node3d_set_quaternion(cd, quat_basis(v3cross(fw, n), fw, n)); /* -Z down the road's normal, the image's y along the kart */
+      cw_node_set(cd, "color", cw_val_color(0.3f, 0.3f, 0.32f, 0.85f * fade));
+    }
+    cw_node_set(cd, "visible", cw_val_bool(fade > 0));
   }
   if (s->phase != PH_RACE || best > 1e8f || k->respawn_ticks > 0) return;
   GP.frames[i]++;

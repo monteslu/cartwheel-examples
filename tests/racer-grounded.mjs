@@ -1,10 +1,11 @@
 // racer on the cart through romdev, GL and WebGPU: the karts sit on the road. Two measures, each with a control that must
 // fail:
 //   shadow  A race built below High (Very Low builds it thin, as Auto does on a slow machine and three or four views do),
-//           paused a few seconds in: the same frame drawn with the player's kart throwing its shadow and without
-//           (kshadow 0 0|1), at each preset. What goes darker is the shadow the kart throws on the road; it must cover at
-//           least SHADOW_MIN_PX pixels of the 1080p frame (a kart with nothing under it reads as hovering). Control:
-//           sw sun_short 1 (the sun's shadow camera cut to 70 m deep below High, as it was) leaves no shadow.
+//           paused at three moments: the same frame drawn with the player's kart throwing its shadow and the dark where
+//           it meets the road, and without them (kshadow 0 0|1), at each preset. What goes darker is what the kart throws
+//           on the road; at the best moment it must cover at least SHADOW_MIN_PX pixels of the 1080p frame (a kart with
+//           nothing under it reads as hovering). Control: sw sun_short 1 with sw contact 0 (the sun's shadow camera cut to
+//           70 m deep below High and no dark under the karts, as it was) leaves nothing under the kart below High.
 //   gap     One lap of every map with the bot at the wheel. Every frame the cart measures each kart's four tyres as drawn
 //           against the road under them (kartgfx.c ground_probe, the gap.* fields; a frame over 30 mm is counted): while
 //           the physics has any of its wheels on the road no kart, the player's or a computer one, is drawn more than
@@ -111,6 +112,7 @@ async function load(backend) {
 async function race(map, pre) {
   await cmd(`sw sun_short ${pre === 'sun_short' ? 1 : 0}`);
   await cmd(`sw wheel_lag ${pre === 'wheel_lag' ? 1 : 0}`);
+  await cmd(`sw contact ${pre === 'sun_short' ? 0 : 1}`);
   await cmd(`race ${map} 1 1`);
   await cmd('bot 1');
   let phase = 0;
@@ -170,7 +172,7 @@ for (const backend of BACKENDS) {
   for (const map of MAPS) {
     if (LEGS.includes('shadow')) {
       const s = await shadows(backend, map, '');
-      for (const q of PRESETS) check(`map ${map} ${q}: the player's kart throws its shadow on the road`, s[q].net >= SHADOW_MIN_PX, `${s[q].net} px darker at its best (${s[q].at / 60} s past the green: ${s[q].dark} darker, ${s[q].light} lighter, ${s[q].moving} moving)`);
+      for (const q of PRESETS) check(`map ${map} ${q}: the player's kart throws its shadow on the road, or is dark where it meets it`, s[q].net >= SHADOW_MIN_PX, `${s[q].net} px darker at its best (${s[q].at / 60} s past the green: ${s[q].dark} darker, ${s[q].light} lighter, ${s[q].moving} moving)`);
     }
     if (LEGS.includes('gap')) {
       const r = await lap(map, '');
@@ -186,7 +188,7 @@ for (const backend of BACKENDS) {
   if (LEGS.includes('control')) {
     const map = MAPS[0];
     const s = await shadows(backend, map, 'sun_short');
-    check(`control: sw sun_short 1, map ${map}: no preset below High shows the kart's shadow`, PRESETS.slice(0, 3).every((q) => s[q].net < SHADOW_MIN_PX),
+    check(`control: sw sun_short 1 and sw contact 0, map ${map}: no preset below High shows anything under the kart`, PRESETS.slice(0, 3).every((q) => s[q].net < SHADOW_MIN_PX),
       PRESETS.map((q) => `${q} ${s[q].net} px`).join(', '));
     const r = await lap(map, 'wheel_lag');
     check(`control: sw wheel_lag 1, map ${map}: a kart is drawn above the road with its wheels on it`, Math.max(worst(r.karts, 'all').max, worst(r.karts, 'some').max) > GAP_MAX_MM, `all wheels down: ${total(r.karts, 'all')} frames over 30 mm, ${desc(worst(r.karts, 'all'))}; some: ${total(r.karts, 'some')} frames, ${desc(worst(r.karts, 'some'))}`);

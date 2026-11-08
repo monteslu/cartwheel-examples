@@ -433,5 +433,7 @@ extern int sim_dnf_any;
 extern int world_sun_short;
 /* sw wheel_lag <0|1>: 1 = the karts' wheels drawn a tick behind their chassis, as they once were (kartgfx.c) */
 extern int kartgfx_wheel_lag;
+/* sw contact <0|1>: 0 = no dark under the karts where they meet the road, as before (kartgfx.c) */
+extern int kartgfx_contact;
 
 #endif
