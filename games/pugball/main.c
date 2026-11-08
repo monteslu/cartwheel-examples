@@ -129,6 +129,7 @@ static struct {
   int slot[MAXP];
   pug_look look[MAXP];
   int secs_i;
+  int rules; /* RULES_*: the party rules the next match plays by (the team sheet's KICK OFF row; not saved) */
   int menu, cursor, col;
   int unlock_tile, unlock_ticks, bump_tile, bump_ticks;
   cw_node scene, camera, sun;
@@ -151,6 +152,7 @@ static struct {
   bool chase_on;
   t3_vec3 ip_prev[MAXP], ip_cur[MAXP], ib_prev, ib_cur;
   float cf_yaw[4], cf_dist[4], cf_high[4], cf_lift[4], cf_ground[4];
+  float cf_fov[4], cf_fov_base[4]; /* the view's field of view: its own, opened up with speed (the FOV kick) */
   double cf_last;
   bool cf_live[4];
   int ballcam_h[4]; /* each pad's ball cam */
@@ -518,6 +520,11 @@ static void save_check(void) {
   if (SAVE.secs_i > 2) SAVE.secs_i = 2;
 }
 static bool stadium_open(int i) { return i == 0 || (i < STADIUMS && SAVE.won[i - 1]); }
+/* the select's tiles: the Exhibition plays any stadium from the first day (a party game is not gated); the Pug Cup
+ * still opens its fixtures one by one, and its wins unlock the hats and trails. sw exhibition_locked 1 brings the old
+ * padlocks back to the Exhibition (a gate's control) */
+static int sw_exhibition_locked;
+static bool tile_open(int i) { return (G.mode == MODE_EXHIBITION && !sw_exhibition_locked) || stadium_open(i); }
 /* hats unlock with the Cup: cap and beanie from the start, then one per fixture won */
 static bool hat_open(int h) {
   static const int NEED[HAT_KINDS] = { 0, 0, 5, 1, 0, 3 }; /* fixtures won */
@@ -728,6 +735,7 @@ static void start_match(int stadium) {
   if (G.mode == MODE_CUP) secs = 6;
 #endif
   sim_init(&G.S, on, secs, 1000u + (uint32_t)stadium * 7919u);
+  sim_set_rules(&G.S, G.mode == MODE_CUP ? RULES_NORMAL : G.rules); /* (the Cup plays straight) */
   RP.n = RP.head = RP.count = 0;
   for (int i = 0; i < MAXP; i++) ai_reset(&G.ai[i], i, (uint32_t)stadium + 1);
 #ifdef PUGBALL_DEMO_TEST
@@ -776,7 +784,7 @@ static void enter_stadium_select(void) {
   G.state_ticks = 0;
   G.unlock_tile = -1;
   G.bump_ticks = 0;
-  for (int i = 1; i < STADIUMS; i++)
+  for (int i = 1; i < STADIUMS && G.mode == MODE_CUP; i++) /* (the Exhibition has every stadium open) */
     if (stadium_open(i) && !SAVE.shown[i]) {
       SAVE.shown[i] = 1;
       save_write();
@@ -809,13 +817,58 @@ static int pending_stadium = -1;
  * drive this frame (hud.how_views); sw split_how 0 leaves the line out of
  * split screen, as the game once did (the control of tests/pugball-newcomer.mjs) */
 static int32_t how_views, split_how = 1;
-static void cmd_sw(int argc, const char **argv, cw_reply *r) {
-  if (argc < 3 || strcmp(argv[1], "split_how")) {
-    cw_reply_error(r, "usage: sw split_how <0|1>");
+/* the kickoff countdown's block on screen and whether it stepped aside from the cat (debug: hud.kick_rect,
+ * hud.kick_dodged); sw kick_dodge 0 draws it in the middle as before (the kickoff overlay gate's control) */
+static cw_rect kick_rect;
+static int32_t kick_dodged, kick_dodge = 1;
+static int32_t kick_rect_dbg[4]; /* x, y, w, h in canvas pixels */
+static int32_t kick_cat[3];      /* the cat on screen at the kickoff: x, y, radius (canvas pixels; radius 0 off screen) */
+static int32_t cam_posts = 1, cam_post_pulls; /* the camera's goal-post test (chase_view) */
+static int32_t pug_seen;                     /* P1's pug in its picture, nothing of a goal frame in front of it (cam.pug_seen) */
+static float cam_near_k = 1;                 /* 1: the camera at its full distance; 0: pulled all the way in (cam.near_k) */
+static int32_t fov_kick = 1;                   /* sw fov_kick 0: a fixed field of view, as before */
+static float fov_now;                          /* P1's view's field of view this frame (cam.fov) */
+static void cam_posts_sw(int v);
+static int32_t kick_dodge_sw(int v) {
+  if (v >= 0) kick_dodge = v;
+  return kick_dodge;
+}
+static void cmd_place(int argc, const char **argv, cw_reply *r) {
+  if (argc < 4) {
+    cw_reply_error(r, "usage: place <x> <z> <yaw>");
     return;
   }
-  split_how = atoi(argv[2]) != 0;
-  cw_reply_printf(r, "{\"split_how\":%d}", (int)split_how);
+  sim_place_pug(&G.S, 0, (float)atof(argv[1]), (float)atof(argv[2]), (float)atof(argv[3]));
+  cw_reply_printf(r, "{\"placed\":[%s,%s,%s]}", argv[1], argv[2], argv[3]);
+}
+static void cmd_dropball(int argc, const char **argv, cw_reply *r) {
+  if (argc < 4) {
+    cw_reply_error(r, "usage: dropball <x> <y> <z>");
+    return;
+  }
+  sim_place_ball(&G.S, (t3_vec3){ (float)atof(argv[1]), (float)atof(argv[2]), (float)atof(argv[3]) });
+  cw_reply_printf(r, "{\"ball\":[%s,%s,%s]}", argv[1], argv[2], argv[3]);
+}
+static void cmd_sw(int argc, const char **argv, cw_reply *r) {
+  /* split_how 0: no controls line in split views; kick_dodge 0: the kickoff countdown in the middle, over the cat;
+   * exhibition_locked 1: the Exhibition's stadiums padlocked until the Cup opens them. Each is the old behaviour (a
+   * gate's control) */
+  if (argc < 3) {
+    cw_reply_error(r, "usage: sw split_how|kick_dodge|exhibition_locked|cam_posts|fov_kick <0|1>");
+    return;
+  }
+  int v = atoi(argv[2]) != 0;
+  if (!strcmp(argv[1], "split_how")) split_how = v;
+  else if (!strcmp(argv[1], "kick_dodge")) kick_dodge_sw(v);
+  else if (!strcmp(argv[1], "exhibition_locked")) sw_exhibition_locked = v;
+  else if (!strcmp(argv[1], "cam_posts")) cam_posts_sw(v);
+  else if (!strcmp(argv[1], "fov_kick")) fov_kick = v;
+  else {
+    cw_reply_error(r, "usage: sw split_how|kick_dodge|exhibition_locked|cam_posts|fov_kick <0|1>");
+    return;
+  }
+  cw_reply_printf(r, "{\"split_how\":%d,\"kick_dodge\":%d,\"exhibition_locked\":%d,\"cam_posts\":%d}", (int)split_how, (int)kick_dodge_sw(-1),
+                  sw_exhibition_locked, (int)cam_posts);
 }
 /* bind <action> <bindings>: replace an action's bindings (cartwheel/input.h
  * binding text, "pad:north, key:v"), as a player rebinding a control would;
@@ -989,6 +1042,7 @@ static void init(void *u) {
   G.mvp = -1;
   cw_debug_i32("game.state", &G.state);
   cw_debug_i32("game.mode", &G.mode);
+  cw_debug_i32("game.rules", &G.rules);
   cw_debug_i32("game.stadium", &G.stadium);
   cw_debug_i32("match.phase", &G.phase);
   cw_debug_i32("match.clock", &G.clock);
@@ -1033,7 +1087,16 @@ static void init(void *u) {
   cw_debug_i32("save.migrated", &dbg_migrated);
   cw_debug_command("stadium", "stadium <1..5>: an exhibition there now", cmd_stadium);
   cw_debug_i32("hud.how_views", &how_views); /* split screen: the views showing the controls this frame */
-  cw_debug_command("sw", "sw split_how <0|1>: the controls line in each split-screen view at the first kickoff (0: left out, as before)", cmd_sw);
+  cw_debug_command("sw", "sw split_how|kick_dodge|exhibition_locked|cam_posts|fov_kick <0|1>: the old behaviour back (the gates controls)", cmd_sw);
+  cw_debug_field("hud.kick_rect", kick_rect_dbg, CW_DBG_I32, 4);
+  cw_debug_i32("hud.kick_dodged", &kick_dodged);
+  cw_debug_field("hud.kick_cat", kick_cat, CW_DBG_I32, 3);
+  cw_debug_i32("cam.post_pulls", &cam_post_pulls);
+  cw_debug_f32("cam.fov", &fov_now);
+  cw_debug_f32("cam.near_k", &cam_near_k);
+  cw_debug_i32("cam.pug_seen", &pug_seen);
+  cw_debug_command("place", "place <x> <z> <yaw>: P1's pug set down there, at rest (a gate's stage)", cmd_place);
+  cw_debug_command("dropball", "dropball <x> <y> <z>: the cat held there at rest, then let go (a gate's stage)", cmd_dropball);
   cw_debug_command("bind", "bind <action> <bindings>: replace an action's bindings (binding text, as input.cfg writes it)", cmd_bind);
   cw_debug_command("camtrace2", "camtrace2 [0|1]: log the drawn camera and the pug's screen place every frame", cmd_camlog);
   cw_tree_add_hook(cw_scene_app_tree(), 2, 10, cam_log, NULL); /* after the nodes write their objects */
@@ -1162,6 +1225,7 @@ static void camera_tick(void) {
   if (!cw_node_valid(G.camera)) return;
   bool was_chase = G.chase_on;
   G.chase_on = false;
+  cw_node_set(G.camera, "fov", cw_val_float(62)); /* the replay's and the menus' (the chase view kicks it per frame) */
   t3_vec3 at = { 0, 1, 0 }, eye = { 0, 12, -40 };
   float k_eye = 0.12f, k_at = 0.2f;
   const sim *s = &G.S;
@@ -1334,6 +1398,29 @@ static void track_tick(void) {
   G.ib_cur = G.S.ball;
 }
 
+/* the goal frames are drawn only (the mouths are holes in the arena's physics), so the camera's clearance test
+ * asks them itself: the line from the pug to the eye keeps 0.45 m off the posts and the crossbar, the eye itself
+ * 0.9 m. sw cam_posts 0: the walls alone, as before (the goal-mouth camera gate's control) */
+static float post_gap(t3_vec3 q) {
+  float best = 1e9f;
+  for (int sz = -1; sz <= 1; sz += 2) {
+    float gz = sz * (AL + 0.1f);
+    for (int sx = -1; sx <= 1; sx += 2)
+      if (q.y < GH + 0.3f) best = fminf(best, hypotf(q.x - sx * (GW + 0.16f), q.z - gz) - 0.16f);
+    if (fabsf(q.x) < GW + 0.32f) best = fminf(best, hypotf(q.y - (GH + 0.16f), q.z - gz) - 0.16f);
+  }
+  return best;
+}
+static void cam_posts_sw(int v) { cam_posts = v; }
+static bool posts_clear(t3_vec3 from, t3_vec3 to) {
+  if (!cam_posts) return true;
+  for (int i = 1; i <= 12; i++) {
+    t3_vec3 q = lerp3(from, to, i / 12.0f);
+    if (post_gap(q) < (i == 12 ? 0.9f : 0.45f)) return false;
+  }
+  return true;
+}
+
 static void chase_view(int h, int me, cw_node cam, double alpha, double now, float dt) {
   const sim *s = &G.S;
   const pug *u = &s->p[me];
@@ -1378,22 +1465,28 @@ static void chase_view(int h, int me, cw_node cam, double alpha, double now, flo
   t3_vec3 back = { -sy, 0, -cy };
   /* how far back and how high it may sit: the glass, walls and ceiling pull it in */
   float high_want = cw_clampf(AH - 1.4f - P.y, 0.6f, 1.8f);
-  float dist_want = 1.6f;
-  for (int k = 0; k <= 12; k++) {
+  float dist_want = cam_posts ? 0.5f : 1.6f;
+  for (int k = 0; k <= (cam_posts ? 15 : 12); k++) { /* (deep in a goal mouth: in as close as 0.7 m, over the pug) */
     float dd = 5.2f - k * 0.3f;
     t3_vec3 e = v3add(P, v3add(v3mul(back, dd), (t3_vec3){ 0, high_want, 0 }));
-    if (arena_clear(P, e, 0.9f)) {
+    if (arena_clear(P, e, 0.9f) && posts_clear(P, e)) {
       dist_want = dd;
       break;
     }
+    if (k == 0 && arena_clear(P, e, 0.9f)) cam_post_pulls++; /* (the posts alone pulled it in) */
   }
   G.cf_dist[h] += (dist_want - G.cf_dist[h]) * smooth_k(dist_want < G.cf_dist[h] ? 12.0f : 3.0f, dt);
   G.cf_high[h] += (high_want - G.cf_high[h]) * smooth_k(6, dt);
   float lift_want = G.ballcam_h[h] ? cw_clampf((B.y - P.y) * 0.25f, 0, 2.2f) : 0;
   G.cf_lift[h] += (lift_want - G.cf_lift[h]) * smooth_k(3, dt);
   t3_vec3 eye = v3add(P, v3add(v3mul(back, G.cf_dist[h]), (t3_vec3){ 0, G.cf_high[h], 0 }));
-  /* a fixed look point ahead of and above the pug (lifted a little toward a high cat) */
-  t3_vec3 look = v3add(P, v3add(v3mul(back, -2.5f), (t3_vec3){ 0, 0.9f + G.cf_lift[h], 0 }));
+  /* a look point ahead of and above the pug (lifted a little toward a high cat); when the walls or the goal frame
+   * have pulled the camera in close it comes back over the pug and down, so the pug stays in the picture (in a goal
+   * mouth the eye sits just behind it, and a point 2.5 m ahead would leave the pug under the bottom edge) */
+  float near_k = cw_clampf((G.cf_dist[h] - 1.6f) / 3.0f, 0, 1);
+  if (!cam_posts) near_k = 1; /* (the old framing, with the control) */
+  t3_vec3 look = v3add(P, v3add(v3mul(back, -2.5f * near_k), (t3_vec3){ 0, 0.35f + (0.55f + G.cf_lift[h]) * near_k, 0 })); /* (no lift toward a high cat when cramped) */
+  cam_near_k = near_k;
   float sh = fx_shake();
   if (sh > 0.001f) {
     eye.x += sh * 0.3f * cw_sin((float)now * 31);  /* a rumble, not a rattle */
@@ -1401,9 +1494,27 @@ static void chase_view(int h, int me, cw_node cam, double alpha, double now, flo
   }
   cw_node3d_set_position(cam, eye);
   cw_node3d_look_at(cam, look, (t3_vec3){ 0, 1, 0 });
+  /* the FOV kick: the view opens up to 9 degrees as the pug nears supersonic and a little more on boost, eased, so
+   * speed is felt; it eases back in a moment when it slows */
+  {
+    if (G.cf_fov_base[h] <= 0) G.cf_fov_base[h] = G.cf_fov[h] = 62; /* (every stadium's camera and the split views') */
+    float kick = fov_kick ? 9 * cw_smoothstep(11.0f, 19.5f, hv) + (u->boosting ? 2.0f : 0) : 0;
+    float want_fov = G.cf_fov_base[h] + kick;
+    G.cf_fov[h] += (want_fov - G.cf_fov[h]) * smooth_k(want_fov > G.cf_fov[h] ? 2.5f : 4.0f, dt);
+    cw_node_set(cam, "fov", cw_val_float(G.cf_fov[h]));
+    if (h == 0) fov_now = G.cf_fov[0];
+  }
   if (cam.id == G.camera.id) {
     G.cam_eye = eye;
     G.cam_at = look;
+    /* is the pug in the picture and clear of the goal frame? (cam.pug_seen, the goal-mouth gate) */
+    t3_vec3 fw = v3norm(v3sub(look, eye)), rt = v3norm(v3cross(fw, (t3_vec3){ 0, 1, 0 })), up = v3cross(rt, fw);
+    t3_vec3 pc = v3add(P, (t3_vec3){ 0, 0.35f, 0 }), v = v3sub(pc, eye);
+    float z = v3dot(v, fw), th = tanf(G.cf_fov[h] * 0.5f * 3.1415927f / 180);
+    bool in = z > 0.3f && fabsf(v3dot(v, up) / z) < th * 0.9f && fabsf(v3dot(v, rt) / z) < th * 1.7f;
+    float gap = 1e9f;
+    for (int i = 0; i <= 10; i++) gap = fminf(gap, post_gap(lerp3(eye, pc, i / 10.0f)));
+    pug_seen = in && gap > 0.05f;
   }
   if (G.camtrace && cam.id == G.camera.id) {
     /* the pug's place on screen (tangent units) and the eye, for jerk checks */
@@ -2034,6 +2145,9 @@ static void fixed_body(void) {
     if (cw_action_just_pressed(0, G.m_alt) && G.cursor < MAXP) {
       G.col = (G.col + 1) % 4;
       sfx(SFX_MOVE, 0.6f);
+    } else if (cw_action_just_pressed(0, G.m_alt) && G.cursor == MAXP) { /* the party rules */
+      G.rules = (G.rules + 1) % RULES_KINDS;
+      sfx(SFX_MOVE, 0.6f);
     }
     if (dx && G.cursor < MAXP) sheet_change(G.cursor, G.col, dx);
     if (dx && G.cursor == MAXP) {
@@ -2122,7 +2236,7 @@ static void fixed_body(void) {
     if (G.unlock_tile >= 0 && ++G.unlock_ticks == 24) sfx(SFX_UNLOCK, 1);
     bool pick = G.state_ticks > 10 && (confirm || any_pressed(G.a_start) || (mouse_clicked && hover >= 0));
     if (pick && mouse_clicked && hover >= 0) G.cursor = hover;
-    if (pick && !stadium_open(G.cursor)) {
+    if (pick && !tile_open(G.cursor)) {
       G.bump_tile = G.cursor;
       G.bump_ticks = 18;
       sfx(SFX_LOCKED, 1);
@@ -2448,6 +2562,7 @@ static const char *menu_prompt(void) {
   switch (G.state) {
   case GS_TITLE: return shows_glyphs() ? "{m_left|m_right} choose   {m_ok} go" : on_touch() ? "tap to choose" : "click to choose";
   case GS_SHEET:
+    if (G.cursor == MAXP && shows_glyphs()) return "{m_up|m_down} pug   {m_left|m_right} clock   {m_alt} party rules   {start} kick off   {back} back";
     return shows_glyphs() ? "{m_up|m_down} pug   {m_left|m_right} change   {m_alt} next setting   {m_team} switch sides   {start} kick off   {back} back"
                           : "pick a pug, then click / tap a setting to change it   KICK OFF to play";
   case GS_STADIUM:
@@ -2558,8 +2673,11 @@ static void draw_sheet(float W, float H, float s) {
   cw_rect gr = L.go;
   if (G.cursor == MAXP) glow_cursor(gr, s, 18, false);
   panel(gr, 1, rgba(1, 1, 1, 0.75f), rgba(0.95f, 0.45f, 0.2f, 0.94f));
-  snprintf(buf, sizeof buf, "KICK OFF THE CAT   %d:00", MATCH_SECS[G.secs_i] / 60);
-  bold(buf, gr.x, gr.y + (gr.h - measure_bold(buf, 24 * s).height) * 0.5f, 24 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, gr.w);
+  static const char *const RULE_NAME[RULES_KINDS] = { "", "   MOON CAT", "   BOTTOMLESS BOOST" };
+  snprintf(buf, sizeof buf, "KICK OFF THE CAT   %d:00%s", MATCH_SECS[G.secs_i] / 60, RULE_NAME[G.rules % RULES_KINDS]);
+  float gsz = 24 * s, gwid = measure_bold(buf, gsz).width;
+  if (gwid > gr.w - 20 * s) gsz = fmaxf(16 * s, gsz * (gr.w - 20 * s) / gwid); /* (a long rule's name) */
+  bold(buf, gr.x, gr.y + (gr.h - measure_bold(buf, gsz).height) * 0.5f, gsz, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, gr.w);
   if (L.pads_line) prompt_line_for(sheet_pads_prompt(), 1, W, L.pads_y, 16 * s); /* pads 2-4: drawn for P2's pad */
   prompt_line_above(menu_prompt(), W, L.prompt_bottom, 16 * s);
 }
@@ -2574,7 +2692,7 @@ static void draw_stadium_select(float W, float H, float s) {
     bool cur = i == G.cursor;
     bool unlocking = i == G.unlock_tile && G.unlock_ticks < 80;
     float ut = unlocking ? (float)G.unlock_ticks : 999;
-    bool locked = !stadium_open(i) || (unlocking && ut < 24);
+    bool locked = !tile_open(i) || (unlocking && ut < 24);
     if (i == G.bump_tile && G.bump_ticks > 0) r.x += cw_sin(G.bump_ticks * 1.7f) * 7 * s * G.bump_ticks / 18.0f;
     if (unlocking && ut >= 24) {
       float k = (ut - 24) / 56, pop = 1 + 0.14f * cw_sin(k * 3.1415927f) * (1 - k);
@@ -2615,7 +2733,7 @@ static void draw_stadium_select(float W, float H, float s) {
     float a = cw_clampf((110 - G.unlock_ticks) / 20.0f, 0, 1);
     bold(buf, 0, L.head_y, fit_title(buf, 40 * s, W - 24 * s), rgba(1, 0.92f, 0.4f, a), CW_ALIGN_CENTER, W);
   }
-  const char *b = stadium_open(G.cursor) ? STADIUM_BLURB[G.cursor] : G.mode == MODE_CUP ? "Win the fixture before it to open this one."
+  const char *b = tile_open(G.cursor) ? STADIUM_BLURB[G.cursor] : G.mode == MODE_CUP ? "Win the fixture before it to open this one."
                                                                                          : "Win it in the Pug Cup to play here.";
   if (!L.titles) { /* the tiles have no room for their titles: the cursor's names itself */
     snprintf(buf, sizeof buf, "%s:  %s", STADIUM_TITLES[G.cursor], b);
@@ -3031,8 +3149,30 @@ static void draw_hud(float W, float H, float s) {
     int n = 3 - S->phase_ticks / 60;
     float f = (S->phase_ticks % 60) / 60.0f, pop = 1 + 0.35f * (1 - f) * (1 - f);
     snprintf(buf, sizeof buf, "%d", n < 1 ? 1 : n);
-    digits(buf, 0, H * 0.17f, 96 * s * pop, rgba(1, 0.9f, 0.4f, 1 - f * 0.3f), CW_ALIGN_CENTER, W);
-    prompt_line(S->overtime ? "golden goal: next one wins" : "kick off the cat!", W, H * 0.4f, 18 * s);
+    /* the countdown and its line stand beside the cat, never over it: a newcomer must see the ball now. The block
+     * (the number over the line) is centred; where it would cover the cat it steps to the side with more room */
+    const char *line = S->overtime ? "golden goal: next one wins" : "kick off the cat!";
+    float dsz = 96 * s * pop, dh = measure_digits("3", 96 * s * 1.35f).height, dw = measure_digits("3", 96 * s * 1.35f).width;
+    float lh = prompt_line_h(line, W, 18 * s), lw = fminf(W * 0.9f, psize(ui_font(18 * s), line, 0, 18 * s).x + 3 * cw_text_drawn_size(ui_font(18 * s), 18 * s));
+    float bw = fmaxf(dw, lw), y0 = scoreboard_bottom(s, s) + 8 * s, ly = y0 + dh + 4 * s, cx = W * 0.5f;
+    cw_vec2 cc, ct;
+    kick_dodged = 0;
+    kick_cat[2] = 0;
+    if (project(S->ball, W, H, &cc) && project(v3add(S->ball, (t3_vec3){ 0, RB, 0 }), W, H, &ct)) {
+      float cr = fabsf(cc.y - ct.y) * 1.15f + 12 * s;
+      kick_cat[0] = (int32_t)cc.x, kick_cat[1] = (int32_t)cc.y, kick_cat[2] = (int32_t)(fabsf(cc.y - ct.y));
+      bool over = cc.x + cr > cx - bw * 0.5f && cc.x - cr < cx + bw * 0.5f && cc.y + cr > y0 && cc.y - cr < ly + lh;
+      if (over && kick_dodge) {
+        float right = cc.x + cr + 16 * s + bw * 0.5f, left = cc.x - cr - 16 * s - bw * 0.5f;
+        cx = W - right > left ? right : left;
+        cx = cw_clampf(cx, bw * 0.5f + 12 * s, W - bw * 0.5f - 12 * s);
+        kick_dodged = 1;
+      }
+    }
+    kick_rect = cw_rect_make(cx - bw * 0.5f, y0, bw, ly + lh - y0);
+    kick_rect_dbg[0] = (int32_t)kick_rect.x, kick_rect_dbg[1] = (int32_t)kick_rect.y, kick_rect_dbg[2] = (int32_t)kick_rect.w, kick_rect_dbg[3] = (int32_t)kick_rect.h;
+    digits(buf, cx - bw * 0.5f, y0 + (dh - measure_digits(buf, dsz).height) * 0.5f, dsz, rgba(1, 0.9f, 0.4f, 1 - f * 0.3f), CW_ALIGN_CENTER, bw);
+    prompt_line_in(line, 0, cx - W * 0.45f, W * 0.9f, ly, 18 * s);
   } else if (!split && S->phase == PH_PLAY && S->phase_ticks < 50 && S->tick > 200) {
     float f = S->phase_ticks / 50.0f;
     bold("GO!", 0, H * 0.15f, 110 * s * (1 + 0.3f * (1 - f)), rgba(1, 0.75f, 0.2f, 1 - f), CW_ALIGN_CENTER, W);

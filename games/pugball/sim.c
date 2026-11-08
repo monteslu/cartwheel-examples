@@ -417,14 +417,22 @@ void sim_init(sim *s, const bool on[MAXP], int match_secs, uint32_t seed) {
   kickoff(s);
 }
 
+void sim_set_rules(sim *s, int rules) {
+  s->rules = rules >= 0 && rules < RULES_KINDS ? rules : RULES_NORMAL;
+  if (cw_body3d_valid(PH.ball)) b3Body_SetGravityScale(cw_body3d_raw(PH.ball), s->rules == RULES_MOON_CAT ? MOON_G : 1);
+  if (s->rules == RULES_BOTTOMLESS)
+    for (int i = 0; i < MAXP; i++) s->p[i].boost = 100;
+}
+float sim_ball_grav(const sim *s) { return GRAV * (s->rules == RULES_MOON_CAT ? MOON_G : 1); }
+
 /* ── shots and saves: is the ball on its way into a goal? ────────────── */
 
-static bool heading_in(t3_vec3 b, t3_vec3 v, int goal_sign) {
+static bool heading_in(const sim *s, t3_vec3 b, t3_vec3 v, int goal_sign) {
   float gz = goal_sign * AL;
   if (v.z * goal_sign < 2.5f) return false;
   float t = (gz - b.z) / v.z;
   if (t < 0 || t > 2.5f) return false;
-  float x = b.x + v.x * t, y = b.y + v.y * t - 0.5f * GRAV * t * t;
+  float x = b.x + v.x * t, y = b.y + v.y * t - 0.5f * sim_ball_grav(s) * t * t;
   if (y < RB) y = RB; /* it may bounce on the way: the floor is fine */
   return fabsf(x) < GW + 0.3f && y < GH + 0.6f;
 }
@@ -549,9 +557,10 @@ static void control(sim *s, int i, pin in) {
 
   /* boost */
   u->boosting = false;
+  if (s->rules == RULES_BOTTOMLESS) u->boost = 100;
   if ((in.btn & PB_BOOST) && u->boost > 0) {
     u->boosting = true;
-    u->boost = maxf(0, u->boost - BOOST_USE);
+    u->boost = s->rules == RULES_BOTTOMLESS ? 100 : maxf(0, u->boost - BOOST_USE);
     cw_body3d_apply_force(b, v3mul(f, BOOST_ACC * PUG_MASS), NULL);
   }
   u->last_btn = in.btn;
@@ -615,7 +624,7 @@ static void ball_hit(sim *s, int i, t3_vec3 n, float close) {
   pug *u = &s->p[i];
   if (u->dead || u->touch_cool > 0 || !PH.ball_live) return;
   int own = u->team == TEAM_BLUE ? -1 : 1;
-  bool was_in_own = heading_in(PH.ball0, PH.ball_v0, own);
+  bool was_in_own = heading_in(s, PH.ball0, PH.ball_v0, own);
   /* the touch's extra kick: flatter than the contact normal, bigger the harder it was */
   t3_vec3 dir = v3norm((t3_vec3){ n.x, n.y * 0.35f, n.z });
   float bonus = 8.5f * clampf((close - 0.5f) / 18, 0, 1);
@@ -623,10 +632,10 @@ static void ball_hit(sim *s, int i, t3_vec3 n, float close) {
   cw_body3d_set_velocity(PH.ball, s->ball_v);
   u->touch_cool = 8;
   touch(s, i, clampf(close / 22, 0, 1));
-  if (was_in_own && !heading_in(s->ball, s->ball_v, own)) {
+  if (was_in_own && !heading_in(s, s->ball, s->ball_v, own)) {
     u->saves++;
     u->points += 50;
-  } else if (heading_in(s->ball, s->ball_v, -own) && v3len(s->ball_v) > 8) {
+  } else if (heading_in(s, s->ball, s->ball_v, -own) && v3len(s->ball_v) > 8) {
     u->shots++;
     u->points += 20;
   }

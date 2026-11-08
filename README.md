@@ -127,7 +127,10 @@ in the cart) and `derby-beat`.
 ![pugball: the cat ball in the back of the net, the stands' shadows across the pitch](docs/screenshots/pugball.jpg)
 
 Soccer with jet-pack pugs and a fat, cross cat for a ball. 1v1 to 3v3 with
-players and CPUs, five stadiums and the Pug Cup to unlock them. Up to four
+players and CPUs, five stadiums open for exhibitions from the start, and the
+Pug Cup, whose wins unlock hats and trails.
+Party rules on the team sheet's KICK OFF row: MOON CAT (the cat floats at 40%
+gravity) and BOTTOMLESS BOOST. Up to four
 players share the screen, one pad each: pads 2-4 join on the team sheet and
 pick their side, and CPUs fill the other slots. Two players split the screen
 top and bottom, three or four take its quarters (with three, the last
@@ -136,7 +139,11 @@ has a chase camera with its own ball cam and boost gauge. The first kickoff
 shows how to drive (the throttle is on the triggers) under the countdown, in
 every player's view with that player's own buttons, alone or split (gate
 `pugball-newcomer`: a newcomer reaches the cat with a second pad joined and
-idle; the control, `sw split_how 0`, leaves the line out). The sun casts
+idle; the control, `sw split_how 0`, leaves the line out). The kickoff
+countdown stands beside the cat, never over it; in a goal mouth the chase
+camera comes in over the pug, clear of the posts; the view opens up as a pug
+nears supersonic; full boost pads glow and empty ones go dark (gate
+`pugball-feel`). The sun casts
 cascaded shadows; at night the floodlight ring lights the pitch (clustered
 spot lights, the corner pylons casting shadows). The goal nets are cloth that
 billows when the cat hits them, and the stands ring with each stadium's

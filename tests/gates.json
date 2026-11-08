@@ -795,8 +795,8 @@
       "scenery.hash"
     ],
     "expect": {
-      "game.state": 2,
-      "game.stadium": 0,
+      "game.state": 3,
+      "game.stadium": 2,
       "save.unlocked": 1,
       "save.won": 0
     },
@@ -811,7 +811,7 @@
       ],
       "note": "WebGPU on every host: the same dual cart on romdev and Chromium against native WebGPU."
     },
-    "note": "Pugball (games/pugball): the match runs on Box3D (cartwheel's world3d and vehicle3d), deterministic at any worker count, so the named state must match exactly on every host; pixels within the usual tolerance (sub-pixel grass blades, crowd and particles). A fresh save: the Exhibition's stadium 2 is locked until the Pug Cup's first fixture is won, so picking it only bumps the padlock (still on the select). The control picks stadium 1 and kicks off."
+    "note": "Pugball (games/pugball): the match runs on Box3D (cartwheel's world3d and vehicle3d), deterministic at any worker count, so the named state must match exactly on every host; pixels within the usual tolerance (sub-pixel grass blades, crowd and particles). A fresh save: the Exhibition opens every stadium (the Pug Cup still opens its fixtures in order: save.unlocked 1), so picking stadium 2 kicks off there. The control picks stadium 1."
   },
   {
     "name": "pugball-unlocked",
@@ -5847,6 +5847,11 @@
     "name": "derby-beat",
     "script": "tests/derby-beat.mjs",
     "note": "derby_ram through romdev, GL and WebGPU: a big hit on P1's car gets the beat (the bout steps one tick in three for a moment) and rumbles P1's pad; the camera has no shake path. Control: sw no_beat 1, the same hit with no beat."
+  },
+  {
+    "name": "pugball-feel",
+    "script": "tests/pugball-feel.mjs",
+    "note": "pugball through romdev, GL and WebGPU: a fresh save's Exhibition plays any stadium; the kickoff countdown keeps off the cat; in a goal mouth the chase camera keeps the pug in the picture, clear of the posts and crossbar; boosting to supersonic opens the view (the FOV kick); MOON CAT keeps the cat up half as long again. Controls: sw exhibition_locked 1, sw kick_dodge 0, sw cam_posts 0, sw fov_kick 0 (the old behaviour) each fail their part."
   },
   {
     "name": "racer-newcomer",

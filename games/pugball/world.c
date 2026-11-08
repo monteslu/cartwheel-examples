@@ -161,6 +161,7 @@ static struct {
   float cat_squash, cat_squash_v, cat_air;
   int cat_angry, cat_dizzy, cat_ticks;
   t3_instanced_mesh *pad_lit, *pad_dim, *orb;
+  t3_material *pad_lit_mat; /* its glow swells slowly (half a cycle a second: a breath, never a blink) */
   uint8_t pad_state[MAX_PADS_BOOST]; /* the rings as last posed: 0 never, 1 lit, 2 dim */
   t3_material *orb_mat;
   int ticks;
@@ -444,11 +445,17 @@ static void build_goals(cw_node root) {
 
 /* ── boost pads ─────────────────────────────────────────────────────── */
 
+#define PAD_GLOW 6.0f
+
 static void build_pads(cw_node root, const sim *s) {
-  t3_material *lit = phys(lin(1, 0.75f, 0.2f), 0.3f, 0);
-  lit->emissive = lin(1, 0.62f, 0.12f);
-  lit->emissive_intensity = 2.5f;
-  t3_material *dim = phys(lin(0.35f, 0.3f, 0.25f), 0.4f, 0.5f);
+  /* a full pad glows hot orange past the bloom's threshold, so it reads across the pitch by day; an empty one is a
+   * dark steel ring with no glow at all: full and empty tell apart at a glance */
+  t3_material *lit = phys(lin(1, 0.5f, 0.08f), 0.3f, 0);
+  lit->emissive = lin(1, 0.42f, 0.04f);
+  lit->emissive_intensity = PAD_GLOW;
+  W.pad_lit_mat = lit;
+  t3_retain(lit);
+  t3_material *dim = phys(lin(0.13f, 0.12f, 0.12f), 0.45f, 0.7f);
   W.pad_lit = t3_instanced_mesh_new(t3_torus_geometry_new(0.55f, 0.08f, 8, 32, 6.2831853f), lit, s->npads);
   W.pad_dim = t3_instanced_mesh_new(t3_torus_geometry_new(0.55f, 0.08f, 8, 32, 6.2831853f), dim, s->npads);
   t3_release(W.pad_lit->mesh.geometry);
@@ -456,8 +463,8 @@ static void build_pads(cw_node root, const sim *s) {
   t3_release(lit);
   t3_release(dim);
   W.orb_mat = phys(lin(1, 0.7f, 0.25f), 0.1f, 0);
-  W.orb_mat->emissive = lin(1, 0.55f, 0.1f);
-  W.orb_mat->emissive_intensity = 3;
+  W.orb_mat->emissive = lin(1, 0.45f, 0.05f);
+  W.orb_mat->emissive_intensity = 5;
   W.orb_mat->iridescence = 0.8f;
   W.orb_mat->iridescence_ior = 1.5f;
   W.orb_mat->clearcoat = 1;
@@ -496,6 +503,7 @@ static void build_pads(cw_node root, const sim *s) {
 
 static void pads_tick(const sim *s) {
   float t = W.ticks / 60.0f;
+  if (W.pad_lit_mat) W.pad_lit_mat->emissive_intensity = PAD_GLOW * (0.85f + 0.15f * cw_sin(t * 3.1415927f)); /* 0.5 Hz */
   bool rings = false; /* the rings only change when a pad is taken or comes back */
   for (int i = 0; i < s->npads; i++) {
     const boost_pad *p = &s->pads[i];
@@ -535,6 +543,7 @@ void world_reset(void) {
     for (int i = 0; i < MAXP; i++)
       if (W.pug[i].root) t3_release(W.pug[i].root);
     if (W.cat.root) t3_release(W.cat.root);
+    if (W.pad_lit_mat) t3_release(W.pad_lit_mat), W.pad_lit_mat = NULL;
     if (W.pad_lit) t3_release(W.pad_lit);
     if (W.pad_dim) t3_release(W.pad_dim);
     if (W.orb) t3_release(W.orb);

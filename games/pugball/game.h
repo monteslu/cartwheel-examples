@@ -101,6 +101,7 @@ typedef struct sim {
   boost_pad pads[MAX_PADS_BOOST];
   int npads;
   int hits, bounces, demos, jumps, dodges, pads_taken; /* counters (gates) */
+  int rules;            /* RULES_*: the party rules for this match */
   float max_ball_speed;
   uint32_t hash;
   /* events this tick (the 3D side and the audio read them) */
@@ -120,8 +121,15 @@ enum {
   EV_KICKOFF, EV_GO, EV_OVERTIME, EV_FINAL, EV_SUPERSONIC
 };
 
+/* party rules: NORMAL; MOON CAT, the cat at 40% of the pugs' gravity (high, slow, floaty balls: aerials for
+ * everyone); BOTTOMLESS BOOST, every pug's boost never runs dry (speed for all, no pad economy) */
+enum { RULES_NORMAL, RULES_MOON_CAT, RULES_BOTTOMLESS, RULES_KINDS };
+#define MOON_G 0.4f
+
 /* sim.c */
 void sim_init(sim *s, const bool on[MAXP], int match_secs, uint32_t seed);
+void sim_set_rules(sim *s, int rules); /* right after sim_init */
+float sim_ball_grav(const sim *s);     /* the cat's gravity, m/s^2 */
 void sim_step(sim *s, const pin in[MAXP]);
 /* test stages: move a pug (at rest, facing yaw) or the ball (at rest) */
 void sim_place_pug(sim *s, int i, float x, float z, float yaw);

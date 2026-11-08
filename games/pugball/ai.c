@@ -38,7 +38,7 @@ static uint32_t arnd(ai_mem *m) {
 /* the ball a moment from now, held inside the bowl */
 static t3_vec3 predict(const sim *s, float t) {
   t3_vec3 b = v3add(s->ball, v3mul(s->ball_v, t));
-  b.y = s->ball.y + s->ball_v.y * t - 4.0f * t * t;
+  b.y = s->ball.y + s->ball_v.y * t - 0.5f * sim_ball_grav(s) * t * t;
   if (b.y < RB) b.y = RB + (RB - b.y) * 0.5f;
   b.x = clampf(b.x, -AW + RB, AW - RB);
   b.z = clampf(b.z, -AL - 2, AL + 2);
