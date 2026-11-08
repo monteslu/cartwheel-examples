@@ -3,6 +3,15 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.19.7 (2026-11-08)
+
+- **bikemesa**: A pad that joined the rider pick and then presses nothing for 5 s no longer holds the start. Once P1 is ready, P1's panel offers start now, and the idle seat sits the race out. A seat still picking is waited for as before
+- **racer**: In split screen, a seat that joined and presses nothing for 5 s on the ride pick no longer holds the race. P1's READY! button turns to START NOW, and the idle seat sits the race out
+- **racer**: A race ends 40 s after the first person over the line (with nobody racing, the first kart), not after the first kart of all, so a slow newcomer is never cut off because the computer field is home
+- **derby**: The controls hint stays up from the countdown until each player gives it gas (or 10 s into the bout), on one screen and in every split view on that player's own pad. Before, split screen showed no controls, and one screen only for the 3 s countdown, while the gas is not the button the title names
+- **pugball**: Every split-screen view shows its player how to drive at the first kickoff (the throttle is on the triggers). Before, split screen left the line out
+- **Tests**: newcomer gates, each the built cart through romdev on GL and WebGPU with a control that must fail: `bikemesa-newcomer`, `derby-newcomer`, `pugball-newcomer`, `racer-newcomer` and `racer-slow-finish`. Each tears its romdev host down when it exits. AGENTS.md says every new game needs a newcomer gate and an idle-seat gate
+
 ## v0.19.6 (2026-11-08)
 
 - **All games**: Engine v0.38.3 (from v0.38.1). The engine's grounding check judges a wall or a row of stands at its foot nearest the camera and leaves out what stands around the camera (the wall ring, the floor), instead of the middle of its box; cascaded sun shadows skip their lookups where no cascade weighs in. Every game has a program for everything it draws at every preset on GL and WebGPU with the new engine, and the quality range gates pass with the limits of v0.19.4
