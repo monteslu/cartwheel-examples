@@ -5790,8 +5790,28 @@
   {
     "name": "quality-grounding",
     "script": "tests/quality-grounding.mjs",
-    "note": "nothing floats on Very Low: the autopilot of each game in play (racer, derby, pugball, bomberdude, chromite, spout; BikeMesa by eye) keeps at least 90% of the shadows High draws at the base of every caster big enough to read on screen (chromite 80%: a pipe lit by a lamp; derby on a sweep of its bout, every 50 frames from 300 to 900, on Very Low and Low: 90% over the sweep and 80% in each frame), on GL and WebGPU (the engine's tests/quality-grounding.mjs). Control: a frame with no shadows must fail, and so must derby's sweep with none"
+    "note": "nothing floats on Very Low: the autopilot of each game in play (racer, pugball, bomberdude, chromite, spout; BikeMesa by eye; derby in quality-grounding-derby-1 to -4) keeps at least 90% of the shadows High draws at the base of every caster big enough to read on screen (chromite 80%: a pipe lit by a lamp), on GL and WebGPU (the engine's tests/quality-grounding.mjs). Control: a frame with no shadows must fail"
+  },  {
+    "name": "quality-grounding-derby-1",
+    "script": "tests/quality-grounding-derby-1.mjs",
+    "note": "nothing floats in derby at night, Very Low on GL: its autopilot's bout every 50 frames from 300 to 900 keeps 90% of the shadows High draws at the casters' bases over the sweep and 80% in each frame of 5 bases or more (the engine's tests/quality-grounding.mjs: a wall or a row of stands judged at the foot nearest the camera, what stands around the camera not judged). Controls: each frame and the whole sweep with no shadows must fail"
   },
+  {
+    "name": "quality-grounding-derby-2",
+    "script": "tests/quality-grounding-derby-2.mjs",
+    "note": "nothing floats in derby at night, Low on GL: its autopilot's bout every 50 frames from 300 to 900 keeps 90% of the shadows High draws at the casters' bases over the sweep and 80% in each frame of 5 bases or more (the engine's tests/quality-grounding.mjs: a wall or a row of stands judged at the foot nearest the camera, what stands around the camera not judged). Controls: each frame and the whole sweep with no shadows must fail"
+  },
+  {
+    "name": "quality-grounding-derby-3",
+    "script": "tests/quality-grounding-derby-3.mjs",
+    "note": "nothing floats in derby at night, Very Low on WebGPU: its autopilot's bout every 50 frames from 300 to 900 keeps 90% of the shadows High draws at the casters' bases over the sweep and 80% in each frame of 5 bases or more (the engine's tests/quality-grounding.mjs: a wall or a row of stands judged at the foot nearest the camera, what stands around the camera not judged). Controls: each frame and the whole sweep with no shadows must fail"
+  },
+  {
+    "name": "quality-grounding-derby-4",
+    "script": "tests/quality-grounding-derby-4.mjs",
+    "note": "nothing floats in derby at night, Low on WebGPU: its autopilot's bout every 50 frames from 300 to 900 keeps 90% of the shadows High draws at the casters' bases over the sweep and 80% in each frame of 5 bases or more (the engine's tests/quality-grounding.mjs: a wall or a row of stands judged at the foot nearest the camera, what stands around the camera not judged). Controls: each frame and the whole sweep with no shadows must fail"
+  },
+
   {
     "name": "bomberdude-save-migration",
     "script": "tests/bomberdude-save-migration.mjs",
