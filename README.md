@@ -336,8 +336,11 @@ them.
 every map and checks that the karts sit on the road: the player's kart throws its
 shadow and darkens the road where it meets it at every preset (the same paused frame
 drawn with them and without), and over a lap the cart measures every frame each
-kart's drawn tyres against the road under them. Its controls (`sw sun_short 1` with
-`sw contact 0`, and `sw wheel_lag 1`) bring back the old way and must fail.
+kart's drawn tyres against the road under them, including how long any kart stays drawn a
+little above it (a run longer than a hop that low lasts is a hover). Its controls (`sw sun_short 1`
+with `sw contact 0`, `sw wheel_lag 1`, and `gap lift 80`) bring back the old way or a hovering kart
+and must fail. `--legs float` adds a report of props standing a little above the ground near the
+road (the `floatcheck` debug command), with frames of each to look at.
 
 Without GPU hardware, `CW_TEST_GPU=software` runs on Mesa's software
 renderers (llvmpipe for GL, lavapipe for WebGPU), as CI does:
