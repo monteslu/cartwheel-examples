@@ -5952,7 +5952,7 @@
   {
     "name": "chromite-newcomer",
     "script": "tests/chromite-newcomer.mjs",
-    "note": "chromite through romdev, GL and WebGPU: a newcomer launches from the title prompt beside a second pad that pressed Start and idles, and plays level 1 by what the world draws (view.enemies, view.rounds: it slides under the lowest craft, holds fire and sidesteps rounds coming down its column, looking every 10 frames), taking the card's continue when its ships run out, to level 2. Control: sw rules 1 (classic: every enemy that gets past costs a ship) leaves it short of level 2."
+    "note": "chromite through romdev, GL and WebGPU: a newcomer with a person's reaction delay (12 to 18 ticks), aim error and missed rounds, playing by what the world draws (view.enemies, view.rounds), beats level 1 and its command craft taking at most one continue: study newcomer 20 in the cart (at least 12 of 20; control sw old_boss 1, the original craft, at most 2), and the same bot at the pad from power-on beside a second pad that pressed Start and idles (--leg pad; --control-cart takes the release before the change)."
   },
   {
     "name": "racer-slow-finish",

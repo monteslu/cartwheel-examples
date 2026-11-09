@@ -1,14 +1,29 @@
-// chromite on the cart through romdev, GL and WebGPU, by the pad: a newcomer powers on, reads the title's prompt
-// ({fire} : launch), launches, and plays level 1 by what the screen draws (the craft and the enemy rounds, read from
-// the view.enemies and view.rounds fields the world draws them from, and its own ship): it holds fire, slides under
-// the lowest craft and sidesteps rounds coming down its column, looking every 10 frames as a first-timer reacts.
-// When its last ship goes it takes the results card's "{fire} : continue from this level". It must reach level 2
-// within six minutes of play.
-// The second leg is the idle seat: chromite is one player; a second pad that presses Start on the title and then
-// nothing must not hold anything up (the game launches and the first pad plays it through).
-// Control: sw rules 1 (classic, the original's rule: every enemy that gets past costs a ship) leaves the same
-// newcomer short of level 2.
-//   node tests/chromite-newcomer.mjs [--gl] [--webgpu] [--cart <path>] [--no-control] [--leg newcomer|control]
+// chromite's newcomer gate on the cart through romdev, GL and WebGPU: a newcomer who makes a person's mistakes beats
+// level 1, its command craft included, on the default skill and rules.
+//
+// The newcomer plays by what the screen draws (the craft and the enemy rounds, read from the view.enemies and
+// view.rounds fields the world draws them from, and its own ship) and errs as a person does (games/chromite/study.c
+// has the same bot in C, with the same numbers):
+//   it looks every 6 frames, seeing the rounds twice a frame apart (how they move), and acts on what it saw two
+//   looks before: a reaction of 12 to 18 frames, a fifth to a third of a second, guessing most of the way where a
+//   round has gone since; it aims at the lowest craft with an error of about 0.7 field units (a craft is 1.4 to 7
+//   wide) that it corrects only now and then, a little at a time; it misses one round in ten it could have seen;
+//   it holds fire, never self-destructs and never goes for a power-up. It weighs fifteen stick moves over the next
+//   36 frames against the rounds it saw, a ram, the aim, and flying low.
+// It beats level 1 when it clears it taking at most one continue (the results card's "{fire} : continue"); a run
+// that needs a second continue has hit a wall and stops there.
+//
+// Legs:
+//   study    `study newcomer 20` in the cart: twenty games of level 1 without drawing, one seed each for the
+//            newcomer's mistakes. At least 60% must beat it. Control: sw old_boss 1 (the original's first command
+//            craft, whose beam fires every frame the ship is under it): at most 10% beat it.
+//   pad      the same newcomer at the pad from power-on: it reads the title's prompt ({fire} : launch), launches and
+//            plays, on --seeds seeds (default 3; the first with a second pad that pressed Start on the title and then
+//            idled: chromite is one player and an idle seat holds nothing up). At least half must beat level 1.
+//   release  the pad leg on --control-cart (the release before this change, v0.20.1): fewer than half beat it.
+//   node tests/chromite-newcomer.mjs [--gl] [--webgpu] [--cart <path>] [--control-cart <path>] [--seeds n]
+//                                    [--first-seed n] [--leg study|pad|release|all]
+// (a run at the pad takes about as long as the play it makes on a slow host: --seeds and --first-seed split the legs)
 import { mkdirSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,33 +32,38 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..'), SESSION = p
 const OUT = join(ROOT, 'out/chromite-newcomer');
 const arg = (n, d) => { const i = process.argv.indexOf(n); return i > 0 ? process.argv[i + 1] : d; };
 const CART = resolve(arg('--cart', join(ROOT, 'build/cart-wgpu/carts/chromite.wasc')));
+const CONTROL_CART = arg('--control-cart', '') && resolve(arg('--control-cart'));
 const BACKENDS = process.argv.includes('--gl') ? ['gl'] : process.argv.includes('--webgpu') ? ['webgpu'] : ['gl', 'webgpu'];
-const LIMIT = +arg("--frames", 21600); /* six minutes */
-const LOOK = 10; /* frames between looks: a first-timer reacts in a sixth of a second */
+const SEEDS = +arg('--seeds', 3), FIRST = +arg('--first-seed', 1), LEG = arg('--leg', 'all');
+const LIMIT = 60 * 60 * 9; /* frames of play a run may take */
 mkdirSync(OUT, { recursive: true });
+const HEADERS = { 'Content-Type': 'application/json', 'x-romdev-session': SESSION, 'x-romdev-agent': process.env.ROMDEV_AGENT || 'chromite-newcomer' };
 const bye = async (code) => {
-  try { await fetch('http://127.0.0.1:7331/tool/host', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION }, body: '{"op":"shutdown"}', signal: AbortSignal.timeout(30000) }); } catch {}
+  try { await fetch('http://127.0.0.1:7331/tool/host', { method: 'POST', headers: HEADERS, body: '{"op":"shutdown"}', signal: AbortSignal.timeout(30000) }); } catch {}
   process.exit(code);
 };
 const tool = async (name, args) => {
-  const r = await fetch(`http://127.0.0.1:7331/tool/${name}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION }, body: JSON.stringify(args) });
+  const r = await fetch(`http://127.0.0.1:7331/tool/${name}`, { method: 'POST', headers: HEADERS, body: JSON.stringify(args), signal: AbortSignal.timeout(300000) });
   const t = await r.text();
   let j; try { j = JSON.parse(t); } catch { j = t; }
   if (!r.ok || j?.error) { console.error(`romdev ${name}: ${t.slice(0, 400)}`); await bye(3); }
   return j;
 };
 const rd = async (n) => { const v = await tool('wasm', { op: 'read', name: n }); return v.values ?? v.value; };
+const cmd = async (text) => {
+  const j = await tool('wasm', { op: 'command', text });
+  const v = j.reply ?? j.result ?? j.value ?? j;
+  return typeof v === 'string' ? JSON.parse(v) : v;
+};
 /* several debug fields in one request (the built-in fields command) */
 let fieldsOk = true;
 const fields = async (...names) => {
   if (fieldsOk) {
-    const r = await tool('wasm', { op: 'command', text: 'fields ' + names.join(' ') });
-    let j = r.reply ?? r.result ?? r;
-    if (typeof j === 'string') try { j = JSON.parse(j); } catch { j = {}; }
+    let j = await cmd('fields ' + names.join(' '));
     j = j.fields ?? j;
     if (names.every((n) => n in j)) return j;
     fieldsOk = false; /* a host that answers otherwise: one read a field */
-    console.log('  (fields command answered', JSON.stringify(r).slice(0, 200), ': reading one at a time)');
+    console.log('  (fields command answered', JSON.stringify(j).slice(0, 200), ': reading one at a time)');
   }
   const out = {};
   for (const n of names) out[n] = await rd(n);
@@ -54,68 +74,164 @@ const pads = (p0, p1 = {}) => tool('input', { op: 'set', ports: [p0, p1] });
 let fail = 0;
 const check = (name, ok, detail) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}: ${detail}`); if (!ok) fail++; };
 
+// ── the newcomer: games/chromite/study.c's newcomer_* step for step ──
+const VIEW_N = 24, LOOK = 6, DELAY_LOOKS = 2, HIST = 4, LEAD = 0.7, AIM_SIGMA = 0.7, AIM_HOLD = 40, MISS = 0.1, HOME_Y = -4.5;
+const K = 50 / 60, SPEED = 8 * 0.03 * K, HERO_X = 10, HERO_Y = 7.5;
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+class Newcomer {
+  constructor(seed) {
+    this.rng = (Math.imul(seed, 2654435761) + 0x9e3779b9) >>> 0 || 1;
+    for (let i = 0; i < 4; i++) this.next();
+    this.looks = 0, this.tx = 0, this.hx = 0, this.hy = 0;
+    this.en = [], this.rn = [];
+    this.aimErr = this.gauss() * AIM_SIGMA;
+  }
+  next() { let x = this.rng; x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; return (this.rng = x >>> 0); }
+  unit() { return (this.next() >>> 8) / 16777216; }
+  gauss() { return (this.unit() + this.unit() + this.unit() - 1.5) * 2; }
+  /* gap: ticks between the two views (1 in the study; a host may run more than one tick a frame) */
+  see(en, ra, rb, hx, hy, gap = 1) {
+    const k = this.looks % HIST, r = [];
+    for (let i = 0; i < VIEW_N; i++) {
+      const o = [rb[i * 2], rb[i * 2 + 1], 0, -0.2 * K];
+      if (o[0] <= 90) {
+        let best = 1e9;
+        for (let j = 0; j < VIEW_N; j++) {
+          if (ra[j * 2] > 90) break;
+          const dx = o[0] - ra[j * 2], dy = o[1] - ra[j * 2 + 1], d2 = dx * dx + dy * dy;
+          if (d2 < 0.12 * 0.12 * gap * gap || d2 > 0.65 * 0.65 * gap * gap || d2 >= best) continue;
+          best = d2, o[2] = dx / gap, o[3] = dy / gap;
+        }
+      }
+      r.push(o);
+    }
+    this.en[k] = en.slice(), this.rn[k] = r, this.hx = hx, this.hy = hy;
+    this.looks++;
+  }
+  decide() {
+    if (this.looks <= DELAY_LOOKS) return [0, 0];
+    const k = (this.looks - 1 - DELAY_LOOKS) % HIST, en = this.en[k], rn = this.rn[k], hx = this.hx, hy = this.hy;
+    if (this.unit() < 1 / AIM_HOLD) this.aimErr = this.aimErr * 0.4 + this.gauss() * AIM_SIGMA;
+    let bx = 99, by = 99;
+    for (let i = 0; i < VIEW_N; i++) if (en[i * 2] < 90 && en[i * 2 + 1] > hy + 1 && en[i * 2 + 1] < by) bx = en[i * 2], by = en[i * 2 + 1];
+    if (bx < 90) this.tx = bx + this.aimErr;
+    const ahead = DELAY_LOOKS * LOOK * LEAD, R = [];
+    for (const r of rn) {
+      if (r[0] > 90) break;
+      if (this.unit() < MISS) continue;
+      R.push([r[0] + r[2] * ahead, r[1] + r[3] * ahead, r[2], r[3]]);
+    }
+    let best = 1e30, sx = 0, sy = 0;
+    for (let cx = -2; cx <= 2; cx++)
+      for (let cy = -1; cy <= 1; cy++) {
+        let mx = cx * 0.5, my = cy;
+        const l = Math.hypot(mx, my);
+        if (l > 1) mx /= l, my /= l;
+        let danger = 0;
+        for (let t = 0; t <= 36; t += 3) {
+          const x = clamp(hx + mx * SPEED * t, -HERO_X, HERO_X), y = clamp(hy + my * SPEED * t, -HERO_Y, HERO_Y);
+          for (const [px, py, vx, vy] of R) {
+            const d = Math.abs(px + vx * t - x) + Math.abs(py + vy * t - y);
+            if (d < 1.3) danger += (1.3 - d) * (1 - t / 45);
+          }
+          for (let i = 0; i < VIEW_N; i++) {
+            if (en[i * 2] > 90) continue;
+            const d = Math.abs(en[i * 2] - x) + Math.abs(en[i * 2 + 1] - y);
+            if (d < 2) danger += (2 - d) * 0.5;
+          }
+        }
+        const fx = hx + mx * SPEED * 12, fy = hy + my * SPEED * 12;
+        const cost = danger * 10 + Math.abs(fx - this.tx) * 0.3 + Math.abs(fy - HOME_Y) * 0.15;
+        if (cost < best) best = cost, sx = mx, sy = my;
+      }
+    return [sx, sy];
+  }
+}
 
-
-async function play(backend, tag, { pre, idle } = {}) {
-  const l = await tool('loadMedia', { platform: 'wasmcart', path: CART, gpuPower: 'low-power', ...(backend === 'gl' ? { wgpu: false } : {}) });
+async function load(cart, backend) {
+  const l = await tool('loadMedia', { platform: 'wasmcart', path: cart, gpuPower: 'low-power', ...(backend === 'gl' ? { wgpu: false } : {}) });
   if (!l.loaded) { console.error(JSON.stringify(l).slice(0, 300)); await bye(3); }
   await step(150);
-  if (pre) await tool('wasm', { op: 'command', text: pre });
+}
+
+/* one newcomer from power-on to level 2, a second continue or the clock */
+async function play(cart, backend, tag, seed, idle) {
+  await load(cart, backend);
+  await cmd('sw rules 0'); /* the default rules, whatever an earlier run saved */
   if (idle) { await pads({}, { start: true }); await step(4); await pads({}, {}); await step(30); }
   const titleState = await rd('game.state');
   await tool('frame', { op: 'stepAndShot', frames: 1, path: join(OUT, `${backend}-${tag}-title.png`) });
   await pads({ south: true }); await step(4); await pads({}); await step(20); /* the prompt: {fire} : launch */
   const started = await rd('game.state');
-  let continues = 0, frames = 0, tx = 0, reached = false, over = false, shots = 0, lastLog = 0;
+  const bot = new Newcomer(seed);
+  let tpf = 1; /* ticks a frame, measured */
+  let continues = 0, frames = 0, reached = false, wall = false, lastLog = 0, sx = 0, sy = 0, shots = 0, bossAt = -1;
+  const stick = () => ({ south: true, axes: { lx: sx, ly: -sy } });
   while (frames < LIMIT) {
-    const f = await fields('game.state', 'level', 'hero.pos', 'view.enemies', 'view.rounds');
-    const st = +[].concat(f['game.state'])[0], level = +[].concat(f.level)[0];
-    if (level >= 2) { reached = true; break; }
+    const a = await fields('game.state', 'view.rounds', 'ticks');
+    const st = +[].concat(a['game.state'])[0];
     if (st === 4) {
-      /* the results card: under the modern rules it reads "{fire} : continue from this level"; the newcomer takes it */
-      if (+(await rd('rules')) === 0 && continues < 9) { await step(90); await pads({ south: true }); await step(4); await pads({}); await step(20); continues++; continue; }
-      over = true; break;
+      /* the results card: under the modern rules it reads "{fire} : continue"; a second one is the wall */
+      if (continues >= 1) { wall = true; break; }
+      await pads({}); await step(90); await pads({ south: true }); await step(4); await pads({}); await step(20); continues++;
+      continue;
     }
     if (st === 2) { await pads({ start: true }); await step(4); await pads({}); await step(4); continue; } /* never pauses on purpose */
     if (st !== 1) { await step(LOOK); frames += LOOK; continue; }
-    const hp = f['hero.pos'], en = f['view.enemies'], rn = f['view.rounds'];
-    /* the target: the lowest craft on the screen */
-    let best = null;
-    for (let i = 0; i < en.length; i += 2) if (en[i] < 90 && en[i + 1] > hp[1] + 1 && (!best || en[i + 1] < best[1])) best = [en[i], en[i + 1]];
-    if (best) tx = best[0];
-    /* danger: rounds in the column above the ship, weighted by nearness; sidestep away from them */
-    let push = 0;
-    for (let i = 0; i < rn.length; i += 2) {
-      if (rn[i] > 90) break;
-      const dx = rn[i] - hp[0], dy = rn[i + 1] - hp[1];
-      if (Math.abs(dx) > 1.8 || dy < -0.5 || dy > 5) continue;
-      push += (dx > 0 ? -1 : 1) * (1 - Math.abs(dx) / 1.8) * (1 - dy / 5.5);
-    }
-    const steer = Math.abs(push) > 0.3 ? Math.sign(push) : Math.max(-1, Math.min(1, (tx - hp[0]) * 0.8));
-    await pads({ south: true, axes: { lx: steer, ly: Math.max(-1, Math.min(1, (hp[1] - (-4.5)) * 0.5)) } });
-    await step(LOOK);
+    await pads(stick()); await step(1);
+    const b = await fields('game.state', 'level', 'hero.pos', 'view.enemies', 'view.rounds', 'boss.plates', 'ticks');
+    if (+[].concat(b.level)[0] >= 2) { reached = true; break; }
+    if (bossAt < 0 && +[].concat(b['boss.plates'])[0] >= 0) bossAt = frames;
+    const hp = b['hero.pos'];
+    /* the game's clock, not the host's frames: a host can run more than one tick a frame, so the look spans LOOK ticks */
+    const ta = +[].concat(a.ticks)[0], tb = +[].concat(b.ticks)[0], gap = Math.max(1, tb - ta);
+    tpf = tpf * 0.9 + gap * 0.1;
+    bot.see(b['view.enemies'], a['view.rounds'], b['view.rounds'], hp[0], hp[1], gap);
+    [sx, sy] = bot.decide();
+    await pads(stick()); await step(Math.max(1, Math.round((LOOK - gap) / tpf)));
     frames += LOOK;
-    if (frames - lastLog >= 1800) { lastLog = frames; console.log(`  ${backend} ${tag} f ${frames} lives ${await rd('lives')} kills ${await rd('kills')} escapes ${await rd('escapes')} losses ${await rd('losses')} score ${await rd('score')}`); }
-    if (++shots % 300 === 0) await tool('frame', { op: 'stepAndShot', frames: 1, path: join(OUT, `${backend}-${tag}-${frames}.png`) });
+    if (frames - lastLog >= 1200) { lastLog = frames; console.log(`  ${backend} ${tag} f ${frames} ticks ${await rd('ticks')} lives ${await rd('lives')} kills ${await rd('kills')} escapes ${await rd('escapes')} continues ${continues} boss plates ${[].concat(b['boss.plates'])[0]}`); }
+    if (++shots % 600 === 0) await tool('frame', { op: 'stepAndShot', frames: 1, path: join(OUT, `${backend}-${tag}-${frames}.png`) });
   }
   await pads({});
   await tool('frame', { op: 'stepAndShot', frames: 1, path: join(OUT, `${backend}-${tag}-end.png`) });
-  return { titleState, started, reached, over, frames, continues, lives: await rd('lives'), kills: await rd('kills'), losses: await rd('losses'), escapes: await rd('escapes') };
+  const r = { titleState, started, reached, wall, frames, continues, bossAt, lives: await rd('lives'), kills: await rd('kills') };
+  console.log(`  ${tag}: title ${r.titleState}, launched ${r.started}, level 1 beaten ${r.reached} at ${r.frames} frames (boss at ${r.bossAt}), continues ${r.continues}${r.wall ? ', stopped at a second continue' : ''}, lives ${r.lives}, kills ${r.kills}`);
+  return r;
 }
 
-/* a GPU suite holds the lock 15 minutes: --leg newcomer or --leg control runs one leg (default both) */
-const LEG = arg('--leg', 'both');
+const beat = (runs) => runs.filter((r) => r.clear >= 0 && r.continues <= 1).length;
 for (const backend of BACKENDS) {
   console.log(`--- ${backend}`);
-  if (LEG !== 'control') {
-  const n = await play(backend, 'newcomer', { idle: true, pre: 'sw rules 0' }); /* the default rules, whatever an earlier run saved */
-  check('newcomer (a second pad pressed Start on the title, then idled): launches from the prompt and reaches level 2', n.started === 1 && n.reached,
-    `title ${n.titleState}, launched ${n.started}, level 2 ${n.reached} at ${n.frames} frames, continues ${n.continues}, game over ${n.over}, lives ${n.lives}, kills ${n.kills}, escapes ${n.escapes}, losses ${n.losses}`);
+  if (LEG === 'all' || LEG === 'study') {
+    await load(CART, backend);
+    await cmd('sw old_boss 0');
+    const s = (await cmd('study newcomer 20')).runs;
+    const n = beat(s), one = s.filter((r) => r.clear >= 0 && r.continues === 0).length;
+    const mean = (k) => (s.reduce((a, r) => a + r[k], 0) / s.length).toFixed(1);
+    check('study: 20 newcomers beat level 1 taking at most one continue', n >= 12,
+      `${n}/20 (${one} on one credit); deaths a run: ${mean('wave_deaths')} in the waves, ${mean('boss_deaths')} at the command craft`);
+    await cmd('sw old_boss 1');
+    const c = (await cmd('study newcomer 20')).runs, nc = beat(c);
+    const meanc = (k) => (c.reduce((a, r) => a + r[k], 0) / c.length).toFixed(1);
+    check('control (sw old_boss 1, the original command craft): the same newcomers hit the wall', nc <= 2,
+      `${nc}/20 beat it; deaths a run: ${meanc('wave_deaths')} in the waves, ${meanc('boss_deaths')} at the command craft`);
+    await cmd('sw old_boss 0');
   }
-  if (process.argv.includes('--no-control') || LEG === 'newcomer') continue;
-  const c = await play(backend, 'control', { pre: 'sw rules 1' });
-  check('control (sw rules 1, classic): the same newcomer falls short of level 2', !c.reached,
-    `level 2 ${c.reached} at ${c.frames} frames, game over ${c.over}, lives ${c.lives}, losses ${c.losses}`);
+  if (LEG === 'all' || LEG === 'pad') {
+    const runs = [];
+    for (let seed = FIRST; seed < FIRST + SEEDS; seed++) runs.push(await play(CART, backend, `newcomer-${seed}`, seed, seed === 1));
+    const n = runs.filter((r) => r.reached).length;
+    check(`pad: newcomers from power-on (seed 1 beside an idle second pad) beat level 1`, runs.every((r) => r.started === 1) && n * 2 >= SEEDS,
+      `${n}/${SEEDS} beat it; continues ${runs.map((r) => r.continues).join(', ')}`);
+  }
+  if ((LEG === 'all' || LEG === 'release') && CONTROL_CART) {
+    const runs = [];
+    for (let seed = FIRST; seed < FIRST + SEEDS; seed++) runs.push(await play(CONTROL_CART, backend, `release-${seed}`, seed, false));
+    const n = runs.filter((r) => r.reached).length;
+    check(`control (${CONTROL_CART.split('/').pop()}): the same newcomers hit the wall`, n * 2 < SEEDS,
+      `${n}/${SEEDS} beat it; continues ${runs.map((r) => r.continues).join(', ')}`);
+  }
 }
 console.log(fail ? `${fail} FAILED` : 'all ok');
 await bye(fail ? 1 : 0);

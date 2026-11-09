@@ -38,6 +38,7 @@
 #include "cartwheel/resource.h"
 #include "cartwheel/vfs.h"
 #include "game.h"
+#include "study.h"
 
 enum { GS_TITLE, GS_PLAY, GS_PAUSE, GS_CLEAR, GS_OVER };
 #define SKILLS 7
@@ -145,33 +146,11 @@ static int32_t input_mode;
 static int32_t cheat_level, cheat_boss, cheat_gallery, cheat_blasts;
 static int32_t dbg_skill, dbg_hi0, dbg_armed;
 /* the rules and the score system, for the gates */
-static int32_t dbg_boss_plates = -1, dbg_boss_tells;
+static int32_t dbg_boss_plates = -1, dbg_boss_tells, dbg_beam_tells;
 /* what the screen shows, as the world draws it (for the newcomer gate, which plays by what is drawn): the craft
  * (x, y; 99 = none), and the enemy rounds nearest the ship */
-#define VIEW_N 24
-static float view_enemies[VIEW_N * 2], view_rounds[VIEW_N * 2];
-static void view_fill(void) {
-  int n = 0;
-  for (int i = 0; i < MAX_ENEMIES && n < VIEW_N; i++)
-    if (G.S.en[i].live && G.S.en[i].y < FIELD_Y) view_enemies[n * 2] = G.S.en[i].x, view_enemies[n * 2 + 1] = G.S.en[i].y, n++;
-  for (; n < VIEW_N; n++) view_enemies[n * 2] = view_enemies[n * 2 + 1] = 99;
-  /* the nearest VIEW_N rounds to the ship, nearest first */
-  static float d2[MAX_EBULLETS];
-  for (int i = 0; i < MAX_EBULLETS; i++) {
-    const ebullet *b = &G.S.eb[i];
-    float dx = b->x - G.S.h.x, dy = b->y - G.S.h.y;
-    d2[i] = b->live ? dx * dx + dy * dy : 1e30f;
-  }
-  for (n = 0; n < VIEW_N; n++) {
-    int k = 0;
-    for (int i = 1; i < MAX_EBULLETS; i++)
-      if (d2[i] < d2[k]) k = i;
-    if (d2[k] >= 1e30f) break;
-    view_rounds[n * 2] = G.S.eb[k].x, view_rounds[n * 2 + 1] = G.S.eb[k].y;
-    d2[k] = 1e30f;
-  }
-  for (; n < VIEW_N; n++) view_rounds[n * 2] = view_rounds[n * 2 + 1] = 99;
-}
+static float view_enemies[VIEW_N * 2], view_rounds[VIEW_N * 2]; /* sim_view (study.c) */
+static void view_fill(void) { sim_view(&G.S, view_enemies, view_rounds); }
 static int32_t dbg_rules, dbg_chain, dbg_chain_best, dbg_mult10, dbg_escapes, dbg_point_blanks, dbg_cancelled, dbg_hitstop_ticks;
 /* rumble requests made (presentation; the engine's cw.rumble shows the last one) */
 static int32_t rumbles;
@@ -359,6 +338,7 @@ static void play_events(const sim *S) {
     case EV_CANCEL: sfx(SFX_PICKUP, 0.7f); break;
     case EV_PLATE: sfx_at(SFX_BIG, 0.8f, e->x); break;
     case EV_BOSS_TELL: sfx_at(SFX_ARMED, 0.6f, e->x); break;
+    case EV_BEAM_TELL: sfx_at(SFX_ARMED, 0.4f, e->x); break; /* the beam charging: a softer cue */
     case EV_BOMB: sfx(SFX_BOMB, 1); break;
     case EV_ARMED: sfx(SFX_ARMED, 0.8f); break;
     default: break;
@@ -461,7 +441,26 @@ static void cmd_sw(int argc, const char **argv, cw_reply *r) {
   if (argc > 2 && !strcmp(argv[1], "no_chain")) sim_sw_no_chain = atoi(argv[2]);
   if (argc > 2 && !strcmp(argv[1], "double_over")) sw_double_over = atoi(argv[2]);
   if (argc > 2 && !strcmp(argv[1], "rules")) SAVE.rules = atoi(argv[2]) ? RULES_CLASSIC : RULES_MODERN;
-  cw_reply_printf(r, "{\"no_chain\":%d,\"double_over\":%d,\"rules\":%d}", sim_sw_no_chain, sw_double_over, SAVE.rules);
+  if (argc > 2 && !strcmp(argv[1], "old_boss")) sim_sw_old_boss = atoi(argv[2]);
+  if (argc > 2 && !strcmp(argv[1], "old_rayguns")) sim_sw_old_rayguns = atoi(argv[2]);
+  cw_reply_printf(r, "{\"no_chain\":%d,\"double_over\":%d,\"rules\":%d,\"old_boss\":%d,\"old_rayguns\":%d}", sim_sw_no_chain, sw_double_over, SAVE.rules, sim_sw_old_boss, sim_sw_old_rayguns);
+}
+/* study newcomer <runs>: the newcomer bot plays level 1 from a new game that many times without drawing (study.c),
+ * each with its own seed for its mistakes, on the default skill */
+static void cmd_study(int argc, const char **argv, cw_reply *r) {
+  int n = argc > 2 && !strcmp(argv[1], "newcomer") ? atoi(argv[2]) : 0;
+  if (n < 1 || n > 64) {
+    cw_reply_error(r, "usage: study newcomer <1..64>");
+    return;
+  }
+  cw_reply_raw(r, "{\"runs\":[");
+  for (int i = 0; i < n; i++) {
+    study_run o;
+    study_newcomer_run((uint32_t)i + 1, SKILL_BASE[2], 0xc4801eu + 7919u, &o);
+    cw_reply_printf(r, "%s{\"clear\":%d,\"boss\":%d,\"ships_at_boss\":%d,\"wave_deaths\":%d,\"boss_deaths\":%d,\"continues\":%d,\"escapes\":%d,\"score\":%d}",
+                    i ? "," : "", o.clear_tick, o.boss_tick, o.lives_at_boss + 1, o.wave_deaths, o.boss_deaths, o.continues, o.escapes, o.score);
+  }
+  cw_reply_raw(r, "]}");
 }
 static void cmd_boss(int argc, const char **argv, cw_reply *r) {
   /* boss: the level jumps to its command craft (cheat.boss); boss low: the craft that is up has one hit left in it */
@@ -552,8 +551,11 @@ static void init(void *u) {
   cw_debug_f32_array("view.rounds", view_rounds, VIEW_N * 2);
   cw_debug_i32("boss.plates", &dbg_boss_plates);
   cw_debug_i32("boss.tells", &dbg_boss_tells);
+  cw_debug_i32("beam.tells", &dbg_beam_tells);
+  cw_debug_i32("beam.rounds", &G.S.boss_beams);
   cw_debug_i32("over.headings", &over_headings);
-  cw_debug_command("sw", "sw no_chain <0|1>: 1 = kills score flat (control); sw double_over <0|1>: 1 = the dying HUD draws its GAME OVER under the results card too (control); sw rules <0|1>: 1 = classic rules from the next game", cmd_sw);
+  cw_debug_command("sw", "sw no_chain <0|1>: 1 = kills score flat (control); sw double_over <0|1>: 1 = the dying HUD draws its GAME OVER under the results card too (control); sw rules <0|1>: 1 = classic rules from the next game; sw old_boss <0|1>: 1 = the original's command craft under the modern rules too (control); sw old_rayguns <0|1>: 1 = the original's ray gun beam (control)", cmd_sw);
+  cw_debug_command("study", "study newcomer <runs>: the newcomer bot plays level 1 that many times without drawing (the newcomer gate)", cmd_study);
   cw_debug_command("boss", "boss: jump to the level's command craft; boss low: the craft that is up has one hit left; boss half: it is down to 45%", cmd_boss);
   cw_debug_command("die", "die: the ship loses its last life now (game over tests)", cmd_die);
   cw_tree_add_hook(cw_scene_app_tree(), 2, 0, sync_hook, NULL);
@@ -752,7 +754,7 @@ static void fixed(void *u, double dt) {
     play_events(&G.S);
     fx_events(&G.S);
     world_chips_spawn(&G.S);
-    for (int i = 0; i < G.S.ev_n; i++) dbg_boss_tells += G.S.ev[i].type == EV_BOSS_TELL;
+    for (int i = 0; i < G.S.ev_n; i++) dbg_boss_tells += G.S.ev[i].type == EV_BOSS_TELL, dbg_beam_tells += G.S.ev[i].type == EV_BEAM_TELL && G.S.ev[i].a == EK_BOSS0;
     for (int i = 0; i < G.S.ev_n; i++) {
       if (G.S.ev[i].type == EV_POINT_BLANK) G.pb_ticks = 70;
       if (G.S.ev[i].type == EV_ESCAPE) G.esc_ticks = 110, G.esc_cost = G.S.escape_cost - G.esc_last;

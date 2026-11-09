@@ -54,6 +54,10 @@ static void aim_point(const sim *S, float *x, float *y) {
   }
 }
 
+int sim_sw_old_boss, sim_sw_old_rayguns;
+/* the modern rules soften the command craft a newcomer meets first; classic keeps the original's fight */
+static bool soft_boss(const sim *S) { return S->rules == RULES_MODERN && !sim_sw_old_boss; }
+
 /* ── spawning ──────────────────────────────────────────────────────── */
 
 static int enemy_add(sim *S, int kind, float x, float y, float rand_fact) {
@@ -79,7 +83,7 @@ static int enemy_add(sim *S, int kind, float x, float y, float rand_fact) {
     case EK_RAYGUN: e->hp = -1000 * S->skill, e->lmy = 0, e->vel = 0.03f * 0.6f, e->rand_move = 0.5f + 0.5f * e->rand_move; break;
     case EK_TANK: e->hp = -2000 * S->skill, e->vel = 0.03f * 0.6f; break;
     case EK_GNAT: e->hp = -10, e->rand_move = 0.5f + 0.5f * e->rand_move, e->lmx = 0.2f, e->lmy = 0.1f * 0.6f; break;
-    case EK_BOSS0: e->hp = -10000 * S->skill, e->vel = 0.02f; break;
+    case EK_BOSS0: e->hp = -10000 * S->skill * (soft_boss(S) && S->level == 1 ? BOSS0_SOFT_HULL : 1), e->vel = 0.02f; break;
     case EK_BOSS1: e->hp = -10000 * S->skill, e->vel = 0.02f, e->age = 600; break;
     }
     e->max_hp = -e->hp;
@@ -311,6 +315,27 @@ static void move_clamp(enemy *e) {
 
 static void boss_phase2(sim *S, enemy *e, float hx, float hy);
 
+
+/* the first craft's beam (modern rules): the ship under it starts a charge the craft shows (its muzzle glows up, a
+ * sound plays), then a burst that fires while the ship stays under it, then a rest */
+static void boss_beam(sim *S, enemy *e, float a, float half, float muzzle) {
+  const float ch = BEAM_CHARGE, fi = BEAM_FIRE, re = BEAM_REST;
+  if (e->beam <= 0) {
+    e->beam_glow *= 0.9f;
+    if (fabsf(a) < half) e->beam = K, event(S, EV_BEAM_TELL, e->kind, e->x, e->y + muzzle);
+    return;
+  }
+  e->beam += K;
+  if (e->beam < ch) e->beam_glow = e->beam / ch;
+  else if (e->beam < ch + fi) {
+    e->beam_glow = 1;
+    if (fabsf(a) < half && crossed(e->age, 1)) ebullet_add(S, EA_BEAM, e->x, e->y + muzzle, 0, -0.6f), S->boss_beams += e->kind == EK_BOSS0;
+  } else {
+    e->beam_glow = cw_clampf(1 - (e->beam - ch - fi) / 20, 0, 1);
+    if (e->beam >= ch + fi + re) e->beam = 0;
+  }
+}
+
 static void enemy_step(sim *S, int idx) {
   enemy *e = &S->en[idx];
   float hx, hy;
@@ -367,7 +392,10 @@ static void enemy_step(sim *S, int idx) {
     e->x += K * (e->rand_move * e->lmx * (S->skill + 0.1f) + wob);
     e->y += K * (e->lmy + e->vel * (S->skill + 0.1f));
     move_clamp(e);
-    if (fabsf(a) < 1.5f && crossed(e->age, 1)) {
+    if (soft_boss(S) && !sim_sw_old_rayguns) { /* the modern rules: the ray gun's beam charges and rests as the craft's does */
+      boss_beam(S, e, a, 1.5f, -0.5f);
+      e->pre_fire = e->beam_glow;
+    } else if (fabsf(a) < 1.5f && crossed(e->age, 1)) {
       ebullet_add(S, EA_BEAM, e->x, e->y - 0.5f, 0, -0.6f);
       e->pre_fire = 1;
     } else e->pre_fire *= 0.9f;
@@ -460,7 +488,9 @@ static void enemy_step(sim *S, int idx) {
     e->x += K * e->lmx;
     e->y += K * (e->lmy + e->vel);
     move_clamp(e);
-    if (fabsf(a) < 1.6f && crossed(e->age, 1)) ebullet_add(S, EA_BEAM, e->x, e->y - 1.7f, 0, -0.6f);
+    if (!soft_boss(S)) {
+      if (fabsf(a) < 1.6f && crossed(e->age, 1)) ebullet_add(S, EA_BEAM, e->x, e->y - 1.7f, 0, -0.6f), S->boss_beams++;
+    } else boss_beam(S, e, a, 1.6f, -1.7f);
     if (crossed(e->age, 5)) {
       e->swap++;
       if (e->swap >= 15) e->swap = 0;
@@ -483,11 +513,12 @@ static void enemy_step(sim *S, int idx) {
           ebullet_add(S, EA_FLAK, e->x + 1.1f, e->y - 0.45f, e->aim_x, e->aim_y);
         }
         e->pre_fire = ((int)e->age % 100) / 100.0f;
-      } else if (crossed(e->age, 10)) {
+      } else if (crossed(e->age, soft_boss(S) ? SOFT_SLUG_EVERY : 10)) {
+        const float sp = soft_boss(S) ? SOFT_SLUG_SPEED : 0.7f; /* the modern rules: slower, fewer aimed slugs */
         for (int sd = -1; sd <= 1; sd += 2) {
           float px = e->x + 1.1f * sd, py = e->y - 0.45f, aa = hx - px, bb = hy - py, dist = fabsf(aa) + fabsf(bb);
           if (dist < 0.001f) dist = 0.001f;
-          ebullet_add(S, EA_SLUG, px, py, 0.7f * aa / dist, 0.7f * bb / dist);
+          ebullet_add(S, EA_SLUG, px, py, sp * aa / dist, sp * bb / dist);
         }
         event(S, EV_ESHOT, EA_SLUG, e->x, e->y);
         e->pre_fire -= 0.4f * K;

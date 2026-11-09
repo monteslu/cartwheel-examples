@@ -70,6 +70,8 @@ typedef struct enemy {
   float hit_flash;  /* presentation: 1 when hit, fades */
   float smoke;      /* bosses: time to the next damage puff */
   int plates;       /* bosses: armour plates left on the rim (6; one blows off each sixth of its hull) */
+  float beam;       /* the first craft's beam under the modern rules: frames into its charge, burst and rest (0 idle) */
+  float beam_glow;  /* presentation: the beam's muzzle charging (0..1) */
 } enemy;
 
 typedef struct ebullet { bool live; int kind; float x, y, vx, vy; } ebullet;
@@ -100,6 +102,7 @@ enum {
   EV_PLATE,      /* a boss lost an armour plate: a = the plate (0..5), x, y where it was */
   EV_BOSS_PHASE, /* a boss lost half its armour: its second attack starts */
   EV_BOSS_TELL,  /* a boss is charging its second attack (it fires BOSS_TELL frames later) */
+  EV_BEAM_TELL,  /* the first craft's beam starts to charge (it fires BEAM_CHARGE frames later): x, y the muzzle */
 };
 typedef struct sim_event { int type, a; float x, y; } sim_event;
 
@@ -132,6 +135,17 @@ enum { RULES_MODERN, RULES_CLASSIC };
 #define BOSS_PLATES 6
 #define BOSS_TELL 30      /* frames of warning (the rings charge) before a boss's second attack */
 #define CANCEL_SCORE 10   /* each enemy round turned into a chip, times the multiplier */
+/* the command craft under the modern rules (classic keeps the original's fight): its beam charges (a glow at the
+ * muzzle and a sound) before each burst and rests after it, where the original's fires every frame the ship is under
+ * it; its aimed slugs come slower and half as often; the first one met (level 1) has 65% of the hull */
+#define BEAM_CHARGE 45      /* frames */
+#define BEAM_FIRE 45
+#define BEAM_REST 75
+#define SOFT_SLUG_SPEED 0.45f /* the original's 0.7 */
+#define SOFT_SLUG_EVERY 20    /* frames between pairs, the original's 10 */
+#define BOSS0_SOFT_HULL 0.65f
+extern int sim_sw_old_boss;          /* sw old_boss 1: the original's command craft under the modern rules too (a control) */
+extern int sim_sw_old_rayguns;       /* sw old_rayguns 1: the ray guns' beam fires every frame the ship is under them under the modern rules too */
 
 typedef struct sim {
   int level;              /* 1.. */
@@ -159,6 +173,7 @@ typedef struct sim {
   int chain, chain_best;  /* kills in a row, each within CHAIN_WINDOW of the last */
   int chain_timer;        /* ticks left to keep the chain */
   int point_blanks, escapes, cancelled;
+  int boss_beams;         /* rounds the first craft's beam has fired */
   int64_t escape_cost;    /* score the escapes took (modern rules) */
   int chips_n;            /* this tick's cancelled rounds, for the chips (render only) */
   float chip_x[MAX_CHIPS], chip_y[MAX_CHIPS];

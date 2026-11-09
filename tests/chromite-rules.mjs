@@ -11,6 +11,9 @@
 //               the craft's fire turns to score chips; control: never fire at it (no hit-stop)
 //   phases      a boss down to 45% has lost three of its six rim plates and charges its second attack (boss.tells);
 //               control: an unhurt boss keeps six plates and never tells
+//   beam        the first command craft over a ship that sits still (modern rules): its beam charges first (beam.tells,
+//               the muzzle glows up with a sound) and rests between bursts, so it fires under half the rounds the
+//               original's does; control: sw old_boss 1 (the original's beam, every frame the ship is under it, no tell)
 //   bomb        the self-destruct's wave turns the rounds it passes into chips (cancelled > 0); control: arm only
 //   node tests/chromite-rules.mjs [--webgpu]
 import { spawnSync } from 'node:child_process';
@@ -77,6 +80,10 @@ const half = run('phase', 600, { input: 'chromite-start.json', cmds: ['@60 boss'
 check('boss: half its armour off, the second attack is charged (told) before it fires', half['boss.plates'] === 3 && half['boss.tells'] >= 1,
   `plates ${half['boss.plates']}, tells ${half['boss.tells']}`);
 const whole = run('phase-control', 600, { input: 'chromite-start.json', cmds: ['@60 boss'] });
+const beamOld = run('beam-control', 600, { input: 'chromite-start.json', cmds: ['sw old_boss 1', '@60 boss'] });
+check('beam: the first craft charges its beam (told) and rests, under half the original\'s rounds', whole['beam.tells'] >= 2 && whole['beam.rounds'] * 2 < beamOld['beam.rounds'],
+  `tells ${whole['beam.tells']}, beam rounds ${whole['beam.rounds']} in 600 frames`);
+check('control (sw old_boss 1): the original fires with no tell', beamOld['beam.tells'] === 0 && beamOld['beam.rounds'] > 0, `tells ${beamOld['beam.tells']}, beam rounds ${beamOld['beam.rounds']} in 600 frames`);
 check('control (never hurt): six plates, no second attack', whole['boss.plates'] === 6 && whole['boss.tells'] === 0, `plates ${whole['boss.plates']}, tells ${whole['boss.tells']}`);
 
 // the self-destruct's wave

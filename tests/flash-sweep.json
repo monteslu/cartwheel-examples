@@ -13,6 +13,7 @@
   { "name": "chromite-fight", "gate": "chromite-fight", "frames": 900, "note": "shots, hits and explosions" },
   { "name": "chromite-destruct", "gate": "chromite-destruct", "frames": 300, "note": "the self-destruct blast" },
   { "name": "chromite-auto", "gate": "chromite-auto", "frames": 2400, "note": "a computer run through waves" },
+  { "name": "chromite-boss", "app": "chromite", "input": "chromite-fight.json", "startCmds": ["@60 boss", "@500 boss half", "@820 boss low"], "frames": 1100, "note": "the first command craft: its beam charging, plates blowing off, its second attack and its fall" },
   { "name": "racer-battle", "gate": "racer-battle", "frames": 3000, "note": "weapons and hits in a battle arena" },
   { "name": "racer-salt", "gate": "racer-salt", "frames": 3000, "note": "a race: boosts and pickups" },
   { "name": "racer-orbit", "gate": "racer-orbit", "frames": 3000, "note": "the orbit track's lights" }

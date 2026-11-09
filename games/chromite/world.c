@@ -72,6 +72,10 @@ static struct {
   t3_sprite *pu_halo[MAX_POWERUPS];
   t3_material *halo_mat[PU_KINDS];
   t3_texture *halo_tex;
+#define BEAM_TELLS 6
+  t3_sprite *beam_tell[BEAM_TELLS]; /* a beam charging (modern rules: the command craft's, a ray gun's): a cyan glow at its muzzle that swells */
+  t3_material *beam_tell_mat[BEAM_TELLS];
+  int beam_tells;
   t3_mesh *bomb;
   t3_material *bomb_mat;
   t3_light *bomb_light;
@@ -689,6 +693,22 @@ static void build_powerups(void) {
   }
 }
 
+/* the beam's tell: the colour of the beam's rounds, swelling over the charge (BEAM_CHARGE frames) and fading after */
+static void build_beam_tell(void) {
+  for (int i = 0; i < BEAM_TELLS; i++) {
+    t3_material *m = W.beam_tell_mat[i] = t3_sprite_material_new(0xffffff);
+    m->color = (t3_color){ 0.06f, 2.7f, 3 };
+    t3_material_set_map(m, W.halo_tex);
+    m->blending = T3_ADDITIVE_BLENDING;
+    m->depth_write = false;
+    m->depth_test = false; /* a tell must read: over the hull's lower rim, where the beam leaves it */
+    W.beam_tell[i] = t3_sprite_new(m);
+    T3_OBJ(W.beam_tell[i])->visible = false;
+    t3_object_add(W.play, W.beam_tell[i]);
+    t3_release(W.beam_tell[i]);
+  }
+}
+
 static void build_hero(void) {
   int ns = 0;
   W.hero = model_new(CK_HERO, W.play, W.hero_spin, &ns);
@@ -847,6 +867,7 @@ void world_build(cw_node root, int variation) {
   build_deck(variation);
   build_fire();
   build_powerups();
+  build_beam_tell();
   build_hero();
   build_bomb();
   build_chips();
@@ -880,6 +901,8 @@ void world_free(void) {
     if (W.halo_mat[k]) t3_release(W.halo_mat[k]);
     if (W.pu_geo[k]) t3_release(W.pu_geo[k]);
   }
+  for (int i = 0; i < BEAM_TELLS; i++)
+    if (W.beam_tell_mat[i]) t3_release(W.beam_tell_mat[i]);
   if (W.halo_tex) t3_release(W.halo_tex);
   memset(&W, 0, sizeof W);
 }
@@ -946,6 +969,8 @@ void world_sync(const sim *prev, const sim *cur, float a, float t, int state) {
   for (int i = 0; i < W.lamps; i++) W.lamp_light[i]->intensity = W.lamp_light_k[i] * W.lamp_mat[W.lamp_light_kind[i]]->emissive_intensity;
 
   /* craft */
+  for (int i = 0; i < BEAM_TELLS; i++) T3_OBJ(W.beam_tell[i])->visible = false;
+  W.beam_tells = 0;
   for (int k = 0; k < CRAFT_KINDS; k++) {
     pool *p = &W.pools[k];
     for (int i = 0; i < p->n; i++) p->obj[i]->visible = false;
@@ -972,6 +997,17 @@ void world_sync(const sim *prev, const sim *cur, float a, float t, int state) {
     if (e->kind >= EK_BOSS0 && o->child_count > 0) {
       t3_object *in = o->children[0];
       for (int k = 0; k < BOSS_PLATES && 1 + k < in->child_count; k++) in->children[1 + k]->visible = k < e->plates;
+    }
+    if ((e->kind == EK_BOSS0 || e->kind == EK_RAYGUN) && e->beam_glow > 0.01f && W.beam_tells < BEAM_TELLS) {
+      bool big = e->kind == EK_BOSS0;
+      float g = same ? lerp(pe->beam_glow, e->beam_glow, a) : e->beam_glow, sc = (big ? 0.5f + 2.3f * g : 0.3f + 1.4f * g);
+      t3_vec3 m = to_world(x, y + (big ? -2.1f : -0.7f));
+      int i = W.beam_tells++;
+      t3_object_set_position(W.beam_tell[i], m.x, m.y + 0.8f, m.z);
+      t3_object_set_scale(W.beam_tell[i], sc, sc, sc);
+      float k = cw_clampf(g, 0, 1); /* additive: the glow brightens with the charge */
+      W.beam_tell_mat[i]->color = (t3_color){ 0.06f * k, 2.7f * k, 3 * k };
+      T3_OBJ(W.beam_tell[i])->visible = true;
     }
     if (p->glow[slot]) p->glow[slot]->emissive_intensity = 3 + 14 * cw_clampf(e->pre_fire, 0, 1) + 20 * cw_clampf(e->hit_flash, 0, 1);
     for (int k = 0; k < p->nspin[slot]; k++) t3_object_set_rotation(p->spin[slot][k], p->spin[slot][k]->rotation.x, age * (e->kind == EK_GNAT ? 9 : 3) + e->phase, p->spin[slot][k]->rotation.z);
