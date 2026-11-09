@@ -32,3 +32,4 @@ grades/neutral.cube
 decals/scorch.png
 
 decals/body.png
+decals/mud.png

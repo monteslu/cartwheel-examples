@@ -166,3 +166,61 @@ for (let cell = 0; cell < 2; cell++) {
     }
 }
 writePng('body.png', bp);
+
+// ── mud.png ─────────────────────────────────────────────────────────
+// Mud thrown up a car's side by its own wheels, drawn MULTIPLY in a box along
+// each flank (RGB what the paint, tyres and steel are multiplied by, alpha how
+// much). Four cells, each 512 x 128 (a flank is about 4.8 m by 0.75 m): a whole
+// flank, the sill at the bottom; the first two with the front at the left (a
+// car's right side), the last two the same mirrored (its left side). A wet coat from the sill up, fans thrown back off each wheel
+// (the wheels at a fifth and four fifths of the length), a torn upper edge with
+// flecks flung above it. The light coat, then caked on.
+const mp = new Uint8Array(N * N * 4);
+const MH = 128;
+const putm = (oy, x, y, R, G, B, A) => {
+  const i = ((oy + y) * N + x) * 4;
+  mp[i] = Math.round(clamp(R) * 255), mp[i + 1] = Math.round(clamp(G) * 255);
+  mp[i + 2] = Math.round(clamp(B) * 255), mp[i + 3] = Math.round(clamp(A) * 255);
+};
+for (let cell = 0; cell < 4; cell++) {
+  const oy = cell * MH, seed = 701 + (cell & 1) * 37, heavy = (cell & 1) === 1, flip = cell >= 2;
+  // the line the coat reaches (share of the box's height): low between the wheels, thrown high behind each, torn
+  const fan = (u, w) => Math.exp(-Math.pow((u - w - 0.06) / 0.12, 2));
+  const lineAt = (u) => (heavy ? 0.55 : 0.44) + (heavy ? 0.24 : 0.2) * Math.max(fan(u, 0.2), fan(u, 0.8))
+    + 0.12 * (fbm(u * 9, 1.5, seed, 4) - 0.5) + 0.06 * (fbm(u * 40, 3.5, seed + 1, 2) - 0.5);
+  // flecks: drops flung off the wheels, thick just over the line and thinning above it, smeared back along the car
+  const fleck = new Float32Array(N * MH);
+  for (let k = 0; k < (heavy ? 420 : 260); k++) {
+    const wheel = hash(k, 1, seed) < 0.5 ? 0.2 : 0.8;
+    const u = Math.min(0.98, Math.max(0.02, wheel + 0.02 + (hash(k, 2, seed) - 0.3) * 0.5));
+    const up = 0.01 + 0.3 * Math.pow(hash(k, 3, seed), 2.6) * (0.4 + Math.max(fan(u, 0.2), fan(u, 0.8)));
+    if (lineAt(u) + up > 0.9) continue; // none clipped by the top of the box
+    // a pixel is about 9 mm along the car and 6 mm up it: the drops are drawn round in metres
+    const fx = u * N, fy = MH * (1 - (lineAt(u) + up));
+    const r = (0.7 + 2.0 * Math.pow(hash(k, 4, seed), 2.5)) * (1.2 - up), sm = (1.4 + 1.4 * hash(k, 6, seed)) * 0.67;
+    for (let y = Math.floor(fy - r - 1); y <= fy + r + 1; y++)
+      for (let x = Math.floor(fx - r * sm - 1); x <= fx + r * sm + 1; x++) {
+        if (x < 0 || y < 0 || x >= N || y >= MH) continue;
+        const d = Math.hypot((x - fx) / sm, y - fy) / r;
+        fleck[y * N + x] = Math.max(fleck[y * N + x], clamp((1 - d) * 2.5));
+      }
+  }
+  for (let y = 0; y < MH; y++)
+    for (let x = 0; x < N; x++) {
+      const u = (x + 0.5) / N, h = 1 - (y + 0.5) / MH; // h: 0 at the sill, 1 at the box's top
+      const line = lineAt(u);
+      const grain = fbm(u * 30, h * 6, seed + 2, 4), clod = fbm(u * 70, h * 17, seed + 3, 3);
+      let a = clamp((line - h) / 0.03 + 0.5) * (0.84 + 0.16 * grain);
+      // a thinner film just under the torn edge: the coat is thickest low down
+      a *= mix(0.8, 1, clamp((line - h) / 0.2));
+      a = Math.max(a, fleck[y * N + x] * (0.65 + 0.35 * grain));
+      if (clod > 0.74) a = Math.min(1, a * 1.15);
+      a *= clamp((0.995 - Math.abs(u * 2 - 1)) / 0.03); // never to the cell's ends
+      a *= clamp((0.99 - h) / 0.04);
+      // colour: darkest and wettest low down, the edge and the flecks a little lighter (drying), clods darker
+      const wet = clamp(1 - h / Math.max(0.1, line)) * 0.6 + 0.4;
+      const base = mix(0.52, 0.3, wet) * (0.85 + 0.3 * grain) * (clod > 0.74 ? 0.8 : 1);
+      putm(oy, flip ? N - 1 - x : x, y, base * 1.15, base * 0.8, base * 0.5, a); // warm wet earth, not soot
+    }
+}
+writePng('mud.png', mp);

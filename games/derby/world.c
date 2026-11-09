@@ -26,6 +26,8 @@ static struct {
   car_model car[MAXC];
   cw_node car_node[MAXC];
   float mud_m[MAXC]; /* metres driven this bout (the mud's measure) */
+  cw_node mud[MAXC][3]; /* the mud thrown up the car (screen decals, MULTIPLY): right flank, left flank, the tail */
+  float wet[MAXC];      /* 1 just after the wheels threw mud, drying to 0 over half a minute */
   bool on[MAXC];
   int ticks;
   /* skid marks: a ring of quads on the floor */
@@ -396,6 +398,52 @@ static void soot_on(int i, int n, const car_spec *k) {
   W.soot_at[i][n] = at;
 }
 
+/* ── mud on the flanks ──────────────────────────────────────────────
+ * The wheels throw the arena's mud up the car's sides: a decal box along
+ * each flank, from the dirt to mid-door, drawn MULTIPLY (decals/mud.png,
+ * tools/make-decals.mjs) so the paint under it, its sheen and the lights on
+ * it stay and only darken: a coat from the sill up, fans thrown back off each
+ * wheel, flecks above. Screen space, so it lies on the dents as they come and
+ * on the tyres' sides. It comes on with the mud's level (car_mud: the
+ * light coat, then caked on past half), darkest while wet (thrown in the
+ * last seconds) and a little lighter as it dries. DERBY_NO_MUD: none. */
+static void mud_decals_tick(int i, const car *c, float level) {
+  const car_spec *k = &CAR_SPEC[c->kind];
+  const float len = 2.0f * k->hl + 0.1f; /* nose to tail: the sheet's wheels sit near a fifth and four fifths, as the axles do */
+  const float hb = 0.78f;
+  for (int sd = 0; sd < 3; sd++) {
+    cw_node d = W.mud[i][sd];
+    if (level < 0.02f) { if (cw_node_valid(d)) cw_node_set(d, "visible", cw_val_bool(false)); continue; }
+    if (!cw_node_valid(d)) {
+      d = W.mud[i][sd] = cw_node_new("Decal3D", sd == 2 ? "MudT" : sd ? "MudL" : "MudR");
+      cw_node_add_child(W.car_node[i], d);
+      cw_node_set(d, "texture", cw_val_string("decals/mud.png"));
+      cw_node_set(d, "blend", cw_val_enum("MULTIPLY"));
+      cw_node_set(d, "normal_fade", cw_val_float(0.45f)); /* not on the dirt under it, nor the car's ends */
+      cw_node_set(d, "edge_fade", cw_val_float(0.15f));
+    }
+    cw_node_set(d, "visible", cw_val_bool(true));
+    int cell = (level > 0.55f ? 1 : 0) + 2 * (sd == 1); /* the left flank's cells are mirrored: the front stays at the front */
+    cw_value r = { CW_T_VEC4 };
+    if (sd == 2) r.v[0] = 160, r.v[1] = (float)cell * 128, r.v[2] = 190, r.v[3] = 128; /* the tail: the coat between the wheels' fans */
+    else r.v[0] = 0, r.v[1] = (float)cell * 128, r.v[2] = 512, r.v[3] = 128;
+    cw_node_set(d, "region", r);
+    if (sd == 2) {
+      cw_node_set(d, "size", cw_val_vec3(2.0f * k->hw + 0.1f, hb, 0.8f));
+      cw_node3d_set_position(d, (t3_vec3){ 0, 0.04f + hb * 0.5f, -k->hl + 0.1f });
+      cw_node3d_set_rotation(d, (t3_vec3){ 0, 3.1415927f, 0 }); /* projecting in from behind: what the rear wheels throw */
+    } else {
+      cw_node_set(d, "size", cw_val_vec3(len, hb, 0.7f));
+      float side = sd ? -1.0f : 1.0f;
+      cw_node3d_set_position(d, (t3_vec3){ side * (k->hw - 0.05f), 0.04f + hb * 0.5f, 0 });
+      cw_node3d_set_rotation(d, (t3_vec3){ 0, side * 1.5707963f, 0 }); /* projecting in from the flank */
+    }
+    float w = W.wet[i], a = cw_clampf(level * 2.2f, 0, 1) * (0.86f + 0.12f * w);
+    float g = 1.0f - 0.22f * w; /* wet: darker */
+    cw_node_set(d, "color", cw_val_color(g, g * 0.98f, g * 0.95f, a));
+  }
+}
+
 static void body_decals_tick(int i, const car *c) {
   const car_spec *k = &CAR_SPEC[c->kind];
   /* the dents that changed since the decals were placed: mark them, then clip
@@ -581,6 +629,10 @@ void world_tick(const sim *s) {
       static int no_mud = -1; /* DERBY_NO_MUD: the cars stay as they started (the before of the mud sheet) */
       if (no_mud < 0) no_mud = getenv("DERBY_NO_MUD") != NULL;
       if (!no_mud) car_mud(&W.car[i], getenv("DERBY_MUD_FULL") ? 1.0f : W.mud_m[i] / 160.0f);
+      /* wet: thrown fresh while the wheels spin or slide on the dirt, drying over half a minute */
+      float fling = cw_clampf((sp - 3.0f) / 8.0f + 0.25f * (c->slip_f + c->slip_r), 0, 1);
+      W.wet[i] += (fling > W.wet[i] ? (fling - W.wet[i]) * 0.05f : -W.wet[i] / (30.0f * TICK_HZ));
+      if (!no_mud) mud_decals_tick(i, c, W.car[i].mud);
     }
   }
   skids_tick(s);
