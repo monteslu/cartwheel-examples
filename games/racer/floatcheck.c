@@ -45,6 +45,15 @@ typedef struct fitem {
   int inst, ntri;
   bool support, measure;
 } fitem;
+/* the world matrix of item i now (its object's, times its instance's) */
+static void item_world(const fitem *it, t3_mat4 *out) {
+  if (it->inst < 0) { *out = it->o->matrix_world; return; }
+  const t3_instanced_mesh *im = (const t3_instanced_mesh *)it->o;
+  if (!im->instance_matrix || it->inst >= im->count) { memset(out, 0, sizeof *out); return; }
+  t3_mat4 inst;
+  memcpy(inst.e, (const float *)im->instance_matrix->array + it->inst * 16, sizeof inst.e);
+  t3_mat4_multiply(out, &it->o->matrix_world, &inst);
+}
 
 static fitem *IT;
 static int nit, cap_it;
@@ -270,7 +279,7 @@ static struct {
   float *plo, *pgap;
   t3_vec3 *pat;
   int *pseen;
-  int checked, hover, aloft, near;
+  int checked, hover, aloft, near, moving;
   char out[24576];
 } J;
 
@@ -291,7 +300,7 @@ static bool job_start(float limit) {
   if (!root) return false;
   memset(NM, 0, sizeof NM);
   nit = 0, nterr = 0, nref = 0, truncated = false, ngr = 0, cur_owner = NULL;
-  J.limit = limit, J.checked = J.hover = J.aloft = J.near = 0;
+  J.limit = limit, J.checked = J.hover = J.aloft = J.near = J.moving = 0;
   name_nodes(scene);
   t3_object_update_matrix_world(root, true);
   walk(root, NULL);
@@ -383,7 +392,17 @@ static bool job_step(void) {
     }
   }
   if (J.phase != F_DONE || J.out[0]) return J.phase == F_DONE;
-  /* the report */
+  /* the report. What moved while the check ran (a bouncing crowd, a pump's beam, a drone) is left out: it was
+   * measured at one moment of its motion */
+  cw_node scene = world_scene();
+  t3_object *sr = cw_node_valid(scene) ? cw_node3d_object(scene) : NULL;
+  if (sr) t3_object_update_matrix_world(sr, true);
+  for (int i = 0; i < nit; i++) {
+    t3_mat4 now;
+    item_world(&IT[i], &now);
+    for (int e = 0; e < 16; e++)
+      if (fabsf(now.e[e] - IT[i].w.e[e]) > 1e-4f) { J.skip[find(i)] = true, J.moving++; break; }
+  }
   for (int i = 0; i < nit; i++) {
     if (find(i) != i || J.skip[i]) continue;
     J.checked++;
@@ -398,8 +417,8 @@ static bool job_step(void) {
     if (gap <= ALOFT) cw_info("floatcheck: %-28s (%s) inst %d hovers %.0f mm at %.2f,%.2f,%.2f", nm ? nm : "?", IT[i].name, IT[i].inst, gap * 1000, J.pat[i].x, J.pat[i].y, J.pat[i].z);
   }
   qsort(GR, (size_t)ngr, sizeof GR[0], by_worst);
-  int o = snprintf(J.out, sizeof J.out, "{\"done\":true,\"items\":%d,\"checked\":%d,\"terrains\":%d,\"refs\":%ld,\"truncated\":%s,\"limit_mm\":%.0f,\"hover\":%d,\"near\":%d,\"aloft\":%d,\"groups\":[",
-                   nit, J.checked, nterr, nref, truncated ? "true" : "false", J.limit * 1000, J.hover, J.near, J.aloft);
+  int o = snprintf(J.out, sizeof J.out, "{\"done\":true,\"items\":%d,\"checked\":%d,\"terrains\":%d,\"refs\":%ld,\"truncated\":%s,\"limit_mm\":%.0f,\"hover\":%d,\"near\":%d,\"aloft\":%d,\"moving\":%d,\"groups\":[",
+                   nit, J.checked, nterr, nref, truncated ? "true" : "false", J.limit * 1000, J.hover, J.near, J.aloft, J.moving);
   for (int k = 0; k < ngr && o < (int)sizeof J.out - 256; k++)
     o += snprintf(J.out + o, sizeof J.out - (size_t)o, "%s{\"name\":\"%s\",\"n\":%d,\"worst_mm\":%.0f,\"aloft\":%d,\"near\":%d,\"near_mm\":%.0f,\"at\":[%.2f,%.2f,%.2f],\"near_at\":[%.2f,%.2f,%.2f]}", k ? "," : "", GR[k].name, GR[k].n,
                   GR[k].worst * 1000, GR[k].aloft, GR[k].near, GR[k].nworst * 1000, GR[k].at.x, GR[k].at.y, GR[k].at.z, GR[k].nat.x, GR[k].nat.y, GR[k].nat.z);
