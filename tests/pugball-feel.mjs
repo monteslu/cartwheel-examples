@@ -12,6 +12,8 @@
 //   fov kick    boosting from rest to supersonic opens P1's view 6 degrees or more (cam.fov) (control: sw fov_kick 0)
 //   moon cat    the party rules MOON CAT, picked on the team sheet with the KICK OFF row's {m_alt}: the cat dropped
 //               from 8 m stays up at least half as long again as under NORMAL (game.rules)
+//   big cat     BIG CAT, three {m_alt} presses on: the cat 1.5 times as big (ball.radius 195 cm, NORMAL's 130), drawn
+//               so (a shot of it at the kickoff); the control is the same match under NORMAL
 //   node tests/pugball-feel.mjs [--gl] [--webgpu] [--cart <path>]
 import { mkdirSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
@@ -117,22 +119,24 @@ async function fovKick(backend, ctl) {
   return { f0, f1 };
 }
 
-async function hang(backend, moon) {
+async function hang(backend, moon, alts = 1, tag = '') {
   await load(backend);
   await toSheet();
   if (moon) {
     await press('up', 6); // the KICK OFF row (up from the first pug wraps to it)
-    await press('west'); // {m_alt}: the next party rules
+    for (let k = 0; k < alts; k++) await press('west'); // {m_alt}: the next party rules
   }
   const rules = +(await rd('game.rules'));
   if (!(await until(2, 'start'))) { console.error('no stadium select'); await bye(3); }
   await press('south', 30);
+  const radius = +(await rd('ball.radius'));
+  if (tag) await tool('frame', { op: 'stepAndShot', frames: 1, path: join(OUT, `${backend}-${tag}.png`) });
   for (let f = 0; f < 300 && +(await rd('match.phase')) === 0; f += 10) await step(10);
   await cmd('dropball 14 8 18'); // (out of the CPUs' way)
   let frames = 0;
   for (; frames < 400; frames += 2) { await step(2); if ((await rd('ball.pos'))[1] < 160) break; }
   await tool('host', { op: 'shutdown' });
-  return { rules, frames };
+  return { rules, frames, radius };
 }
 
 for (const backend of BACKENDS) {
@@ -152,6 +156,9 @@ for (const backend of BACKENDS) {
   check('control: sw fov_kick 0 holds it', fkc.f1 - fkc.f0 < 0.5, `${fkc.f0.toFixed(1)} -> ${fkc.f1.toFixed(1)} degrees`);
   const hn = await hang(backend, false), hm = await hang(backend, true);
   check('MOON CAT keeps the cat up half as long again', hm.rules === 1 && hn.rules === 0 && hm.frames >= hn.frames * 1.5, `NORMAL ${hn.frames} frames to fall 8 m, MOON CAT ${hm.frames}`);
+  const hb = await hang(backend, true, 3, 'bigcat'), hbn = await hang(backend, false, 0, 'normalcat');
+  check('BIG CAT plays the cat half as big again', hb.rules === 3 && hb.radius === 195, `game.rules ${hb.rules}, ball.radius ${hb.radius} cm`);
+  check('control: NORMAL keeps the cat its size', hbn.rules === 0 && hbn.radius !== 195, `game.rules ${hbn.rules}, ball.radius ${hbn.radius} cm`);
 }
 console.log(fail ? `${fail} FAILED` : 'all ok');
 await bye(fail ? 1 : 0);

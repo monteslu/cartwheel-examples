@@ -30,7 +30,9 @@
 #define GH 5.0f     /* goal mouth height */
 #define GD 5.0f     /* goal depth behind the line */
 
-#define RB 1.3f     /* ball radius (a giant chew ball) */
+#define RB_BASE 1.3f /* ball radius (a giant chew ball) */
+extern float pug_rb;  /* the ball's radius this match: RB_BASE, or BIG CAT's (sim_rules_size, before sim_init) */
+#define RB pug_rb
 #define RIDE 0.36f  /* a pug's centre above the surface it runs on */
 #define PHX 0.42f   /* pug hitbox half extents: across, up, along */
 #define PHY 0.30f
@@ -122,13 +124,16 @@ enum {
 };
 
 /* party rules: NORMAL; MOON CAT, the cat at 40% of the pugs' gravity (high, slow, floaty balls: aerials for
- * everyone); BOTTOMLESS BOOST, every pug's boost never runs dry (speed for all, no pad economy) */
-enum { RULES_NORMAL, RULES_MOON_CAT, RULES_BOTTOMLESS, RULES_KINDS };
+ * everyone); BOTTOMLESS BOOST, every pug's boost never runs dry (speed for all, no pad economy); BIG CAT, the cat half
+ * as big again (1.5 times the radius, the same weight: easy to hit, hard to keep out of a goal) */
+enum { RULES_NORMAL, RULES_MOON_CAT, RULES_BOTTOMLESS, RULES_BIG_CAT, RULES_KINDS };
+#define BIG_CAT_K 1.5f
 #define MOON_G 0.4f
 
 /* sim.c */
 void sim_init(sim *s, const bool on[MAXP], int match_secs, uint32_t seed);
 void sim_set_rules(sim *s, int rules); /* right after sim_init */
+void sim_rules_size(int rules);        /* right BEFORE sim_init: the ball's size for these rules (BIG CAT) */
 float sim_ball_grav(const sim *s);     /* the cat's gravity, m/s^2 */
 void sim_step(sim *s, const pin in[MAXP]);
 /* test stages: move a pug (at rest, facing yaw) or the ball (at rest) */

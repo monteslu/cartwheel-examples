@@ -417,6 +417,9 @@ void sim_init(sim *s, const bool on[MAXP], int match_secs, uint32_t seed) {
   kickoff(s);
 }
 
+float pug_rb = RB_BASE;
+void sim_rules_size(int rules) { pug_rb = rules == RULES_BIG_CAT ? RB_BASE * BIG_CAT_K : RB_BASE; }
+
 void sim_set_rules(sim *s, int rules) {
   s->rules = rules >= 0 && rules < RULES_KINDS ? rules : RULES_NORMAL;
   if (cw_body3d_valid(PH.ball)) b3Body_SetGravityScale(cw_body3d_raw(PH.ball), s->rules == RULES_MOON_CAT ? MOON_G : 1);

@@ -329,7 +329,7 @@ static void build_bowl(cw_node root, const look *L) {
   t3_material *rm = phys(lin(L->ramp[0], L->ramp[1], L->ramp[2]), 0.9f, 0);
   tex_apply(rm, L->floor_tex, 1, 1.0f, 1);
   add_mesh(root, "Ramps", arena_sweep(ramp, 11, 3, 3, 0, true), rm, false, true);
-  const float bh = 1.5f;
+  const float bh = 0.9f; /* low boards: the glass over them shows the stands */
   prof boards[2] = { { 0, AR, -1, 0 }, { 0, AR + bh, -1, 0 } };
   for (int t = 0; t < 2; t++) {
     const float *c = L->board[t];
@@ -758,13 +758,14 @@ void world_tick(const sim *s) {
   W.cat_squash_v *= 0.78f;
   W.cat_squash += W.cat_squash_v;
   float sq = cw_clampf(W.cat_squash, -0.25f, 0.25f) + 0.015f * cw_sin(W.cat_ticks * 0.08f) * (s->phase == PH_KICKOFF);
-  c->body->scale = (t3_vec3){ 1 - sq * 0.5f, 1 + sq, 1 - sq * 0.5f };
+  float big = RB / RB_BASE; /* BIG CAT: the model, built at the base size, scaled to the ball */
+  c->body->scale = (t3_vec3){ big * (1 - sq * 0.5f), big * (1 + sq), big * (1 - sq * 0.5f) };
   /* in the air the paws and tail fling out */
   float fling = W.cat_air;
   for (int k = 0; k < 4; k++) {
     float sx = k & 1 ? 1.0f : -1.0f, front = k < 2 ? 1.0f : -1.0f;
     set_rot(c->paw[k], front * fling * 0.9f + 0.15f * fling * cw_sin(W.cat_ticks * 0.5f + k), 0, -sx * fling * 0.9f);
-    c->paw[k]->position = (t3_vec3){ sx * RB * (0.42f + 0.2f * fling), -RB * (0.82f - 0.1f * fling), front * RB * (0.45f + 0.2f * fling) };
+    c->paw[k]->position = (t3_vec3){ sx * RB_BASE * (0.42f + 0.2f * fling), -RB_BASE * (0.82f - 0.1f * fling), front * RB_BASE * (0.45f + 0.2f * fling) };
   }
   set_rot(c->tail, fling * 0.8f * cw_sin(W.cat_ticks * 0.3f), fling * 0.6f, 0);
   /* ears flatten when it is angry */

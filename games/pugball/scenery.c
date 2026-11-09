@@ -420,9 +420,9 @@ static void grass_tick(const sim *s, float t, int parity) {
 
 #define ROWS 20
 #define TIER0 6.5f   /* the first row's distance out from the wall */
-#define TIER_Y 2.6f  /* and its height */
+#define TIER_Y 4.6f  /* and its height: the first row just over the boards, so the crowd shows from the pitch */
 #define ROW_D 0.9f
-#define ROW_H 0.45f
+#define ROW_H 0.52f  /* steep: the upper tiers rise into view over the boards */
 
 static void build_stands(int theme) {
   /* the tiers: a staircase swept round the bowl (flat-shaded steps), the
@@ -452,7 +452,7 @@ static void build_stands(int theme) {
   tex_apply(wm, TEX_CONCRETE, 1, 1, 1);
   add_mesh(arena_sweep(walk, 2, 3, 3, 0, false), wm, false);
   /* the roof: a canopy from above the back row out over the front rows */
-  float ry = yend + 4.5f;
+  float ry = yend + 2.8f; /* (a lower canopy over the raised tiers: its shadow keeps off most of the pitch) */
   prof roof[4] = { { dend + 0.5f, ry + 0.6f, 0, -1 }, { TIER0 + 1, ry, 0, -1 }, { TIER0 + 1, ry + 0.5f, -1, 0 }, { dend + 0.5f, ry + 1.1f, 0, 1 } };
   t3_material *rm = phys(lin(0.92f, 0.93f, 0.96f), 0.4f, 0.6f);
   tex_apply(rm, TEX_PANEL, 1, 0.6f, 1);
@@ -1191,6 +1191,7 @@ void scenery_floodlights(float strength) {
     cw_node_set(n, "range", cw_val_float(55));
     cw_node_set(n, "decay", cw_val_float(2));
     cw_node_set(n, "angle", cw_val_float(0.66f));
+    cw_node_set(n, "fog_energy", cw_val_float(0.9f)); /* its beam in a night stadium's volumetric haze */
     cw_node_set(n, "penumbra", cw_val_float(0.5f));
     cw_node_set(n, "shadow_size", cw_val_int(1024));
     cw_node_set(n, "shadow_bias", cw_val_float(-0.0004f));

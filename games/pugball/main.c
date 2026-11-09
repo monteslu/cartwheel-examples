@@ -198,6 +198,7 @@ static void perf_tick_end(void) {
  * crowd by the preset's density. perf.tier: 0 at High, 1 Medium, 2 Low, 3 Very Low */
 static cw_node find_type(cw_node n, const char *type);
 static int quality_tier;
+static float night(void);
 static void apply_quality(void) {
   quality_tier = CW_QUALITY_HIGH - (int)cw_quality_get();
   float k = cw_quality_density();
@@ -222,6 +223,10 @@ static void apply_quality(void) {
     cw_node_set(G.sun, "shadow_far", cw_val_float(cascades ? 420 : G.sun_far));
   }
   scenery_flood_quality();
+  /* a night stadium: the floodlights' beams in the haze (volumetric fog from Medium effects, one view; split screen and
+   * the lower presets keep the plain height fog, the engine draws it so on Low and Very Low anyway) */
+  cw_node fog = find_type(G.scene, "HeightFog");
+  if (cw_node_valid(fog)) cw_node_set(fog, "volumetric", cw_val_bool(night() > 0 && cw_gfx_get(CW_GFX_EFFECTS) >= CW_QUALITY_MEDIUM && G.nviews < 2));
 }
 static void sound_apply(void);
 static void quality_changed(cw_quality q, void *u) {
@@ -724,6 +729,12 @@ static void replay_end(void) {
   RP.n = 0;
 }
 
+/* hit-stop: a hard touch or a demolition holds the whole match (both teams, the cat, the clock, the particles) for 2
+ * to 4 ticks, so the hit lands. The match only pauses: every tick of it is the same, so a replay is unchanged */
+#define HIT_STOP_K 0.7f
+static int32_t hitstop_on = 1, hitstop_hold, hitstop_cool, hitstops, hitstop_held; /* sw hitstop 0: none (the control); holds this match, and the ticks held */
+static int32_t ball_r_cm; /* the cat's radius, cm (debug ball.radius: BIG CAT) */
+static bool hitstop_frame;                     /* this tick is held */
 static void start_match(int stadium) {
   load_scene(stadium);
   bool on[MAXP];
@@ -735,6 +746,9 @@ static void start_match(int stadium) {
 #ifdef PUGBALL_CUP_TEST
   if (G.mode == MODE_CUP) secs = 6;
 #endif
+  sim_rules_size(G.mode == MODE_CUP ? RULES_NORMAL : G.rules);
+  hitstops = hitstop_hold = hitstop_cool = hitstop_held = 0;
+  if (getenv("PUG_HITSTOP")) hitstop_on = atoi(getenv("PUG_HITSTOP")) != 0; /* PUG_HITSTOP=0: the match never holds (a gate's control) */
   sim_init(&G.S, on, secs, 1000u + (uint32_t)stadium * 7919u);
   sim_set_rules(&G.S, G.mode == MODE_CUP ? RULES_NORMAL : G.rules); /* (the Cup plays straight) */
   RP.n = RP.head = RP.count = 0;
@@ -767,6 +781,7 @@ static void start_match(int stadium) {
 static void enter_title(void) {
   load_scene(0);
   bool on[MAXP] = { true, true, true, true, true, true };
+  sim_rules_size(RULES_NORMAL);
   sim_init(&G.S, on, 300, 5);
   pug_look looks[MAXP];
   for (int i = 0; i < MAXP; i++) looks[i] = G.look[i];
@@ -855,7 +870,7 @@ static void cmd_sw(int argc, const char **argv, cw_reply *r) {
    * exhibition_locked 1: the Exhibition's stadiums padlocked until the Cup opens them. Each is the old behaviour (a
    * gate's control) */
   if (argc < 3) {
-    cw_reply_error(r, "usage: sw split_how|kick_dodge|exhibition_locked|cam_posts|fov_kick <0|1>");
+    cw_reply_error(r, "usage: sw split_how|kick_dodge|exhibition_locked|cam_posts|fov_kick|hitstop <0|1>");
     return;
   }
   int v = atoi(argv[2]) != 0;
@@ -864,8 +879,9 @@ static void cmd_sw(int argc, const char **argv, cw_reply *r) {
   else if (!strcmp(argv[1], "exhibition_locked")) sw_exhibition_locked = v;
   else if (!strcmp(argv[1], "cam_posts")) cam_posts_sw(v);
   else if (!strcmp(argv[1], "fov_kick")) fov_kick = v;
+  else if (!strcmp(argv[1], "hitstop")) hitstop_on = v;
   else {
-    cw_reply_error(r, "usage: sw split_how|kick_dodge|exhibition_locked|cam_posts|fov_kick <0|1>");
+    cw_reply_error(r, "usage: sw split_how|kick_dodge|exhibition_locked|cam_posts|fov_kick|hitstop <0|1>");
     return;
   }
   cw_reply_printf(r, "{\"split_how\":%d,\"kick_dodge\":%d,\"exhibition_locked\":%d,\"cam_posts\":%d}", (int)split_how, (int)kick_dodge_sw(-1),
@@ -1044,6 +1060,9 @@ static void init(void *u) {
   cw_debug_i32("game.state", &G.state);
   cw_debug_i32("game.mode", &G.mode);
   cw_debug_i32("game.rules", &G.rules);
+  cw_debug_i32("feel.hitstops", &hitstops);
+  cw_debug_i32("feel.held", &hitstop_held);
+  cw_debug_i32("ball.radius", &ball_r_cm);
   cw_debug_i32("game.stadium", &G.stadium);
   cw_debug_i32("match.phase", &G.phase);
   cw_debug_i32("match.clock", &G.clock);
@@ -1089,7 +1108,7 @@ static void init(void *u) {
   cw_debug_i32("save.migrated", &dbg_migrated);
   cw_debug_command("stadium", "stadium <1..5>: an exhibition there now", cmd_stadium);
   cw_debug_i32("hud.how_views", &how_views); /* split screen: the views showing the controls this frame */
-  cw_debug_command("sw", "sw split_how|kick_dodge|exhibition_locked|cam_posts|fov_kick <0|1>: the old behaviour back (the gates controls)", cmd_sw);
+  cw_debug_command("sw", "sw split_how|kick_dodge|exhibition_locked|cam_posts|fov_kick|hitstop <0|1>: the old behaviour back (the gates controls)", cmd_sw);
   cw_debug_field("hud.kick_rect", kick_rect_dbg, CW_DBG_I32, 4);
   cw_debug_i32("hud.kick_dodged", &kick_dodged);
   cw_debug_field("hud.kick_cat", kick_cat, CW_DBG_I32, 3);
@@ -2275,6 +2294,15 @@ static void fixed_body(void) {
     break;
   }
   case GS_MATCH: {
+    if (hitstop_hold > 0) { /* the match holds for a beat (no input read, nothing steps) */
+      hitstop_hold--;
+      hitstop_held++;
+      hitstop_frame = true;
+      G.S.ev_n = 0;
+      if (any_pressed(G.a_start)) G.state = GS_PAUSE, G.menu = 0, G.state_ticks = 0;
+      break;
+    }
+    if (hitstop_cool > 0) hitstop_cool--;
     pin in[MAXP] = { 0 };
     for (int i = 0; i < MAXP; i++) {
       if (G.slot[i] == SLOT_HUMAN) in[i] = human_pin(i);
@@ -2297,6 +2325,11 @@ static void fixed_body(void) {
     if (rec) fprintf(rec, "%d %d %d %d %d\n", G.S.tick, in[0].thr, in[0].steer, in[0].pitch, in[0].btn), fflush(rec);
     fx_events(&G.S);
     sim_sounds();
+    for (int e = 0; e < G.S.ev_n && hitstop_on && hitstop_cool == 0; e++) {
+      const struct sim_event *v = &G.S.ev[e];
+      int hold = v->kind == EV_DEMO ? 4 : v->kind == EV_HIT && v->k >= HIT_STOP_K ? 2 + (int)(2.0f * cw_clampf((v->k - HIT_STOP_K) / (1 - HIT_STOP_K), 0, 1) + 0.5f) : 0;
+      if (hold) hitstop_hold = hold, hitstop_cool = 40, hitstops++;
+    }
     if (G.S.phase == PH_OVER && G.S.phase_ticks > 150) finish_match();
     else if (G.S.phase == PH_GOAL && G.S.phase_ticks == REPLAY_AT && RP.n > 60 && !DEV.no_replay) replay_start();
     else if (any_pressed(G.a_start)) {
@@ -2378,7 +2411,7 @@ static void fixed_body(void) {
     if (G.state == GS_FULLTIME) G.S.ev_n = 0;
     world_tick(&G.S);
     track_tick();
-    fx_tick(&G.S);
+    if (!hitstop_frame) fx_tick(&G.S); /* the particles hold with the match */
     scenery_tick(&G.S, G.ticks, G.S.phase == PH_GOAL ? G.S.goal_team + 1 : 0); /* the scorers' fans leap */
   } else if (G.state != GS_PAUSE) {
     world_showcase(G.ticks, G.look, G.state == GS_SHEET && G.cursor < MAXP ? G.cursor : -1);
@@ -2387,6 +2420,8 @@ static void fixed_body(void) {
     scenery_tick(&G.S, G.ticks, 0);
   }
   camera_tick();
+  hitstop_frame = false;
+  ball_r_cm = (int32_t)(RB * 100 + 0.5f);
   save_fields();
   const sim *s = &G.S;
   G.phase = s->phase;
@@ -2697,7 +2732,7 @@ static void draw_sheet(float W, float H, float s) {
   cw_rect gr = L.go;
   if (G.cursor == MAXP) glow_cursor(gr, s, 18, false);
   panel(gr, 1, rgba(1, 1, 1, 0.75f), rgba(0.95f, 0.45f, 0.2f, 0.94f));
-  static const char *const RULE_NAME[RULES_KINDS] = { "", "   MOON CAT", "   BOTTOMLESS BOOST" };
+  static const char *const RULE_NAME[RULES_KINDS] = { "", "   MOON CAT", "   BOTTOMLESS BOOST", "   BIG CAT" };
   snprintf(buf, sizeof buf, "KICK OFF THE CAT   %d:00%s", MATCH_SECS[G.secs_i] / 60, RULE_NAME[G.rules % RULES_KINDS]);
   float gsz = 24 * s, gwid = measure_bold(buf, gsz).width;
   if (gwid > gr.w - 20 * s) gsz = fmaxf(16 * s, gsz * (gr.w - 20 * s) / gwid); /* (a long rule's name) */

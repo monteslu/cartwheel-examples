@@ -68,6 +68,9 @@ sun_g = 0.8
 max_opacity = 0.6
 start_distance = 40
 sky_distance = 400
+volumetric_distance = 80
+volumetric_ambient = 0.12
+volumetric_albedo = color(0.85, 0.88, 1, 1)
 
 [node name="Post" parent="." type="PostProcess"]
 tonemap = AGX

@@ -21,6 +21,7 @@
 #include "cartwheel/input.h"
 #include "cartwheel/math.h"
 #include "cartwheel/particles.h"
+#include "cartwheel/explosions.h"
 #include "world.h"
 
 #define FIREWORKS 6
@@ -41,7 +42,14 @@ static struct {
   int next_flash;
   float shake;
   int ticks;
+  /* a goal: two rings of bent air (a ground ring from the goal mouth, a smaller one round the cat facing the camera),
+   * and confetti that lands and lies on the turf in front of the goal until the next kickoff */
+  cw_node wave_ground, wave_burst;
+  t3_instanced_mesh *litter;
+  cw_node litter_node;
+  int litter_t, litter_side; /* ticks since the goal (-1: none lying), the goal's end (+1 / -1) */
 } FX;
+#define LITTER_N 360
 
 static cw_node pnode(const char *name, const char *const *kv, int seed) {
   cw_node n = cw_node_new("GPUParticles3D", name);
@@ -192,6 +200,39 @@ void fx_init(cw_node scene, int theme) {
   FX.goal_fur = pnode("GoalFur", GOAL_FUR, 402);
   for (int i = 0; i < 4; i++) FX.confetti[i] = pnode("Confetti", CONFETTI, 410 + i);
   for (int i = 0; i < FIREWORKS; i++) FX.fw[i] = pnode("Firework", FIREWORK, 420 + i);
+  for (int k = 0; k < 2; k++) {
+    cw_node w = cw_node_new("Shockwave3D", k ? "GoalBurst" : "GoalWave");
+    cw_node_add_child(FX.root, w);
+    cw_node_set(w, "ground", cw_val_bool(k == 0));
+    cw_node_set(w, "autostart", cw_val_bool(false));
+    cw_node_set(w, "max_radius", cw_val_float(k ? 7.0f : 18.0f));
+    cw_node_set(w, "duration", cw_val_float(k ? 0.55f : 1.1f));
+    cw_node_set(w, "thickness", cw_val_float(k ? 1.2f : 2.2f));
+    cw_node_set(w, "strength", cw_val_float(k ? 0.5f : 0.45f));
+    if (k) FX.wave_burst = w; else FX.wave_ground = w;
+  }
+  { /* the confetti on the turf: paper scraps lying flat, matte, in the scorers' colour (set at the goal) */
+    t3_material *pm = t3_mesh_standard_material_new(0xffffff);
+    pm->roughness = 0.85f;
+    pm->metalness = 0;
+    pm->side = T3_DOUBLE_SIDE;
+    FX.litter = t3_instanced_mesh_new(t3_plane_geometry_new(0.16f, 0.1f, 1, 1), pm, LITTER_N);
+    t3_release(FX.litter->mesh.geometry);
+    t3_release(pm);
+    FX.litter->mesh.base.cast_shadow = false;
+    FX.litter->mesh.base.receive_shadow = true;
+    FX.litter->mesh.base.visible = false;
+    FX.litter->mesh.base.frustum_culled = false;
+    cw_node n = cw_node_new("Node3D", "Confetti on the turf");
+    cw_node_add_child(FX.root, n);
+    t3_object *wrap = t3_group_new();
+    t3_object_add(wrap, FX.litter);
+    cw_node3d_set_object(n, wrap);
+    t3_release(wrap);
+    t3_release(FX.litter);
+    FX.litter_node = n;
+    FX.litter_t = -1;
+  }
   for (int i = 0; i < 3; i++) {
     char name[16];
     snprintf(name, sizeof name, "Flash%d", i);
@@ -251,6 +292,23 @@ static void goal(const sim *s, const struct sim_event *e) {
   }
   flash((t3_vec3){ c.x, c.y + 1, c.z }, 60);
   flash((t3_vec3){ 0, 4, side * (AL - 6) }, 30);
+  /* the air bends: a ring along the turf out of the goal mouth, a burst round the cat (no light of its own: the
+   * flashes above swell and fade as they always did) */
+  cw_node3d_set_position(FX.wave_ground, (t3_vec3){ 0, 0.3f, side * AL });
+  cw_shockwave_fire(FX.wave_ground);
+  cw_node3d_set_position(FX.wave_burst, c);
+  cw_shockwave_fire(FX.wave_burst);
+  /* the confetti that lands stays: its colour now, laid down as the bursts come down */
+  FX.litter_t = 0;
+  FX.litter_side = side > 0 ? 1 : -1;
+  for (int i = 0; i < LITTER_N; i++) {
+    uint32_t h = cw_particle_hash((uint32_t)(i * 7919 + FX.ticks));
+    const float *tc = TEAM_RGB[e->a];
+    float v = 0.75f + 0.35f * (float)(h & 255) / 255.0f; /* paper in light and shade */
+    bool gold = ((h >> 8) & 7) == 0;
+    t3_color col = gold ? (t3_color){ 0.95f, 0.75f, 0.2f } : (t3_color){ fminf(1, tc[0] * v), fminf(1, tc[1] * v), fminf(1, tc[2] * v) };
+    t3_instanced_mesh_set_color_at(FX.litter, i, col);
+  }
   FX.shake = 1;
   rumble_all(0.6f, 0.4f, 260);
 }
@@ -307,9 +365,36 @@ void fx_set_trail(int i, int kind) {
   }
 }
 
+/* the confetti on the turf: it settles in as the bursts come down, then lies there; the kickoff sweeps it away */
+static void litter_tick(const sim *s) {
+  if (FX.litter_t < 0) return;
+  if (s->phase == PH_KICKOFF || s->phase == PH_PLAY) {
+    FX.litter->mesh.base.visible = false;
+    FX.litter_t = -1;
+    return;
+  }
+  FX.litter_t++;
+  float k = cw_clampf((float)(FX.litter_t - 70) / 50.0f, 0, 1);
+  if (k <= 0 || (k >= 1 && FX.litter_t > 121)) return;
+  FX.litter->mesh.base.visible = true;
+  for (int i = 0; i < LITTER_N; i++) {
+    uint32_t h = cw_particle_hash((uint32_t)(i * 104729 + 17));
+    float u = (float)(h & 1023) / 1023.0f, w = (float)((h >> 10) & 1023) / 1023.0f;
+    /* scattered in front of the goal, thickest near the posts where the cannons fire */
+    float x = (u - 0.5f) * 2 * (GW + 5), d = 0.4f + w * w * 10;
+    float land = cw_clampf(k * 1.6f - (float)((h >> 20) & 15) / 25.0f, 0, 1); /* not all at once */
+    t3_mat4 m;
+    t3_quat q = t3_quat_multiply(t3_quat_from_axis_angle((t3_vec3){ 0, 1, 0 }, (float)((h >> 4) & 255) * 0.0245f),
+                                 t3_quat_from_axis_angle((t3_vec3){ 1, 0, 0 }, -1.5707963f)); /* flat on the turf */
+    t3_mat4_compose(&m, (t3_vec3){ x, 0.012f, FX.litter_side * (AL - d) }, q, (t3_vec3){ land, land, land });
+    t3_instanced_mesh_set_matrix_at(FX.litter, i, &m);
+  }
+}
+
 void fx_tick(const sim *s) {
   if (!FX.ready) return;
   FX.ticks++;
+  litter_tick(s);
   FX.shake *= 0.93f;
   for (int i = 0; i < MAXP; i++) {
     const pug *u = &s->p[i];

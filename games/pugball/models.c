@@ -723,27 +723,27 @@ void cat_build(cat_model *c) {
 
   /* the chonk: very nearly the physics sphere */
   static t3_geometry *CAT_BODY;
-  if (!CAT_BODY) CAT_BODY = with_light(t3_sphere_geometry_new(RB * 0.98f, 64, 40), t3_sphere_geometry_new(RB * 0.98f, 24, 16));
+  if (!CAT_BODY) CAT_BODY = with_light(t3_sphere_geometry_new(RB_BASE * 0.98f, 64, 40), t3_sphere_geometry_new(RB_BASE * 0.98f, 24, 16));
   t3_geometry *bodyg = t3_retain(CAT_BODY);
   t3_mesh *bm = part(c->body, bodyg, tabby, 0, 0, 0);
   rot(&bm->base, 1.5707963f, 0, 0); /* the stripes wrap round its middle */
   t3_release(bodyg);
-  blob(c->body, cream, RB * 0.72f, RB * 0.6f, RB * 0.55f, 0, -RB * 0.42f, RB * 0.38f); /* belly */
+  blob(c->body, cream, RB_BASE * 0.72f, RB_BASE * 0.6f, RB_BASE * 0.55f, 0, -RB_BASE * 0.42f, RB_BASE * 0.38f); /* belly */
   /* tucked paws peeping out underneath, front pair forward */
   for (int k = 0; k < 4; k++) {
     float sx = k & 1 ? 1.0f : -1.0f, front = k < 2 ? 1.0f : -1.0f;
-    c->paw[k] = pivot(c->body, sx * RB * 0.42f, -RB * 0.82f, front * RB * 0.45f);
+    c->paw[k] = pivot(c->body, sx * RB_BASE * 0.42f, -RB_BASE * 0.82f, front * RB_BASE * 0.45f);
     blob(c->paw[k], cream, 0.24f, 0.17f, 0.3f, 0, 0, front * 0.06f);
     for (int t = -1; t <= 1; t++) blob(c->paw[k], pink, 0.045f, 0.03f, 0.04f, t * 0.08f, -0.14f, front * 0.2f);
   }
   /* the tail: a striped arc wrapped round its side (it splays in the air) */
-  c->tail = pivot(c->body, -RB * 0.55f, -RB * 0.55f, -RB * 0.7f);
-  t3_geometry *tg = t3_torus_geometry_new(RB * 0.85f, 0.17f, 12, 36, 2.6f);
-  t3_mesh *tm = part(c->tail, tg, tabby, RB * 0.55f, 0, RB * 0.15f);
+  c->tail = pivot(c->body, -RB_BASE * 0.55f, -RB_BASE * 0.55f, -RB_BASE * 0.7f);
+  t3_geometry *tg = t3_torus_geometry_new(RB_BASE * 0.85f, 0.17f, 12, 36, 2.6f);
+  t3_mesh *tm = part(c->tail, tg, tabby, RB_BASE * 0.55f, 0, RB_BASE * 0.15f);
   rot(&tm->base, 1.5707963f, 0, 2.2f);
   t3_release(tg);
   /* the head: big, round, bulging out of the front */
-  c->head = pivot(c->body, 0, RB * 0.38f, RB * 0.6f);
+  c->head = pivot(c->body, 0, RB_BASE * 0.38f, RB_BASE * 0.6f);
   t3_object *h = c->head;
   blob(h, tabby, 0.66f, 0.56f, 0.55f, 0, 0, 0);
   blob(h, cream, 0.36f, 0.24f, 0.2f, 0, -0.18f, 0.42f); /* muzzle */
