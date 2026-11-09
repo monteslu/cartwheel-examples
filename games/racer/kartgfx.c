@@ -125,6 +125,9 @@ static float clampf_(float v, float lo, float hi) { return v < lo ? lo : v > hi 
 static float flame_eye_k = 1.0f; /* kartgfx_frame: 0 with a camera right on the kart, 1 from 3.8 m out (pose_driver) */
 static float ease(float p) { return p * p * (3 - 2 * p); }
 
+/* gap lift <mm>: the player's kart drawn that far up along its own up (render only): a kart hovering a little above the
+ * road, the control of racer-grounded's hover leg */
+static int gap_lift_mm;
 void kartgfx_tick(const sim *s) {
   K.sim = s;
   for (int i = 0; i < MAXK; i++) {
@@ -133,7 +136,7 @@ void kartgfx_tick(const sim *s) {
     cw_node n = K.node[i];
     t3_vec3 was = cw_node3d_position(n);
     cw_node3d_snapshot(n);
-    cw_node3d_set_position(n, k->p);
+    cw_node3d_set_position(n, i == 0 && gap_lift_mm ? v3add(k->p, v3mul(t3_vec3_apply_quat((t3_vec3){ 0, 1, 0 }, k->q), (float)gap_lift_mm * 0.001f)) : k->p);
     cw_node3d_set_quaternion(n, k->q);
     /* put back on the road: no blend across the jump */
     t3_vec3 jd = v3sub(k->p, was);
@@ -323,6 +326,7 @@ static void cmd_kshadow(int argc, const char **argv, cw_reply *r) {
 }
 
 static void cmd_gap(int argc, const char **argv, cw_reply *r) {
+  if (argc > 2 && !strcmp(argv[1], "lift")) { gap_lift_mm = atoi(argv[2]); cw_reply_printf(r, "{\"lift_mm\":%d}", gap_lift_mm); return; }
   if (argc > 1 && !strcmp(argv[1], "reset")) {
     int32_t keep_gap[MAXK], keep_gnd[MAXK];
     memcpy(keep_gap, GP.gap, sizeof keep_gap), memcpy(keep_gnd, GP.gnd, sizeof keep_gnd);
@@ -348,7 +352,7 @@ void kartgfx_debug_init(void) {
   cw_debug_field("gap.run_peak", GP.run_max_peak, CW_DBG_I32, MAXK);
   cw_debug_field("gap.run_s", GP.run_s, CW_DBG_I32, MAXK);
   cw_debug_field("gap.run_tick", GP.run_tick, CW_DBG_I32, MAXK);
-  cw_debug_command("gap", "gap [reset]: the drawn tyres' gap to the road (karts.gap_mm, gap.*); reset clears the counts", cmd_gap);
+  cw_debug_command("gap", "gap [reset] | gap lift <mm>: the drawn tyres' gap to the road (karts.gap_mm, gap.*); reset clears the counts; lift draws the player's kart that far up (a control)", cmd_gap);
   cw_debug_command("kshadow", "kshadow <kart> <0|1>: that kart throws no shadow (0) or its own again (1)", cmd_kshadow);
 }
 

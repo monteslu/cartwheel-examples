@@ -17,6 +17,7 @@
 //           HOVER_LO to HOVER_HI mm, not a drawn flip, hop or trick): a run of such frames is a hover when it lasts longer
 //           than a hop that low can (HOVER_MAX frames: a kart thrown 25 cm up is back down in under half a second).
 //           Frames from the race camera every 15 s of the lap at Very Low and High are kept to look at.
+//           Control: gap lift 80 (the player's kart drawn 80 mm above where it is) must be caught.
 //   float   Every static prop in the map and in the battle arenas (floatcheck: each one's lowest points dropped onto what
 //           is under it, the terrain, the road or another prop): none within 25 m of the road stands a little (50 to 600
 //           mm) above what is under it. Bigger gaps are parts held up by other parts (a pump's beam on its frame, a sign
@@ -251,12 +252,17 @@ for (const backend of BACKENDS) {
   }
   if (LEGS.includes('control')) {
     const map = MAPS[0];
+    if (LEGS.includes('hover')) {
+      await cmd('gap lift 80');
+      const h = await hover(backend, map);
+      await cmd('gap lift 0');
+      check(`control: gap lift 80 (the player's kart drawn 80 mm up), map ${map}: the hover leg catches it`, h.player.run > HOVER_MAX, `the player's longest run ${h.player.run} frames (peak ${h.player.peak} mm)`);
+    }
     const s = await shadows(backend, map, 'sun_short');
     check(`control: sw sun_short 1 and sw contact 0, map ${map}: no preset below High shows anything under the kart`, PRESETS.slice(0, 3).every((q) => s[q].net < SHADOW_MIN_PX),
       PRESETS.map((q) => `${q} ${s[q].net} px`).join(', '));
     const r = await lap(map, 'wheel_lag');
-    const lagRun = Math.max(...(await rd('gap.run_max')).map(Number));
-    console.log(`     (sw wheel_lag 1: the longest run a little above the road ${lagRun} frames)`);
+
     check(`control: sw wheel_lag 1, map ${map}: a kart is drawn above the road with its wheels on it`, Math.max(worst(r.karts, 'all').max, worst(r.karts, 'some').max) > GAP_MAX_MM, `all wheels down: ${total(r.karts, 'all')} frames over 30 mm, ${desc(worst(r.karts, 'all'))}; some: ${total(r.karts, 'some')} frames, ${desc(worst(r.karts, 'some'))}`);
   }
 }
