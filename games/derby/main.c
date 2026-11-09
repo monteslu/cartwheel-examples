@@ -879,6 +879,7 @@ static void init(void *u) {
   cw_debug_i32("debris.count", &debris_count_dbg);
   cw_debug_i32("debris.float_mm", &debris_float_dbg);
   cw_debug_field("cars.mud", G.mud, CW_DBG_I32, MAXC);
+  cw_debug_i32("cars.mud_verts", &car_mud_verts);
   cw_debug_i32("count.flips", &G.flips);
   cw_debug_f32("car0.wheel_yaw", &G.wheel_yaw0);
   cw_debug_f32("car0.yaw_rate", &G.yaw_rate0);

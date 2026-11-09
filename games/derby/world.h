@@ -69,7 +69,8 @@ void car_build(car_model *m, int kind, int colour, int number);
 void car_free(car_model *m);
 void car_apply_dents(car_model *m, const car *c);   /* when the sim's dents change */
 void car_pose(car_model *m, const car *c, int ticks); /* fixed tick: wheels, lean, bumpers, bonnet, lamps */
-void car_mud(car_model *m, float level);            /* mud built up, 0..1 (rises in steps) */
+void car_mud(car_model *m, float level);
+extern int32_t car_mud_verts;            /* mud built up, 0..1 (rises in steps) */
 void car_set_lod(car_model *m, int lod);            /* 0 full, 1 light, 2 silhouette */
 void car_set_trimmed(car_model *m, bool trimmed);   /* level 0 without the parts a small view cannot show */
 float car_wheel_yaw(const car *c, int w);           /* the front wheels' drawn angle (+: toward +x, the car's left) */

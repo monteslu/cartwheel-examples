@@ -1512,11 +1512,12 @@ void car_pose(car_model *m, const car *c, int ticks) {
  * the level blends the colours toward wet dirt where the new level reaches,
  * bare steel and rust included (and the paint, so a later dent repaints
  * from the muddied paint). */
+int32_t car_mud_verts; /* debug cars.mud_verts: vertex spans the mud rewrote */
 static float mud_at(float x, float y, float z, float level, uint32_t seed) {
-  float top = 0.35f + 0.85f * level; /* metres: the splash line climbs */
+  float top = 0.4f + 0.45f * level; /* metres: the splash line climbs, at most to mid-door */
   float h = cw_clampf((top - y) * 2.6f, 0, 1);
-  float blot = cw_clampf(vn(x * 6.5f + z * 5.5f, y * 9.0f, seed + 41) * 2.2f - 0.45f + level * 0.9f, 0, 1);
-  return h * blot * (0.55f + 0.4f * level);
+  float blot = cw_clampf(vn(x * 6.5f + z * 5.5f, y * 9.0f, seed + 41) * 2.2f - 0.2f + level * 0.5f, 0, 1);
+  return h * blot * (0.65f + 0.25f * level);
 }
 static void mud_shell(car_shell *sh, t3_vec3 o, float from, float to, uint32_t seed) {
   if (!sh->geo || !sh->paint) return;
@@ -1539,6 +1540,7 @@ static void mud_shell(car_shell *sh, t3_vec3 o, float from, float to, uint32_t s
     if (v > hi) hi = v;
   }
   if (hi < 0) return;
+  car_mud_verts += hi - lo + 1;
   C->version++;
   t3_attribute_add_update_range(C, lo, hi - lo + 1);
 }

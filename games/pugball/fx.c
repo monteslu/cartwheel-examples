@@ -215,7 +215,6 @@ void fx_init(cw_node scene, int theme) {
     t3_material *pm = t3_mesh_standard_material_new(0xffffff);
     pm->roughness = 0.85f;
     pm->metalness = 0;
-    pm->side = T3_DOUBLE_SIDE;
     FX.litter = t3_instanced_mesh_new(t3_plane_geometry_new(0.16f, 0.1f, 1, 1), pm, LITTER_N);
     t3_release(FX.litter->mesh.geometry);
     t3_release(pm);

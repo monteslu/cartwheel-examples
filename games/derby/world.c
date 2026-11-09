@@ -580,7 +580,7 @@ void world_tick(const sim *s) {
       W.mud_m[i] += (sp + 0.6f * (c->slip_f + c->slip_r)) / TICK_HZ;
       static int no_mud = -1; /* DERBY_NO_MUD: the cars stay as they started (the before of the mud sheet) */
       if (no_mud < 0) no_mud = getenv("DERBY_NO_MUD") != NULL;
-      if (!no_mud) car_mud(&W.car[i], W.mud_m[i] / 300.0f);
+      if (!no_mud) car_mud(&W.car[i], getenv("DERBY_MUD_FULL") ? 1.0f : W.mud_m[i] / 300.0f);
     }
   }
   skids_tick(s);
