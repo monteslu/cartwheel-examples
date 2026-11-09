@@ -3,6 +3,12 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.20.1 (2026-11-08)
+
+- **All games**: Engine v0.38.9 (from v0.38.8). The shell's Settings page has no Screen shake row: no camera shakes, and hits, landings and blasts are felt in the pads
+- **racer**: Salt and Orbit pass the flash sweep, so `tests/flash-sweep.json` has no known failures left. On Salt the derrick field throws no sun shadow (its lattices laid a grille of shade across the lanes that flickered past at speed); each derrick stands on a pad of dark oiled concrete that stands proud of the crust. The container rows before the jumps stand end to end instead of barring the road with shade every 13 m, a jump's hazard stripes are yellow on dark ochre with softly glowing chevrons, and the boost pads sit on light teal ground
+- **racer**: A fall off the road (into space on Orbit) no longer tumbles the camera with the kart. The view holds still where the fall began and watches the kart drop away, then cuts once back to the chase at the respawn
+
 ## v0.20.0 (2026-11-08)
 
 - **All games**: Engine v0.38.8 (from v0.38.3). Its explosion kit swells over a few frames instead of flashing on the first one
