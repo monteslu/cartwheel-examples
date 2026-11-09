@@ -69,6 +69,22 @@ bool sim_passable(const sim *s, int cx, int cy, int who) {
   return b < 0 || (who >= 0 && (s->bombs[b].pass >> who & 1));
 }
 
+/* teams: everyone still standing is on one team (and there are some) */
+static bool one_team_left(const sim *s) {
+  int t = -2;
+  for (int i = 0; i < MAXP; i++) {
+    if (!s->p[i].on || !s->p[i].alive) continue;
+    if (s->team[i] < 0) return false;
+    if (t == -2) t = s->team[i];
+    else if (t != s->team[i]) return false;
+  }
+  return t >= 0;
+}
+static bool last_two_mates(const sim *s) {
+  int a = -1, b = -1;
+  for (int i = 0; i < MAXP; i++) if (s->p[i].on && s->p[i].alive) { if (a < 0) a = i; else b = i; }
+  return a >= 0 && b >= 0 && sim_mates(s, a, b);
+}
 int sim_alive(const sim *s) {
   int n = 0;
   for (int i = 0; i < MAXP; i++) n += s->p[i].on && s->p[i].alive;
@@ -147,6 +163,8 @@ static int pick_item(sim *s, int theme) {
 
 void sim_load(sim *s, const arena_info *a, const bool on[MAXP], uint32_t seed) {
   memset(s, 0, sizeof *s);
+  for (int i = 0; i < MAXP; i++) s->team[i] = -1; /* every player for itself unless the match says teams */
+  s->win_team = -1;
   s->theme = a ? a->theme : TH_MEADOW;
   s->rng = (seed ^ (uint32_t)(a ? a->seed : 1) * 2654435761u) | 1;
   s->winner = -2;
@@ -588,7 +606,7 @@ static void knock_out(sim *s, int who, int by) {
   p->alive = false;
   p->ko_tick = s->tick;
   p->ko_by = by;
-  if (by >= 0 && by != who) s->p[by].kos++;
+  if (by >= 0 && by != who && !sim_mates(s, by, who)) s->p[by].kos++; /* a teammate's knockout is no score */
   event(s, EV_KO, tile_of(p->x), tile_of(p->y), who, by);
   if (s->revenge) {
     /* out: up onto the rim, level with where it fell */
@@ -597,7 +615,7 @@ static void knock_out(sim *s, int who, int by) {
     rim_pos(p->rim, &p->gx, &p->gy);
     p->throw_cool = 90;
     player *q = by >= 0 && by != who ? &s->p[by] : NULL;
-    if (q && q->on && q->ghost && !q->alive) {
+    if (q && q->on && q->ghost && !q->alive && !sim_mates(s, by, who)) {
       /* a rider's bomb got someone: the rider drops back in where they stood */
       q->alive = true;
       q->ghost = false;
@@ -687,7 +705,7 @@ static void hazards(sim *s) {
   }
   /* hurry up: with riders a two-player end game can dodge on for minutes in an open arena, so once only two
    * of three or four are standing the clock drops to HURRY_TICKS (sudden death after it) */
-  if (s->revenge && s->nplayers > 2 && !s->hurry_tick && s->over_tick == 0 && sim_alive(s) == 2 && s->round_ticks - s->tick > HURRY_TICKS) {
+  if (s->revenge && s->nplayers > 2 && !s->hurry_tick && s->over_tick == 0 && sim_alive(s) == 2 && s->round_ticks - s->tick > HURRY_TICKS && !last_two_mates(s)) {
     s->round_ticks = s->tick + HURRY_TICKS;
     s->hurry_tick = s->tick;
     event(s, EV_HURRY, GW / 2, GH / 2, -1, -1);
@@ -823,11 +841,12 @@ void sim_step(sim *s, const uint8_t in[MAXP]) {
   }
   /* the round: decided when one (or nobody) is left; a near-simultaneous end is a draw */
   int alive = sim_alive(s);
-  if (s->over_tick == 0 && alive <= (s->nplayers > 1 ? 1 : 0)) s->over_tick = s->tick;
+  if (s->over_tick == 0 && (alive <= (s->nplayers > 1 ? 1 : 0) || one_team_left(s))) s->over_tick = s->tick;
   if (s->over_tick && s->winner == -2 && s->tick - s->over_tick >= DRAW_WINDOW) {
     s->winner = -1;
+    s->win_team = -1;
     for (int i = 0; i < MAXP; i++)
-      if (s->p[i].on && s->p[i].alive) s->winner = i;
+      if (s->p[i].on && s->p[i].alive && s->winner < 0) s->winner = i, s->win_team = s->team[i]; /* in teams: the first of the team still standing */
   }
   /* the fold every gate compares */
   uint32_t h = s->hash;

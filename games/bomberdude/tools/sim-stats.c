@@ -10,6 +10,10 @@
  *   cc -O2 -I deps/cartwheel-sdk/linux-x64/include -o build/sim-stats \
  *      games/bomberdude/tools/sim-stats.c games/bomberdude/sim.c games/bomberdude/ai.c -lm
  *   build/sim-stats [rounds per arena] [cpu level 0..2] [revenge 0|1]
+ * SIM_TEAMS=1|2: every round in teams (1: players 0+1 against 2+3, 2: 0+2 against 1+3), and it also prints how many
+ * rounds ended with one team standing and the share of knockouts that were a teammate's (SIM_TEAM_BLIND=1: the CPUs
+ * ignore the teams, the control). SIM_HEADSTART=a,b,c,d: each player starts the round with that many bubbles (the
+ * catch-up rule gives one to a player behind), and it prints each player's share of round wins.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -142,6 +146,10 @@ int main(int argc, char **argv) {
     printf("recorded %d ticks, chains %d, winner %d, kos %d, swaps %d\n", S.tick, S.chains, S.winner, kos, S.rev_swaps);
     return 0;
   }
+  int teams = getenv("SIM_TEAMS") ? atoi(getenv("SIM_TEAMS")) : 0, hs[MAXP] = { 0 };
+  ai_team_blind = getenv("SIM_TEAM_BLIND") && atoi(getenv("SIM_TEAM_BLIND"));
+  if (getenv("SIM_HEADSTART")) sscanf(getenv("SIM_HEADSTART"), "%d,%d,%d,%d", &hs[0], &hs[1], &hs[2], &hs[3]);
+  int t_rounds = 0, t_team_end = 0, t_kos = 0, t_mate_kos = 0, wins[MAXP + 1] = { 0 };
   printf("arena                 contact_s  first_ko_s  self_ko_10s%%  round_s  worst_idle_s  rev_throws  rev_swaps  unsafe_starts  glove_throws\n");
   int all_idle = 0;
   for (int a = 0; a < ARENAS; a++) {
@@ -156,6 +164,11 @@ int main(int argc, char **argv) {
 #else
       (void)revenge;
 #endif
+      for (int i = 0; i < MAXP; i++) {
+        S.team[i] = (int8_t)(teams == 1 ? (i < 2 ? 0 : 1) : teams == 2 ? i % 2 : -1);
+        S.p[i].bubble += hs[i]; /* the catch-up: a bubble shield per round win behind */
+      }
+      sim_refresh(&S);
       int idle[MAXP] = { 0 };
       for (int i = 0; i < MAXP; i++) unsafe += !start_safe(&S, i);
       ai_mem m[MAXP];
@@ -177,6 +190,7 @@ int main(int argc, char **argv) {
         }
         for (int e = 0; e < S.ev_n; e++) {
           if (S.ev[e].kind == EV_KO && tk[r] < 0) tk[r] = S.tick;
+          if (S.ev[e].kind == EV_KO && S.ev[e].b >= 0 && S.ev[e].b != S.ev[e].a) { t_kos++; t_mate_kos += sim_mates(&S, S.ev[e].a, S.ev[e].b); }
           if (S.ev[e].kind == EV_KO && S.ev[e].a == S.ev[e].b && S.tick <= 600) self_early++;
         }
       }
@@ -187,6 +201,9 @@ int main(int argc, char **argv) {
       gloves -= S.rev_throws;
 #endif
       tr[r] = S.tick;
+      t_rounds++;
+      t_team_end += S.win_team >= 0;
+      wins[S.winner >= 0 ? S.winner : MAXP]++;
       if (tc[r] < 0) tc[r] = S.tick;
       if (tk[r] < 0) tk[r] = S.tick;
     }
@@ -199,5 +216,9 @@ int main(int argc, char **argv) {
     free(tc), free(tk), free(tr);
   }
   printf("worst idle over every arena: %.1f s\n", all_idle / 60.0);
+  if (teams) printf("teams %d%s: %d rounds, %d won by a team (%.1f%%), knockouts by another player %d, by a teammate %d (%.1f%%)\n", teams, ai_team_blind ? " (CPUs blind to teams)" : "",
+                    t_rounds, t_team_end, 100.0 * t_team_end / (t_rounds ? t_rounds : 1), t_kos, t_mate_kos, 100.0 * t_mate_kos / (t_kos ? t_kos : 1));
+  printf("round wins by player: %.1f%% %.1f%% %.1f%% %.1f%%, draws %.1f%% (head start %d,%d,%d,%d)\n", 100.0 * wins[0] / t_rounds, 100.0 * wins[1] / t_rounds,
+         100.0 * wins[2] / t_rounds, 100.0 * wins[3] / t_rounds, 100.0 * wins[MAXP] / t_rounds, hs[0], hs[1], hs[2], hs[3]);
   return 0;
 }

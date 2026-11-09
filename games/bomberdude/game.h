@@ -121,6 +121,10 @@ typedef struct sim {
   int chains;                  /* bombs set off by another's blast */
   int belt_moves, slides;      /* twist counters (gates) */
   bool revenge;                /* knocked-out players ride the rim (Battle): set after sim_load */
+  int8_t team[MAXP];           /* Battle in teams: each player's team (0 or 1), -1 every player for itself (set after sim_load).
+                                * A round ends when only one team is standing (win_team); a blast still hurts a teammate, but
+                                * only a knockout of the other side counts or swaps a rider back in */
+  int win_team;                /* the team that won the round (-1: none, a draw, or no teams) */
   int rev_throws, rev_swaps;   /* this round (gates) */
   int hurry_tick;              /* revenge, three or four players: when only two were left standing and the clock jumped to HURRY_TICKS left (0: not yet) */
   uint32_t hash;
@@ -159,6 +163,8 @@ typedef struct arena_info {
   int round_secs;
 } arena_info;
 
+/* players a and b are on the same team (never a player with itself) */
+static inline bool sim_mates(const struct sim *s, int a, int b);
 /* sim.c */
 void sim_load(sim *s, const arena_info *a, const bool on[MAXP], uint32_t seed);
 void sim_step(sim *s, const uint8_t in[MAXP]);
@@ -188,6 +194,8 @@ typedef struct ai_mem {
   uint32_t rng;
 } ai_mem;
 void ai_reset(ai_mem *m, int me, uint32_t seed);
+extern bool ai_team_blind; /* test (tools/sim-stats SIM_TEAM_BLIND=1, the control): the CPUs play as if there were no teams */
 uint8_t ai_think(const sim *s, int me, int level, ai_mem *m);
 
+static inline bool sim_mates(const sim *s, int a, int b) { return a != b && a >= 0 && b >= 0 && s->team[a] >= 0 && s->team[a] == s->team[b]; }
 #endif

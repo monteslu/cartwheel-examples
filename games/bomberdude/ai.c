@@ -120,6 +120,9 @@ static bool can_escape(const sim *s, int me, int cx, int cy, const int16_t dange
 }
 
 /* what a bomb at (cx, cy) would hit */
+bool ai_team_blind;
+static bool ai_mates(const sim *s, int a, int b) { return !ai_team_blind && sim_mates(s, a, b); }
+
 static int bomb_value(const sim *s, int me, int cx, int cy, int level) {
   const player *p = &s->p[me];
   int v = 0;
@@ -134,7 +137,7 @@ static int bomb_value(const sim *s, int me, int cx, int cy, int level) {
       if (s->item[y][x] && s->block[y][x] == C_EMPTY) v -= 6; /* would burn a power-up */
       for (int i = 0; i < MAXP; i++) {
         const player *q = &s->p[i];
-        if (i != me && q->on && q->alive && tile_of(q->x) == x && tile_of(q->y) == y) v += level == 0 ? 8 : level == 1 ? 22 : 34;
+        if (i != me && q->on && q->alive && tile_of(q->x) == x && tile_of(q->y) == y) v += ai_mates(s, me, i) ? -60 : level == 0 ? 8 : level == 1 ? 22 : 34; /* never bomb a teammate */
       }
     }
   return v;
@@ -150,7 +153,7 @@ static int bombs_out(const sim *s, int me) {
 static bool rival_on(const sim *s, int me, int x, int y) {
   for (int i = 0; i < MAXP; i++) {
     const player *q = &s->p[i];
-    if (i != me && q->on && q->alive && tile_of(q->x) == x && tile_of(q->y) == y) return true;
+    if (i != me && q->on && q->alive && !ai_mates(s, me, i) && tile_of(q->x) == x && tile_of(q->y) == y) return true;
   }
   return false;
 }
@@ -184,7 +187,7 @@ static uint8_t ride_think(const sim *s, int me, int level, ai_mem *m) {
     int near = -1, nd = 1 << 30;
     for (int i = 0; i < MAXP; i++) {
       const player *q = &s->p[i];
-      if (i == me || !q->on || !q->alive) continue;
+      if (i == me || !q->on || !q->alive || ai_mates(s, me, i)) continue;
       int d = IABS(q->x - p->gx) + IABS(q->y - p->gy);
       if (d < nd) near = i, nd = d;
     }
@@ -322,7 +325,7 @@ uint8_t ai_think(const sim *s, int me, int level, ai_mem *m) {
       if (level > 0)
         for (int i = 0; i < MAXP; i++) {
           const player *q = &s->p[i];
-          if (i == me || !q->on || !q->alive) continue;
+          if (i == me || !q->on || !q->alive || ai_mates(s, me, i)) continue;
           int ex = tile_of(q->x), ey = tile_of(q->y), md = IABS(ex - x) + IABS(ey - y);
           if (md <= 1 && level == 2) sc = CW_MAX(sc, 30 - d * 2);
         }

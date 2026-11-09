@@ -88,7 +88,8 @@ typedef struct save_data {
   uint8_t crit[MAXP], slot[MAXP]; /* the last Battle setup */
   uint8_t wins_needed, pad[3]; /* pad: the graphics settings (cw_quality_saved, 24 bits little-endian) */
   /* version 4: the text size and background (cw_text_scale_saved: one byte holds both) */
-  uint8_t text_scale, spare[3];
+  uint8_t text_scale;
+  uint8_t teams, catchup, random_arena; /* the match rules (once spare bytes: an older save reads 0, free for all, catch-up off, a picked arena) */
 } save_data;
 #define SAVE_V3_SIZE offsetof(save_data, text_scale) /* a version 3 save ends before the text settings */
 static save_data SAVE;
@@ -97,6 +98,11 @@ static struct {
   /* debug fields */
   int32_t state, mode, arena, round, alive, winner, ticks, state_ticks, timer;
   int32_t wins[MAXP], kos[MAXP], placed[MAXP], match_winner, pos[MAXP * 2], slots[MAXP], picked, chains;
+  int32_t teams;            /* Battle: 0 every player for itself, 1 P1+P2 against P3+P4, 2 P1+P3 against P2+P4 */
+  int32_t catchup;          /* Battle: a player behind in round wins starts the round in a bubble (it takes one blast) */
+  int32_t random_arena;     /* Battle: every round on a different arena, drawn at random */
+  int32_t team_of[MAXP], head_start[MAXP], win_team; /* debug: each player's team (-1), its head start this round, the round's team */
+  int32_t setup_err;        /* ticks the FIGHT button says why it cannot start (a team with nobody on it) */
   uint8_t in_dbg[MAXP];
   uint32_t hash, state_hash;
   /* the match */
@@ -444,13 +450,45 @@ static void load_scene(int index) {
   scene_prepass();
 }
 
+static int team_rule(int teams, int i) { return teams == 1 ? (i < 2 ? 0 : 1) : teams == 2 ? (i % 2) : -1; }
+static const char *const TEAMS_NAME[3] = { "FREE FOR ALL", "TEAMS: P1+P2 vs P3+P4", "TEAMS: P1+P3 vs P2+P4" };
+/* the teams can play: somebody on each side */
+static bool teams_ok(void) {
+  if (!G.teams) return true;
+  int n[2] = { 0, 0 };
+  for (int i = 0; i < MAXP; i++) if (G.slot[i] != SLOT_OFF) n[team_rule(G.teams, i)]++;
+  return n[0] > 0 && n[1] > 0;
+}
+/* a random arena for this round, never the last one (Battle, random arena on) */
+static int random_arena_for(int round, int last) {
+  uint32_t h = (uint32_t)round * 2654435761u ^ 0x5bd1e995u;
+  h ^= h >> 15, h *= 2246822519u, h ^= h >> 13;
+  if (last < 1) return 1 + (int)(h % ARENAS);
+  int a = 1 + (int)(h % (ARENAS - 1));
+  if (a >= last) a++; /* the other seven */
+  return a > ARENAS ? 1 : a;
+}
+
 /* a round: the arena rebuilt, seeded by the round so every round differs */
 static void start_round(void) {
+  if (G.mode == MODE_BATTLE && G.random_arena && G.round > 1) G.arena = random_arena_for(G.round, G.arena);
   load_scene(G.arena);
   bool on[MAXP];
   for (int i = 0; i < MAXP; i++) on[i] = G.slot[i] != SLOT_OFF;
   sim_load(&G.S, G.info, on, 1000u + (uint32_t)G.round * 7919u);
   G.S.revenge = G.mode == MODE_BATTLE && G.revenge; /* knocked-out players ride the rim */
+  int lead = 0;
+  for (int i = 0; i < MAXP; i++) if (G.wins[i] > lead) lead = G.wins[i];
+  for (int i = 0; i < MAXP; i++) {
+    G.S.team[i] = (int8_t)(G.mode == MODE_BATTLE ? team_rule(G.teams, i) : -1);
+    G.team_of[i] = G.S.team[i];
+    /* catch-up: a player behind the leader starts the round in a bubble (it takes one blast). A bubble, not more bombs
+     * or fire: tools/sim-stats measured those making the one behind worse off (a bigger blast catches its owner) */
+    int hs = G.mode == MODE_BATTLE && G.catchup && G.S.p[i].on && G.wins[i] < lead ? 1 : 0;
+    G.head_start[i] = hs;
+    G.S.p[i].bubble += hs;
+  }
+  sim_refresh(&G.S);
   G.idle_max = 0;
   memset(G.idle, 0, sizeof G.idle);
   memset(G.throws_dbg, 0, sizeof G.throws_dbg);
@@ -501,6 +539,9 @@ static void begin_match(int mode, int arena) {
   G.slot[0] = SLOT_CPU_HARD; /* the self-playing build (demo, input-free hosts): player 1 plays itself after the menus */
 #endif
   if (getenv("BOMBERDUDE_FIRST_TO")) G.wins_needed = atoi(getenv("BOMBERDUDE_FIRST_TO")); /* dev aid */
+  if (getenv("BOMBERDUDE_TEAMS")) G.teams = atoi(getenv("BOMBERDUDE_TEAMS")) % 3;     /* dev aids: the match rules */
+  if (getenv("BOMBERDUDE_CATCHUP")) G.catchup = atoi(getenv("BOMBERDUDE_CATCHUP")) != 0;
+  if (getenv("BOMBERDUDE_RANDOM")) G.random_arena = atoi(getenv("BOMBERDUDE_RANDOM")) != 0;
   start_round();
 }
 
@@ -631,10 +672,17 @@ static void init(void *u) {
     G.crit[i] = SAVE.crit[i];
   }
   G.wins_needed = SAVE.wins_needed;
+  G.teams = SAVE.teams % 3, G.catchup = SAVE.catchup != 0, G.random_arena = SAVE.random_arena != 0;
   G.match_winner = -1;
   cw_debug_i32("game.state", &G.state);
   cw_debug_i32("game.mode", &G.mode);
   cw_debug_i32("game.arena", &G.arena);
+  cw_debug_i32("match.teams", &G.teams);
+  cw_debug_i32("match.catchup", &G.catchup);
+  cw_debug_i32("match.random", &G.random_arena);
+  cw_debug_field("match.team_of", G.team_of, CW_DBG_I32, MAXP);
+  cw_debug_field("match.head_start", G.head_start, CW_DBG_I32, MAXP);
+  cw_debug_i32("match.win_team", &G.win_team);
   cw_debug_i32("round", &G.round);
   cw_debug_i32("round.alive", &G.alive);
   cw_debug_i32("round.winner", &G.winner);
@@ -967,11 +1015,12 @@ static cw_rect title_button(int i, float W, float H) { return title_layout_of(W,
 #define SLOT_NAME_SZ 22
 #define SLOT_WHO 18
 #define SLOT_DEV 14
+#define RULE_SZ 17
 static const char *slot_dev(int i) {
   return G.slot[i] == SLOT_KEYS2 ? "arrows / Enter / R-Shift" : G.slot[i] != SLOT_HUMAN ? "" : i == 0 ? "pad 1  /  keyboard" : i == 1 ? "pad 2" : i == 2 ? "pad 3" : "pad 4";
 }
 typedef struct {
-  cw_rect card[MAXP], wins;
+  cw_rect card[MAXP], wins, rules, hcap;
   float face_r, top_h, h_p, h_name, h_who, h_dev, arrow_w, title_y, controls_y, prompt_bottom;
   bool controls, title;
 } players_layout;
@@ -1001,21 +1050,38 @@ static players_layout players_layout_of(float W, float H) {
   cw_text_metrics fm = measure_bold("FIGHT!   first to 5", 26 * s);
   float ww = fmaxf(320 * s, fm.width + 40 * s), wh = fmaxf(48 * s, fm.height + 14 * s);
   L.wins = cw_rect_make(W * 0.5f - ww * 0.5f, fminf(H * 0.86f - 8 * s, ptop - 12 * s - wh), ww, wh);
+  { /* TEAMS and CATCH-UP: beside FIGHT when the row has room for their longest words, else a row over it */
+    float rw = 0, rh = 0;
+    for (int k = 0; k < 3; k++) { cw_text_metrics tm = measure_bold(TEAMS_NAME[k], RULE_SZ * s); rw = fmaxf(rw, tm.width); rh = fmaxf(rh, tm.height); }
+    cw_text_metrics cm = measure_bold("CATCH-UP: OFF", RULE_SZ * s);
+    rw = fmaxf(rw, cm.width) + 2 * (measure("<", RULE_SZ * s).width + 18 * s);
+    float bh = fmaxf(wh, rh + 14 * s), g = 14 * s;
+    if (ww + 2 * (rw + g) <= W - 16 * s) {
+      L.rules = cw_rect_make(L.wins.x - g - rw, L.wins.y + (wh - bh) * 0.5f, rw, bh);
+      L.hcap = cw_rect_make(L.wins.x + ww + g, L.wins.y + (wh - bh) * 0.5f, rw, bh);
+    } else {
+      float y = L.wins.y - bh - 10 * s, w2 = fminf(rw, (W - 3 * g) * 0.5f);
+      L.rules = cw_rect_make(W * 0.5f - g * 0.5f - w2, y, w2, bh);
+      L.hcap = cw_rect_make(W * 0.5f + g * 0.5f, y, w2, bh);
+      L.wins.y += 0; /* FIGHT keeps its place; the cards make room above the rules */
+    }
+  }
   /* no room for the cards: first a smaller face beside P1, then no heading */
   L.title = true;
   float y = fmaxf(H * 0.06f + 62 * s, L.title_y + title_h + 8 * s);
-  if (y + h > L.wins.y - 12 * s) {
+  float top_of_rules = fminf(L.wins.y, L.rules.y);
+  if (y + h > top_of_rules - 12 * s) {
     L.face_r = fmaxf(14 * s, L.h_p * 0.42f);
     L.top_h = fmaxf(L.h_p + 4 * s, 2 * L.face_r * 1.18f + 4 * s);
     h = fmaxf(128 * s, 6 * s + L.top_h + rest);
   }
-  if (y + h > L.wins.y - 12 * s) L.title = false, y = 12 * s;
+  if (y + h > top_of_rules - 12 * s) L.title = false, y = 12 * s;
   float x0 = (W - (4 * w + 3 * gap)) * 0.5f;
   for (int i = 0; i < MAXP; i++) L.card[i] = cw_rect_make(x0 + i * (w + gap), y, w, h);
   float bottom = y + h;
   float ctl_h = prompt_line_h(controls_line(), W, 16 * s);
   L.controls_y = fmaxf(H * 0.4f + 12 * s, bottom + 14 * s);
-  L.controls = L.controls_y + ctl_h + 10 * s <= L.wins.y;
+  L.controls = L.controls_y + ctl_h + 10 * s <= top_of_rules;
   return L;
 }
 static cw_rect slot_rect(int i, float W, float H) { return players_layout_of(W, H).card[i]; }
@@ -1028,10 +1094,11 @@ static const char *const ARENA_BLURB[ARENAS] = { "A sunny lawn. Nothing up its s
   "Jelly crates wobble off the first blast. Hit them twice.", "The belts never stop. Neither does the city.",
   "When a cannon glows, its whole row is about to burn.", "Sand drags your feet. The storms hide the bombs." };
 #define TILE_NUM 36
+#define RANDOM_LABEL "RANDOM: A NEW ARENA EVERY ROUND"
 #define TILE_TITLE 18
 #define TILE_BEST 14
 typedef struct {
-  cw_rect tile[ARENAS];
+  cw_rect tile[ARENAS], rnd; /* rnd: Battle's RANDOM ARENA button under the tiles */
   float h_num, h_best, num_w, head_y, blurb_bottom, prompt_bottom;
   bool titles;
 } arena_layout;
@@ -1055,7 +1122,8 @@ static arena_layout arena_layout_of(float W, float H) {
     blurb_h = fmaxf(blurb_h, prompt_line_h(b, W, 19 * s));
   }
   L.blurb_bottom = ptop - 10 * s;
-  float room = L.blurb_bottom - blurb_h - 10 * s - y0; /* for two rows of tiles */
+  float rnd_h = G.mode == MODE_BATTLE ? measure_bold(RANDOM_LABEL, 18 * s).height + 16 * s : 0;
+  float room = L.blurb_bottom - blurb_h - 10 * s - y0 - (rnd_h > 0 ? rnd_h + gy : 0); /* for two rows of tiles (and the random button) */
   float th_min = L.h_num + 16 * s; /* the best time goes beside the number */
   float title_h = 0;
   for (int i = 0; i < ARENAS; i++) title_h = fmaxf(title_h, measure_w(ARENA_TITLES[i], TILE_TITLE * s, tw - L.num_w - 6 * s, CW_ALIGN_LEFT).height);
@@ -1065,6 +1133,10 @@ static arena_layout arena_layout_of(float W, float H) {
   if (!L.titles) th = fmaxf(fminf(108 * s, (room - gy) * 0.5f), th_min);
   float x0 = (W - (4 * tw + 3 * gx)) * 0.5f;
   for (int i = 0; i < ARENAS; i++) L.tile[i] = cw_rect_make(x0 + (i % 4) * (tw + gx), y0 + (i / 4) * (th + gy), tw, th);
+  if (rnd_h > 0) {
+    float rw = fminf(4 * tw + 3 * gx, measure_bold(RANDOM_LABEL, 18 * s).width + 60 * s);
+    L.rnd = cw_rect_make(W * 0.5f - rw * 0.5f, y0 + 2 * (th + gy), rw, rnd_h);
+  }
   return L;
 }
 static cw_rect tile_rect(int i, float W, float H) { return arena_layout_of(W, H).tile[i]; }
@@ -1178,7 +1250,10 @@ static void sim_sounds(void) {
 
 static void finish_round(void) {
   G.round_winner = G.S.winner;
-  if (G.round_winner >= 0) G.wins[G.round_winner]++;
+  G.win_team = G.S.win_team;
+  if (G.S.win_team >= 0) { /* teams: every player on the winning side takes the round */
+    for (int i = 0; i < MAXP; i++) if (G.slot[i] != SLOT_OFF && G.S.team[i] == G.S.win_team) G.wins[i]++;
+  } else if (G.round_winner >= 0) G.wins[G.round_winner]++;
   G.state = GS_ROUND_END;
   G.state_ticks = 0;
   sfx(SFX_ROUND_WIN, 1);
@@ -1234,6 +1309,7 @@ static void fixed(void *u, double dt) {
         G.slot[0] = SLOT_HUMAN;
         for (int i = 1; i < MAXP; i++) G.slot[i] = SLOT_CPU_NORMAL;
         G.mode = MODE_BATTLE;
+        G.teams = 0, G.catchup = 0, G.random_arena = 0; /* a quick battle: every player for itself on the first arena */
         int keep = SAVE.wins_needed;
         SAVE.wins_needed = 3;
         begin_match(MODE_BATTLE, 1);
@@ -1244,6 +1320,7 @@ static void fixed(void *u, double dt) {
       if (G.mode == MODE_BATTLE) {
         G.state = GS_PLAYERS;
         G.cursor = MAXP; /* on FIGHT: one more press starts */
+        G.teams = SAVE.teams % 3, G.catchup = SAVE.catchup != 0, G.random_arena = SAVE.random_arena != 0; /* the rules last set */
       } else {
         G.cursor = 0;
         for (int i = 0; i < ARENAS; i++)
@@ -1264,7 +1341,8 @@ static void fixed(void *u, double dt) {
      * (always you) left / right picks the critter; X / E (pad X / Y) picks a
      * critter on any row; on FIGHT, left / right sets the rounds to win.
      * Pads 2-4 press A to join; Esc / B goes back. */
-    int rows = MAXP + 1;
+    int rows = MAXP + 3; /* the cards, FIGHT, then the rules: TEAMS and CATCH-UP */
+    if (G.setup_err > 0) G.setup_err--;
     if (dy) {
       G.cursor = (G.cursor + dy + rows) % rows;
       sfx(SFX_MOVE, 0.5f);
@@ -1289,6 +1367,8 @@ static void fixed(void *u, double dt) {
       G.wins_needed = CW_CLAMP(G.wins_needed + dx, 1, 5);
       sfx(SFX_MOVE, 0.6f);
     }
+    if (dx && G.cursor == MAXP + 1) G.teams = (G.teams + dx + 3) % 3, sfx(SFX_MOVE, 0.6f);
+    if (dx && G.cursor == MAXP + 2) G.catchup = !G.catchup, sfx(SFX_MOVE, 0.6f);
     /* another pad pressing south joins its own slot as a player */
     bool joined = false;
     for (int p = 1; p < MAXP; p++)
@@ -1303,6 +1383,11 @@ static void fixed(void *u, double dt) {
     for (int i = 0; i < MAXP; i++)
       if (in_rect(m, slot_rect(i, cs.x, cs.y))) hover = i;
     if (in_rect(m, wins_rect(cs.x, cs.y))) hover = MAXP;
+    { players_layout PL = players_layout_of(cs.x, cs.y);
+      if (in_rect(m, PL.rules)) hover = MAXP + 1;
+      if (in_rect(m, PL.hcap)) hover = MAXP + 2; }
+    if (mouse_clicked && hover == MAXP + 1) G.teams = (G.teams + 1) % 3, G.cursor = hover, sfx(SFX_MOVE, 0.7f);
+    if (mouse_clicked && hover == MAXP + 2) G.catchup = !G.catchup, G.cursor = hover, sfx(SFX_MOVE, 0.7f);
     if (POINTER && hover >= 0 && mouse_moved) G.cursor = hover;
     if ((mouse_clicked || mouse_right_clicked) && hover >= 0 && hover < MAXP) { /* a click on a card: the next critter / who plays it */
       if (hover == 0 || mouse_right_clicked) G.crit[hover] = (G.crit[hover] + 1) % CRIT_KINDS, crit_step = 0, G.cursor = hover;
@@ -1329,9 +1414,11 @@ static void fixed(void *u, double dt) {
     int on = 0;
     for (int i = 0; i < MAXP; i++) on += G.slot[i] != SLOT_OFF;
     bool go = G.state_ticks > 10 && !joined && (confirm || (mouse_clicked && hover == MAXP));
+    if (go && on >= 2 && !teams_ok()) { sfx(SFX_LOCKED, 1); G.setup_err = 150; go = false; }
     if (go && on >= 2) {
       for (int i = 0; i < MAXP; i++) SAVE.slot[i] = (uint8_t)G.slot[i], SAVE.crit[i] = (uint8_t)G.crit[i];
       SAVE.wins_needed = (uint8_t)G.wins_needed;
+      SAVE.teams = (uint8_t)G.teams, SAVE.catchup = (uint8_t)G.catchup;
       save_write();
       sfx(SFX_SELECT, 1);
       G.cursor = 0;
@@ -1344,27 +1431,37 @@ static void fixed(void *u, double dt) {
     break;
   }
   case GS_ARENA: {
-    if (dx || dy) {
+    bool battle = G.mode == MODE_BATTLE;
+    if (G.cursor == ARENAS) { /* on RANDOM: up goes back to the tiles */
+      if (dy < 0) G.cursor = 5, sfx(SFX_MOVE, 0.5f);
+    } else if (dx || dy) {
       int c = G.cursor + dx + dy * 4;
       if (c >= 0 && c < ARENAS) {
         G.cursor = c;
         sfx(SFX_MOVE, 0.5f);
-      }
+      } else if (battle && dy > 0 && G.cursor >= 4) G.cursor = ARENAS, sfx(SFX_MOVE, 0.5f);
     }
     int hover = -1;
     for (int i = 0; i < ARENAS; i++)
       if (in_rect(m, tile_rect(i, cs.x, cs.y))) hover = i;
+    if (battle && in_rect(m, arena_layout_of(cs.x, cs.y).rnd)) hover = ARENAS;
     if (POINTER && hover >= 0 && mouse_moved) G.cursor = hover;
     if (G.bump_ticks > 0) G.bump_ticks--;
     if (G.unlock_tile >= 0 && ++G.unlock_ticks == 24) sfx(SFX_UNLOCK, 1);
     bool pick = G.state_ticks > 10 && (confirm || (mouse_clicked && hover >= 0));
     if (pick && mouse_clicked && hover >= 0) G.cursor = hover;
-    if (pick && !arena_open(G.cursor)) {
+    if (pick && G.cursor == ARENAS) { /* every round on a different arena */
+      sfx(SFX_SELECT, 1);
+      G.random_arena = 1;
+      SAVE.random_arena = 1, save_write();
+      begin_match(G.mode, random_arena_for(1, 0));
+    } else if (pick && !arena_open(G.cursor)) {
       G.bump_tile = G.cursor;
       G.bump_ticks = 18;
       sfx(SFX_LOCKED, 1);
     } else if (pick) {
       sfx(SFX_SELECT, 1);
+      if (battle && G.random_arena) G.random_arena = 0, SAVE.random_arena = 0, save_write();
       begin_match(G.mode, G.cursor + 1);
     } else if (back && G.state_ticks > 5) {
       G.state = G.mode == MODE_BATTLE ? GS_PLAYERS : GS_TITLE;
@@ -1723,7 +1820,8 @@ static void draw_players(float W, float H, float s) {
     cw_color tc = rgba(TEAM_RGB[i][0], TEAM_RGB[i][1], TEAM_RGB[i][2], 1);
     if (cur) glow_cursor(r, s, 20, false);
     panel(r, off ? 0.6f : 1, tc, rgba(0.1f, 0.07f, 0.18f, 0.82f));
-    snprintf(buf, sizeof buf, "P%d", i + 1);
+    if (G.teams) snprintf(buf, sizeof buf, "P%d %s", i + 1, team_rule(G.teams, i) ? "B" : "A");
+    else snprintf(buf, sizeof buf, "P%d", i + 1);
     bold(buf, r.x + 12 * s, r.y + 6 * s, SLOT_P * s, tc, CW_ALIGN_LEFT, 0);
     face(r.x + r.w - L.face_r * 1.18f - 10 * s, r.y + 6 * s + L.face_r * 1.18f, L.face_r, G.crit[i], i, off, off ? 0.5f : 1);
     float y = r.y + 6 * s + L.top_h;
@@ -1743,7 +1841,21 @@ static void draw_players(float W, float H, float s) {
   if (G.cursor == MAXP) glow_cursor(wr, s, 18, false);
   panel(wr, 1, rgba(1, 1, 1, 0.7f), rgba(0.9f, 0.3f, 0.25f, 0.92f));
   snprintf(buf, sizeof buf, "FIGHT!   first to %d", G.wins_needed);
-  bold(buf, wr.x, wr.y + (wr.h - measure_bold(buf, 26 * s).height) * 0.5f, 26 * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, wr.w);
+  if (G.setup_err > 0) snprintf(buf, sizeof buf, "each team needs a player");
+  float fsz = G.setup_err > 0 ? 20 * s : 26 * s;
+  bold(buf, wr.x, wr.y + (wr.h - measure_bold(buf, fsz).height) * 0.5f, fsz, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, wr.w);
+  for (int k = 0; k < 2; k++) { /* the rules: TEAMS and CATCH-UP, left / right to change */
+    cw_rect rr = k ? L.hcap : L.rules;
+    bool cur = G.cursor == MAXP + 1 + k;
+    if (cur) glow_cursor(rr, s, 16, false);
+    panel(rr, 1, rgba(1, 1, 1, 0.55f), rgba(0.12f, 0.09f, 0.22f, 0.9f));
+    const char *t = k ? (G.catchup ? "CATCH-UP: ON" : "CATCH-UP: OFF") : TEAMS_NAME[G.teams];
+    cw_color ac = rgba(1, 0.85f, 0.4f, cur ? 1 : 0.4f);
+    float ty = rr.y + (rr.h - measure_bold(t, RULE_SZ * s).height) * 0.5f;
+    label("<", rr.x + 8 * s, ty, RULE_SZ * s, ac, CW_ALIGN_LEFT, 0);
+    label(">", rr.x, ty, RULE_SZ * s, ac, CW_ALIGN_RIGHT, rr.w - 8 * s);
+    bold(t, rr.x, ty, RULE_SZ * s, rgba(1, 1, 1, 1), CW_ALIGN_CENTER, rr.w);
+  }
   if (L.controls) prompt_line(controls_line(), W, L.controls_y, 16 * s); /* clear of the cards */
   prompt_line_above(menu_prompt(), W, L.prompt_bottom, 16 * s, 1);
 }
@@ -1804,6 +1916,13 @@ static void draw_arena_select(float W, float H, float s) {
     float a = cw_clampf((110 - G.unlock_ticks) / 20.0f, 0, 1);
     bold(buf, 0, L.head_y, 50 * s, rgba(1, 0.92f, 0.4f, a), CW_ALIGN_CENTER, W);
   }
+  if (G.mode == MODE_BATTLE) { /* the RANDOM button */
+    cw_rect r = L.rnd;
+    if (G.cursor == ARENAS) glow_cursor(r, s, 16, false);
+    panel(r, 1, rgba(1, 0.82f, 0.25f, 1), rgba(0.25f, 0.18f, 0.06f, 0.92f));
+    bold(RANDOM_LABEL, r.x, r.y + (r.h - measure_bold(RANDOM_LABEL, 18 * s).height) * 0.5f, 18 * s, rgba(1, 0.95f, 0.8f, 1), CW_ALIGN_CENTER, r.w);
+  }
+  if (G.cursor == ARENAS) { prompt_line_above("Every round on a different arena, drawn at random.", W, L.blurb_bottom, 19 * s, 1); prompt_line_above(menu_prompt(), W, L.prompt_bottom, 15 * s, 1); return; }
   const char *b = arena_open(G.cursor) ? ARENA_BLURB[G.cursor] : "Beat the stage before it to open this one.";
   if (!L.titles) { /* the tiles have no room for their titles: the cursor's names itself */
     snprintf(buf, sizeof buf, "%s:  %s", ARENA_TITLES[G.cursor], b);
@@ -2138,7 +2257,8 @@ static void draw_round_end(float W, float H, float s) {
   int t = G.state_ticks;
   float in = cw_clampf((t - 20) / 15.0f, 0, 1);
   if (in <= 0) return;
-  if (G.round_winner >= 0) snprintf(buf, sizeof buf, "%s WINS THE ROUND!", CRIT_NAME[G.crit[G.round_winner]]);
+  if (G.win_team >= 0) snprintf(buf, sizeof buf, "TEAM %s WINS THE ROUND!", G.win_team ? "B" : "A");
+  else if (G.round_winner >= 0) snprintf(buf, sizeof buf, "%s WINS THE ROUND!", CRIT_NAME[G.crit[G.round_winner]]);
   else snprintf(buf, sizeof buf, "DRAW!");
   float p = 1 + 0.25f * cw_clampf(1 - (t - 20) / 12.0f, 0, 1);
   cw_color c = G.round_winner >= 0 ? rgba(TEAM_RGB[G.round_winner][0] * 0.5f + 0.5f, TEAM_RGB[G.round_winner][1] * 0.5f + 0.5f,
@@ -2169,7 +2289,7 @@ static void draw_round_end(float W, float H, float s) {
     face(x, y, 22 * s, G.crit[i], i, !G.S.p[i].alive, in);
     for (int w = 0; w < G.wins_needed; w++) {
       bool got = w < G.wins[i];
-      bool fresh = got && w == G.wins[i] - 1 && i == G.round_winner;
+      bool fresh = got && w == G.wins[i] - 1 && (i == G.round_winner || (G.win_team >= 0 && G.S.team[i] == G.win_team));
       float sc = fresh ? cw_clampf((t - 40) / 10.0f, 0, 1.2f) : 1;
       float sx = x + (w - (G.wins_needed - 1) * 0.5f) * 20 * s;
       star(sx, y + 40 * s, 8 * s, rgba(0.35f, 0.33f, 0.4f, in), 0);
@@ -2190,7 +2310,8 @@ static void draw_podium(float W, float H, float s) {
       prompt_line(buf, W, fmaxf(H * 0.19f, H * 0.04f + measure_bold("S", 62 * s).height + 4 * s), 20 * s);
     }
   } else if (G.match_winner >= 0) {
-    snprintf(buf, sizeof buf, "%s TAKES THE MATCH!", CRIT_NAME[G.crit[G.match_winner]]);
+    if (G.teams && G.mode == MODE_BATTLE) snprintf(buf, sizeof buf, "TEAM %s TAKES THE MATCH!", team_rule(G.teams, G.match_winner) ? "B" : "A");
+    else snprintf(buf, sizeof buf, "%s TAKES THE MATCH!", CRIT_NAME[G.crit[G.match_winner]]);
     bold(buf, 0, H * 0.04f, 52 * s, rgba(1, 0.82f, 0.25f, in), CW_ALIGN_CENTER, W);
   }
   int order[MAXP], n = 0;
