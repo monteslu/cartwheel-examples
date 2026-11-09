@@ -22,6 +22,10 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const ENGINE = join(ROOT, 'deps/cartwheel-engine');
 const TOOL = join(ENGINE, 'tools/run-cart.mjs');
 export const QUALITIES = ['verylow', 'low', 'medium', 'high', 'ultra']; // cw_quality's order: the index is cw.quality
+/** the switch runs: [the preset built with, the one switched to] (scenes with swap: true take them) */
+const SWAPS = { swapdown: ['high', 'verylow'], swapup: ['verylow', 'high'] };
+/** the preset a run ends on, as cw.quality */
+const endQuality = (q) => (q === 'step' ? 0 : SWAPS[q] ? QUALITIES.indexOf(SWAPS[q][1]) : QUALITIES.indexOf(q));
 /** a player pressing a button on and on, to get through the menus: [from, to) every `every` frames */
 export const mash = (from, to, every, buttons = ['south'], extra = {}) => {
   const out = [];
@@ -36,6 +40,7 @@ const bytesText = (v) => (typeof v === 'string' && /^([0-9a-f]{2})+$/i.test(v) ?
 
 /** one run of one scene: what the engine reported, whole run */
 function runScene(outDir, scene, gpu, quality, exe) {
+  const cmds0 = [];
   const logs = join(outDir, 'logs');
   rmSync(logs, { recursive: true, force: true });
   mkdirSync(logs, { recursive: true });
@@ -44,7 +49,12 @@ function runScene(outDir, scene, gpu, quality, exe) {
   const args = [TOOL, '--host', 'native', '--gpu', gpu, '--app', scene.app, '--frames', String(scene.frames), ...(scene.spread === false ? [] : ['--warmup-spread']), '--allow-skipped',
     '--shot', join(outDir, 's.png'), '--state', state, '--log', log];
   // 'step': the settings stepped down in play, as Auto does: High from the start, then Medium, Low and Very Low
-  const cmds = [...(scene.cmds || []), ...(quality === 'step' ? [`@${Math.floor(scene.frames / 2)} quality medium`, `@${Math.floor(scene.frames * 3 / 4)} quality low`, `@${Math.floor(scene.frames * 7 / 8)} quality verylow`] : [])];
+  // 'swapdown' / 'swapup': the preset switched to the far end and back in play, as a player does from the pause menu: a
+  // scene built at High then drawn at Very Low (and back), or built at Very Low then drawn at High. What the build kept
+  // (lights, a terrain tier) meets what the new preset draws, a pairing neither preset reaches from the start.
+  const swap = SWAPS[quality];
+  if (swap) cmds0.push(`@${Math.floor(scene.frames / 2)} quality ${swap[1]}`, `@${Math.floor(scene.frames * 3 / 4)} quality ${swap[0]}`, `@${Math.floor(scene.frames * 7 / 8)} quality ${swap[1]}`);
+  const cmds = [...(scene.cmds || []), ...cmds0, ...(quality === 'step' ? [`@${Math.floor(scene.frames / 2)} quality medium`, `@${Math.floor(scene.frames * 3 / 4)} quality low`, `@${Math.floor(scene.frames * 7 / 8)} quality verylow`] : [])];
   if (cmds.length) args.push('--start-cmds', cmds.join(';'));
   if (scene.input) {
     const f = join(outDir, 'input.json');
@@ -54,7 +64,8 @@ function runScene(outDir, scene, gpu, quality, exe) {
   if (exe) args.push('--exe', exe.exe, ...(existsSync(exe.assets) ? ['--assets', exe.assets] : []));
   const env = { ...process.env, CW_PROJECT_ROOT: ROOT, SDL_AUDIODRIVER: 'dummy', CW_PROGRAMS_LOG_DIR: logs, ...(scene.env || {}) };
   // otherwise the preset from the first frame, the warm-up included
-  if (quality !== 'step') env.CW_QUALITY = quality;
+  if (swap) env.CW_QUALITY = swap[0];
+  else if (quality !== 'step') env.CW_QUALITY = quality;
   const t0 = Date.now();
   const r = spawnSync('node', args, { cwd: ENGINE, encoding: 'utf8', maxBuffer: 1 << 26, env });
   const res = { ms: Date.now() - t0 };
@@ -136,7 +147,7 @@ function controlBuild(game, app, state, tables, outDir) {
  * @param {object} g
  * @param {string} g.game       games/<game>
  * @param {string[]} g.tables   its program tables (programs/<table>.txt)
- * @param {object[]} g.scenes   { name, app, frames, cmds?, env?, input?, reach?, show?, presets?, spread? (false: the warm-up in frame 1, as the gate whose input script it replays was timed), mustNotReach? (a control: its reach must fail, and a run that reaches it does) }
+ * @param {object[]} g.scenes   { name, app, frames, cmds?, env?, input?, reach?, show?, presets?, swap? (also run built at High and switched to Very Low and back, and the reverse: 'swapdown', 'swapup'), spread? (false: the warm-up in frame 1, as the gate whose input script it replays was timed), mustNotReach? (a control: its reach must fail, and a run that reaches it does) }
  * @param {object|object[]} g.control    { state, scene (a scene's name), gpu?, quality? }: a state that scene draws at that preset; several when one scene can not speak for the rest
  * @param {string[]} [g.qualities] the presets
  */
@@ -149,15 +160,17 @@ export function sweep({ game, tables, scenes, control, qualities = QUALITIES }) 
   const shard = opt('--shard') ? opt('--shard').split('/').map(Number) : null; // i/n: every n-th scene from i, to run a long sweep in pieces
   const results = [];
   let fail = 0;
-  if (!argv.includes('--control-only')) for (const gpu of gpus) for (const q of [...qs, ...(opt('--quality') ? [] : ['step'])]) for (const [si, sc] of scenes.entries()) {
+  const swaps = scenes.some((s) => s.swap) ? Object.keys(SWAPS) : [];
+  if (!argv.includes('--control-only')) for (const gpu of gpus) for (const q of [...qs, ...(opt('--quality') ? [] : ['step', ...swaps])]) for (const [si, sc] of scenes.entries()) {
     if (only && !only.test(sc.name)) continue;
     if (shard && si % shard[1] !== shard[0]) continue;
     // a long gate holds the GPU lock too long: some scenes name the presets a plain gate run gives them; --all runs every preset everywhere
-    if (sc.presets && !argv.includes('--all') && q !== 'step' && !sc.presets.includes(q)) continue;
+    if (SWAPS[q]) { if (!sc.swap) continue; } // a switch run: only the scenes that take one
+    else if (sc.presets && !argv.includes('--all') && q !== 'step' && !sc.presets.includes(q)) continue;
     if (q === 'step' && si !== 0 && !argv.includes('--step-all')) continue; // one scene takes the step down, unless asked
     const r = runScene(OUT, sc, gpu, q);
     const offReach = r.state && notReached(sc, r.state);
-    const off = r.failed || (sc.mustNotReach ? (offReach ? null : 'a control scene that must not be reached was') : offReach) || (r.state && [].concat(r.state['cw.quality'])[0] !== (q === 'step' ? 0 : QUALITIES.indexOf(q)) && `cw.quality=${r.state['cw.quality']}`);
+    const off = r.failed || (sc.mustNotReach ? (offReach ? null : 'a control scene that must not be reached was') : offReach) || (r.state && [].concat(r.state['cw.quality'])[0] !== endQuality(q) && `cw.quality=${r.state['cw.quality']}`);
     const bad = r.failed ? -1 : r.missing.length + (r.skipped ? 1 : 0);
     if (off || bad) fail++;
     const line = `${off ? 'NOT REACHED' : bad ? 'FAIL' : 'ok'} ${gpu} ${q} ${sc.name}: missing ${r.missing ? r.missing.length : '?'} last-frame ${r.lastFrameMissing} skipped ${r.skipped}${off ? ` (${off})` : ''}${r.missing && r.missing.length ? ` [${r.missing.join(' ')}]` : ''} ${(r.ms / 1000).toFixed(0)}s${sc.show && r.state ? ' ' + sc.show.map((k) => `${k}=${JSON.stringify(r.state[k])}`).join(' ') : ''}`;

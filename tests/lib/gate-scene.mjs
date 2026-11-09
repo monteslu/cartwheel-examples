@@ -5,7 +5,7 @@
 //
 //   gateScene('spout-climb')                            the gate as it is
 //   gateScene('racer-salt', { frames: 1500, presets: ['verylow', 'low', 'ultra'] })
-//   gateScene('x', { name, frames, cmds (added), env (added), reach (instead of the gate's), presets, show })
+//   gateScene('x', { name, frames, cmds (added), env (added), reach (instead of the gate's), presets, swap, show })
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,6 +37,7 @@ export function gateScene(gate, o = {}) {
     ...(g.input ? { input: JSON.parse(readFileSync(join(ROOT, 'tests', g.input), 'utf8')) } : {}),
     reach: o.reach || reachOf(g.expect),
     ...(o.presets ? { presets: o.presets } : {}),
+    ...(o.swap ? { swap: true } : {}),
     spread: false, // the gate's input script is timed for the warm-up in frame 1
     show: o.show || Object.keys(g.expect || {}).filter((k) => !/^(cw|render)\./.test(k)).slice(0, 6),
   };
