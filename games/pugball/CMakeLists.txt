@@ -1,4 +1,4 @@
-# Pugball: soccer with jet-pack pugs and a fat, furious cat for a ball.
+# Pugball: soccer with jet-pack pugs and a round, furious cat for a ball.
 # 1v1 to 3v3, players and CPUs, five stadiums, the Pug Cup. The match
 # (sim.c) runs on Box3D.
 #   pugball           the game

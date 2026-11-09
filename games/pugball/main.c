@@ -1,4 +1,4 @@
-/* pugball: car-soccer with pugs for cars and a fat, furious cat for a
+/* pugball: car-soccer with pugs for cars and a round, furious cat for a
  * ball, on cartwheel and three.c (three.js r186).
  *
  *   flow      title -> Exhibition: the team sheet (1v1 to 3v3, each slot a
@@ -1738,7 +1738,7 @@ static const char *menu_prompt(void);
 #define LOGO_SIZE 104
 static const char *const TITLE_ITEMS[2] = { "EXHIBITION", "PUG CUP" };
 static const char *const TITLE_SUBS[2] = { "1v1 to 3v3, players and CPUs", "five stadiums, in order" };
-static const char *const TITLE_TAG = "pugs with jet packs. one very fat, very cross cat.";
+static const char *const TITLE_TAG = "pugs with jet packs. one very round, very cross cat.";
 typedef struct {
   cw_rect btn[2];
   float sub_dy, logo_size, logo_y, tag_y, prompt_bottom;

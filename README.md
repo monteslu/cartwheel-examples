@@ -126,7 +126,7 @@ in the cart) and `derby-beat`.
 
 ![pugball: the cat ball in the back of the net, the stands' shadows across the pitch](docs/screenshots/pugball.jpg)
 
-Soccer with jet-pack pugs and a fat, cross cat for a ball. 1v1 to 3v3 with
+Soccer with jet-pack pugs and a round, cross cat for a ball. 1v1 to 3v3 with
 players and CPUs, five stadiums open for exhibitions from the start, and the
 Pug Cup, whose wins unlock hats and trails.
 Party rules on the team sheet's KICK OFF row: MOON CAT (the cat floats at 40%

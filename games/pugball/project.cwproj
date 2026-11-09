@@ -10,5 +10,5 @@ export.macos-arm64.platform = "macos"
 export.android-arm64.platform = "android-arm64"
 # launcher art and credits, packed into the cart (art/art.json)
 art = art
-description = "Pugs with jet packs push one very fat, very cross cat into the goal. Play exhibitions from one against one to three a side with players and computer pugs, or win the Pug Cup across five stadiums."
+description = "Pugs with jet packs push one very round, very cross cat into the goal. Play exhibitions from one against one to three a side with players and computer pugs, or win the Pug Cup across five stadiums."
 author = "Luis Montes"

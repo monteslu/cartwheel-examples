@@ -3,62 +3,62 @@
   "landmarks": [
     {
       "name": "HeatSync Labs",
-      "reference": "/home/monteslu/Pictures/Screenshots/HeatSyncLabs.png",
+      "reference": "HeatSyncLabs.png",
       "track_x": 504.0,
       "stories": 1
     },
     {
       "name": "Oro Brewing",
-      "reference": "/home/monteslu/Pictures/Screenshots/OroBrewing.png",
+      "reference": "OroBrewing.png",
       "track_x": 142.0,
       "stories": 1
     },
     {
       "name": "Chupacabra Taproom",
-      "reference": "/home/monteslu/Pictures/Screenshots/ChupacabraTaproom.png",
+      "reference": "ChupacabraTaproom.png",
       "track_x": 172.0,
       "stories": 1
     },
     {
       "name": "Que Chevere",
-      "reference": "/home/monteslu/Pictures/Screenshots/QueChevere.png",
+      "reference": "QueChevere.png",
       "track_x": 292.0,
       "stories": 1
     },
     {
       "name": "Phantom Fox / Goat & Ram",
-      "reference": "/home/monteslu/Pictures/Screenshots/PhantomFox.png",
+      "reference": "PhantomFox.png",
       "track_x": 262.0,
       "stories": 1,
       "revision": "Added side window bays and wider patio/portal; signs unchanged in size. Romdev screenshot inspected."
     },
     {
       "name": "Arizona Distilling Co.",
-      "reference": "/home/monteslu/Pictures/Screenshots/AZDistillingCo.png",
+      "reference": "AZDistillingCo.png",
       "track_x": 232.0,
       "stories": 1
     },
     {
       "name": "Main Burger",
-      "reference": "/home/monteslu/Pictures/Screenshots/MainBurger.png",
+      "reference": "MainBurger.png",
       "track_x": 202.0,
       "stories": 1
     },
     {
       "name": "Organic Bean Cafe",
-      "reference": "/home/monteslu/Pictures/Screenshots/OrganicBeanCafe.png",
+      "reference": "OrganicBeanCafe.png",
       "track_x": 534.0,
       "stories": 1
     },
     {
       "name": "BRI Taproom & Arcade",
-      "reference": "/home/monteslu/Pictures/Screenshots/BRITaproomArcade.png",
+      "reference": "BRITaproomArcade.png",
       "track_x": 52.0,
       "stories": 1
     },
     {
       "name": "East Valley Paranormal / Mesa’s Haunted Museum",
-      "reference": "/home/monteslu/Downloads/EastValleyParanormal.jpg",
+      "reference": "EastValleyParanormal.jpg",
       "track_x": 414.0,
       "stories": 1,
       "address": "130 W Main St, Mesa",
@@ -72,7 +72,7 @@
     },
     {
       "name": "Against the Grain Bakery & Cafe",
-      "reference": "/home/monteslu/Downloads/AgainstTheGrain.jpg",
+      "reference": "AgainstTheGrain.jpg",
       "track_x": 444.0,
       "stories": 1,
       "address": "124 W Main St, Mesa",
@@ -86,7 +86,7 @@
     },
     {
       "name": "The Nile",
-      "reference": "/home/monteslu/Pictures/Screenshots/TheNile.png",
+      "reference": "TheNile.png",
       "track_x": 474.0,
       "stories": 2,
       "required": [
@@ -100,7 +100,7 @@
     },
     {
       "name": "Level One",
-      "reference": "/home/monteslu/Pictures/Screenshots/LevelOne.png",
+      "reference": "LevelOne.png",
       "track_x": 624.0,
       "stories": 2,
       "required": [
@@ -113,25 +113,25 @@
     },
     {
       "name": "Tacos Chiwas",
-      "reference": "/home/monteslu/Pictures/Screenshots/TacosChiwas.png",
+      "reference": "TacosChiwas.png",
       "track_x": 322.0,
       "stories": 1
     },
     {
       "name": "Proof Bread",
-      "reference": "/home/monteslu/Pictures/Screenshots/ProofBread.png",
+      "reference": "ProofBread.png",
       "track_x": 352.0,
       "stories": 1
     },
     {
       "name": "Mad Candy",
-      "reference": "/home/monteslu/Pictures/Screenshots/MadCandy.png",
+      "reference": "MadCandy.png",
       "track_x": 654.0,
       "stories": 1
     },
     {
       "name": "Worth Takeaway",
-      "reference": "/home/monteslu/Pictures/Screenshots/WorthTakeaway_Burritoholics.png",
+      "reference": "WorthTakeaway_Burritoholics.png",
       "track_x": 14.0,
       "stories": 1,
       "required": [
@@ -142,7 +142,7 @@
     },
     {
       "name": "Burritoholics",
-      "reference": "/home/monteslu/Pictures/Screenshots/WorthTakeaway_Burritoholics.png",
+      "reference": "WorthTakeaway_Burritoholics.png",
       "track_x": 24.0,
       "stories": 1,
       "required": [
@@ -153,7 +153,7 @@
     },
     {
       "name": "NCT / The Sacred Pint",
-      "reference": "/home/monteslu/Pictures/Screenshots/NCT_TheSacredPint.png",
+      "reference": "NCT_TheSacredPint.png",
       "status": "modeled; raised opaque NCT channel letters and elevated sign fixtures verified in romdev WebGPU; shield/window sign assets are photo-based reconstructions",
       "track_x": 82.0,
       "stories": 1,
@@ -175,8 +175,8 @@
     },
     {
       "name": "Gus's World Famous Fried Chicken",
-      "reference": "/home/monteslu/Pictures/Screenshots/Gus'sFriedChicken.png",
-      "detail_reference": "/home/monteslu/Downloads/gus's2.webp",
+      "reference": "Gus'sFriedChicken.png",
+      "detail_reference": "gus's2.webp",
       "status": "modeled; romdev GL/WebGPU inspected; blade sign is photo-based reconstruction; burgundy-and-white panel umbrellas and wooden chair legs/slats verified in romdev WebGPU; umbrella branding remains simplified",
       "track_x": 112,
       "stories": 1,
@@ -197,7 +197,7 @@
     },
     {
       "name": "The Guadalupe on Main",
-      "reference": "/home/monteslu/Pictures/Screenshots/GuadalupeOnMain.png",
+      "reference": "GuadalupeOnMain.png",
       "status": "First facade modeled at final landmark position 674 m; broad white wings, projecting copper gable, official logo and planters. Inspected in romdev WebGPU; zero GPU errors/missing shaders. Foliage material and edge window corrected after inspection.",
       "stories": 1,
       "address": "1526 E Main St, Mesa",
@@ -220,7 +220,7 @@
     },
     {
       "name": "Casa Copal",
-      "reference": "/home/monteslu/Pictures/Screenshots/CasaCopal.png",
+      "reference": "CasaCopal.png",
       "status": "First facade modeled with reconstructed mural and upright painted sign; native GL inspected. Column mural UV corrected after inspection; further fidelity review pending.",
       "stories": 1,
       "address": "28 S MacDonald, Mesa",
@@ -243,7 +243,7 @@
     },
     {
       "name": "Diamond Don's",
-      "reference": "/home/monteslu/Pictures/Screenshots/DiamondDons.png",
+      "reference": "DiamondDons.png",
       "status": "First facade modeled with twin shallow arches, lower side wings, recessed porch and official guitarist emblem; romdev WebGPU inspected. Lettering is an approximation, not official wordmark. Placed after Casa Copal’s reserved frontage, before Level One, per user order.",
       "stories": 1,
       "address": "42 S MacDonald, Mesa",
@@ -266,7 +266,7 @@
     },
     {
       "name": "República Empanada",
-      "reference": "/home/monteslu/Pictures/Screenshots/RepublicaEmpanada.png",
+      "reference": "RepublicaEmpanada.png",
       "status": "First facade modeled with white walls, burgundy awnings, official rooster logo on roadside blade, cacti and planting. Romdev WebGPU inspected with zero rendering errors; moved sign clear of streetlamp after inspection. Trees, rooftop skeleton and further detail remain.",
       "stories": 1,
       "address": "204 E 1st Ave, Mesa",
@@ -290,7 +290,7 @@
     },
     {
       "name": "Hope's FryBread",
-      "reference": "/home/monteslu/Pictures/Screenshots/HopesFrybread.png",
+      "reference": "HopesFrybread.png",
       "stories": 1,
       "status": "First facade modeled; romdev WebGPU inspected at x628 with zero rendering errors. Main sign lettering approximated; official door logo downloaded unmodified. Fascia offset corrected after visual inspection.",
       "required": [
@@ -314,9 +314,9 @@
     },
     {
       "name": "Pizza Mart",
-      "reference": "/home/monteslu/Pictures/Screenshots/PizzaMart.png",
+      "reference": "PizzaMart.png",
       "additional_references": [
-        "/home/monteslu/Pictures/Screenshots/PizzaMart2.png"
+        "PizzaMart2.png"
       ],
       "track_x": 852.0,
       "stories": 1,
@@ -332,7 +332,7 @@
     },
     {
       "name": "Espiritu",
-      "reference": "/home/monteslu/Pictures/Screenshots/Espiritu.png",
+      "reference": "Espiritu.png",
       "stories": 1,
       "official_or_directory_source": "https://www.espiritumesa.com/",
       "required": [
@@ -359,7 +359,7 @@
     },
     {
       "name": "Mangos",
-      "reference": "/home/monteslu/Pictures/Screenshots/Mangos.png",
+      "reference": "Mangos.png",
       "stories": 1,
       "official_or_directory_source": "https://www.mangosmexicancafe.com/",
       "required": [
@@ -377,7 +377,7 @@
     },
     {
       "name": "Margaritas",
-      "reference": "/home/monteslu/Pictures/Screenshots/Margaritas.png",
+      "reference": "Margaritas.png",
       "stories": 2,
       "official_or_directory_source": "https://downtownmesa.com/go/margaritas",
       "required": [
@@ -394,7 +394,7 @@
     },
     {
       "name": "Lost Dutchman Coffee",
-      "reference": "/home/monteslu/Pictures/Screenshots/LostDutchmanCoffee.png",
+      "reference": "LostDutchmanCoffee.png",
       "stories": 1,
       "official_or_directory_source": "https://lostdutchmancoffeehouse.com/about/",
       "required": [
@@ -508,6 +508,5 @@
       13.6865
     ],
     "validation": "Both runs finished, all10 checkpoints, zero GPU/missing shader errors. No concurrent builds or romdev stepping during timed runs; other applications left running."
-  },
-  "work_ledger": "WORKLIST.md"
+  }
 }

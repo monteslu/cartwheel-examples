@@ -6,7 +6,7 @@
  *          (world.c animates them), stubby legs, a tongue for full boost,
  *          a lacquered harness in the team colour carrying a twin-canister
  *          jet pack whose nozzles glow and flame when it boosts, and a hat
- *   cat    the ball: a fat, furry, deeply unimpressed tabby rolled into a
+ *   cat    the ball: a round, furry, deeply unimpressed tabby rolled into a
  *          sphere, paws tucked, tail wrapped round, ears flat or up, three
  *          faces (grumpy, outraged, dizzy) and whiskers
  * Pugs face +z; the cat's face looks along +z of its own frame. */
