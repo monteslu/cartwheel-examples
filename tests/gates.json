@@ -1910,7 +1910,8 @@
       ],
       "note": "Touch-first on WebGPU."
     },
-    "note": "A phone (cw_platform_touch_primary, told at load: the web player for a coarse pointer, here --start-cmds) starts in touch mode before any tap. The control runs without the hint (pad prompts, input.mode 1)."
+    "note": "A phone (cw_platform_touch_primary, told at load: the web player for a coarse pointer, here --start-cmds) starts in touch mode before any tap. The control runs without the hint (pad prompts, input.mode 1).",
+    "controlStartCmds": []
   },
   {
     "name": "derby-quit",
@@ -3403,7 +3404,8 @@
     "expect": {
       "game.state": 0,
       "input.mode": 3
-    }
+    },
+    "controlStartCmds": []
   },
   {
     "fields": [
@@ -4555,7 +4557,8 @@
     "expect": {
       "game.state": 0,
       "input.mode": 3
-    }
+    },
+    "controlStartCmds": []
   },
   {
     "app": "spout_auto",
