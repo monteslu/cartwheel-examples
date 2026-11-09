@@ -71,6 +71,7 @@ static struct {
 } W;
 
 const track_geo *world_geo(void) { return &W.geo; }
+cw_node world_scene(void) { return W.scene; }
 bool world_ready(void) { return !W.sim || !W.map || W.map->arena || W.cleaned || getenv("RACER_NOCLEAN"); }
 
 void world_reset(void) {

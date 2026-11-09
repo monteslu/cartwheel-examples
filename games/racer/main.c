@@ -1077,6 +1077,7 @@ static void init(void *u) {
 #endif
   if (getenv("RACER_AUTO")) G.auto_all = true;
   kartgfx_debug_init();
+  floatcheck_debug_init();
   audio_init();
   ui_init();
 }

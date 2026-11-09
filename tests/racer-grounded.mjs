@@ -13,7 +13,16 @@
 //           not hovering (its wheels hang off the road in the physics too): they are counted apart and printed.
 //           Control: sw wheel_lag 1 (the wheels drawn from the vehicle controller's casts, a tick behind the drawn
 //           chassis, as they were) must put a kart more than GAP_MAX_MM above the road with its wheels on it.
-//   node tests/racer-grounded.mjs [--gl] [--webgpu] [--maps 0,1,...] [--legs shadow,gap,control] [--cart <path>]
+//   hover   One lap of every map, the player's kart watched frame by frame from the race camera (karts.gap_mm every second
+//           frame): a run of frames with the kart drawn a little above the road (HOVER_LO to HOVER_HI mm: not on it, not a
+//           jump's flight) is a hover when it lasts longer than a hop over that height can (HOVER_MAX frames: a kart
+//           thrown 25 cm up is back down in under half a second). The race camera's frame at the longest run is kept to
+//           look at, and frames every 15 s of the lap at Very Low and High.
+//   float   Every static thing in the map and in the battle arenas (floatcheck: each one's lowest points dropped onto what
+//           is under it, the terrain, the road or another prop) stands on something: none more than FLOAT_MAX_MM above it.
+//           Each hovering one is looked at from the side (frames kept). Control: floatcheck lift <a prop> 150 raises a prop
+//           that stands for real, and the check must report it.
+//   node tests/racer-grounded.mjs [--gl] [--webgpu] [--maps 0,1,...] [--arenas 0,1,...] [--legs shadow,gap,hover,float,control] [--cart <path>]
 import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,7 +34,9 @@ const arg = (n, d) => { const i = process.argv.indexOf(n); return i > 0 ? proces
 const CART = resolve(arg('--cart', join(ROOT, 'build/cart-wgpu/carts/racer.wasc')));
 const BACKENDS = process.argv.includes('--gl') ? ['gl'] : process.argv.includes('--webgpu') ? ['webgpu'] : ['gl', 'webgpu'];
 const MAPS = arg('--maps', '0,1,2,3,4,5,6,7').split(',').map(Number);
-const LEGS = arg('--legs', 'shadow,gap,control').split(',');
+const LEGS = arg('--legs', 'shadow,gap,hover,float,control').split(',');
+const ARENAS = arg('--arenas', '0,1,2,3,4,5,6,7,8,9,10,11').split(',').filter((x) => x !== '').map(Number);
+const HOVER_LO = 30, HOVER_HI = 250, HOVER_MAX = 30, FLOAT_MAX_MM = 50;
 const PRESETS = ['verylow', 'low', 'medium', 'high'];
 const SHADOW_MIN_PX = 1500, GAP_MAX_MM = 50, CLASSES = ['all', 'some', 'air', 'jump', 'anim'];
 mkdirSync(OUT, { recursive: true });
@@ -162,6 +173,40 @@ async function lap(map, pre) {
   for (let i = 0; i < 8; i++) if (fr[i]) k.push({ kart: i, frames: fr[i], ...Object.fromEntries(CLASSES.map((c, j) => [c, { n: n[i * 5 + j], max: mx[i * 5 + j], at: at[i * 5 + j] }])) });
   return { done: phase === 3, karts: k };
 }
+/** one lap from the race camera, the player's drawn gap every second frame: the longest run a little above the road */
+async function hover(backend, map) {
+  await race(map, '');
+  let phase = 2, run = 0, runMax = 0, runAt = 0, runGap = 0, runPeak = 0, runs = 0, frames = 0;
+  const keep = join(OUT, `${backend}-m${map}-hover.png`);
+  rmSync(keep, { force: true });
+  for (let f = 0; phase !== 3 && f < 60 * 240; f += 2) {
+    await step(2);
+    if (f % 900 === 0) for (const q of ['verylow', 'high']) {
+      await cmd(`quality ${q}`); await step(2);
+      await tool('frame', { op: 'stepAndShot', frames: 1, path: join(OUT, `${backend}-m${map}-lap${f / 60}-${q}.png`) });
+    }
+    if (f % 900 === 0) await cmd('quality high');
+    const g = +(await rd('karts.gap_mm'))[0];
+    frames++;
+    if (g > HOVER_LO && g < HOVER_HI) {
+      run += 2, runPeak = Math.max(runPeak, g);
+      if (run > runMax) { runMax = run, runGap = runPeak, runAt = f; if (run >= 12) { await tool('frame', { op: 'stepAndShot', frames: 1, path: keep }); } }
+    } else { if (run >= 12) runs++; run = 0, runPeak = 0; }
+    if (f % 120 === 0) phase = +(await rd('race.phase'));
+  }
+  return { done: phase === 3, frames, runMax, runGap, runAt, runs };
+}
+/** floatcheck on the map now up; each hovering group looked at from 6 m off, level with it */
+async function floats(backend, tag) {
+  const r = (await cmd('floatcheck 50')).reply;
+  for (const [k, g] of (r.groups || []).filter((g) => g.n > 0).slice(0, 6).entries()) {
+    const [x, y, z] = g.at;
+    await cmd(`eye ${x + 6} ${y + 1.5} ${z + 2} ${x} ${y} ${z}`); await step(3);
+    await tool('frame', { op: 'stepAndShot', frames: 1, path: join(OUT, `${backend}-${tag}-float${k}.png`) });
+  }
+  await cmd('eye');
+  return r;
+}
 const worst = (ks, c) => ks.reduce((w, k) => (k[c].max > w.max ? { kart: k.kart, ...k[c] } : w), { kart: -1, n: 0, max: 0, at: 0 });
 const total = (ks, c) => ks.reduce((s, k) => s + k[c].n, 0);
 const desc = (w) => (w.kart < 0 ? 'none' : `worst kart ${w.kart}${w.kart === 0 ? ' (the player)' : ''} ${w.max} mm at ${w.at} m`);
@@ -183,6 +228,25 @@ for (const backend of BACKENDS) {
       check(`map ${map}: no kart drawn above the road with some of its wheels on it`, some.max <= GAP_MAX_MM, `${total(r.karts, 'some')} frames over 30 mm, ${desc(some)}`);
       const air = worst(r.karts, 'air'), jump = worst(r.karts, 'jump'), anim = worst(r.karts, 'anim');
       console.log(`     (in the air off a crest or a bump ${total(r.karts, 'air')} frames, ${desc(air)}; a jump's flight ${total(r.karts, 'jump')} frames; a drawn flip, hop or trick ${total(r.karts, 'anim')} frames)`);
+    }
+  }
+  for (const map of LEGS.includes('hover') ? MAPS : []) {
+    const h = await hover(backend, map);
+    check(`map ${map}: the player's kart never hovers a little above the road from the race camera`, h.done && h.runMax <= HOVER_MAX,
+      `${h.frames} frames watched, longest run ${HOVER_LO}-${HOVER_HI} mm above the road ${h.runMax} frames (peak ${h.runGap} mm, ${(h.runAt / 60).toFixed(1)} s in), ${h.runs} runs of 12 frames or more`);
+  }
+  if (LEGS.includes('float')) {
+    for (const map of MAPS) {
+      await race(map, '');
+      const r = await floats(backend, `m${map}`);
+      check(`map ${map}: nothing in the scenery hovers`, r.hover === 0, `${r.checked} things checked, ${r.hover} hovering${r.groups.filter((g) => g.n).map((g) => ` ${g.name} x${g.n} (worst ${g.worst_mm} mm at ${g.at.join(',')})`).join(';')}; ${r.aloft} hung or flying`);
+    }
+    for (const a of ARENAS) {
+      await cmd(`battle ${a} 1 60`);
+      for (let f = 0; f < 900 && +(await rd('race.phase')) < 1; f += 30) await step(30);
+      await step(60);
+      const r = await floats(backend, `a${a}`);
+      check(`arena ${a}: nothing in the scenery hovers`, r.hover === 0, `${r.checked} things checked, ${r.hover} hovering${r.groups.filter((g) => g.n).map((g) => ` ${g.name} x${g.n} (worst ${g.worst_mm} mm at ${g.at.join(',')})`).join(';')}; ${r.aloft} hung or flying`);
     }
   }
   if (LEGS.includes('control')) {

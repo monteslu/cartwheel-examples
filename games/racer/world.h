@@ -67,6 +67,8 @@ void world_reset(void);
 void world_tick(const sim *s);
 void world_frame(double alpha);   /* every frame: animated materials (boost strips, water), map scenery_frame */
 const track_geo *world_geo(void);
+cw_node world_scene(void); /* the map's scenery root (invalid before a map is built) */
+void floatcheck_debug_init(void); /* the floatcheck command (floatcheck.c) */
 
 /* fx.c: everything that flies and flashes (particles, sparks, smoke, splashes, speed lines) */
 void fx_init(cw_node scene, const sim *s, const map_def *map);
