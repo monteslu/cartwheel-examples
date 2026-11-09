@@ -1515,7 +1515,7 @@ void car_pose(car_model *m, const car *c, int ticks) {
 int32_t car_mud_verts; /* debug cars.mud_verts: vertex spans the mud rewrote */
 static float mud_at(float x, float y, float z, float level, uint32_t seed) {
   float top = 0.4f + 0.45f * level; /* metres: the splash line climbs, at most to mid-door */
-  float h = cw_clampf((top - y) * 2.6f, 0, 1);
+  float h = cw_clampf((top - y) * 4.0f, 0, 1);
   float blot = cw_clampf(vn(x * 6.5f + z * 5.5f, y * 9.0f, seed + 41) * 2.2f - 0.2f + level * 0.5f, 0, 1);
   return h * blot * (0.65f + 0.25f * level);
 }

@@ -574,13 +574,13 @@ void world_tick(const sim *s) {
     car_apply_dents(&W.car[i], c);
     body_decals_tick(i, c);
     car_pose(&W.car[i], c, W.ticks);
-    /* mud builds up with the metres driven, faster in a slide (full after about 300 m: under a minute of hard driving) */
+    /* mud builds up with the metres driven, faster in a slide (full after about 160 m: half a minute of hard driving) */
     if (s->phase == PH_GO && !c->wrecked) {
       float sp = sqrtf(c->vx * c->vx + c->vz * c->vz);
       W.mud_m[i] += (sp + 0.6f * (c->slip_f + c->slip_r)) / TICK_HZ;
       static int no_mud = -1; /* DERBY_NO_MUD: the cars stay as they started (the before of the mud sheet) */
       if (no_mud < 0) no_mud = getenv("DERBY_NO_MUD") != NULL;
-      if (!no_mud) car_mud(&W.car[i], getenv("DERBY_MUD_FULL") ? 1.0f : W.mud_m[i] / 300.0f);
+      if (!no_mud) car_mud(&W.car[i], getenv("DERBY_MUD_FULL") ? 1.0f : W.mud_m[i] / 160.0f);
     }
   }
   skids_tick(s);
