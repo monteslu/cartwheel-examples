@@ -287,7 +287,11 @@ static void oquad(pm *b, t3_vec3 p0, t3_vec3 p1, t3_vec3 p2, t3_vec3 p3, pcol c,
 /* ── models ─────────────────────────────────────────────────────────────────────────────────────────── */
 
 /* an oil derrick: a tapering four-legged lattice with a crown block, a working platform and a red lamp on top */
-static prop_model m_derrick(uint32_t seed, float H) {
+/* part 0: the legs, platform, crown, lamp and a concrete pad; part 1: the rings and diagonals. Neither throws a sun
+ * shadow: the derrick field stands in a low sun beside the road, and its 32 m lattices laid a grille of shade over the
+ * lanes that a kart at 180 km/h crossed bar by bar, light and dark more than three times a second. Each stands on a
+ * dark pad of oiled concrete instead, which grounds it on the crust */
+static prop_model m_derrick(uint32_t seed, float H, int part) {
   pm *b = pm_new(seed);
   float w0 = H * 0.105f, w1 = H * 0.022f;
   int N = 8;
@@ -303,18 +307,26 @@ static prop_model m_derrick(uint32_t seed, float H) {
       /* corner order around the square: 0 (-,-) 1 (+,-) 3 (+,+) 2 (-,+) */
       (void)sx1, (void)sz1;
       t3_vec3 c0 = V(sx0 * a0, y0, sz0 * a0), c1 = V(sx0 * a1, y1, sz0 * a1);
-      pm_beam(b, c0, c1, H * 0.012f + 0.1f, steel);
+      if (part == 0) pm_beam(b, c0, c1, H * 0.012f + 0.1f, steel);
     }
     /* horizontal square and the diagonals of each face */
     t3_vec3 q0[4] = { V(-a0, y0, -a0), V(a0, y0, -a0), V(a0, y0, a0), V(-a0, y0, a0) };
     t3_vec3 q1[4] = { V(-a1, y1, -a1), V(a1, y1, -a1), V(a1, y1, a1), V(-a1, y1, a1) };
-    for (int k = 0; k < 4; k++) {
+    for (int k = 0; k < 4 && part == 1; k++) {
       int n = (k + 1) & 3;
       pm_beam(b, q1[k], q1[n], H * 0.007f + 0.06f, dark);
       if (((j + k) & 1) == 0) pm_beam(b, q0[k], q1[n], H * 0.006f + 0.05f, dark);
       else pm_beam(b, q0[n], q1[k], H * 0.006f + 0.05f, dark);
     }
   }
+  if (part == 1) return pm_finish(b);
+  /* the pad: oil-stained concrete under the legs */
+  pm_layer(b, PL_MAIN);
+  pm_push(b);
+  pm_move(b, 0, -0.05f, 0);
+  pm_box_c(b, w0 * 2.9f, 0.2f, w0 * 2.9f, rgb(0.16f, 0.14f, 0.13f));
+  pm_pop(b);
+  pm_layer(b, PL_METAL);
   /* the working platform two thirds up and the crown block on top */
   pm_push(b);
   pm_move(b, 0, H * 0.62f, 0);
@@ -1773,8 +1785,10 @@ static void salt_start(cw_node root, const track *t, prop_set *ps) {
 
 /* ── set pieces 2 and 4: the salvage-yard ramps and the airliner standing over the first jump ─────── */
 
+/* end to end, no gaps: a container is about 11 m long here and they stood every 13 m, so under the low sun the row laid
+ * bars of shade across the lanes that a kart climbing to the lip crossed light, dark, light about four times a second */
 static void pile_container_row(prop_set *ps, float s0, float s1, float hw, uint32_t seed) {
-  for (float s = s0; s < s1; s += 13.0f) {
+  for (float s = s0; s < s1; s += 10.8f) {
     for (int k = -1; k <= 1; k += 2) {
       uint32_t h = hash_u(seed + (uint32_t)(s * 3.0f) * 5u + (uint32_t)(k + 2));
       float lat = k * (hw + 4.6f + 0.8f * hashf_(h));
@@ -1875,8 +1889,9 @@ static void salt_ramps(cw_node root, const track *t, prop_set *ps) {
 
 static void salt_derricks(cw_node root, const track *t, prop_set *ps) {
   float hw = t->s[0].hw;
-  inst der[3];
-  for (int i = 0; i < 3; i++) der[i] = inst_new(m_derrick(300u + (uint32_t)i * 17u, 32.0f), -1, (pcol){ 1, 1, 1 });
+  inst der[3], brace[3];
+  for (int i = 0; i < 3; i++) der[i] = inst_new(m_derrick(300u + (uint32_t)i * 17u, 32.0f, 0), -1, (pcol){ 1, 1, 1 });
+  for (int i = 0; i < 3; i++) brace[i] = inst_new(m_derrick(300u + (uint32_t)i * 17u, 32.0f, 1), -1, (pcol){ 1, 1, 1 });
   int placed = 0;
   for (int i = 0; i < 220 && placed < (SPLIT ? 30 : 84); i++) {
     float s = 1180.0f + 400.0f * hashf_(7000u + (uint32_t)i);
@@ -1887,9 +1902,11 @@ static void salt_derricks(cw_node root, const track *t, prop_set *ps) {
     /* keep the forest off the road wherever any other part of the course runs (the pan below the plateau) */
     float sc = 0.7f + 0.7f * hashf_(7300u + (uint32_t)i);
     inst_add(&der[i % 3], p, hashf_(7400u + (uint32_t)i) * 6.28f, sc);
+    inst_add(&brace[i % 3], p, hashf_(7400u + (uint32_t)i) * 6.28f, sc);
     placed++;
   }
-  for (int i = 0; i < 3; i++) inst_finish(&der[i], root, "Derricks", true);
+  for (int i = 0; i < 3; i++) inst_finish(&der[i], root, "Derricks", false);
+  for (int i = 0; i < 3; i++) inst_finish(&brace[i], root, "DerrickBraces", false);
 
   /* the pump jacks: base static, beam nodding */
   inst base = inst_new(m_pump_base(5), -1, (pcol){ 1, 1, 1 });

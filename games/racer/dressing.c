@@ -592,17 +592,20 @@ void deco_jump_marks(cw_node parent, const track *t, const dress_style *in) {
     float hw = a->hw;
     pm *b = frame_at(c, a, 0, 0);
     pm_layer(b, PL_MAIN);
-    /* hazard stripes across the last 3 m before the edge */
+    /* hazard stripes across the last 3 m before the edge: yellow on a dark ochre, not black (a kart crosses the lip at
+     * 50 m/s with the camera dipping onto it, and yellow on black with the glowing chevrons before it beat at over 3 a
+     * second at the bottom of the view) */
     int ns = (int)(2 * hw / 1.2f);
+    pcol ochre = pc_mix(yel, blk, 0.5f);
     for (int i = 0; i < ns; i++) {
       float x0 = -hw + 1.2f * (float)i;
-      pcol col = (i & 1) ? yel : blk;
+      pcol col = (i & 1) ? yel : ochre;
       pm_quad(b, V(x0, 0.04f, 0.0f), V(x0 + 1.2f, 0.04f, 0.0f), V(x0 + 1.2f + 0.8f, 0.04f, -3.0f), V(x0 + 0.8f, 0.04f, -3.0f), col);
     }
     pm_layer(b, PL_GLOW);
     for (int k = 0; k < 3; k++) { /* chevrons in glowing paint, getting closer together towards the lip */
       float z = -6.0f - 6.5f * (float)k;
-      chevron(b, 0, z, hw * 0.55f, 3.2f, 0.9f, 0.05f, glow(yel, 1.6f));
+      chevron(b, 0, z, hw * 0.55f, 3.2f, 0.9f, 0.05f, glow(yel, 0.7f)); /* a soft glow: three pass under the nose in a third of a second */
     }
     pm_pop(b);
     /* the landing: a target of rings on the road beyond the gap */

@@ -73,6 +73,8 @@ typedef struct rig {
   bool live, snap, chase;
   float spd_s; /* the chase camera's speed, smoothed: the raw one shivers with the suspension every tick */
   float base_fov, fov_k;
+  bool falling;      /* off the road and going down: the camera holds its orientation and stays where it was */
+  t3_vec3 fall_eye;  /* where the eye stopped when the fall began */
 } rig;
 
 static struct {
@@ -518,6 +520,14 @@ static void rig_tick(int v) {
     }
     bool back = (k->last_btn & KB_BACK) != 0;
     if (!r->live) r->up = tsup, r->fwd = want_f;
+    /* a fall off the road (into space on the orbit, off a branch): the camera does not tumble with the kart. It keeps the
+     * up and forward it had and stops where it was, watching the kart drop away; the respawn cuts back to the chase.
+     * Turned with the kart, sky, planet and road swung through the view several times a second */
+    bool falling = r->live && !k->loc.on_road && !k->grounded && k->air_ticks > 8 && k->respawn_ticks <= 0;
+    if (falling && !r->falling) r->fall_eye = r->eye;
+    if (!falling && r->falling) r->live = false; /* the respawn: one cut back to the chase, not a swing across the void */
+    r->falling = falling;
+    if (falling) tsup = r->up, want_f = r->fwd;
     /* at a loop's mouth and inside it the view turns with the road quickly and closes in: lagging, it stared straight
      * into the road rising ahead, a wall of deck filling the screen */
     bool loopy = false;
@@ -548,6 +558,10 @@ static void rig_tick(int v) {
     spring3(&r->erel, &r->eye_v, erel, on_wall ? 16.0f : 6.0f);
     spring3(&r->lrel, &r->look_v, lrel, on_wall ? 20.0f : 9.0f);
     r->eye = v3add(k->p, r->erel), r->look = v3add(k->p, r->lrel);
+    if (r->falling) { /* held where the fall began, looking at the kart as it drops away */
+      r->eye = r->fall_eye, r->erel = v3sub(r->eye, k->p);
+      r->look = v3add(k->p, v3mul(r->up, 0.9f));
+    }
     /* never under the road: where it curls up into a loop (or over a crest) the eye behind the kart can end up below the
      * deck and the view shows its underside as a dark wall across the road. Keep the eye 1.2 m over the road beneath it */
     {

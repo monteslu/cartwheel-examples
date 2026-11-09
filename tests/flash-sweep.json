@@ -14,6 +14,6 @@
   { "name": "chromite-destruct", "gate": "chromite-destruct", "frames": 300, "note": "the self-destruct blast" },
   { "name": "chromite-auto", "gate": "chromite-auto", "frames": 2400, "note": "a computer run through waves" },
   { "name": "racer-battle", "gate": "racer-battle", "frames": 3000, "note": "weapons and hits in a battle arena" },
-  { "name": "racer-salt", "gate": "racer-salt", "frames": 3000, "note": "a race: boosts and pickups", "knownFail": "racer: 4 flashes a second where 3 is the limit late in the race at speed (salt: the shadow lattice of a gantry over the road at 185 km/h; orbit: the tumble of a fall into space); being found and fixed" },
-  { "name": "racer-orbit", "gate": "racer-orbit", "frames": 3000, "note": "the orbit track's lights", "knownFail": "racer: 4 flashes a second where 3 is the limit late in the race at speed (salt: the shadow lattice of a gantry over the road at 185 km/h; orbit: the tumble of a fall into space); being found and fixed" }
+  { "name": "racer-salt", "gate": "racer-salt", "frames": 3000, "note": "a race: boosts and pickups" },
+  { "name": "racer-orbit", "gate": "racer-orbit", "frames": 3000, "note": "the orbit track's lights" }
 ]

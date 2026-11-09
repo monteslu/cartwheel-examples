@@ -1098,7 +1098,7 @@ static void g_arrows(float u, float v, texel *t) {
   float n = fbm(u, v, 8, 3, 391), fine = h01((int)(u * 512), (int)(v * 512), 392);
   float hexx = fabsf(fractf(xm * 1.0f) - 0.5f), hexy = fabsf(fractf(v * 6.0f * 1.1547f + 0.5f * floorf(xm)) - 0.5f);
   float mesh = sstep(0.42f, 0.5f, fmaxf(hexx, hexy)) * 0.6f;
-  rgb(t, 0.10f + 0.02f * n, 0.30f + 0.04f * n, 0.45f + 0.05f * n);
+  rgb(t, 0.24f + 0.03f * n, 0.48f + 0.04f * n, 0.60f + 0.05f * n); /* a light teal: the pad's end on a pale salt road was a step from dark to bright under a speeding kart */
   t->b += mesh * 0.04f, t->g += mesh * 0.02f;
   /* the arrows differ from the ground more in hue than in brightness (a third brighter at most): they read as arrows
    * and still do not flash as they pass under a kart */
