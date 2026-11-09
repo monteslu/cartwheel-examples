@@ -323,8 +323,8 @@ static prop_model m_derrick(uint32_t seed, float H, int part) {
   /* the pad: oil-stained concrete under the legs */
   pm_layer(b, PL_MAIN);
   pm_push(b);
-  pm_move(b, 0, -0.05f, 0);
-  pm_box_c(b, w0 * 2.9f, 0.2f, w0 * 2.9f, rgb(0.16f, 0.14f, 0.13f));
+  pm_move(b, 0, 0.05f, 0);
+  pm_box_c(b, w0 * 2.6f, 0.7f, w0 * 2.6f, rgb(0.13f, 0.11f, 0.1f)); /* stands proud of the crust (and of a slope under it) */
   pm_pop(b);
   pm_layer(b, PL_METAL);
   /* the working platform two thirds up and the crown block on top */
