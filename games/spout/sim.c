@@ -47,6 +47,7 @@ void sim_start(sim *S, const level_def *L, uint32_t seed) {
   S->weather = WX_SUN;
   for (int k = 0; k < L->n_streams; k++) S->stream_th[k] = L->streams[k];
   S->silk = 3;
+  S->net_y = -1;
   /* flies round the back of the pipe (worth the detour), spools up high */
   static const float FTH[MAX_FLIES] = { 2.5f, -2.2f, 1.8f }, FY[MAX_FLIES] = { 0.3f, 0.6f, 0.86f };
   for (int i = 0; i < MAX_FLIES; i++) S->fly_th[i] = FTH[i], S->fly_y[i] = L->height * FY[i];
@@ -170,6 +171,13 @@ static void bird_step(sim *S) {
 
 static void wash_down(sim *S, float metres, bool wave) {
   spider *s = &S->s;
+  /* a web under the spider catches the fall there */
+  if (S->net_y >= 0 && S->net_y < s->y && S->net_y > s->y - metres) {
+    metres = s->y - S->net_y;
+    S->net_y = -1;
+    S->nets_caught++;
+    S->ev_net_catch = 1;
+  }
   s->state = SP_WASHED;
   s->slide = metres;
   s->r = 0;
@@ -187,7 +195,7 @@ bool sim_gust_warn(const sim *S) {
 static void hazards_step(sim *S) {
   const level_def *L = S->L;
   spider *s = &S->s;
-  bool exposed = s->state == SP_CLING;
+  bool exposed = s->state == SP_CLING || s->state == SP_RAPPEL; /* on its line the water takes it as well: it cannot brace there */
   /* city wind: a gust every few seconds pushes round the pipe unless braced */
   if (L->twist == TWIST_WIND) {
     if (++S->gust_ticks >= GUST_EVERY) S->gust_ticks = 0, S->gust_dir = -S->gust_dir;
@@ -260,6 +268,7 @@ void sim_step(sim *S, const sim_input *in) {
   S->ev_jump = S->ev_land = S->ev_wash = S->ev_knock = S->ev_check = S->ev_dew = S->ev_win = 0;
   S->ev_rain_start = S->ev_sun_start = S->ev_wave = S->ev_brace_hold = S->ev_gust = 0;
   S->ev_zip = S->ev_zip_fizzle = S->ev_peck = S->ev_bird = S->ev_fly = S->ev_spool = 0;
+  S->ev_rappel = S->ev_net = S->ev_net_catch = 0;
   S->tick++;
   if (s->state == SP_WIN) return;
   weather_step(S);
@@ -282,6 +291,19 @@ void sim_step(sim *S, const sim_input *in) {
       S->ev_jump = 1;
       break;
     }
+    if (in->silk && in->brace) { /* a web where it clings */
+      if (S->silk > 0) S->net_y = s->y, S->silk--, S->nets++, S->ev_net = 1;
+      else S->ev_zip_fizzle = 1;
+      break;
+    }
+    if (in->silk && iy < -0.5f) { /* a line down from here */
+      s->state = SP_RAPPEL;
+      S->line_y = s->y;
+      S->zip_swing = 0;
+      S->rappels++;
+      S->ev_rappel = 1;
+      break;
+    }
     if (in->silk) {
       float ay;
       if (S->silk > 0 && sim_anchor_above(S, &ay)) {
@@ -297,6 +319,19 @@ void sim_step(sim *S, const sim_input *in) {
     if (s->brace) break;
     bool slick = slick_here(S);
     float up = iy, side = ix;
+    if (S->hands) { /* hand over hand: the stick no longer climbs, the pulls do */
+      if (up > 0) up = 0;
+      int hd = in->hand_l == in->hand_r ? 0 : in->hand_l ? 1 : 2;
+      if (hd && hd != S->last_hand) S->pull = fminf(S->pull + HAND_PULL, 2 * HAND_PULL), S->pulls++;
+      else if (hd) S->fumbles++, S->pull = 0;
+      if (hd) S->last_hand = hd;
+      if (S->pull > 0) {
+        float d = fminf(S->pull, HAND_RATE * DT);
+        S->pull -= d;
+        up = d / (CLIMB * DT);
+      }
+      if (slick) S->pull = 0; /* no grip to pull on */
+    }
     if (slick) {
       if (up > 0) up = 0;
       side *= 0.4f;
@@ -336,6 +371,23 @@ void sim_step(sim *S, const sim_input *in) {
     s->face = cw_atan2(S->zip_swing * PIPE_R * 0.3f, 1);
     s->walk += 0.01f;
     if (s->y >= S->zip_y + 0.12f) s->y = S->zip_y + 0.12f, s->state = SP_CLING, S->ev_land = 1;
+    break;
+  case SP_RAPPEL:
+    /* on the line, a little off the paper: the stick lets it down (quicker than it climbs) or takes it back up, and
+     * swings it round the pipe; {silk} reels it home to the anchor, {jump} lets go onto the paper */
+    s->r += (0.12f - s->r) * 0.2f;
+    s->y += iy * (iy < 0 ? 2.2f : CLIMB) * DT;
+    if (s->y > S->line_y) s->y = S->line_y;
+    S->zip_swing += (ix * 1.6f / PIPE_R - S->zip_swing) * 0.08f;
+    s->th = wrap_pi(s->th + S->zip_swing * DT);
+    s->face = cw_atan2(S->zip_swing * PIPE_R * 0.3f, 1);
+    s->walk += fabsf(iy) * 0.01f;
+    if (in->silk) {
+      s->state = SP_ZIP, S->zip_y = S->line_y - 0.12f, S->ev_zip = 1; /* home on the line it already has: no silk spent */
+      s->r = 0;
+    } else if (in->jump || s->y <= 0.06f) {
+      s->state = SP_CLING, s->r = 0, S->ev_land = 1;
+    }
     break;
   case SP_WASHED: {
     float d = WASH_SPEED * DT;
@@ -400,6 +452,7 @@ uint32_t sim_hash(const sim *S) {
   HF(S->gust_ticks), HF(S->gust_dir), HF(S->silk), HF(S->zip_y), HF(S->zip_swing), HF(S->bird_ticks), HF(S->bird_th), HF(S->bird_y), HF(S->fly_got), HF(S->spool_got), HF(S->tick), HF(S->weather), HF(S->weather_ticks), HF(S->wet), HF(S->checkpoint), HF(S->rng), HF(S->dew_got);
   for (int k = 0; k < MAX_STREAMS; k++) HF(S->stream_off[k]);
   HF(S->climb_v);
+  HF(S->line_y), HF(S->net_y), HF(S->nets), HF(S->rappels), HF(S->pull), HF(S->last_hand);
   for (int i = 0; i < 8; i++) {
     int32_t live = S->waves[i].live;
     HF(live);

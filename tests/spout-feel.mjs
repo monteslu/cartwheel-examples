@@ -9,6 +9,17 @@
 //             "washed down!") never cover the pipe above the spider (hud.over_pipe, sampled every 10 frames, banners
 //             included while they show). Control: sw old_hud 1 (the card in the middle, banners over the climb).
 //   medal     a clean climb of the first spout wins a paper medal (win.medal 0 gold or 1 silver).
+//   silk      study silk (games/spout/study.c, scripted, without drawing): a web spun 1 m above the first bracket
+//             ({brace} + {silk}) stops the next wash there and is spent; its control (no web) is washed down to the
+//             bracket. A line let down at 5 m ({down} + {silk}) goes down 2 m and swings round, and {silk} reels it home
+//             to the anchor in under 2.5 s with no silk spent.
+//   ghost     a climb of the first spout, then the same spout again from the select: the best climb's ghost is kept
+//             (ghost.n samples, its hash the recorded climb's) and climbs beside the spider (ghost.shown). Control:
+//             sw no_ghost 1 keeps none.
+//   ribbons   the win card's ribbons are the climb's (win.ribbons: 1 every fly, 2 no wash and no knock).
+//   hands     study hands (study.c, three seeds): the climber that braces for the waves it sees, on the stick and
+//             hand over hand: a steady five pulls a second beats the stick by 5% or more, a ragged rhythm is slower than
+//             the stick. Control: one hand pressed every time (and no hop) never pulls: no climb to the top.
 //   node tests/spout-feel.mjs [--gl] [--webgpu] [--cart <path>]
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,8 +57,8 @@ const hazards = (h) => {
   return { ok: holdWashed && tellClean && fair, holdWashed,
     text: `hold ${h.hold.map((c) => `${(c.ticks / 60).toFixed(1)} s ${c.washes}w ${c.pecks}p`).join(', ')}; tell ${h.tell.map((c) => `${(c.ticks / 60).toFixed(1)} s ${c.washes}w`).join(', ')}` };
 };
-async function climb(backend, pre) {
-  await load(backend);
+async function climb(backend, pre, keep) {
+  if (!keep) await load(backend);
   if (pre) await cmd(pre);
   for (let n = 0; n < 10 && (await state())['game.state'] !== 2; n++) await press('south');
   let k = await state(), over = 0, samples = 0, banner = 0, still = 0, best = 0;
@@ -63,9 +74,26 @@ async function climb(backend, pre) {
     banner += +k['weather'] === 1;
   }
   await pads({});
-  const r = { over, samples, banner, state: k['game.state'], medal: k['win.medal'] };
-  await tool('host', { op: 'shutdown' });
+  const r = { over, samples, banner, state: k['game.state'], medal: k['win.medal'], ribbons: k['win.ribbons'], rec: k['rec.hash'], washes: k['washes'] + k['knocks'], flies: k['flies'] };
+  if (!keep) await tool('host', { op: 'shutdown' });
   return r;
+}
+/* a climb, then the select ({jump} on the win card), back to the first spout and a second second of climbing */
+async function ghost(backend, pre) {
+  await load(backend);
+  await cmd('sw fresh 1'); /* the host keeps saves between loads: start as a new player, so this climb is the best */
+  if (pre) await cmd(pre);
+  const first = await climb(backend, null, true);
+  await step(60); /* the win card takes a press after two thirds of a second */
+  await press('south'); /* the win card: back to the select (the cursor on the next spout) */
+  await press('left');
+  await press('south');
+  await pads({ up: true });
+  await step(60);
+  const k = await state();
+  await pads({});
+  await tool('host', { op: 'shutdown' });
+  return { first, state: k['game.state'], n: k['ghost.n'], hash: k['ghost.hash'], shown: k['ghost.shown'] };
 }
 
 const seen = {};
@@ -83,8 +111,32 @@ for (const backend of BACKENDS) {
   const c = await climb(backend);
   check('the HUD never covers the pipe above the spider', c.samples > 30 && c.banner > 0 && c.over === 0, `${c.over} of ${c.samples} samples over the pipe (${c.banner} with the rain warning up), game.state ${c.state}`);
   check('a clean climb wins a paper medal', c.state === 4 && (c.medal === 0 || c.medal === 1), `win.medal ${c.medal}`);
+  check('the win card\'s ribbons are the climb\'s: every fly (bit 1), no wash or knock (bit 2)', c.ribbons === ((c.flies === 3 ? 1 : 0) | (c.washes === 0 ? 2 : 0)), `flies ${c.flies}, washed or knocked ${c.washes}, win.ribbons ${c.ribbons}`);
   const cc = await climb(backend, 'sw old_hud 1');
   check('control: sw old_hud 1 covers it', cc.over > 0, `${cc.over} of ${cc.samples} samples over the pipe`);
+  await load(backend);
+  const sk = await cmd('study silk');
+  await tool('host', { op: 'shutdown' });
+  const w = sk.web, nw = sk.none, ln = sk.line;
+  check('a web stops the next wash where it was spun, and is spent', w.washed && w.caught === 1 && !w.web_left && Math.abs(w.after - w.web_y) < 0.05 && w.after > nw.after + 0.5,
+    `web at ${w.web_y.toFixed(2)} m: washed from ${w.before.toFixed(2)} to ${w.after.toFixed(2)} m`);
+  check('control: no web, the wash takes it to the bracket', nw.washed && nw.after < w.web_y - 0.5, `washed from ${nw.before.toFixed(2)} to ${nw.after.toFixed(2)} m`);
+  check('a line down from 5 m and {silk} home: back at the anchor, no silk spent, under 2.5 s', ln.started && ln.lowest < ln.anchor - 1.5 && ln.swung > 0.3 && ln.cling && Math.abs(ln.back - ln.anchor) < 0.05 && ln.silk_spent === 0 && ln.ticks < 150,
+    `down to ${ln.lowest.toFixed(2)} m from ${ln.anchor.toFixed(2)}, swung ${ln.swung.toFixed(2)} rad, home at ${ln.back.toFixed(2)} m in ${(ln.ticks / 60).toFixed(2)} s, silk spent ${ln.silk_spent}`);
+  seen[backend] += JSON.stringify(sk);
+  await load(backend);
+  const hd = await cmd('study hands');
+  await tool('host', { op: 'shutdown' });
+  const sum = (a) => a.reduce((x, y) => x + (y < 0 ? 1e6 : y), 0);
+  check('hand over hand: a steady rhythm beats the stick, a ragged one is slower', hd.steady.every((x) => x > 0) && sum(hd.steady) <= sum(hd.stick) * 0.95 && sum(hd.ragged) > sum(hd.stick),
+    `ticks to the top: stick ${hd.stick.join(', ')}; steady ${hd.steady.join(', ')}; ragged ${hd.ragged.join(', ')}`);
+  check('control: one hand every time never pulls', hd.one_hand.every((x) => x < 0), `one hand ${hd.one_hand.join(', ')}`);
+  seen[backend] += JSON.stringify(hd);
+  const g = await ghost(backend);
+  check('the best climb\'s ghost is kept and climbs beside the spider', g.first.state === 4 && g.state === 2 && g.n > 20 && g.hash === g.first.rec && g.shown === 1,
+    `first climb ${g.first.state === 4 ? 'won' : 'not won'}, then game.state ${g.state}, ghost ${g.n} samples, hash ${g.hash} (recorded ${g.first.rec}), shown ${g.shown}`);
+  const gc = await ghost(backend, 'sw no_ghost 1');
+  check('control: sw no_ghost 1 keeps none', gc.n === 0 && gc.shown === 0, `ghost ${gc.n} samples, shown ${gc.shown}`);
 }
 if (seen.gl && seen.webgpu) check('GL and WebGPU agree', seen.gl === seen.webgpu, seen.gl === seen.webgpu ? 'identical studies' : 'the studies differ');
 console.log(fail ? `${fail} FAILED` : 'all ok');

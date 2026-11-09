@@ -55,7 +55,7 @@ extern const int LEVELS_BUILT; /* levels playable in this build (the rest are pa
 
 /* ── the simulation (sim.c): fixed ticks, cartwheel/math.h only ─────── */
 
-enum { SP_CLING, SP_JUMP, SP_WASHED, SP_WIN, SP_ZIP };
+enum { SP_CLING, SP_JUMP, SP_WASHED, SP_WIN, SP_ZIP, SP_RAPPEL };
 #define GUST_EVERY 420
 #define GUST_WARN 90
 #define GUST_LEN 120
@@ -78,7 +78,13 @@ typedef struct spider {
 typedef struct wave { float y; bool live; int stream; } wave;
 typedef struct leaf { float th, y, spin; bool live; } leaf;
 
-typedef struct sim_input { float x, y; bool jump, brace, silk; } sim_input;
+typedef struct sim_input { float x, y; bool jump, brace, silk, hand_l, hand_r; } sim_input; /* hand_*: pressed this tick (two hands) */
+
+/* two hands (a choice on the spout select): the left and right hands pull in turn, hand over hand; each pull from the
+ * other hand lifts HAND_PULL at HAND_RATE, the same hand twice slips its grip (no pull); the stick only walks round
+ * and down. A steady rhythm of four pulls a second beats holding up the stick; a ragged one is slower */
+#define HAND_PULL 0.3f
+#define HAND_RATE 2.6f
 
 #define MAX_FLIES 3
 #define MAX_SPOOLS 2
@@ -106,6 +112,18 @@ typedef struct sim {
   int silk;                 /* charges left */
   float zip_y, zip_swing;   /* the anchor height; swing speed round the pipe */
   int zips;
+  bool hands;       /* two hands (set at the start) */
+  int last_hand;    /* 1 left, 2 right, 0 none yet */
+  float pull;       /* metres of pull still to climb */
+  int pulls, fumbles;
+  /* the rappel: {silk} with the stick held down drops a line from where the spider clings (free): it lets itself down
+   * and climbs back along it, swings round the pipe on it, and {silk} again reels it home to the anchor */
+  float line_y;
+  int rappels;
+  /* the web: {brace} held and {silk} spins a net round the pipe where the spider is (one silk, one net at a time);
+   * the next wash or knock stops at it, and the net is spent */
+  float net_y; /* < 0: none */
+  int nets, nets_caught;
   /* the paper bird: comes, marks a spot near you, pecks it, goes */
   int bird_ticks;           /* into its visit (0 = away) */
   float bird_th, bird_y;    /* where it will peck */
@@ -115,7 +133,7 @@ typedef struct sim {
   uint32_t fly_got, spool_got;
   int flies;
   /* events for the presentation (sounds, effects), cleared each tick */
-  int ev_jump, ev_land, ev_wash, ev_knock, ev_check, ev_dew, ev_win, ev_rain_start, ev_sun_start, ev_wave, ev_brace_hold, ev_gust, ev_zip, ev_zip_fizzle, ev_peck, ev_bird, ev_fly, ev_spool;
+  int ev_jump, ev_land, ev_wash, ev_knock, ev_check, ev_dew, ev_win, ev_rain_start, ev_sun_start, ev_wave, ev_brace_hold, ev_gust, ev_zip, ev_zip_fizzle, ev_peck, ev_bird, ev_fly, ev_spool, ev_rappel, ev_net, ev_net_catch;
 } sim;
 
 void sim_start(sim *S, const level_def *L, uint32_t seed);
@@ -140,6 +158,8 @@ float wrap_pi(float a);
 void world_build(cw_node root, const level_def *L, int title);
 void world_free(void);
 extern bool world_hide_waves; /* the wave fronts undrawn (a gate's control) */
+/* the ghost of the best climb: on, where it is on the pipe (angle, height, lift) and its heading */
+void world_ghost(bool on, float th, float y, float r, float face);
 /* positions the spider, water, rain, sun and clouds for this frame */
 void world_sync(const sim *prev, const sim *cur, float alpha, float t_seconds, bool stopmotion);
 t3_vec3 world_spider_pos(const sim *prev, const sim *cur, float alpha, float *th_out);

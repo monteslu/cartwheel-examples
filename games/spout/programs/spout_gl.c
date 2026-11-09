@@ -22,6 +22,21 @@ static const t3_gen_attribute a_basic_trans[] = {
   { "position", "vec3", 0, false },
 };
 
+/* ── basic+trans+ds ── */
+static const t3_bk_group_layout g_basic_trans_ds_render = { "render", 0, 128, 0, NULL, 0, NULL, 0 };
+static const t3_bk_group_layout g_basic_trans_ds_object = { "object", 1, 80, 0, NULL, 0, NULL, 0 };
+static const t3_bk_group_layout *const groups_basic_trans_ds[] = { &g_basic_trans_ds_render, &g_basic_trans_ds_object };
+static const t3_gen_property p_basic_trans_ds[] = {
+  { "material.color", 1, 0, 12, false },
+  { "material.opacity", 1, 12, 4, false },
+  { "camera.matrixWorldInverse", 0, 64, 64, false },
+  { "object.matrixWorld", 1, 16, 64, false },
+  { "camera.projectionMatrix", 0, 0, 64, false },
+};
+static const t3_gen_attribute a_basic_trans_ds[] = {
+  { "position", "vec3", 0, false },
+};
+
 /* ── depth+xplain ── */
 static const t3_bk_group_layout g_depth_xplain_render = { "render", 0, 128, 0, NULL, 0, NULL, 0 };
 static const t3_bk_group_layout g_depth_xplain_object = { "object", 1, 80, 0, NULL, 0, NULL, 0 };
@@ -2127,6 +2142,7 @@ static const t3_gen_text text = { text_z, 18688, 137798, &text_cache };
 
 static const t3_gen_program programs[] = {
   { "basic+trans", T3_GEN_BASIC, 16ull, { 0, 0, 0, 0 }, NULL, T3_GEN_GL, groups_basic_trans, 2, p_basic_trans, 5, a_basic_trans, 1, NULL, 0, { 0, 0, 0 }, { 0, 0, 0 }, NULL, NULL, &text, 0, 1 },
+  { "basic+trans+ds", T3_GEN_BASIC, 4398046511120ull, { 0, 0, 0, 0 }, NULL, T3_GEN_GL, groups_basic_trans_ds, 2, p_basic_trans_ds, 5, a_basic_trans_ds, 1, NULL, 0, { 0, 0, 0 }, { 0, 0, 0 }, NULL, NULL, &text, 0, 1 },
   { "depth+xplain", T3_GEN_DEPTH, 0ull, { 1, 0, 0, 0 }, "plain", T3_GEN_GL, groups_depth_xplain, 2, p_depth_xplain, 3, a_depth_xplain, 1, k_depth_xplain, 1, { 0, 0, 0 }, { 0, 0, 0 }, NULL, NULL, &text, 2, 3 },
   { "physical+instbig+senv+cc+l1001", T3_GEN_PHYSICAL, 70368746275072ull, { 1, 0, 0, 1 }, NULL, T3_GEN_GL, groups_physical_instbig_senv_cc_l1001, 2, p_physical_instbig_senv_cc_l1001, 28, a_physical_instbig_senv_cc_l1001, 6, NULL, 0, { 0, 0, 0 }, { 0, 0, 0 }, NULL, NULL, &text, 4, 5 },
   { "physical+instbig+senv+cc+l1001+xplain", T3_GEN_PHYSICAL, 70368746275072ull, { 1, 0, 0, 1 }, "plain", T3_GEN_GL, groups_physical_instbig_senv_cc_l1001_xplain, 2, p_physical_instbig_senv_cc_l1001_xplain, 26, a_physical_instbig_senv_cc_l1001_xplain, 6, NULL, 0, { 0, 0, 0 }, { 0, 0, 0 }, NULL, NULL, &text, 6, 7 },
@@ -2156,4 +2172,4 @@ static const t3_gen_program programs[] = {
   { "standard+senv+l1001", T3_GEN_STANDARD, 2097152ull, { 1, 0, 0, 1 }, NULL, T3_GEN_GL, groups_standard_senv_l1001, 2, p_standard_senv_l1001, 22, a_standard_senv_l1001, 2, NULL, 0, { 0, 0, 0 }, { 0, 0, 0 }, NULL, NULL, &text, 52, 53 },
   { "standard+senv+l1001+xplain", T3_GEN_STANDARD, 2097152ull, { 1, 0, 0, 1 }, "plain", T3_GEN_GL, groups_standard_senv_l1001_xplain, 2, p_standard_senv_l1001_xplain, 21, a_standard_senv_l1001_xplain, 2, NULL, 0, { 0, 0, 0 }, { 0, 0, 0 }, NULL, NULL, &text, 54, 55 },
 };
-const t3_gen_table spout_gl = { programs, 29 };
+const t3_gen_table spout_gl = { programs, 30 };

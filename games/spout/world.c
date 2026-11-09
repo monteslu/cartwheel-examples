@@ -198,9 +198,13 @@ static struct {
   t3_mesh *dews[MAX_DEWS];
   t3_mesh *rain;
   t3_material *rain_mat;
+  t3_material *pipe_mat;
+  t3_color pipe_dry;
   t3_object *sun, *sun_rays;
   /* stage 3: silk line, the bird and its mark, flies, spools */
   t3_mesh *silk;
+  t3_object *net; /* the web round the pipe (sim net_y) */
+  t3_object *ghost; /* the best climb's spider, in tracing paper */
   t3_object *bird, *bird_wing[2], *mark;
   t3_object *flies[MAX_FLIES], *fly_wing[MAX_FLIES][2], *spools[MAX_SPOOLS];
   t3_object *clouds[6];
@@ -404,6 +408,8 @@ static void build_pipe(t3_object *root, const level_def *L) {
   const theme *T = &THEMES[L->theme];
   t3_material *m = paper(PAPER_PIPE, 1, 1, T->pipe[0], T->pipe[1], T->pipe[2]);
   add_mesh(root, mb_finish(&b), m, true, true);
+  W.pipe_mat = m; /* the wet darkens and glosses it (world_sync); the mesh keeps it alive */
+  W.pipe_dry = m->color;
   t3_release(m);
   /* the folds: a slightly darker crease line down every edge, and at the
    * back the glued tab where the sheet's two ends overlap */
@@ -839,6 +845,36 @@ static void build_critters(t3_object *root) {
   T3_OBJ(W.silk)->visible = false;
   t3_object_add(root, W.silk);
   t3_release(W.silk);
+  /* the web: twelve spokes off the pipe and three rounds of thread, flat round the pipe (a strand is a thin quad,
+   * both faces) */
+  {
+    t3_material *mweb = t3_mesh_basic_material_new(0xf6f6ff);
+    mweb->transparent = true;
+    mweb->opacity = 0.8f;
+    mweb->depth_write = false;
+    mweb->side = T3_DOUBLE_SIDE;
+    mb b = { 0 };
+    const float r0 = PIPE_R + 0.01f, r1 = PIPE_R + 0.34f, w = 0.006f;
+    for (int i = 0; i < 12; i++) {
+      float a = i * 0.5235988f + 0.08f * cw_sin(i * 2.3f), sa, ca, sb, cb;
+      cw_sincos(a, &sa, &ca);
+      cw_sincos(a + 1.5707963f, &sb, &cb);
+      t3_vec3 p0 = { sa * r0 - sb * w, 0, ca * r0 - cb * w }, p1 = { sa * r0 + sb * w, 0, ca * r0 + cb * w };
+      t3_vec3 p2 = { sa * r1 + sb * w, -0.02f, ca * r1 + cb * w }, p3 = { sa * r1 - sb * w, -0.02f, ca * r1 - cb * w };
+      mb_quad(&b, p0, p1, p2, p3, 0, 0, 1, 1);
+    }
+    for (int ring = 0; ring < 3; ring++) {
+      float rr = r0 + (r1 - r0) * (0.3f + ring * 0.3f);
+      for (int i = 0; i < 12; i++) {
+        float a0 = i * 0.5235988f, a1 = a0 + 0.5235988f, sag = -0.012f * (ring + 1);
+        t3_vec3 c0 = on_cyl(rr, a0, sag), c1 = on_cyl(rr, a1, sag), d0 = on_cyl(rr + w * 2, a0, sag), d1 = on_cyl(rr + w * 2, a1, sag);
+        mb_quad(&b, c0, c1, d1, d0, 0, 0, 1, 1);
+      }
+    }
+    W.net = T3_OBJ(add_mesh(root, mb_finish(&b), mweb, false, false));
+    W.net->visible = false;
+    t3_release(mweb);
+  }
   /* the bird: a folded-card body, two wings that flap, a beak */
   t3_material *mbird = paper(PAPER_SKYBLUE, 1, 1, 0.55f, 0.7f, 0.95f), *mbeak = paper(PAPER_KRAFT, 1, 1, 1, 0.75f, 0.3f);
   W.bird = t3_group_new();
@@ -1000,6 +1036,42 @@ static void build_spider(t3_object *root) {
   t3_release(W.spider);
 }
 
+/* the ghost: the best climb of this spout, a spider cut from tracing paper (pale, unlit, the scene showing through):
+ * the body and eight legs in a climbing stance, no eyes */
+static void build_ghost(t3_object *root) {
+  t3_material *m = t3_mesh_basic_material_new(0xeef3ff); /* unlit: a pale cut-out that does not take the scene's light */
+  m->transparent = true;
+  m->opacity = 0.45f;
+  m->depth_write = false;
+  W.ghost = t3_group_new();
+  t3_mesh *ab = add_mesh(W.ghost, faceted_ico(0.12f), m, false, false);
+  t3_object_set_position(ab, 0, -0.1f, 0.07f);
+  t3_object_set_scale(ab, 0.9f, 1.15f, 0.75f);
+  t3_mesh *hd = add_mesh(W.ghost, faceted_ico(0.075f), m, false, false);
+  t3_object_set_position(hd, 0, 0.06f, 0.06f);
+  for (int i = 0; i < 8; i++) {
+    float side = i < 4 ? -1.f : 1.f, base = 0.6f + (i % 4) * 0.62f, sb, cb;
+    cw_sincos(base, &sb, &cb);
+    mb b = { 0 };
+    t3_vec3 hip = { side * 0.05f, -(i % 4) * 0.025f, 0.06f }, knee = { side * (0.05f + sb * 0.12f), hip.y + cb * 0.12f, 0.12f };
+    t3_vec3 foot = { side * (0.05f + sb * 0.22f), hip.y + cb * 0.22f, 0.0f };
+    t3_vec3 segs[3] = { hip, knee, foot };
+    for (int k = 0; k < 2; k++) {
+      t3_vec3 a = segs[k], c = segs[k + 1], w = { 0.0f, 0.0f, 0.0f };
+      float dx = c.x - a.x, dy = c.y - a.y, l = sqrtf(dx * dx + dy * dy) + 1e-5f;
+      w.x = -dy / l * 0.01f, w.y = dx / l * 0.01f;
+      t3_vec3 q0 = { a.x - w.x, a.y - w.y, a.z }, q1 = { a.x + w.x, a.y + w.y, a.z }, q2 = { c.x + w.x, c.y + w.y, c.z }, q3 = { c.x - w.x, c.y - w.y, c.z };
+      mb_quad(&b, q0, q1, q2, q3, 0, 0, 1, 1);
+      mb_quad(&b, q1, q0, q3, q2, 0, 0, 1, 1);
+    }
+    add_mesh(W.ghost, mb_finish(&b), m, false, false);
+  }
+  t3_release(m);
+  W.ghost->visible = false;
+  t3_object_add(root, W.ghost);
+  t3_release(W.ghost);
+}
+
 void world_build(cw_node root, const level_def *L, int title) {
   world_free();
   W.L = L;
@@ -1013,6 +1085,7 @@ void world_build(cw_node root, const level_def *L, int title) {
   build_weather(W.root, L);
   build_spider(W.root);
   build_critters(W.root);
+  build_ghost(W.root);
   cw_node3d_set_object(W.node, W.root);
   t3_release(W.root);
   t3_release(edge_mat);
@@ -1095,7 +1168,7 @@ static void place_spider(const sim *prev, const sim *cur, float alpha, float t, 
   t3_vec3 p = world_spider_pos(prev, cur, alpha, &th);
   const spider *s = &cur->s;
   float face = lerpa(prev->s.face, cur->s.face, alpha);
-  bool air = s->state == SP_JUMP, washed = s->state == SP_WASHED, zip = s->state == SP_ZIP;
+  bool air = s->state == SP_JUMP, washed = s->state == SP_WASHED, zip = s->state == SP_ZIP || s->state == SP_RAPPEL;
   if (washed) face += cw_sin(t * 30) * 0.6f; /* tumbling down */
   /* washed down it turns out, belly and eyes off the pipe, legs flailing;
    * otherwise it clings belly to the pipe. The turn takes 0.2 s each way. */
@@ -1177,6 +1250,20 @@ static void place_spider(const sim *prev, const sim *cur, float alpha, float t, 
   }
 }
 
+void world_ghost(bool on, float th, float y, float r, float face) {
+  if (!W.ghost) return;
+  W.ghost->visible = on;
+  if (!on) return;
+  float sn, cs, fs, fc;
+  cw_sincos(th, &sn, &cs);
+  cw_sincos(face, &fs, &fc);
+  t3_vec3 n = { sn, 0, cs }, u = { 0, 1, 0 }, rr = { cs, 0, -sn };
+  t3_vec3 hdv = v3add(v3mul(u, fc), v3mul(rr, fs)), rt = v3sub(v3mul(rr, fc), v3mul(u, fs));
+  t3_object_set_quaternion(W.ghost, quat_axes(rt, hdv, n));
+  t3_vec3 p = on_cyl(PIPE_R + 0.06f + r, th, y);
+  t3_object_set_position(W.ghost, p.x, p.y, p.z);
+}
+
 void world_sync(const sim *prev, const sim *cur, float alpha, float t, bool stop) {
   if (!W.root) return;
   const level_def *L = W.L;
@@ -1256,11 +1343,11 @@ void world_sync(const sim *prev, const sim *cur, float alpha, float t, bool stop
   /* stage 3: the silk line, the bird, flies, spools */
   {
     t3_vec3 sp = world_spider_pos(prev, cur, alpha, NULL);
-    bool zip = cur->s.state == SP_ZIP;
+    bool zip = cur->s.state == SP_ZIP || cur->s.state == SP_RAPPEL;
     T3_OBJ(W.silk)->visible = zip;
     if (zip) {
       float th = cw_atan2(sp.x, sp.z);
-      t3_vec3 top = on_cyl(PIPE_R + 0.06f, th, cur->zip_y + 0.1f);
+      t3_vec3 top = on_cyl(PIPE_R + 0.06f, th, (cur->s.state == SP_RAPPEL ? cur->line_y : cur->zip_y) + 0.1f);
       float dx = W.cam_eye.x - sp.x, dz = W.cam_eye.z - sp.z, l = sqrtf(dx * dx + dz * dz) + 1e-4f;
       float wx = -dz / l * 0.006f, wz = dx / l * 0.006f;
       t3_vec3 q[4] = { { sp.x - wx, sp.y, sp.z - wz }, { sp.x + wx, sp.y, sp.z + wz }, { top.x + wx, top.y, top.z + wz }, { top.x - wx, top.y, top.z - wz } };
@@ -1271,6 +1358,8 @@ void world_sync(const sim *prev, const sim *cur, float alpha, float t, bool stop
       pa->version++;
       /* Positions changed; attribute layout and indices remain valid. */
     }
+    W.net->visible = cur->net_y >= 0;
+    if (cur->net_y >= 0) t3_object_set_position(W.net, 0, cur->net_y - 0.05f, 0);
     int bt = cur->bird_ticks;
     W.bird->visible = bt > 0;
     W.mark->visible = bt > 0 && bt < BIRD_WARN;
@@ -1336,6 +1425,12 @@ void world_sync(const sim *prev, const sim *cur, float alpha, float t, bool stop
     t3_color c = W.hill_glow[i];
     float k2 = 1 - 0.6f * W.rain_amount;
     W.hill_mat[i]->emissive = (t3_color){ c.r * k2, c.g * k2, c.b * k2 };
+  }
+  /* the pipe soaks with the paper wraps: a step darker and cooler, a little less matte, while wet */
+  {
+    float d = 1 - 0.3f * wet;
+    W.pipe_mat->color = (t3_color){ W.pipe_dry.r * d, W.pipe_dry.g * d, W.pipe_dry.b * (1 - 0.22f * wet) };
+    W.pipe_mat->roughness = 1 - 0.45f * wet;
   }
   /* rain streaks round the spider */
   W.rain_mat->opacity = 0.55f * W.rain_amount;

@@ -32,20 +32,30 @@
 
 static int medal_of(int level, int ticks); /* (the paper medals, by the win card) */
 static void paper_medal(float cx, float cy, float r, int m, float a);
+static void paper_ribbon(float cx, float cy, float r, int kind, float a);
 
 enum { GS_TITLE, GS_SELECT, GS_PLAY, GS_PAUSE, GS_WIN };
 
 /* ── save ───────────────────────────────────────────────────────────── */
 
 #define SAVE_MAGIC 0x54554f53u /* 'SOUT' */
-#define SAVE_VERSION 4
-/* version 4: the text size (cw_text_scale_saved) and the text background; version 3 ended at the graphics settings */
+#define SAVE_VERSION 5
+/* version 5: the ghost of each spout's best climb and the dry-climb ribbons; version 4: the text size
+ * (cw_text_scale_saved) and the text background; version 3 ended at the graphics settings */
+#define GHOST_EVERY 8   /* ticks between a ghost's samples */
+#define GHOST_MAX 900   /* samples: a climb of two minutes */
+typedef struct ghost_track {
+  uint16_t n, pad;
+  uint8_t s[GHOST_MAX][5]; /* the spider's angle (16 bits round the pipe), height (16 bits over 40 m), lift (8 bits over 1 m) */
+} ghost_track;
 typedef struct save_data {
   uint32_t magic;
   uint16_t version, size;
   struct { int32_t cleared, best_ticks, dews, flies; } lv[SP_LEVELS];
   uint8_t quality[4]; /* the graphics settings: cw_quality_saved() little-endian, 0 = none chosen */
-  uint8_t text_size, text_bg, pad[2]; /* cw_text_scale_saved() (0 = none chosen), cw_text_backdrop_get() */
+  uint8_t text_size, text_bg; /* cw_text_scale_saved() (0 = none chosen), cw_text_backdrop_get() */
+  uint8_t dry, hands;         /* dry: a bit per spout climbed with no wash and no knock (the dry-climb ribbon); hands: 1 two hands */
+  ghost_track ghost[SP_LEVELS];
   uint32_t checksum;
 } save_data;
 static save_data SAVE;
@@ -70,6 +80,21 @@ static void save_write(void) {
   SAVE.checksum = save_sum();
   cw_save_commit();
 }
+/* a version 4 save: the same fields up to the text bytes (its spare bytes were zero), its checksum where the ghosts now
+ * are */
+static bool save_from_v4(void) {
+  enum { V4_SIZE = offsetof(save_data, ghost) + sizeof(uint32_t) };
+  if (SAVE.magic != SAVE_MAGIC || SAVE.version != 4 || SAVE.size != V4_SIZE) return false;
+  uint32_t stored, sum = cw_hash32(&SAVE.lv, offsetof(save_data, ghost) - offsetof(save_data, lv), CW_HASH32_INIT) ^ (4u | (uint32_t)V4_SIZE << 16);
+  memcpy(&stored, &SAVE.ghost, sizeof stored);
+  if (stored != sum) return false;
+  memset(SAVE.ghost, 0, sizeof SAVE.ghost);
+  SAVE.dry = SAVE.hands = 0;
+  SAVE.version = SAVE_VERSION;
+  SAVE.size = sizeof SAVE;
+  SAVE.checksum = save_sum();
+  return true;
+}
 /* a version 3 save: the same fields up to the graphics settings, its checksum where the text bytes now are */
 static bool save_from_v3(void) {
   enum { V3_SIZE = offsetof(save_data, text_size) + sizeof(uint32_t) };
@@ -77,14 +102,15 @@ static bool save_from_v3(void) {
   uint32_t stored, sum = cw_hash32(&SAVE.lv, offsetof(save_data, text_size) - offsetof(save_data, lv), CW_HASH32_INIT) ^ (3u | (uint32_t)V3_SIZE << 16);
   memcpy(&stored, &SAVE.text_size, sizeof stored);
   if (stored != sum) return false;
-  SAVE.text_size = SAVE.text_bg = SAVE.pad[0] = SAVE.pad[1] = 0;
+  SAVE.text_size = SAVE.text_bg = SAVE.dry = SAVE.hands = 0;
+  memset(SAVE.ghost, 0, sizeof SAVE.ghost);
   SAVE.version = SAVE_VERSION;
   SAVE.size = sizeof SAVE;
   SAVE.checksum = save_sum();
   return true;
 }
 static void save_check(void) {
-  if (save_from_v3()) return;
+  if (save_from_v3() || save_from_v4()) return;
   if (SAVE.magic != SAVE_MAGIC || SAVE.version != SAVE_VERSION || SAVE.size != sizeof SAVE || SAVE.checksum != save_sum()) save_reset();
 }
 static bool level_open(int i) { return i < LEVELS_BUILT && (i == 0 || SAVE.lv[i - 1].cleared); }
@@ -95,7 +121,7 @@ static struct {
   int32_t state, state_ticks, ticks, level, cursor;
   sim S, prev;
   cw_node scene, camera, sky, sun;
-  cw_action a_left, a_right, a_up, a_down, a_jump, a_brace, a_silk, a_start, a_back, a_pause, a_settings;
+  cw_action a_left, a_right, a_up, a_down, a_jump, a_brace, a_silk, a_start, a_back, a_pause, a_settings, a_hand_l, a_hand_r;
   bool stopmotion;
   int32_t locked_bumps;
   uint32_t state_hash;
@@ -103,9 +129,28 @@ static struct {
   int32_t result_ticks, new_best;
   int32_t medal; /* the last climb's medal: 0 gold, 1 silver, 2 bronze */
   int title_level;
+  int32_t ribbons; /* the last climb's ribbons: 1 all three flies, 2 a dry climb */
 } G;
 
-static int32_t input_mode, dbg_unlocked, dbg_cleared;
+/* the climb being recorded, for the ghost (render-only: the sim never reads it) */
+static ghost_track rec;
+static int32_t rec_hash, ghost_hash, ghost_n, ghost_shown, sw_no_ghost;
+static uint32_t track_hash(const ghost_track *g) { return cw_hash32(g->s, (size_t)g->n * 5, CW_HASH32_INIT); }
+static void rec_sample(const sim *S) {
+  if (rec.n >= GHOST_MAX) return;
+  float th = (wrap_pi(S->s.th) + 3.1415927f) / 6.2831853f, y = cw_clampf(S->s.y / 40.0f, 0, 1), r = cw_clampf(S->s.r, 0, 1);
+  uint16_t a = (uint16_t)cw_clampf(th * 65535.0f + 0.5f, 0, 65535), h = (uint16_t)(y * 65535.0f + 0.5f);
+  uint8_t *o = rec.s[rec.n++];
+  o[0] = (uint8_t)a, o[1] = (uint8_t)(a >> 8), o[2] = (uint8_t)h, o[3] = (uint8_t)(h >> 8), o[4] = (uint8_t)(r * 255.0f + 0.5f);
+}
+static void track_at(const ghost_track *g, int i, float *th, float *y, float *r) {
+  const uint8_t *o = g->s[i];
+  *th = (o[0] | o[1] << 8) / 65535.0f * 6.2831853f - 3.1415927f;
+  *y = (o[2] | o[3] << 8) / 65535.0f * 40.0f;
+  *r = o[4] / 255.0f;
+}
+
+static int32_t input_mode, dbg_unlocked, dbg_cleared, dbg_hands;
 /* P1's device, as the engine's prompts see it (cartwheel/prompt.h): it picks
  * the prompts and the touch controls. Asked once a frame in update (prompts
  * are presentation, never the fixed tick); input.mode publishes it (0 mouse,
@@ -272,6 +317,7 @@ static void load_world(int level, bool title) {
   world_build(G.scene, &LEVELS[level], title);
   G.level = level;
   sim_start(&G.S, &LEVELS[level], 0x51ed0u + (uint32_t)level);
+  G.S.hands = !title && SAVE.hands && !on_touch(); /* two hands: the pad's or keyboard's shoulders */
   if (title) G.S.s.y = 1.2f, G.S.s.th = 0.3f;
   G.prev = G.S;
 }
@@ -281,6 +327,10 @@ static void start_level(int level) {
   G.state = GS_PLAY;
   G.state_ticks = 0;
   G.new_best = 0;
+  rec.n = 0;
+  rec_sample(&G.S);
+  ghost_n = sw_no_ghost ? 0 : SAVE.ghost[level].n;
+  ghost_hash = (int32_t)track_hash(&SAVE.ghost[level]);
 }
 
 /* bind <action> <bindings>: replace an action's bindings (cartwheel/input.h
@@ -310,6 +360,25 @@ static int pending_level=-1;
  * sw old_hazards <0|1>: streams that only wander and the old bird (the hazard gate's control) */
 static int sw_old_hazards;
 static void cmd_study(int argc, const char **argv, cw_reply *r) {
+  if (argc >= 2 && !strcmp(argv[1], "silk")) { /* the web and the line, scripted (study.c) */
+    static study_silk_out o;
+    study_silk(&o);
+    const study_web *w[2] = { &o.web, &o.none };
+    cw_reply_raw(r, "{");
+    for (int i = 0; i < 2; i++)
+      cw_reply_printf(r, "\"%s\":{\"web_y\":%.3f,\"before\":%.3f,\"after\":%.3f,\"washed\":%d,\"web_left\":%d,\"caught\":%d,\"silk\":%d},", i ? "none" : "web",
+                      w[i]->web_y, w[i]->before, w[i]->after, w[i]->washed, w[i]->web_left, w[i]->caught, w[i]->silk);
+    cw_reply_printf(r, "\"line\":{\"started\":%d,\"anchor\":%.3f,\"lowest\":%.3f,\"back\":%.3f,\"swung\":%.3f,\"ticks\":%d,\"silk_spent\":%d,\"cling\":%d}}",
+                    o.line.started, o.line.anchor, o.line.lowest, o.line.back, o.line.swung, o.line.ticks, o.line.silk_spent, o.line.cling);
+    return;
+  }
+  if (argc >= 2 && !strcmp(argv[1], "hands")) { /* the climb by stick and by two hands (study.c) */
+    static int hh[4][3];
+    study_hands(hh);
+    cw_reply_printf(r, "{\"stick\":[%d,%d,%d],\"steady\":[%d,%d,%d],\"ragged\":[%d,%d,%d],\"one_hand\":[%d,%d,%d]}", hh[0][0], hh[0][1], hh[0][2], hh[1][0], hh[1][1], hh[1][2],
+                    hh[2][0], hh[2][1], hh[2][2], hh[3][0], hh[3][1], hh[3][2]);
+    return;
+  }
   int n = argc > 2 ? atoi(argv[2]) : 1;
   if (argc < 2 || strcmp(argv[1], "hazards") || n < 1 || n > LEVELS_BUILT) {
     cw_reply_error(r, "usage: study hazards <1..5>");
@@ -335,7 +404,9 @@ static void cmd_sw(int argc, const char **argv, cw_reply *r) {
   if (argc > 2 && !strcmp(argv[1], "old_hazards")) sw_old_hazards = atoi(argv[2]), sim_old_hazards(sw_old_hazards);
   if (argc > 2 && !strcmp(argv[1], "old_hud")) sw_old_hud = atoi(argv[2]);
   if (argc > 2 && !strcmp(argv[1], "hide_waves")) world_hide_waves = atoi(argv[2]) != 0;
-  cw_reply_printf(r, "{\"old_hazards\":%d,\"old_hud\":%d,\"hide_waves\":%d}", sw_old_hazards, sw_old_hud, (int)world_hide_waves);
+  if (argc > 2 && !strcmp(argv[1], "no_ghost")) sw_no_ghost = atoi(argv[2]);
+  if (argc > 2 && !strcmp(argv[1], "fresh") && atoi(argv[2])) save_reset(); /* a new player's save in memory (tests on a host that keeps saves) */
+  cw_reply_printf(r, "{\"old_hazards\":%d,\"old_hud\":%d,\"hide_waves\":%d,\"no_ghost\":%d}", sw_old_hazards, sw_old_hud, (int)world_hide_waves, sw_no_ghost);
 }
 static void cmd_level(int argc,const char **argv,cw_reply *r) {
   int n=argc>1?atoi(argv[1]):0;
@@ -402,6 +473,8 @@ static void init(void *u) {
   G.a_back = cw_action_find("back");
   G.a_pause = cw_action_find("pause");
   G.a_settings = cw_action_find("settings");
+  G.a_hand_l = cw_action_find("hand_l");
+  G.a_hand_r = cw_action_find("hand_r");
   touch_layout();
   audio_init();
   font_ui = cw_font_load("fonts/PatrickHand-Regular.ttf", NULL);
@@ -414,8 +487,8 @@ static void init(void *u) {
 
   G.stopmotion = true;
   cw_debug_command("level", "level <1..5>: inspect a playable level without changing unlocks",cmd_level);
-  cw_debug_command("study", "study hazards <1..5>: three climbers on three seeds, without drawing (the hazard gate)", cmd_study);
-  cw_debug_command("sw", "sw old_hazards|old_hud <0|1>: the old hazards or HUD back (the gates' controls)", cmd_sw);
+  cw_debug_command("study", "study hazards <1..5>: three climbers on three seeds, without drawing (the hazard gate); study silk: the web and the line, scripted", cmd_study);
+  cw_debug_command("sw", "sw old_hazards|old_hud|hide_waves|no_ghost <0|1>: the old hazards or HUD back, the wave fronts undrawn, no ghost kept or shown (the gates' controls); sw fresh 1: a new player's save in memory", cmd_sw);
   cw_debug_i32("hud.over_pipe", &hud_over_pipe);
   cw_debug_i32("hud.wave_near", &wave_near);
   cw_debug_i32("hud.samples", &hud_samples);
@@ -439,6 +512,17 @@ static void init(void *u) {
   cw_debug_i32("win.ticks", &G.result_ticks);
   cw_debug_i32("new_best", &G.new_best);
   cw_debug_i32("win.medal", &G.medal);
+  cw_debug_i32("win.ribbons", &G.ribbons);
+  cw_debug_i32("ghost.n", &ghost_n);
+  cw_debug_i32("ghost.hash", &ghost_hash);
+  cw_debug_i32("ghost.shown", &ghost_shown);
+  cw_debug_i32("rec.hash", &rec_hash);
+  cw_debug_i32("nets", &G.S.nets);
+  cw_debug_i32("nets.caught", &G.S.nets_caught);
+  cw_debug_i32("rappels", &G.S.rappels);
+  cw_debug_i32("pulls", &G.S.pulls);
+  cw_debug_i32("fumbles", &G.S.fumbles);
+  cw_debug_i32("save.hands", &dbg_hands);
   cw_debug_i32("save.unlocked", &dbg_unlocked);
   cw_debug_i32("save.cleared", &dbg_cleared);
   cw_debug_i32("select.locked_bumps", &G.locked_bumps);
@@ -490,6 +574,9 @@ static void play_events(void) {
   if (S->ev_bird) sfx(SFX_TWEET, 0.6f);
   if (S->ev_peck) sfx(SFX_PECK, 0.8f);
   if (S->ev_fly || S->ev_spool) sfx(SFX_DEW, 0.8f);
+  if (S->ev_rappel) sfx(SFX_ZIP, 0.45f);
+  if (S->ev_net) sfx(SFX_HOLD, 0.5f);
+  if (S->ev_net_catch) sfx(SFX_HOLD, 0.9f);
 }
 
 static void fixed(void *u, double dt) {
@@ -539,6 +626,11 @@ static void fixed(void *u, double dt) {
       }
     }
     if (pressed(G.a_back)) G.state = GS_TITLE, G.state_ticks = 0;
+    if (G.state_ticks > 10 && pressed(G.a_silk) && !on_touch()) { /* the climb: the stick, or two hands */
+      SAVE.hands = !SAVE.hands;
+      save_write();
+      sfx(SFX_SELECT, 0.6f);
+    }
     break;
   }
   case GS_PLAY: {
@@ -549,11 +641,14 @@ static void fixed(void *u, double dt) {
     in.jump = pressed(G.a_jump);
     in.brace = cw_action_pressed(0, G.a_brace);
     in.silk = pressed(G.a_silk);
+    in.hand_l = pressed(G.a_hand_l);
+    in.hand_r = pressed(G.a_hand_r);
 #ifdef SPOUT_AUTOPILOT
     in = autopilot(&G.S);
 #endif
     sim_step(&G.S, &in);
     play_events();
+    if (G.S.tick % GHOST_EVERY == 0) rec_sample(&G.S);
     wave_near = 0;
     for (int i = 0; i < 8 && !world_hide_waves; i++) {
       const wave *w = &G.S.waves[i];
@@ -563,7 +658,17 @@ static void fixed(void *u, double dt) {
       G.result_ticks = G.S.win_tick;
       int lv = G.level;
       G.medal = medal_of(lv, G.S.win_tick);
-      if (!SAVE.lv[lv].cleared || G.S.win_tick < SAVE.lv[lv].best_ticks) SAVE.lv[lv].best_ticks = G.S.win_tick, G.new_best = 1;
+      if (!SAVE.lv[lv].cleared || G.S.win_tick < SAVE.lv[lv].best_ticks) {
+        SAVE.lv[lv].best_ticks = G.S.win_tick, G.new_best = 1;
+        /* the ghost: this climb's track, whole (a climb over two minutes keeps none: it is not the best's) */
+        rec_sample(&G.S);
+        bool whole = G.S.win_tick / GHOST_EVERY < GHOST_MAX - 1;
+        if (!sw_no_ghost && whole) SAVE.ghost[lv] = rec;
+        else SAVE.ghost[lv].n = 0;
+      }
+      rec_hash = (int32_t)track_hash(&rec);
+      G.ribbons = (G.S.flies == MAX_FLIES ? 1 : 0) | (G.S.washes + G.S.knocks == 0 ? 2 : 0);
+      if (G.ribbons & 2) SAVE.dry |= (uint8_t)(1u << lv);
       SAVE.lv[lv].cleared = 1;
       if (G.S.dews > SAVE.lv[lv].dews) SAVE.lv[lv].dews = G.S.dews;
       if (G.S.flies > SAVE.lv[lv].flies) SAVE.lv[lv].flies = G.S.flies;
@@ -623,6 +728,7 @@ static void fixed(void *u, double dt) {
     break;
   }
   save_fields();
+  dbg_hands = SAVE.hands;
   G.state_hash = sim_hash(&G.S);
   G.spider_pos[0] = G.S.s.th, G.spider_pos[1] = G.S.s.y, G.spider_pos[2] = G.S.s.r;
 }
@@ -638,6 +744,28 @@ static void sync_hook(cw_tree *t, double alpha, void *u) {
   /* presentation time on the tick clock: every host draws the same frame */
   frame_t = (G.ticks + a) / 60.0f;
   world_sync(&G.prev, &G.S, a, frame_t, G.stopmotion);
+  { /* the best climb's ghost, on the climb's clock; at its end it has reached the gutter and goes */
+    const ghost_track *g = &SAVE.ghost[G.level];
+    float f = (G.prev.tick + a * (G.S.tick - G.prev.tick)) / (float)GHOST_EVERY;
+    int i = (int)f;
+    bool on = !sw_no_ghost && (G.state == GS_PLAY || G.state == GS_PAUSE) && g->n > 1 && i < g->n - 1;
+    float th = 0, y = 0, r = 0, t0 = 0, y0 = 0, r0 = 0, t1 = 0, y1 = 0, r1 = 0;
+    if (on) {
+      float k = f - i;
+      track_at(g, i, &t0, &y0, &r0);
+      track_at(g, i + 1, &t1, &y1, &r1);
+      th = t0 + wrap_pi(t1 - t0) * k, y = y0 + (y1 - y0) * k, r = r0 + (r1 - r0) * k;
+      /* on the spider's own path it would sit inside it: it shows only when it is a body length away */
+      float sth = G.prev.s.th + wrap_pi(G.S.s.th - G.prev.s.th) * a, sy = G.prev.s.y + (G.S.s.y - G.prev.s.y) * a;
+      float dx = wrap_pi(th - sth) * PIPE_R, dy = y - sy;
+      if (dx * dx + dy * dy < 0.3f * 0.3f) on = false;
+    }
+    ghost_shown = on || (g->n > 1 && i < g->n - 1 && !sw_no_ghost && (G.state == GS_PLAY || G.state == GS_PAUSE));
+    if (on) {
+      float face = cw_atan2(wrap_pi(t1 - t0) * PIPE_R, fmaxf(y1 - y0, 0.02f)); /* heading along its track, up the pipe */
+      world_ghost(true, th, y, r, face);
+    } else world_ghost(false, 0, 0, 0, 0);
+  }
   world_camera(G.camera, &G.prev, &G.S, a, frame_t, G.state == GS_TITLE || G.state == GS_SELECT);
 #ifdef SPOUT_AUTOPILOT
   { /* art captures: "dist dphi lift ahead" round the spout from the spider (radians, metres) */
@@ -909,6 +1037,13 @@ static void draw_meter(float W, float H, float s, float top) {
     float y = y0 + (y1 - y0) * S->L->checks[i] / S->L->height;
     cw_r2d_rect(cw_rect_make(x - 9 * s, y - 2 * s, 18 * s, 4 * s), i <= S->checkpoint ? rgba(0.3f, 0.6f, 0.3f, 1) : rgba(0.45f, 0.45f, 0.5f, 1));
   }
+  if (S->net_y >= 0) { /* the web, where it waits below: six silk spokes on the meter */
+    float wy = y0 + (y1 - y0) * cw_clampf(S->net_y / S->L->height, 0, 1);
+    for (int k = 0; k < 6; k++) {
+      float a = k * 1.0471976f;
+      cw_r2d_line(cw_v2(x - 8 * s * cw_cos(a), wy - 8 * s * cw_sin(a)), cw_v2(x + 8 * s * cw_cos(a), wy + 8 * s * cw_sin(a)), 2 * s, rgba(1, 1, 1, 0.95f));
+    }
+  }
   float y = y0 + (y1 - y0) * cw_clampf(S->s.y / S->L->height, 0, 1);
   cw_r2d_circle(cw_v2(x, y), 9 * s, 16, rgba(0.2f, 0.17f, 0.24f, 1));
   cw_r2d_circle(cw_v2(x - 3 * s, y - 2 * s), 3 * s, 10, rgba(1, 1, 1, 1));
@@ -1024,7 +1159,8 @@ static void draw_hud(float W, float H, float s) {
                CW_ALIGN_CENTER, sw_old_hud ? W - 32 * s : bw);
   if (on_touch()) draw_touch();
   else if (G.state_ticks < 600) {
-    const char *h = "{left|right|up|down} climb   {jump} jump   {brace} hold   {silk} silk up";
+    const char *h = G.S.hands ? "{hand_l} then {hand_r}, in turn: climb   {left|right|down} walk round, down   {jump} jump   {brace} hold   {silk} silk up   {down} + {silk} line down   {brace} + {silk} web"
+                              : "{left|right|up|down} climb   {jump} jump   {brace} hold   {silk} silk up   {down} + {silk} line down   {brace} + {silk} web";
     float hw, hh = ptext_block(h, 0, 0, 22 * s, rgba(0, 0, 0, 1), W - 120 * s, false, &hw);
     float bh = hh + 18 * s, y = H - 14 * s - bh;
     torn(cw_rect_make(W * 0.5f - (hw + 40 * s) * 0.5f, y, hw + 40 * s, bh), rgba(1, 0.98f, 0.92f, 0.85f), 8);
@@ -1052,7 +1188,10 @@ static void draw_title(float W, float H, float s) {
 
 /* the spout select's layout, from the size its words draw at (the pointer's
  * tiles in the fixed tick and the drawing share it) */
-static const char *select_hint(void) { return glyphs() ? "{left|right} choose,   {jump} to climb" : on_touch() ? "tap a spout" : "click a spout to climb"; }
+static const char *select_hint(void) {
+  if (!glyphs()) return on_touch() ? "tap a spout" : "click a spout to climb";
+  return SAVE.hands ? "{left|right} choose,   {jump} to climb,   {silk} climb: two hands" : "{left|right} choose,   {jump} to climb,   {silk} climb: the stick";
+}
 static select_geo select_layout(float W, float H, float s) {
   select_geo g;
   g.tw = W / 6.2f, g.gap = (W - g.tw * SP_LEVELS) / (SP_LEVELS + 1), g.wrap = W - 32 * s;
@@ -1096,6 +1235,9 @@ static void draw_select(float W, float H, float s) {
       snprintf(b, sizeof b, "best %d:%02d", t / 60, t % 60);
       int m = medal_of(i, SAVE.lv[i].best_ticks);
       paper_medal(x + tw - 18 * s, y + lift + 18 * s, 11 * s, m, 1);
+      int rk = 0;
+      if (SAVE.lv[i].flies >= MAX_FLIES) paper_ribbon(x + 16 * s + rk++ * 20 * s, y + lift + 16 * s, 7 * s, 0, 1);
+      if (SAVE.dry >> i & 1) paper_ribbon(x + 16 * s + rk++ * 20 * s, y + lift + 16 * s, 7 * s, 1, 1);
       text(b, x + 4 * s, y + lift + g.stat_y, 19 * s, rgba(0.15f, 0.4f, 0.15f, 1), CW_ALIGN_CENTER, tw - 8 * s);
     }
   }
@@ -1200,15 +1342,28 @@ static void paper_medal(float cx, float cy, float r, int m, float a) {
   cw_r2d_circle_lines(cw_v2(cx, cy), r * 0.72f, r * 0.12f, 24, rgba(1, 1, 1, 0.5f * a));
 }
 
+/* a paper ribbon: a rosette and two tails, blue for every fly, green for a dry climb */
+static void paper_ribbon(float cx, float cy, float r, int kind, float a) {
+  cw_color c = kind ? rgba(0.35f, 0.7f, 0.4f, a) : rgba(0.3f, 0.5f, 0.9f, a);
+  cw_vec2 tl[3] = { cw_v2(cx - r * 0.5f, cy), cw_v2(cx - r * 0.85f, cy + r * 1.9f), cw_v2(cx - r * 0.1f, cy + r * 1.5f) };
+  cw_vec2 tr[3] = { cw_v2(cx + r * 0.5f, cy), cw_v2(cx + r * 0.1f, cy + r * 1.5f), cw_v2(cx + r * 0.85f, cy + r * 1.9f) };
+  cw_r2d_fan(cw_v2(cx - r * 0.45f, cy + r), tl, 3, true, c);
+  cw_r2d_fan(cw_v2(cx + r * 0.45f, cy + r), tr, 3, true, c);
+  cw_r2d_circle(cw_v2(cx + 1.5f, cy + 2), r, 20, rgba(0.2f, 0.15f, 0.1f, 0.3f * a));
+  cw_r2d_circle(cw_v2(cx, cy), r, 20, c);
+  cw_r2d_circle(cw_v2(cx, cy), r * 0.55f, 16, rgba(1, 0.98f, 0.92f, 0.9f * a));
+}
+
 static void draw_win(float W, float H, float s) {
   const sim *S = &G.S;
   float in = cw_clampf(G.state_ticks / 20.0f, 0, 1);
-  char b[160];
+  char b[224];
   int t = S->win_tick / 60;
   int m = medal_of(G.level, S->win_tick);
-  snprintf(b, sizeof b, "time %d:%02d%s\n%s medal (gold at %d:%02d)\ndewdrops %d of %d, flies %d of 3\nwashed down %d, held on %d", t / 60, t % 60,
+  const char *rib = G.ribbons == 3 ? "\nribbons: every fly, a dry climb" : G.ribbons == 1 ? "\nribbon: every fly" : G.ribbons == 2 ? "\nribbon: a dry climb" : "";
+  snprintf(b, sizeof b, "time %d:%02d%s\n%s medal (gold at %d:%02d)\ndewdrops %d of %d, flies %d of 3\nwashed down %d, held on %d%s", t / 60, t % 60,
            G.new_best ? "  (best!)" : "", MEDAL[m], PAR_SECS[G.level % SP_LEVELS] / 60, PAR_SECS[G.level % SP_LEVELS] % 60, S->dews, S->L->n_dews, S->flies,
-           S->washes + S->knocks, S->braced_waves);
+           S->washes + S->knocks, S->braced_waves, rib);
   float th = title_h("to the top!", 52 * s, 0);
   cw_vec2 bb = text_box(b, 26 * s, W - 48 * s);
   float gw, gh = ptext_block(prompt_go(), 0, 0, 22 * s, rgba(0, 0, 0, 1), W - 48 * s, false, &gw);
@@ -1218,6 +1373,8 @@ static void draw_win(float W, float H, float s) {
   torn(cw_rect_make(W * 0.5f - w * 0.5f, y, w, h), rgba(1, 0.97f, 0.88f, 0.97f * in), 13);
   title_text("to the top!", 0, y + 10 * s, 52 * s, rgba(0.95f, 0.55f, 0.3f, in), CW_ALIGN_CENTER, W);
   paper_medal(W * 0.5f + w * 0.5f - 34 * s, y + 10 * s + th * 0.5f, 22 * s, m, in);
+  for (int k = 0, n = 0; k < 2; k++)
+    if (G.ribbons >> k & 1) paper_ribbon(W * 0.5f - w * 0.5f + 34 * s + n++ * 40 * s, y + 10 * s + th * 0.5f - 8 * s, 13 * s, k, in);
   text(b, 24 * s, y + 10 * s + th + 12 * s, 26 * s, rgba(0.25f, 0.2f, 0.15f, in), CW_ALIGN_CENTER, W - 48 * s);
   ptext_block(prompt_go(), 24 * s, y + h - 18 * s - gh, 22 * s, rgba(0.4f, 0.3f, 0.2f, in), W - 48 * s, true, NULL);
 }
