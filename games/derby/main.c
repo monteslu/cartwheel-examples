@@ -46,6 +46,8 @@
 #include "cartwheel/resource.h"
 #include "study.h"
 #include "world.h"
+#include "replay.h"
+#include "debris.h"
 
 void fx_set_colours(const int colours[MAXC]);
 
@@ -111,6 +113,10 @@ static struct {
   int32_t duel_tick;            /* the bout tick the last two were left (0: not yet) */
   int32_t rumbles;              /* pad rumbles asked for this bout */
   int beat, beat_cool;          /* ticks left in the beat; ticks until another may start */
+  int32_t replay_f;             /* the results' replay of the biggest hit: its frame (-1 none, past the end: the table) */
+  int32_t replay_k;             /* that hit, tonne m/s x 100 (debug) */
+  int32_t table_t0;             /* state_ticks the results table came in */
+  int32_t mud[MAXC];            /* each car's mud, percent (debug cars.mud) */
   bool duel;                    /* the last two: the camera eases back, the crowd and the music rise */
   float duel_k, swell;          /* 0..1: the duel's camera ease; the crowd's swell */
   bool gassed[4];               /* the player has given it gas since the flag dropped */
@@ -426,6 +432,8 @@ static cw_node find_type(cw_node n, const char *type) {
 
 static void load_scene(int index) {
   cw_tree *t = cw_scene_app_tree();
+  replay_reset();
+  debris_reset();
   fx_reset();
   scenery_reset();
   world_reset();
@@ -866,6 +874,11 @@ static void init(void *u) {
   cw_debug_i32("count.walls", &G.walls);
   cw_debug_i32("count.wrecks", &G.wrecks);
   cw_debug_i32("count.max_hit", &G.max_hit);
+  cw_debug_i32("replay.frame", &G.replay_f);
+  cw_debug_i32("replay.k", &G.replay_k);
+  cw_debug_i32("debris.count", &debris_count_dbg);
+  cw_debug_i32("debris.float_mm", &debris_float_dbg);
+  cw_debug_field("cars.mud", G.mud, CW_DBG_I32, MAXC);
   cw_debug_i32("count.flips", &G.flips);
   cw_debug_f32("car0.wheel_yaw", &G.wheel_yaw0);
   cw_debug_f32("car0.yaw_rate", &G.yaw_rate0);
@@ -1080,6 +1093,16 @@ static void rig_tick(int v) {
     at = (t3_vec3){ 0, 0.8f, 0 };
     eye = (t3_vec3){ 17 * cw_sin(a), 3.6f + 1.2f * cw_sin(a * 0.7f), 21 * cw_cos(a) };
     k_eye = k_at = 0.04f;
+  } else if (G.state == GS_RESULTS && G.replay_f >= 0 && G.replay_f < replay_frames()) {
+    /* the replay: a slow walk round the hit, low, from the side the first car came from */
+    const replay_hit *h = replay_the_hit();
+    float a = (float)G.replay_f * 0.003f + v * 1.5707963f + 0.7f;
+    at = (t3_vec3){ h->at.x, 0.9f, h->at.z };
+    eye = (t3_vec3){ h->at.x + 8.5f * cw_sin(a), 2.4f, h->at.z + 8.5f * cw_cos(a) };
+    float over = pile_top(eye, h->a);
+    if (over >= 0) eye.y = over + 2.2f;
+    if (G.replay_f == 0) r->snap = true;
+    k_eye = k_at = 0.2f;
   } else if (G.state == GS_RESULTS) {
     int w = s->winner >= 0 ? s->winner : 0;
     const car *c = &s->c[w];
@@ -1118,6 +1141,16 @@ static void rig_tick(int v) {
     if (ca) cam_a = (float)atof(ca);
     if (cd) cam_d = (float)atof(cd);
     if (ch) cam_h = (float)atof(ch);
+  }
+  { /* dev aid: DERBY_CAM_DEBRIS=1, a low look at the newest part lying on the dirt (the grounding sheet) */
+    static int cam_deb = -1;
+    if (cam_deb < 0) cam_deb = getenv("DERBY_CAM_DEBRIS") != NULL;
+    t3_vec3 d;
+    if (cam_deb && v == 0 && debris_resting(&d)) {
+      at = (t3_vec3){ d.x, d.y, d.z };
+      eye = (t3_vec3){ d.x + 2.6f, 1.1f, d.z + 2.6f };
+      r->snap = true;
+    }
   }
   if (cam_car >= 0 && v == 0) {
     const car *c = &s->c[cam_car];
@@ -1338,6 +1371,7 @@ static void fixed(void *u, double dt) {
 #endif
       }
       sim_step(&G.S, in);
+      replay_record(&G.S);
       for (int i = 0; i < MAXC; i++)
         if (G.human_of[i] >= 0 && G.human_of[i] < 4) {
           int h = G.human_of[i];
@@ -1360,6 +1394,10 @@ static void fixed(void *u, double dt) {
     if (G.S.phase == PH_OVER && G.S.phase_ticks > 200) {
       G.state = GS_RESULTS;
       G.state_ticks = 0;
+      replay_finish();
+      G.replay_f = replay_have() ? 0 : -1;
+      G.replay_k = replay_have() ? (int32_t)(replay_the_hit()->k * 100) : 0;
+      G.table_t0 = replay_have() ? 1 << 30 : 0;
       SAVE.bouts++;
       int me = focus_car();
       if (me >= 0 && G.S.winner == me) SAVE.wins++;
@@ -1399,7 +1437,9 @@ static void fixed(void *u, double dt) {
     break;
   }
   case GS_RESULTS:
-    if (G.state_ticks > 120 && (confirm || mouse_clicked)) enter_title();
+    if (G.replay_f >= 0 && G.replay_f < replay_frames()) { /* the replay: a press skips to the table */
+      if (G.state_ticks > 20 && (confirm || mouse_clicked)) G.replay_f = replay_frames();
+    } else if (G.state_ticks - G.table_t0 > 120 && (confirm || mouse_clicked)) enter_title();
     break;
   default: break;
   }
@@ -1410,7 +1450,21 @@ static void fixed(void *u, double dt) {
   }
   if (G.state != GS_PAUSE) {
     if (G.state == GS_RESULTS || G.state == GS_TITLE) G.S.ev_n = 0;
-    world_tick(&G.S);
+    if (G.state == GS_RESULTS && G.replay_f >= 0 && G.replay_f < replay_frames()) { /* the replay poses the cars */
+      replay_pose(G.replay_f);
+      fx_slow(replay_slow(G.replay_f));
+      if (G.replay_f == 60) { /* the hit itself: its sparks, chips and dust ring again, and its crunch */
+        static sim hit;
+        const replay_hit *h = replay_the_hit();
+        hit.ev_n = 1;
+        hit.ev[0] = (struct sim_event){ EV_CRASH, h->a, h->b, h->at, h->k };
+        fx_events(&hit);
+        sfx_at(SFX_CRUNCH_BIG, h->at, 1, 0.8f);
+        sfx(SFX_CHEER, 0.7f);
+      }
+      if (++G.replay_f >= replay_frames()) { G.table_t0 = G.state_ticks; fx_slow(false); }
+    } else world_tick(&G.S);
+    debris_tick(&G.S);
     fx_tick(&G.S);
     scenery_tick(&G.S, G.ticks, G.state == GS_RESULTS && G.state_ticks < 90);
   }
@@ -1438,6 +1492,7 @@ static void fixed(void *u, double dt) {
     G.wrecked[i] = c->wrecked;
     G.slots[i] = G.slot[i];
     G.points[i] = c->points;
+    G.mud[i] = (int32_t)(world_mud(i) * 100);
   }
   {
     const car *c0 = &s->c[0];
@@ -2127,7 +2182,18 @@ static void draw_hud(float W, float H, float s) {
 static void draw_results(float W, float H, float s) {
   const sim *S = &G.S;
   char buf[96];
-  float in = cw_clampf(G.state_ticks / 20.0f, 0, 1);
+  if (G.replay_f >= 0 && G.replay_f < replay_frames()) { /* the replay's caption: whose hit, and how big */
+    const replay_hit *h = replay_the_hit();
+    float a = cw_clampf(G.state_ticks / 20.0f, 0, 1);
+    hazard(cw_rect_make(0, H * 0.04f, W, 9 * s), a);
+    stencil("BIGGEST HIT", 0, H * 0.07f, 48 * s, rgba(0.84f, 0.56f, 0.24f, a), CW_ALIGN_CENTER, W);
+    snprintf(buf, sizeof buf, "#%d %s INTO #%d %s", G.look[h->a].number, driver(h->a), G.look[h->b].number, driver(h->b));
+    text(buf, 0, H * 0.07f + tsz(font_title, 48 * s) + 8 * s, 20 * s, rgba(1, 0.95f, 0.85f, a), CW_ALIGN_CENTER, W);
+    small("REPLAY", 0, H - 40 * s, 16 * s, rgba(1, 0.95f, 0.85f, 0.6f + 0.4f * a), CW_ALIGN_RIGHT, W - 20 * s);
+    if (G.state_ticks > 20) prompt_bottom(glyphs() ? "{m_ok} skip" : on_touch() ? "tap to skip" : "click to skip", W, H - 8 * s, 16 * s);
+    return;
+  }
+  float in = cw_clampf((G.state_ticks - G.table_t0) / 20.0f, 0, 1);
   int me = focus_car();
   bool won = me >= 0 && S->winner == me;
   const char *head = won ? "YOU WON THE BOUT!" : "RESULTS";
@@ -2182,7 +2248,7 @@ static void draw_results(float W, float H, float s) {
       text(buf, cx + k * colw, ty, 18 * s, rgba(1, 0.95f, 0.85f, in), CW_ALIGN_CENTER, colw);
     }
   }
-  if (G.state_ticks > 120) prompt_bottom(prompt(), W, H - 8 * s, 16 * s);
+  if (G.state_ticks - G.table_t0 > 120) prompt_bottom(prompt(), W, H - 8 * s, 16 * s);
 }
 
 /* the pause screen: RESUME, GRAPHICS (the graphics page, cartwheel/quality_menu.h;

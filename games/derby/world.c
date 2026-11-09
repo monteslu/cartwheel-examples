@@ -25,6 +25,7 @@ static struct {
   cw_node root;
   car_model car[MAXC];
   cw_node car_node[MAXC];
+  float mud_m[MAXC]; /* metres driven this bout (the mud's measure) */
   bool on[MAXC];
   int ticks;
   /* skid marks: a ring of quads on the floor */
@@ -539,6 +540,23 @@ void world_contact_shadows(const sim *s) {
 
 t3_vec3 world_car_pos(int i) { return W.ready ? cw_node3d_position(W.car_node[i]) : (t3_vec3){ 0, 0, 0 }; }
 
+/* a car drawn where a replay says it was (replay.c): its pose, wheels, bumpers and lamps, not its dents */
+void world_pose_car(int i, const car *c) {
+  if (!W.ready || i < 0 || i >= MAXC || !c->on) return;
+  cw_node n = W.car_node[i];
+  t3_vec3 was = cw_node3d_position(n);
+  float dx = c->x - was.x, dz = c->z - was.z;
+  cw_node3d_snapshot(n);
+  cw_node3d_set_position(n, (t3_vec3){ c->x, c->y, c->z });
+  cw_node3d_set_quaternion(n, c->q);
+  if (dx * dx + dz * dz > 16) cw_node3d_snapshot(n);
+  car_pose(&W.car[i], c, W.ticks);
+}
+
+car_model *world_model(int i) { return &W.car[i]; }
+float world_mud(int i) { return W.car[i].mud; }
+cw_node world_hang(const char *name, t3_object *obj) { return hang(W.root, name, obj); }
+
 void world_tick(const sim *s) {
   if (!W.ready) return;
   W.ticks++;
@@ -556,6 +574,14 @@ void world_tick(const sim *s) {
     car_apply_dents(&W.car[i], c);
     body_decals_tick(i, c);
     car_pose(&W.car[i], c, W.ticks);
+    /* mud builds up with the metres driven, faster in a slide (full after about 300 m: under a minute of hard driving) */
+    if (s->phase == PH_GO && !c->wrecked) {
+      float sp = sqrtf(c->vx * c->vx + c->vz * c->vz);
+      W.mud_m[i] += (sp + 0.6f * (c->slip_f + c->slip_r)) / TICK_HZ;
+      static int no_mud = -1; /* DERBY_NO_MUD: the cars stay as they started (the before of the mud sheet) */
+      if (no_mud < 0) no_mud = getenv("DERBY_NO_MUD") != NULL;
+      if (!no_mud) car_mud(&W.car[i], W.mud_m[i] / 300.0f);
+    }
   }
   skids_tick(s);
 }

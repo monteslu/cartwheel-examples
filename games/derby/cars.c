@@ -1396,7 +1396,7 @@ static void dents_catch_up(car_model *m, int lod) {
     jobs[nj++] = (dent_job){ &m->glass[lod], m->cur, chg, m->ncur, nchg, k, o, false };
   } else {
     jobs[nj++] = (dent_job){ &m->trim, m->cur, chg, m->ncur, nchg, k, o, false };
-    jobs[nj++] = (dent_job){ &m->lid, m->cur, chg, m->ncur, nchg, k, m->lid_origin, true };
+    if (!m->lid_off) jobs[nj++] = (dent_job){ &m->lid, m->cur, chg, m->ncur, nchg, k, m->lid_origin, true };
     jobs[nj++] = (dent_job){ &m->numbers, m->cur, chg, m->ncur, nchg, k, o, false };
     jobs[nj++] = (dent_job){ &m->screen, m->cur, chg, m->ncur, nchg, k, o, false };
   }
@@ -1437,10 +1437,12 @@ void car_set_trimmed(car_model *m, bool trimmed) {
   m->trimmed = trimmed;
 }
 
+static void mud_level(car_model *m, int lod, float to);
 void car_set_lod(car_model *m, int lod) {
   if (m->lod == lod) return;
   m->lod = lod;
   dents_catch_up(m, lod); /* the dents it missed while another level was drawn */
+  mud_level(m, lod, m->mud);  /* and the mud */
   for (int l = 0; l < 3; l++) {
     if (m->bodies[l]) m->bodies[l]->visible = l == lod;
     for (int w = 0; w < 4; w++)
@@ -1502,4 +1504,58 @@ void car_pose(car_model *m, const car *c, int ticks) {
   m->tail_mat->emissive_intensity = lit ? 1.5f : 0;
   m->beams_on = lit;
   m->beams->visible = lit && !m->trimmed;
+}
+
+/* ── mud ────────────────────────────────────────────────────────────
+ * Dirt builds up on a car as it drives the bowl: from the sills up, in
+ * blotches, darker and higher the longer it runs (level 0..1). Each step of
+ * the level blends the colours toward wet dirt where the new level reaches,
+ * bare steel and rust included (and the paint, so a later dent repaints
+ * from the muddied paint). */
+static float mud_at(float x, float y, float z, float level, uint32_t seed) {
+  float top = 0.35f + 0.85f * level; /* metres: the splash line climbs */
+  float h = cw_clampf((top - y) * 2.6f, 0, 1);
+  float blot = cw_clampf(vn(x * 6.5f + z * 5.5f, y * 9.0f, seed + 41) * 2.2f - 0.45f + level * 0.9f, 0, 1);
+  return h * blot * (0.55f + 0.4f * level);
+}
+static void mud_shell(car_shell *sh, t3_vec3 o, float from, float to, uint32_t seed) {
+  if (!sh->geo || !sh->paint) return;
+  t3_attribute *C = sh->geo->attributes[T3_ATTR_COLOR];
+  if (!C) return;
+  float *col = C->array;
+  t3_color mc = lin(0.19f, 0.14f, 0.095f);
+  int lo = sh->nv, hi = -1;
+  for (int v = 0; v < sh->nv; v++) {
+    float x = sh->rest[v * 3] + o.x, y = sh->rest[v * 3 + 1] + o.y, z = sh->rest[v * 3 + 2] + o.z;
+    float a0 = mud_at(x, y, z, from, seed), a1 = mud_at(x, y, z, to, seed);
+    if (a1 <= a0 + 1e-4f) continue;
+    float t = (a1 - a0) / (1 - a0 + 1e-4f); /* one lerp toward the mud from where the last step left it */
+    float *p = &sh->paint[v * 3], *c = &col[v * 3];
+    for (int i = 0; i < 3; i++) { /* the paint (later dents repaint from it) and what is drawn now, bare steel too */
+      p[i] += ((&mc.r)[i] - p[i]) * t;
+      c[i] += ((&mc.r)[i] - c[i]) * t;
+    }
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  if (hi < 0) return;
+  C->version++;
+  t3_attribute_add_update_range(C, lo, hi - lo + 1);
+}
+static void mud_level(car_model *m, int lod, float to) {
+  float from = m->mud_shown[lod];
+  if (to <= from) return;
+  uint32_t seed = (uint32_t)m->number * 131u + (uint32_t)m->colour * 7u;
+  t3_vec3 o = { 0, 0, 0 };
+  if (lod < 3)
+    for (int i = 0; i < 3; i++) mud_shell(&m->shell[lod][i], o, from, to, seed);
+  else if (!m->lid_off) mud_shell(&m->lid, m->lid_origin, from, to, seed);
+  m->mud_shown[lod] = to;
+}
+void car_mud(car_model *m, float level) {
+  level = cw_clampf(level, 0, 1);
+  if (level < m->mud + 0.04f) return; /* in steps: a step rewrites the colours of the lower body */
+  m->mud = level;
+  mud_level(m, m->lod, level);
+  mud_level(m, 3, level);
 }

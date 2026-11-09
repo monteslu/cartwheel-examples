@@ -62,11 +62,14 @@ typedef struct car_model {
   dent cur[MAX_DENTS], seen[4][MAX_DENTS];
   int ncur, nseen[4];
   float bumper_a[2], bumper_v[2], hood_a, hood_v;
+  bool lid_off;             /* the bonnet came off (debris.c): its lid no longer takes the car's dents */
+  float mud, mud_shown[4];  /* mud built up 0..1 (car_mud), and what each level of detail (3: the shared pieces) shows */
 } car_model;
 void car_build(car_model *m, int kind, int colour, int number);
 void car_free(car_model *m);
 void car_apply_dents(car_model *m, const car *c);   /* when the sim's dents change */
 void car_pose(car_model *m, const car *c, int ticks); /* fixed tick: wheels, lean, bumpers, bonnet, lamps */
+void car_mud(car_model *m, float level);            /* mud built up, 0..1 (rises in steps) */
 void car_set_lod(car_model *m, int lod);            /* 0 full, 1 light, 2 silhouette */
 void car_set_trimmed(car_model *m, bool trimmed);   /* level 0 without the parts a small view cannot show */
 float car_wheel_yaw(const car *c, int w);           /* the front wheels' drawn angle (+: toward +x, the car's left) */
@@ -104,6 +107,10 @@ void world_build(cw_node scene, const sim *s, int theme, const car_look looks[MA
 void world_prebuild_car(int i, int kind, const car_look *look);
 void world_reset(void);
 void world_tick(const sim *s);      /* fixed tick */
+car_model *world_model(int i);
+float world_mud(int i);             /* car i's mud, 0..1 */      /* car i's model (debris.c) */
+cw_node world_hang(const char *name, t3_object *obj); /* a node in the world for a free object (debris.c) */
+void world_pose_car(int i, const car *c); /* a replay's pose for car i (replay.c) */
 void world_contact_shadows(const sim *s); /* each frame: blobs under the cars on Minimal and Low shadows */
 /* each car's detail from a camera whose view is k of the screen's height;
  * a split view (k < 1) draws every car but the one it follows (own: -1 none)
