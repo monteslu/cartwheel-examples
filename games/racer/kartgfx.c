@@ -291,7 +291,13 @@ static struct {
   int32_t sunk_s[MAXK], sunk_ev[MAXK * 8]; /* where, and per wheel the gap and what it stands on (-1 nothing) */
   int32_t ev[MAXK * GC_N * 16]; /* at each max: per wheel the gap (mm), what the physics wheel stands on (sim_body_kind), its
                                  * compression (mm), the drawn tyre against the physics contact (mm) */
+  /* runs of frames drawn a little above the road (HOVER_LO to HOVER_HI mm, not a drawn flip, hop or trick): what reads
+   * as hovering from the race camera when it lasts longer than a hop that low can */
+  int32_t run[MAXK], run_peak[MAXK];               /* the run now: frames, its highest gap */
+  int32_t run_max[MAXK], run_max_peak[MAXK], run_s[MAXK], run_tick[MAXK]; /* the longest run: frames, peak mm, where, when */
 } GP;
+#define HOVER_LO 30
+#define HOVER_HI 250
 
 /* `kshadow <kart> <0|1>`: that kart's shadow off and back on (tests/racer-grounded.mjs draws the same paused frame both
  * ways: what goes darker is the shadow it throws on the road) */
@@ -338,6 +344,10 @@ void kartgfx_debug_init(void) {
   cw_debug_field("gap.sunk_s", GP.sunk_s, CW_DBG_I32, MAXK);
   cw_debug_field("gap.sunk_ev", GP.sunk_ev, CW_DBG_I32, MAXK * 8);
   cw_debug_field("gap.ev", GP.ev, CW_DBG_I32, MAXK * GC_N * 16);
+  cw_debug_field("gap.run_max", GP.run_max, CW_DBG_I32, MAXK);      /* per kart: the longest run of frames 30-250 mm above the road */
+  cw_debug_field("gap.run_peak", GP.run_max_peak, CW_DBG_I32, MAXK);
+  cw_debug_field("gap.run_s", GP.run_s, CW_DBG_I32, MAXK);
+  cw_debug_field("gap.run_tick", GP.run_tick, CW_DBG_I32, MAXK);
   cw_debug_command("gap", "gap [reset]: the drawn tyres' gap to the road (karts.gap_mm, gap.*); reset clears the counts", cmd_gap);
   cw_debug_command("kshadow", "kshadow <kart> <0|1>: that kart throws no shadow (0) or its own again (1)", cmd_kshadow);
 }
@@ -413,8 +423,13 @@ static void ground_probe(const sim *s, int i, const kart_rig *r, float alpha) {
     }
     cw_node_set(cd, "visible", cw_val_bool(fade > 0));
   }
-  if (s->phase != PH_RACE || best > 1e8f || k->respawn_ticks > 0) return;
+  if (s->phase != PH_RACE || best > 1e8f || k->respawn_ticks > 0) { GP.run[i] = GP.run_peak[i] = 0; return; }
   GP.frames[i]++;
+  if (!anim && GP.gap[i] > HOVER_LO && GP.gap[i] < HOVER_HI) {
+    GP.run[i]++;
+    if (GP.gap[i] > GP.run_peak[i]) GP.run_peak[i] = GP.gap[i];
+    if (GP.run[i] > GP.run_max[i]) GP.run_max[i] = GP.run[i], GP.run_max_peak[i] = GP.run_peak[i], GP.run_s[i] = (int32_t)k->loc.ms, GP.run_tick[i] = s->tick;
+  } else GP.run[i] = GP.run_peak[i] = 0;
   if (GP.gap[i] > GAP_TOL_MM) {
     int c = anim ? GC_ANIM : on_road == 4 ? GC_ALL : on_road > 0 ? GC_SOME : s->battle || !near_jump(s->track, k->loc.i) ? GC_AIR : GC_JUMP;
     int x = i * GC_N + c;

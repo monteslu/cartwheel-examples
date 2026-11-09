@@ -13,11 +13,10 @@
 //           not hovering (its wheels hang off the road in the physics too): they are counted apart and printed.
 //           Control: sw wheel_lag 1 (the wheels drawn from the vehicle controller's casts, a tick behind the drawn
 //           chassis, as they were) must put a kart more than GAP_MAX_MM above the road with its wheels on it.
-//   hover   One lap of every map, the player's kart watched frame by frame from the race camera (karts.gap_mm every second
-//           frame): a run of frames with the kart drawn a little above the road (HOVER_LO to HOVER_HI mm: not on it, not a
-//           jump's flight) is a hover when it lasts longer than a hop over that height can (HOVER_MAX frames: a kart
-//           thrown 25 cm up is back down in under half a second). The race camera's frame at the longest run is kept to
-//           look at, and frames every 15 s of the lap at Very Low and High.
+//   hover   One lap of every map, the cart counting every frame each kart is drawn a little above the road (gap.run_*:
+//           HOVER_LO to HOVER_HI mm, not a drawn flip, hop or trick): a run of such frames is a hover when it lasts longer
+//           than a hop that low can (HOVER_MAX frames: a kart thrown 25 cm up is back down in under half a second).
+//           Frames from the race camera every 15 s of the lap at Very Low and High are kept to look at.
 //   float   Every static prop in the map and in the battle arenas (floatcheck: each one's lowest points dropped onto what
 //           is under it, the terrain, the road or another prop): none within 25 m of the road stands a little (50 to 600
 //           mm) above what is under it. Bigger gaps are parts held up by other parts (a pump's beam on its frame, a sign
@@ -176,28 +175,23 @@ async function lap(map, pre) {
   for (let i = 0; i < 8; i++) if (fr[i]) k.push({ kart: i, frames: fr[i], ...Object.fromEntries(CLASSES.map((c, j) => [c, { n: n[i * 5 + j], max: mx[i * 5 + j], at: at[i * 5 + j] }])) });
   return { done: phase === 3, karts: k };
 }
-/** one lap from the race camera, the player's drawn gap every second frame: the longest run a little above the road */
+/** one lap with the cart counting runs of frames each kart is drawn a little above the road (gap.run_*); frames from
+ * the race camera every 15 s, at Very Low and High */
 async function hover(backend, map) {
   await race(map, '');
-  let phase = 2, run = 0, runMax = 0, runAt = 0, runGap = 0, runPeak = 0, runs = 0, frames = 0;
-  const keep = join(OUT, `${backend}-m${map}-hover.png`);
-  rmSync(keep, { force: true });
-  for (let f = 0; phase !== 3 && f < 60 * 240; f += 2) {
-    await step(2);
-    if (f % 900 === 0) for (const q of ['verylow', 'high']) {
+  await cmd('gap reset');
+  let phase = 2;
+  for (let f = 0; phase !== 3 && f < 60 * 240; f += 120) {
+    if (f % 900 === 0 && f <= 2700) for (const q of ['verylow', 'high']) {
       await cmd(`quality ${q}`); await step(2);
       await tool('frame', { op: 'stepAndShot', frames: 1, path: join(OUT, `${backend}-m${map}-lap${f / 60}-${q}.png`) });
     }
-    if (f % 900 === 0) await cmd('quality high');
-    const g = +(await rd('karts.gap_mm'))[0];
-    frames++;
-    if (g > HOVER_LO && g < HOVER_HI) {
-      run += 2, runPeak = Math.max(runPeak, g);
-      if (run > runMax) { runMax = run, runGap = runPeak, runAt = f; if (run >= 12) { await tool('frame', { op: 'stepAndShot', frames: 1, path: keep }); } }
-    } else { if (run >= 12) runs++; run = 0, runPeak = 0; }
-    if (f % 120 === 0) phase = +(await rd('race.phase'));
+    await step(120);
+    phase = +(await rd('race.phase'));
   }
-  return { done: phase === 3, frames, runMax, runGap, runAt, runs };
+  const run = (await rd('gap.run_max')).map(Number), peak = (await rd('gap.run_peak')).map(Number), at = (await rd('gap.run_s')).map(Number);
+  const w = run.reduce((m, v, i) => (v > run[m] ? i : m), 0);
+  return { done: phase === 3, player: { run: run[0], peak: peak[0], at: at[0] }, worst: { kart: w, run: run[w], peak: peak[w], at: at[w] } };
 }
 /** floatcheck on the map now up; each hovering group looked at from 6 m off, level with it */
 async function floats(backend, tag) {
@@ -238,8 +232,8 @@ for (const backend of BACKENDS) {
   }
   for (const map of LEGS.includes('hover') ? MAPS : []) {
     const h = await hover(backend, map);
-    check(`map ${map}: the player's kart never hovers a little above the road from the race camera`, h.done && h.runMax <= HOVER_MAX,
-      `${h.frames} frames watched, longest run ${HOVER_LO}-${HOVER_HI} mm above the road ${h.runMax} frames (peak ${h.runGap} mm, ${(h.runAt / 60).toFixed(1)} s in), ${h.runs} runs of 12 frames or more`);
+    check(`map ${map}: no kart stays drawn a little above the road longer than a hop that low lasts`, h.done && h.worst.run <= HOVER_MAX,
+      `the player's longest run ${HOVER_LO}-${HOVER_HI} mm above the road ${h.player.run} frames (peak ${h.player.peak} mm at ${h.player.at} m); any kart's ${h.worst.run} frames (kart ${h.worst.kart}, peak ${h.worst.peak} mm at ${h.worst.at} m)`);
   }
   if (LEGS.includes('float')) {
     for (const map of MAPS) {
@@ -261,6 +255,8 @@ for (const backend of BACKENDS) {
     check(`control: sw sun_short 1 and sw contact 0, map ${map}: no preset below High shows anything under the kart`, PRESETS.slice(0, 3).every((q) => s[q].net < SHADOW_MIN_PX),
       PRESETS.map((q) => `${q} ${s[q].net} px`).join(', '));
     const r = await lap(map, 'wheel_lag');
+    const lagRun = Math.max(...(await rd('gap.run_max')).map(Number));
+    console.log(`     (sw wheel_lag 1: the longest run a little above the road ${lagRun} frames)`);
     check(`control: sw wheel_lag 1, map ${map}: a kart is drawn above the road with its wheels on it`, Math.max(worst(r.karts, 'all').max, worst(r.karts, 'some').max) > GAP_MAX_MM, `all wheels down: ${total(r.karts, 'all')} frames over 30 mm, ${desc(worst(r.karts, 'all'))}; some: ${total(r.karts, 'some')} frames, ${desc(worst(r.karts, 'some'))}`);
   }
 }
