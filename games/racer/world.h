@@ -69,6 +69,8 @@ void world_frame(double alpha);   /* every frame: animated materials (boost stri
 const track_geo *world_geo(void);
 cw_node world_scene(void); /* the map's scenery root (invalid before a map is built) */
 void floatcheck_debug_init(void); /* the floatcheck command (floatcheck.c) */
+const track *world_track(void); /* the race's road (NULL in an arena) */
+void floatcheck_frame(void);      /* its work, a slice a frame */
 
 /* fx.c: everything that flies and flashes (particles, sparks, smoke, splashes, speed lines) */
 void fx_init(cw_node scene, const sim *s, const map_def *map);

@@ -72,6 +72,7 @@ static struct {
 
 const track_geo *world_geo(void) { return &W.geo; }
 cw_node world_scene(void) { return W.scene; }
+const track *world_track(void) { return W.sim && W.map && !W.map->arena ? W.sim->track : NULL; }
 bool world_ready(void) { return !W.sim || !W.map || W.map->arena || W.cleaned || getenv("RACER_NOCLEAN"); }
 
 void world_reset(void) {
@@ -290,6 +291,7 @@ void world_frame(double alpha) {
     t3_object *ro = cw_node3d_object(W.scene);
     if (ro) geomcheck_run(W.scene, ro, W.sim->track);
   }
+  floatcheck_frame();
   kartgfx_frame(NULL, (float)alpha); /* models agent: the karts and the items posed between ticks */
   items_frame(NULL, (float)alpha);
   if (W.boost) {

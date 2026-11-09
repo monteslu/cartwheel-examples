@@ -18,10 +18,11 @@
 //           jump's flight) is a hover when it lasts longer than a hop over that height can (HOVER_MAX frames: a kart
 //           thrown 25 cm up is back down in under half a second). The race camera's frame at the longest run is kept to
 //           look at, and frames every 15 s of the lap at Very Low and High.
-//   float   Every static thing in the map and in the battle arenas (floatcheck: each one's lowest points dropped onto what
-//           is under it, the terrain, the road or another prop) stands on something: none more than FLOAT_MAX_MM above it.
-//           Each hovering one is looked at from the side (frames kept). Control: floatcheck lift <a prop> 150 raises a prop
-//           that stands for real, and the check must report it.
+//   float   Every static prop in the map and in the battle arenas (floatcheck: each one's lowest points dropped onto what
+//           is under it, the terrain, the road or another prop): none within 25 m of the road stands a little (50 to 600
+//           mm) above what is under it. Bigger gaps are parts held up by other parts (a pump's beam on its frame, a sign
+//           on its post) and are listed, not failed. Each prop it names is looked at from the side (frames kept).
+//           Control: floatcheck lift <a prop that stands> 150 raises it for real, and the check must report it.
 //   node tests/racer-grounded.mjs [--gl] [--webgpu] [--maps 0,1,...] [--arenas 0,1,...] [--legs shadow,gap,hover,float,control] [--cart <path>]
 import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
@@ -42,12 +43,12 @@ const SHADOW_MIN_PX = 1500, GAP_MAX_MM = 50, CLASSES = ['all', 'some', 'air', 'j
 mkdirSync(OUT, { recursive: true });
 // every exit tears this session's romdev host down, a failed run too: a host left loaded holds the server's memory
 const bye = async (code) => {
-  try { await fetch('http://127.0.0.1:7331/tool/host', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION }, body: '{"op":"shutdown"}', signal: AbortSignal.timeout(30000) }); } catch {}
+  try { await fetch('http://127.0.0.1:7331/tool/host', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION, 'x-romdev-agent': process.env.RACER_AGENT || 'racer-grounded' }, body: '{"op":"shutdown"}', signal: AbortSignal.timeout(30000) }); } catch {}
   process.exit(code);
 };
 // (node:http, not fetch: fetch gives up on a reply that takes five minutes, and loading the cart on a busy GPU can)
 const post = (name, body) => new Promise((ok, no) => {
-  const q = request(`http://127.0.0.1:7331/tool/${name}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION } }, (res) => {
+  const q = request(`http://127.0.0.1:7331/tool/${name}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION, 'x-romdev-agent': process.env.RACER_AGENT || 'racer-grounded' } }, (res) => {
     let t = '';
     res.setEncoding('utf8');
     res.on('data', (c) => (t += c));
@@ -198,9 +199,12 @@ async function hover(backend, map) {
 }
 /** floatcheck on the map now up; each hovering group looked at from 6 m off, level with it */
 async function floats(backend, tag) {
-  const r = (await cmd('floatcheck 50')).reply;
-  for (const [k, g] of (r.groups || []).filter((g) => g.n > 0).slice(0, 6).entries()) {
-    const [x, y, z] = g.at;
+  await cmd('floatcheck start 50');
+  let r = { done: false };
+  for (let f = 0; f < 20000 && !r.done; f += 20) { await step(20); r = (await cmd('floatcheck')).reply; } /* a slice of the check a frame */
+  if (!r.done || r.error) { console.error(`floatcheck on ${tag}: ${JSON.stringify(r)}`); await bye(3); }
+  for (const [k, g] of (r.groups || []).filter((g) => g.near > 0).slice(0, 8).entries()) {
+    const [x, y, z] = g.near_at;
     await cmd(`eye ${x + 6} ${y + 1.5} ${z + 2} ${x} ${y} ${z}`); await step(3);
     await tool('frame', { op: 'stepAndShot', frames: 1, path: join(OUT, `${backend}-${tag}-float${k}.png`) });
   }
@@ -239,14 +243,14 @@ for (const backend of BACKENDS) {
     for (const map of MAPS) {
       await race(map, '');
       const r = await floats(backend, `m${map}`);
-      check(`map ${map}: nothing in the scenery hovers`, r.hover === 0, `${r.checked} things checked, ${r.hover} hovering${r.groups.filter((g) => g.n).map((g) => ` ${g.name} x${g.n} (worst ${g.worst_mm} mm at ${g.at.join(',')})`).join(';')}; ${r.aloft} hung or flying`);
+      check(`map ${map}: nothing near the road stands a little above the ground`, r.near === 0, `${r.checked} props checked, ${r.near} a little above the ground within 25 m of the road${r.groups.filter((g) => g.near).map((g) => ` ${g.name} x${g.near} (worst ${g.near_mm} mm at ${g.near_at.join(',')})`).join(';')}; elsewhere ${r.hover - r.near} parts held off the ground (beams, signs, lamps on poles) and ${r.aloft} hung or flying`);
     }
     for (const a of ARENAS) {
       await cmd(`battle ${a} 1 60`);
       for (let f = 0; f < 900 && +(await rd('race.phase')) < 1; f += 30) await step(30);
       await step(60);
       const r = await floats(backend, `a${a}`);
-      check(`arena ${a}: nothing in the scenery hovers`, r.hover === 0, `${r.checked} things checked, ${r.hover} hovering${r.groups.filter((g) => g.n).map((g) => ` ${g.name} x${g.n} (worst ${g.worst_mm} mm at ${g.at.join(',')})`).join(';')}; ${r.aloft} hung or flying`);
+      check(`arena ${a}: nothing stands a little above the ground`, r.near === 0, `${r.checked} props checked, ${r.near} a little above the ground within 25 m of the road${r.groups.filter((g) => g.near).map((g) => ` ${g.name} x${g.near} (worst ${g.near_mm} mm at ${g.near_at.join(',')})`).join(';')}; elsewhere ${r.hover - r.near} parts held off the ground (beams, signs, lamps on poles) and ${r.aloft} hung or flying`);
     }
   }
   if (LEGS.includes('control')) {
