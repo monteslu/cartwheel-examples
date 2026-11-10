@@ -3,6 +3,11 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.23.1 (2026-11-10)
+
+- **derby**: The cover's hit moment lit: the yellow car reads at a thumbnail's size, with the glass and mud flying off the hit under the floodlights, still at night. The `keyart` command takes `light <energy>` for a lamp of its own over the car
+- **spout**: A new cover rendered from the game: the paper spider mid-leap high on the barn gutter, seen from above with the pipe and the garden far below. A `keyart` command (the camera held round the spout from the spider, the HUD off) replaces the autopilot build's environment switches, so key art renders on a cart
+
 ## v0.23.0 (2026-11-10)
 
 - **All games**: Engine v0.46.0 (from v0.44.2): the flash check and GPU timing run through romdev; a test's scripted finger taps on the frame it lands on a native run.
