@@ -1382,14 +1382,17 @@ static void build_reactor(cw_node root, const track *t, int L, pcol c1, pcol c2)
 
 /* ── the corkscrews: ring frames and twisted ribbons round the rolling road ─────────────────────────── */
 
+/* the cage casts no shadow: its frames pass the kart about three and a half times a second through the corkscrew,
+ * and their sun shadows swept over the kart and the road as often, a regular light-dark pulse the flash sweep counted
+ * (racer-orbit) */
 static void build_cage(cw_node root, const track *t, int i0, int i1, pcol c1, pcol c2) {
-  (void)root;
+  pmc *CG = pmc_new(170, 12);
   float Rr = 8.4f;
   const int NS = 6;
   for (int i = i0 + 4; i + 12 <= i1; i += 12) {
     const tsample *a = &t->s[i], *e = &t->s[i + 12];
     /* a ring frame at a, in the road's own frame */
-    pm *b = pose(PLAIN, a->p, a->r, a->u, a->f);
+    pm *b = pose(CG, a->p, a->r, a->u, a->f);
     pm_layer(b, PL_METAL);
     pm_ring(b, Rr, 0.42f, 28, 6, K.hull2);
     pm_layer(b, PL_GLOW);
@@ -1397,7 +1400,7 @@ static void build_cage(cw_node root, const track *t, int i0, int i1, pcol c1, pc
     pm_ring(b, Rr - 0.5f, 0.12f, 28, 4, glow(((i / 12) & 1) ? c1 : c2, 2.2f));
     pm_pop(b);
     /* ribbons: the same angle in the road's frame at both ends, so they twist with the road */
-    pm *rb = pmc_at(PLAIN, a->p);
+    pm *rb = pmc_at(CG, a->p);
     pm_push(rb);
     for (int k = 0; k < NS; k++) {
       float an = CW_TAU * (float)k / (float)NS;
@@ -1412,6 +1415,7 @@ static void build_cage(cw_node root, const track *t, int i0, int i1, pcol c1, pc
     }
     pm_pop(rb);
   }
+  pmc_finish(CG, root, "Cage", false, -1);
 }
 
 /* ── ships: a little fleet of the same hull in different paint ─────────────────────────────────────── */
