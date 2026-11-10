@@ -169,10 +169,17 @@ async function play(cart, backend, tag, seed, idle) {
   await seq([{ south: true }, 4], [{}, 20]); /* the prompt: {fire} : launch */
   const started = await rd('game.state');
   const bot = new Newcomer(seed);
+  let tpf = 1, lastTick = -1, lastStep = 0; /* ticks a frame, measured: a host can run more than one tick a frame, so a look spans LOOK ticks */
   let continues = 0, frames = 0, reached = false, wall = false, lastLog = 0, sx = 0, sy = 0, shots = 0, bossAt = -1;
-  const stick = () => ({ south: true, axes: { lx: sx, ly: -sy } });
+  /* the stick as a thumb works it: the game's movement actions start past half a tilt (input.cfg's default dead zone, 0.5,
+     rescaled to 0..1 above it), so a move of strength s is a tilt of 0.5 + 0.5 s; the study (study.c) hands s to the sim */
+  const tilt = (s) => (s === 0 ? 0 : Math.sign(s) * (0.5 + 0.5 * Math.abs(s)));
+  const stick = () => ({ south: true, axes: { lx: tilt(sx), ly: tilt(-sy) } });
   while (frames < LIMIT) {
-    const b = await fields('game.state', 'level', 'hero.pos', 'view.enemies', 'view.rounds_prev', 'view.rounds', 'boss.plates');
+    const b = await fields('game.state', 'level', 'hero.pos', 'view.enemies', 'view.rounds_prev', 'view.rounds', 'boss.plates', 'ticks');
+    const tick = +[].concat(b.ticks)[0];
+    if (lastTick >= 0 && lastStep > 0 && tick > lastTick) tpf = tpf * 0.8 + ((tick - lastTick) / lastStep) * 0.2;
+    lastTick = tick, lastStep = 0;
     const st = +[].concat(b['game.state'])[0];
     if (st === 4) {
       /* the results card: under the modern rules it reads "{fire} : continue"; a second one is the wall */
@@ -188,8 +195,9 @@ async function play(cart, backend, tag, seed, idle) {
     /* the rounds a tick apart, as the game kept them (view.rounds_prev is the tick before view.rounds) */
     bot.see(b['view.enemies'], b['view.rounds_prev'], b['view.rounds'], hp[0], hp[1], 1);
     [sx, sy] = bot.decide();
-    await seq([stick(), LOOK]);
-    frames += LOOK;
+    const n = Math.max(1, Math.round(LOOK / tpf));
+    await seq([stick(), n]);
+    frames += n, lastStep = n;
     if (frames - lastLog >= 1200) { lastLog = frames; console.log(`  ${backend} ${tag} f ${frames} ticks ${await rd('ticks')} lives ${await rd('lives')} kills ${await rd('kills')} escapes ${await rd('escapes')} continues ${continues} boss plates ${[].concat(b['boss.plates'])[0]}`); }
     if (++shots % 600 === 0) await tool('frame', { op: 'stepAndShot', frames: 1, path: join(OUT, `${backend}-${tag}-${frames}.png`) });
   }
