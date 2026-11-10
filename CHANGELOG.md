@@ -3,6 +3,13 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.22.0 (2026-11-10)
+
+- **All games**: Engine v0.44.2 (from v0.42.0). The menus take touch: a tap works the title, pause, settings and graphics pages, and a tap on the join screen seats you and starts. While a game loads, its first frames draw the shadows and lights play draws instead of leaving out the sunlit parts of the scene (and a red "no program" warning up for good)
+- **All games**: Each game carries its name for launchers and frontends: BikeMesa, BomberDude, Chromite, Derby, Pugball, Racer and Spout
+- **derby**: A new cover: the yellow car in a hit under the floodlights, rendered from the game itself
+- **Tests**: BikeMesa's ride gates (tricks off the jumps, lane changes, contact between riders, the wrecking ball, the moon's big jump) play the cart through romdev timed from the game's own state: they press through the menus as each screen comes up and play the ride from the countdown's GO (debug field `ride.start`) instead of fixed frame numbers, with timings that follow Red Rock Run as it is now (its opening loop, the pinch on lane 0). Every game's cart surveyed as a player's machine runs it finds no missing program, and CI checks every cart's launcher art with the engine's check-art
+
 ## v0.21.0 (2026-11-09)
 
 - **All games**: Engine v0.42.0 (from v0.38.9, three.c v0.187.7). Terrain reads two cells for its tiling instead of three (racer and BikeMesa draw their ground a little faster, with a slightly crisper surface), reflection probes capture at their own size and spread the work over frames, and a distortion no longer splits into rainbow colours
