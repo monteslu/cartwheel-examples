@@ -768,18 +768,31 @@ static void cmd_players(int argc, const char **argv, cw_reply *r) {
   G.players = n;
   if (r) cw_reply_printf(r, "{\"players\":%d}", n);
 }
-/* dev aid (key art): the DERBY_CAM_* look and DERBY_NO_HUD for a cart, which has no environment before its first frame */
+/* dev aid (key art): the DERBY_CAM_* look and DERBY_NO_HUD for a cart, which has no environment before its first frame;
+ * light <energy> adds a sodium flood of its own over the car, between it and the camera, so the car and what flies off
+ * it read at a thumbnail's size (the bowl's floods light the dirt, the car's sides stay in their own shadow) */
 static int keyart_car = -1, keyart_nohud;
-static float keyart_a = 0.8f, keyart_d = 5.2f, keyart_h = 1.7f;
+static float keyart_a = 0.8f, keyart_d = 5.2f, keyart_h = 1.7f, keyart_light;
+static cw_node keyart_lamp;
 static void cmd_keyart(int argc, const char **argv, cw_reply *r) {
-  if (argc < 2) { cw_reply_error(r, "usage: keyart <car> [angle distance height] [hud 0|1] | keyart off"); return; }
-  if (!strcmp(argv[1], "off")) keyart_car = -1, keyart_nohud = 0;
+  if (argc < 2) { cw_reply_error(r, "usage: keyart <car> [angle distance height] [hud 0|1] [light energy] | keyart off"); return; }
+  if (!strcmp(argv[1], "off")) keyart_car = -1, keyart_nohud = 0, keyart_light = 0;
   else {
     keyart_car = atoi(argv[1]) % MAXC;
     if (argc > 4) keyart_a = (float)atof(argv[2]), keyart_d = (float)atof(argv[3]), keyart_h = (float)atof(argv[4]);
     keyart_nohud = argc > 5 && atoi(argv[5]) == 0;
+    keyart_light = argc > 6 ? (float)atof(argv[6]) : 0;
   }
-  cw_reply_printf(r, "{\"car\":%d,\"hud\":%d}", keyart_car, !keyart_nohud);
+  if (keyart_light > 0 && !cw_node_valid(keyart_lamp) && cw_node_valid(G.scene)) {
+    keyart_lamp = cw_node_new("OmniLight3D", "KeyLamp");
+    cw_node_add_child(G.scene, keyart_lamp);
+    cw_node_set(keyart_lamp, "color", cw_val_color(1, 0.9f, 0.72f, 1)); /* warm but whiter than the floods, so a yellow car stays yellow */
+    cw_node_set(keyart_lamp, "range", cw_val_float(18));
+    cw_node_set(keyart_lamp, "decay", cw_val_float(2));
+    cw_node_set(keyart_lamp, "fog_energy", cw_val_float(0));
+  }
+  if (cw_node_valid(keyart_lamp)) cw_node_set(keyart_lamp, "energy", cw_val_float(keyart_light));
+  cw_reply_printf(r, "{\"car\":%d,\"hud\":%d,\"light\":%g}", keyart_car, !keyart_nohud, keyart_light);
 }
 static void cmd_bout(int argc, const char **argv, cw_reply *r) {
   int n = argc > 1 ? atoi(argv[1]) : 1;
@@ -1174,6 +1187,8 @@ static void rig_tick(int v) {
     at = (t3_vec3){ c->x, c->y + 0.75f, c->z };
     eye = (t3_vec3){ c->x + cam_d * cw_sin(a), cam_h, c->z + cam_d * cw_cos(a) };
     r->snap = true;
+    if (keyart_car >= 0 && keyart_light > 0 && cw_node_valid(keyart_lamp)) /* the key lamp: high, half way out to the camera */
+      cw_node3d_set_position(keyart_lamp, (t3_vec3){ c->x + (eye.x - c->x) * 0.5f, c->y + 4.5f, c->z + (eye.z - c->z) * 0.5f });
   }
   if (r->snap) {
     r->cam_at = at;

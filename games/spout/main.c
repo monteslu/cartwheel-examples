@@ -415,6 +415,21 @@ static void cmd_level(int argc,const char **argv,cw_reply *r) {
   cw_reply_printf(r,"{\"level\":%d}",n);
 }
 
+/* ── key art (dev aid): the camera held round the spout from the spider and the HUD off; a debug command, so it reaches a cart ── */
+static int keyart_on, keyart_nohud;
+static float keyart_d = 3.2f, keyart_dp = -0.6f, keyart_lift = 0.2f, keyart_ahead = 0.5f, keyart_in = 0.6f;
+static void cmd_keyart(int argc, const char **argv, cw_reply *r) {
+  if (argc < 2) { cw_reply_error(r, "usage: keyart <dist> <dphi> <lift> <ahead> [hud 0|1] [aim 0..1] | keyart off"); return; }
+  if (!strcmp(argv[1], "off")) keyart_on = keyart_nohud = 0;
+  else {
+    keyart_on = 1;
+    if (argc > 4) keyart_d = (float)atof(argv[1]), keyart_dp = (float)atof(argv[2]), keyart_lift = (float)atof(argv[3]), keyart_ahead = (float)atof(argv[4]);
+    keyart_nohud = argc > 5 && atoi(argv[5]) == 0;
+    if (argc > 6) keyart_in = (float)atof(argv[6]);
+  }
+  cw_reply_printf(r, "{\"on\":%d,\"hud\":%d}", keyart_on, !keyart_nohud);
+}
+
 /* ── autopilot (spout_auto): climbs by itself from the sim's own state ── */
 
 #ifdef SPOUT_AUTOPILOT
@@ -487,6 +502,7 @@ static void init(void *u) {
 
   G.stopmotion = true;
   cw_debug_command("level", "level <1..5>: inspect a playable level without changing unlocks",cmd_level);
+  cw_debug_command("keyart", "keyart <dist> <dphi> <lift> <ahead> [hud 0|1] [aim 0..1] | keyart off: key art (the camera held dist m from the spout's axis, dphi rad round from the spider, lift m above it, aimed ahead m up the climb at aim of the way in to the axis; the HUD off)", cmd_keyart);
   cw_debug_command("study", "study hazards <1..5>: three climbers on three seeds, without drawing (the hazard gate); study silk: the web and the line, scripted", cmd_study);
   cw_debug_command("sw", "sw old_hazards|old_hud|hide_waves|no_ghost <0|1>: the old hazards or HUD back, the wave fronts undrawn, no ghost kept or shown (the gates' controls); sw fresh 1: a new player's save in memory", cmd_sw);
   cw_debug_i32("hud.over_pipe", &hud_over_pipe);
@@ -767,17 +783,12 @@ static void sync_hook(cw_tree *t, double alpha, void *u) {
     } else world_ghost(false, 0, 0, 0, 0);
   }
   world_camera(G.camera, &G.prev, &G.S, a, frame_t, G.state == GS_TITLE || G.state == GS_SELECT);
-#ifdef SPOUT_AUTOPILOT
-  { /* art captures: "dist dphi lift ahead" round the spout from the spider (radians, metres) */
-    const char *ac = getenv("SPOUT_ART_CAM");
-    float d, dp, lift, ahead, th;
-    if (ac && sscanf(ac, "%f %f %f %f", &d, &dp, &lift, &ahead) == 4 && cw_node_valid(G.camera)) {
-      t3_vec3 p = world_spider_pos(&G.prev, &G.S, a, &th);
-      cw_node3d_set_position(G.camera, (t3_vec3){ d * cw_sin(th + dp), p.y + lift, d * cw_cos(th + dp) });
-      cw_node3d_look_at(G.camera, (t3_vec3){ p.x * 0.6f, p.y + ahead, p.z * 0.6f }, (t3_vec3){ 0, 1, 0 });
-    }
+  if (keyart_on && cw_node_valid(G.camera)) { /* key art: the camera held round the spout from the spider, aimed up the climb from it */
+    float th;
+    t3_vec3 p = world_spider_pos(&G.prev, &G.S, a, &th);
+    cw_node3d_set_position(G.camera, (t3_vec3){ keyart_d * cw_sin(th + keyart_dp), p.y + keyart_lift, keyart_d * cw_cos(th + keyart_dp) });
+    cw_node3d_look_at(G.camera, (t3_vec3){ p.x * keyart_in, p.y + keyart_ahead, p.z * keyart_in }, (t3_vec3){ 0, 1, 0 });
   }
-#endif
   /* rain greys the sky and dims the sun; the sun brings them back */
   static float gloom;
   float want = G.S.weather == WX_RAIN ? 1 : G.S.weather == WX_WARN ? 0.5f : 0;
@@ -1385,12 +1396,10 @@ static void render(void *u, double alpha) {
   cw_r2d_begin(&(cw_r2d_pass_desc){ .clear = false });
   cw_vec2 cs = cw_r2d_canvas_size();
   float W = cs.x, H = cs.y, s = H / 540.0f;
-#ifdef SPOUT_AUTOPILOT
-  if (getenv("SPOUT_NO_HUD")) { /* art captures: the 3D alone */
+  if (keyart_nohud) { /* key art: the 3D alone */
     cw_r2d_end();
     return;
   }
-#endif
   if (G.state == GS_TITLE) draw_title(W, H, s);
   else if (G.state == GS_SELECT) draw_select(W, H, s);
   else {
