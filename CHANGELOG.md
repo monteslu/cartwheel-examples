@@ -3,6 +3,17 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.21.0 (2026-11-09)
+
+- **All games**: Engine v0.42.0 (from v0.38.9, three.c v0.187.7). Terrain reads two cells for its tiling instead of three (racer and BikeMesa draw their ground a little faster, with a slightly crisper surface), reflection probes capture at their own size and spread the work over frames, and a distortion no longer splits into rainbow colours
+- **bomberdude**: Team battles (TEAMS beside FIGHT: P1+P2 against P3+P4, or P1+P3 against P2+P4; a round ends with one team standing, and the computer players never bomb a teammate), a CATCH-UP row that starts whoever is behind in round wins in a bubble, and a RANDOM arena button
+- **chromite**: The first command craft can be beaten by a newcomer. Under the modern rules its beam charges before each burst (a cyan glow swells at the muzzle with a soft sound) and rests after it, its aimed slugs come slower and half as often, and the level 1 craft has 65% of its hull. Classic keeps the original fight
+- **derby**: Mud that reads as mud: the wheels throw it up the flanks and onto the tail, darkest just after it is thrown and lighter as it dries, full after about 160 m of driving. A bumper hanging by a bracket or a sprung bonnet comes off on the next hard hit and lies in the dirt. The results open on a slow replay of the bout's biggest hit (a press skips it)
+- **pugball**: Hard touches and demolitions hold the match for a beat. BIG CAT, a fourth party rule (the cat half as big again). Lower boards and steeper stands put the crowd in view, a goal sends rings through the air and leaves its confetti on the turf until kickoff, and the night stadium's floodlights draw beams through the haze from Medium effects
+- **racer**: The chase camera follows the kart over the jumps again (since v0.20.1 it held still at every jump as if the kart had fallen off the road). Frost's ground stays drawn when the graphics drop from High to Very Low in the middle of a race. Karts sit on the road on every map (checked every frame of a lap of each map on GL and WebGPU)
+- **spout**: A line to let down and reel home ({down} + {silk}), a web that stops the next wash or knock ({brace} + {silk}), two-hand climbing (the shoulders pull hand over hand) as a choice on the spout select, the best climb of each spout kept and climbing beside you as a paper ghost, ribbons for catching every fly and for a dry climb, and a pipe that soaks darker in the rain. Saves go to version 5 (versions 3 and 4 carry forward)
+- **Tests**: every gate's switches reach a cart on romdev, the scripts that play through romdev decide every 100 to 300 ms and step the frames between in one request, the touch-first gates' controls run without the touch hint, and racer-jump-camera follows the chase camera over every jump; chromite's newcomer gate plays level 1 with a person's reaction time, aim error and missed rounds
+
 ## v0.20.1 (2026-11-08)
 
 - **All games**: Engine v0.38.9 (from v0.38.8). The shell's Settings page has no Screen shake row: no camera shakes, and hits, landings and blasts are felt in the pads
