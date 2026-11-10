@@ -33,7 +33,9 @@ const tool = async (name, args) => {
 const rd = async (n) => { const v = await tool('wasm', { op: 'read', name: n }); return v.values ?? v.value; };
 const step = (frames) => tool('frame', { op: 'step', frames });
 const pad = (p) => tool('input', { op: 'set', ports: [p, {}] });
-const press = async (b) => { await pad({ [b]: true }); await step(4); await pad({}); await step(26); };
+/* ranges, not loops: the pad held for a stretch of frames and those frames stepped, in one request */
+const hold = (frames, p) => tool('input', { op: 'sequence', steps: [{ input: { ports: [p, {}] }, frames }] });
+const press = async (b) => { await hold(4, { [b]: true }); await hold(26, {}); };
 const M = { MAP: 3, RACE: 6 }, PH_RACE = 2, PH_DONE = 3, TICK_HZ = 60;
 let fail = 0;
 const check = (name, ok, detail) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}: ${detail}`); if (!ok) fail++; };

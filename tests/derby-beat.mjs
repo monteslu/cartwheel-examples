@@ -26,6 +26,8 @@ const tool = async (name, args) => {
 const rd = async (n) => { const v = await tool('wasm', { op: 'read', name: n }); return v.values ?? v.value; };
 const step = (frames) => tool('frame', { op: 'step', frames });
 const pads = (p0) => tool('input', { op: 'set', ports: [p0, {}] });
+/* ranges, not loops: the pad held for a stretch of frames and those frames stepped, in one request */
+const hold = (frames, p0) => tool('input', { op: 'sequence', steps: [{ input: { ports: [p0, {}] }, frames }] });
 let fail = 0;
 const check = (name, ok, detail) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}: ${detail}`); if (!ok) fail++; };
 
@@ -34,11 +36,11 @@ async function run(backend, pre) {
   if (!l.loaded) { console.error(JSON.stringify(l).slice(0, 300)); await bye(3); }
   await step(240);
   if (pre) await tool('wasm', { op: 'command', text: pre });
-  for (let n = 0; n < 10 && +(await rd('game.state')) !== 1; n++) { await pads({ south: true }); await step(4); await pads({}); await step(20); }
+  for (let n = 0; n < 10 && +(await rd('game.state')) !== 1; n++) { await hold(4, { south: true }); await hold(20, {}); }
   for (let f = 0; f < 600 && +(await rd('bout.phase')) !== 1; f += 10) await step(10);
   await pads({ r: true });
   let hit = 0;
-  for (let f = 0; f < 300 && !hit; f += 5) { await step(5); hit = +(await rd('count.max_hit')) / 100; } // (the field is hundredths)
+  for (let f = 0; f < 300 && !hit; f += 6) { await step(6); hit = +(await rd('count.max_hit')) / 100; } // (the field is hundredths)
   await step(30);
   await pads({});
   const r = { maxHit: hit, beats: +(await rd('beat.count')), held: +(await rd('beat.held')), rumbles: +(await rd('count.rumbles')), rumble: await rd('cw.rumble') };

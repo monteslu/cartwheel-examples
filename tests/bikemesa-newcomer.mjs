@@ -30,7 +30,9 @@ const tool = async (name, args) => {
 const rd = async (n) => { const v = await tool('wasm', { op: 'read', name: n }); return v.values ?? v.value; };
 const step = (frames) => tool('frame', { op: 'step', frames });
 const pads = (p0, p1 = {}) => tool('input', { op: 'set', ports: [p0, p1] });
-const press = async (port, b) => { const a = [{}, {}]; a[port] = { [b]: true }; await pads(...a); await step(4); await pads({}, {}); await step(20); };
+/* ranges, not loops: the pad held for a stretch of frames and those frames stepped, in one request */
+const hold = (frames, p0, p1 = {}) => tool('input', { op: 'sequence', steps: [{ input: { ports: [p0, p1] }, frames }] });
+const press = async (port, b) => { const a = [{}, {}]; a[port] = { [b]: true }; await hold(4, ...a); await hold(20, {}, {}); };
 const GS = { TITLE: 0, SELECT: 1, RIDE: 3, FINISH: 5, CHARACTER: 7 };
 let fail = 0;
 const check = (name, ok, detail) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}: ${detail}`); if (!ok) fail++; };
@@ -52,7 +54,7 @@ async function run(backend, tag, idle, pre) {
   if (picked === GS.SELECT) await press(0, 'south');        /* track 1: "(A) ride" */
   let state = +(await rd('game.state'));
   for (let f = 0; f < 60 * 120 && state !== GS.FINISH && state !== GS.CHARACTER && state !== GS.SELECT; f += 120) {
-    await pads({ south: true }, {}); await step(120);         /* pedal */
+    await hold(120, { south: true }, {});         /* pedal */
     state = +(await rd('game.state'));
   }
   await pads({}, {});

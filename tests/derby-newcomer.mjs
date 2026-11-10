@@ -31,7 +31,9 @@ const tool = async (name, args) => {
 const rd = async (n) => { const v = await tool('wasm', { op: 'read', name: n }); return v.values ?? v.value; };
 const step = (frames) => tool('frame', { op: 'step', frames });
 const pads = (p0, p1 = {}) => tool('input', { op: 'set', ports: [p0, p1] });
-const press = async (port, b) => { const a = [{}, {}]; a[port] = { [b]: true }; await pads(...a); await step(4); await pads({}, {}); await step(20); };
+/* ranges, not loops: the pad held for a stretch of frames and those frames stepped, in one request */
+const hold = (frames, p0, p1 = {}) => tool('input', { op: 'sequence', steps: [{ input: { ports: [p0, p1] }, frames }] });
+const press = async (port, b) => { const a = [{}, {}]; a[port] = { [b]: true }; await hold(4, ...a); await hold(20, {}, {}); };
 const PH_GO = 1;
 let fail = 0;
 const check = (name, ok, detail) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}: ${detail}`); if (!ok) fail++; };
@@ -50,7 +52,7 @@ async function run(backend, tag, idle, pre) {
   const read = await rd('hint.frames');
   await tool('frame', { op: 'stepAndShot', frames: 1, path: join(OUT, `${backend}-${tag}-hint.png`) });
   const pos0 = (await rd('cars.pos')).slice(0, 2);
-  await pads({ r: true }, {}); await step(90);              /* the gas the hint names */
+  await hold(90, { r: true }, {});              /* the gas the hint names */
   const afterGas = await rd('hint.frames');
   await step(60);
   const later = await rd('hint.frames');

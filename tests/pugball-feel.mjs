@@ -39,7 +39,9 @@ const rd = async (n) => { const v = await tool('wasm', { op: 'read', name: n });
 const cmd = (text) => tool('wasm', { op: 'command', text });
 const step = (frames) => tool('frame', { op: 'step', frames });
 const pads = (p0) => tool('input', { op: 'set', ports: [p0, {}] });
-const press = async (b, after = 14) => { await pads({ [b]: true }); await step(4); await pads({}); await step(after); };
+/* ranges, not loops: the pad held for a stretch of frames and those frames stepped, in one request */
+const hold = (frames, p0) => tool('input', { op: 'sequence', steps: [{ input: { ports: [p0, {}] }, frames }] });
+const press = async (b, after = 14) => { await hold(4, { [b]: true }); await hold(after, {}); };
 let fail = 0;
 const check = (name, ok, detail) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}: ${detail}`); if (!ok) fail++; };
 const load = async (backend, pre = []) => {
@@ -134,7 +136,7 @@ async function hang(backend, moon, alts = 1, tag = '') {
   for (let f = 0; f < 300 && +(await rd('match.phase')) === 0; f += 10) await step(10);
   await cmd('dropball 14 8 18'); // (out of the CPUs' way)
   let frames = 0;
-  for (; frames < 400; frames += 2) { await step(2); if ((await rd('ball.pos'))[1] < 160) break; }
+  for (; frames < 400; frames += 6) { await step(6); /* ranges: 6 frames a look */ if ((await rd('ball.pos'))[1] < 160) break; }
   await tool('host', { op: 'shutdown' });
   return { rules, frames, radius };
 }

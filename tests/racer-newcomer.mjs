@@ -28,7 +28,9 @@ const tool = async (name, args) => {
 const rd = async (n) => { const v = await tool('wasm', { op: 'read', name: n }); return v.values ?? v.value; };
 const step = (frames) => tool('frame', { op: 'step', frames });
 const pads = (p0, p1 = {}) => tool('input', { op: 'set', ports: [p0, p1] });
-const press = async (port, b) => { const a = [{}, {}]; a[port] = { [b]: true }; await pads(...a); await step(4); await pads({}, {}); await step(26); };
+/* ranges, not loops: the pad held for a stretch of frames and those frames stepped, in one request */
+const hold = (frames, p0, p1 = {}) => tool('input', { op: 'sequence', steps: [{ input: { ports: [p0, p1] }, frames }] });
+const press = async (port, b) => { const a = [{}, {}]; a[port] = { [b]: true }; await hold(4, ...a); await hold(26, {}, {}); };
 const M = { JOIN: 1, VEHICLE: 2, MAP: 3, RACE: 6 }, PH_RACE = 2;
 let fail = 0;
 const check = (name, ok, detail) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}: ${detail}`); if (!ok) fail++; };
@@ -56,7 +58,7 @@ async function run(backend, tag, idle, pre) {
   let phase = 0, mode = picked; /* the menus' demo race runs behind them: only the race's own GO counts */
   for (let f = 0; f < 1200 && !(mode === M.RACE && phase === PH_RACE); f += 30) { await step(30); mode = +(await rd('ui.mode')); phase = +(await rd('race.phase')); }
   const prog0 = (await rd('karts.prog'))[0];
-  await pads({ south: true }, {}); await step(300);          /* floor it */
+  await hold(300, { south: true }, {});          /* floor it */
   await pads({}, {});
   const prog1 = (await rd('karts.prog'))[0];
   await tool('frame', { op: 'stepAndShot', frames: 1, path: join(OUT, `${backend}-${tag}-race.png`) });
