@@ -3,6 +3,10 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.23.2 (2026-11-10)
+
+- **racer**: Nothing at the start of a race flashes any more, and the salt flats' kerbs stop flickering. GO! fades in over a tenth of a second instead of appearing whole in one frame. A taken item box shrinks away instead of swelling to over twice its size, and boxes near a camera shrink out of the way. A box taken near a camera lights up softly and throws no sparkles (they used to fly back through the view as a cloud of pale discs). Sparkles fade in instead of starting white at full strength. A quick run of boosts flares once. The sparkle, spark and flare pools are larger, and a new flash light takes over the dimmest light, so an effect still on screen is no longer cut off in a frame. Kerb stripes blend softly into each other and the pale stripe stays near the red one's brightness, which ends the 20 Hz flicker at the edge of the view at speed. The flash sweep's salt flats and orbit entries pass on GL and WebGPU, and their known-failure marks are gone
+
 ## v0.23.1 (2026-11-10)
 
 - **derby**: The cover's hit moment lit: the yellow car reads at a thumbnail's size, with the glass and mud flying off the hit under the floodlights, still at night. The `keyart` command takes `light <energy>` for a lamp of its own over the car

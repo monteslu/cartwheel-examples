@@ -533,7 +533,13 @@ void items_frame(const sim *s, float alpha) {
     float sc = 1.0f, halo = 1.0f, flash = 0;
     if (b->cool > 0) {
       float since = 360.0f - cool; /* ticks since it was taken */
-      if (since < 10.0f) sc = fmaxf(0, 1.3f * (1.0f - since / 10.0f)), flash = 1.0f - since / 10.0f;
+      /* a taken box shrinks away over a sixth of a second and its halo with it. It jumped to 1.3 times its size with
+       * a halo 2.4 times as wide in the frame it was taken, right in front of the chase camera: a pale disc over the
+       * bottom of the view, a flash for every box (the flash sweep's orbit start) */
+      if (since < 10.0f) {
+        float u = since / 10.0f;
+        sc = 1.0f - u * u * (3 - 2 * u);
+      }
       else if (cool < 26.0f) {
         float u = 1.0f - cool / 26.0f;
         sc = ease_out_back(u);
@@ -541,6 +547,14 @@ void items_frame(const sim *s, float alpha) {
       } else sc = 0;
     }
     halo = sc > 0 ? 1.0f + flash * 1.4f : 0;
+    /* a box at a view's eye shrinks away (a kart drives through a row of them and its chase camera after it: the boxes'
+     * pale shells and halos swept over the whole view in a frame or two, flashes in the flash sweep's run on the orbit) */
+    { /* 0 within 3 m of an eye, whole from 9 m: a box is 2 m across and its halo larger */
+      float d = 1e9f;
+      for (int e = 0; e < NEYE; e++) d = fminf(d, v3len(v3sub(b->p, EYE[e])));
+      float u = cw_clampf((d - 3.0f) / 6.0f, 0, 1);
+      sc *= u * u * (3 - 2 * u);
+    }
     float spin = t * 1.7f + (float)i * 0.9f;
     float bob = 0.14f * sinf(t * 2.2f + (float)i * 1.3f);
     t3_quat q = t3_quat_multiply(t3_quat_from_axis_angle(v3(0, 1, 0), spin), t3_quat_from_axis_angle(v3(1, 0, 1), 0.35f + 0.1f * sinf(t * 1.3f + (float)i)));

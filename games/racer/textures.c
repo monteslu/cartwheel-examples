@@ -1053,16 +1053,24 @@ static void g_rust(float u, float v, texel *t) {
 }
 
 /* kerb stripes: a stripe of colour A, then B, every metre of its 2 m repeat. The colours are the map's;
- * tex_kerb sets them, the generic kind below uses red and white. Edges are scuffed and chipped. */
+ * tex_kerb sets them, the generic kind below uses red and white. Edges are scuffed and chipped. A kart at speed passes
+ * the stripes at the edge of the view 20 times a second, so they are soft-edged (each blends into the next over a
+ * fifth of a metre) and B is held within 0.25 of A's brightness (a white stripe reads as a pale grey beside red):
+ * crisp red and white stripes were a regular 20 Hz flicker in the corner of the screen (the flash sweep, racer-salt) */
 static float KA[3] = { 0.9f, 0.2f, 0.15f }, KB[3] = { 0.95f, 0.95f, 0.95f };
 static void g_stripes(float u, float v, texel *t) {
   float n = fbm(u, v, 8, 4, 381), fine = h01((int)(u * 256), (int)(v * 256), 382);
   float s = fractf(v * 2 + 0.0f);
-  float which = fractf(v) < 0.5f ? 0.0f : 1.0f;
+  float fv = fractf(v), d = fabsf(fv - 0.75f);
+  d = fminf(d, 1 - d);                              /* distance to the middle of the B stripe, 0..0.5 */
+  float which = 1 - sstep(0.2f, 0.3f, d);           /* soft seams */
   float edge = fminf(fractf(v * 2), 1 - fractf(v * 2)) * 1.0f; /* 0..0.5 of a stripe */
   float paintsep = sstep(0.0f, 0.012f, fminf(fractf(v), 1 - fractf(v)) * 0 + fminf(fabsf(fractf(v) - 0.5f), fminf(fractf(v), 1 - fractf(v))));
   (void)s;
-  float a = which ? KB[0] : KA[0], b = which ? KB[1] : KA[1], c = which ? KB[2] : KA[2];
+  /* B held within 0.25 of A's brightness, its hue kept */
+  float ya = 0.2126f * KA[0] + 0.7152f * KA[1] + 0.0722f * KA[2], yb = 0.2126f * KB[0] + 0.7152f * KB[1] + 0.0722f * KB[2];
+  float kb = yb > ya + 0.25f ? (ya + 0.25f) / yb : yb < ya - 0.25f && yb > 1e-3f ? (ya - 0.25f) / yb : 1.0f;
+  float a = KA[0] + (KB[0] * kb - KA[0]) * which, b = KA[1] + (KB[1] * kb - KA[1]) * which, c = KA[2] + (KB[2] * kb - KA[2]) * which;
   float grime = 0.78f + 0.22f * n;
   rgb(t, a * grime, b * grime, c * grime);
   /* tyre scuffs: black smears on the raised top and at the stripe seams, chips showing concrete */

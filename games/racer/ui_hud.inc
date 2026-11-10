@@ -676,7 +676,10 @@ static void hud_countdown(const hv *g) {
   if (S->phase == PH_RACE && S->race_ticks < 80) {
     float t = (float)S->race_ticks / 80.0f;
     float sc = 1 + 0.5f * (1 - ease_out(t * 4));
-    cw_color c = LIME;
+    /* GO! and its rays swell in over the first tenth of a second: drawn whole in the first frame, the big lime word
+     * lit the middle of the view at once (the flash sweep counts it) */
+    float in = CW_CLAMP((float)S->race_ticks / 6.0f, 0, 1);
+    cw_color c = alpha(LIME, in * in * (3 - 2 * in));
     for (int i = 0; i < 14; i++) {
       float a = (float)i / 14.0f * CW_TAU + 0.2f;
       float r0 = (90 + 40 * ease_out(t * 2)) * s, r1 = r0 + (50 + 60 * (1 - t)) * s;

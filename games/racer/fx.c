@@ -160,14 +160,14 @@ static emit emit_make(cw_node parent, const char *name, const char *const *kv, i
 
 /* ── state ──────────────────────────────────────────────────────────── */
 
-#define NSPARK 6
+#define NSPARK 12
 #define NGRIND 4
 #define NCHIPS 4
 #define NCLOUD 5
 #define NBOOM 3
-#define NFLARE 4
+#define NFLARE 8
 #define NSPLASH 3
-#define NSPARKLE 6
+#define NSPARKLE 16
 #define NRING 3
 #define RING_LIFE 26
 #define NLIGHT 5
@@ -193,6 +193,7 @@ typedef struct kfx {
   t3_vec3 skid_last[2];
   bool skid_on[2];
   float dist2;         /* to the nearest camera */
+  int boost_tick;      /* the tick of the last boost that flared (a burst of boosts flares once) */
 } kfx;
 
 typedef struct light {
@@ -269,8 +270,17 @@ static void burst(cw_node n, t3_vec3 at, t3_vec3 up, t3_vec3 fwd) {
 #define NEXT(arr, idx) (FX.arr[FX.idx++ % (int)(sizeof FX.arr / sizeof FX.arr[0])])
 
 static void light_flash(t3_vec3 at, float energy, float range, float decay, float r, float g, float b) {
-  light *l = &FX.light[FX.light_i++ % NLIGHT];
+  /* the dimmest light is taken (an idle one first): taken in turn, a lit flash near the camera was cut off in a frame
+   * when the field's boosts and boxes at the start asked for more lights than there are */
+  light *l = &FX.light[0];
+  float best = 1e30f;
+  for (int i = 0; i < NLIGHT; i++) {
+    light *c = &FX.light[i];
+    float e = c->e0 <= 0 ? -1.0f : c->age < 4 ? c->e0 : c->e0 * cw_exp(-(float)(c->age - 4) * c->decay);
+    if (e < best) best = e, l = c;
+  }
   if (!cw_node_valid(l->n)) return;
+  if (best > energy) return; /* every light is brighter than this one would be: it adds nothing to see */
   cw_node3d_set_position(l->n, at);
   cw_node_set(l->n, "color", cw_val_color(r, g, b, 1));
   cw_node_set(l->n, "range", cw_val_float(range));
@@ -288,7 +298,9 @@ static void sparkle_burst(t3_vec3 at, t3_vec3 up, float r, float g, float b) {
   cw_node n = NEXT(sparkle, sparkle_i);
   set_ramp(n, 1, 1, 1, r, g, b);
   char s[160];
-  snprintf(s, sizeof s, "\"0 1 1 1 1, 0.3 %.2f %.2f %.2f 1, 1 %.2f %.2f %.2f 0\"", r, g, b, r * 0.6f, g * 0.6f, b * 0.6f);
+  /* the sparks swell in over the first eighth of their life (born white at full strength, a burst near the camera was a
+   * white flash in a frame) */
+  snprintf(s, sizeof s, "\"0 %.2f %.2f %.2f 0, 0.12 1 1 1 1, 0.35 %.2f %.2f %.2f 1, 1 %.2f %.2f %.2f 0\"", r, g, b, r, g, b, r * 0.6f, g * 0.6f, b * 0.6f);
   fx_set_str(n, "color_ramp", s);
   burst(n, at, up, v3(0, 0, 1));
 }
@@ -436,7 +448,7 @@ void fx_init(cw_node scene, const sim *s, const map_def *map) {
     f->drift_level = -1;
     f->prev_dlvl = 0;
   }
-  for (int i = 0; i < NSPARK; i++) FX.sparks[i] = fx_pnode(FX.root, "Sparks", R_SPARKS, 200 + i);
+  for (int i = 0; i < NSPARK; i++) FX.sparks[i] = fx_pnode(FX.root, "Sparks", R_SPARKS, 180 + i);
   for (int i = 0; i < NGRIND; i++) FX.grind[i] = fx_pnode(FX.root, "Grind", R_GRIND, 210 + i);
   for (int i = 0; i < NCHIPS; i++) FX.chips[i] = fx_pnode(FX.root, "Chips", R_CHIPS, 220 + i);
   for (int i = 0; i < NCLOUD; i++) FX.cloud[i] = fx_pnode(FX.root, "Cloud", R_CLOUD, 230 + i);
@@ -525,6 +537,12 @@ static void on_event(const sim *s, const struct sim_event *e) {
     if (src == 4) r = 0.7f, g = 1, b = 0.4f;
     if (src == 2) r = DRIFT_RGB[f->prev_dlvl & 3][0], g = DRIFT_RGB[f->prev_dlvl & 3][1], b = DRIFT_RGB[f->prev_dlvl & 3][2];
     f->flame_src = src == 2 ? 10 + (f->prev_dlvl & 3) : src;
+    /* a run of boosts (a start boost and then a row of pads, a few ticks apart) flares, sparks and lights the road once:
+     * the flame stays lit through it. Every boost relit them: the flash sweep's orbit run saw 4 flashes in a second at
+     * the bottom of the view as the kart crossed the start pads */
+    bool fresh = s->tick - f->boost_tick > 40 || s->tick < f->boost_tick || f->boost_tick == 0;
+    if (fresh) f->boost_tick = s->tick > 0 ? s->tick : 1;
+    if (!fresh) break;
     if (src != 0) flare_at(rear, src == 2 ? 0.6f + 0.15f * (float)f->prev_dlvl : 0.8f, r, g, b);
     if (src != 0) spark_burst(rear, kart_up(k), v3mul(kart_fwd(k), -1), r, g, b);
     if (src == 2 || src == 4) sparkle_burst(rear, kart_up(k), r, g, b);
@@ -540,9 +558,16 @@ static void on_event(const sim *s, const struct sim_event *e) {
     break;
   }
   case EV_BOX: {
-    sparkle_burst(e->at, v3(0, 1, 0), 0.5f, 0.9f, 1);
-    sparkle_burst(v3add(e->at, v3(0, 0.3f, 0)), v3(0, 1, 0), 1, 0.9f, 0.4f);
-    light_flash(e->at, 10, 6, 0.2f, 0.6f, 0.9f, 1);
+    /* a box taken near a camera (a kart driving through a row of boxes, its chase camera a few metres behind) lights
+     * less and throws no sparkles: the sparkles flew back through the view as a cloud of pale discs, flickering over the
+     * bottom of the screen (the flash sweep's orbit start, 4 flashes in a second). Sparkles from 16 m out, where a
+     * burst is small in the view; the light is whole from there */
+    float nk = CW_CLAMP((sqrtf(dist2_to_cams(e->at)) - 6.0f) / 10.0f, 0, 1);
+    if (nk >= 1.0f) {
+      sparkle_burst(e->at, v3(0, 1, 0), 0.5f, 0.9f, 1);
+      sparkle_burst(v3add(e->at, v3(0, 0.3f, 0)), v3(0, 1, 0), 1, 0.9f, 0.4f);
+    }
+    light_flash(e->at, 10 * (0.25f + 0.75f * nk), 6, 0.2f, 0.6f, 0.9f, 1);
     break;
   }
   case EV_HIT: {
