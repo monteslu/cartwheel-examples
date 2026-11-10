@@ -3,6 +3,12 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.23.0 (2026-11-10)
+
+- **All games**: Engine v0.46.0 (from v0.44.2): the flash check and GPU timing run through romdev; a test's scripted finger taps on the frame it lands on a native run.
+- **Tests**: the flash sweep runs every entry on the built cart through romdev on GL and WebGPU side by side, with the engine's `flash-check --host romdev`: one `frame({op:'flash'})` call a run (the server steps the frames, filters each in linear light and applies the WCAG 2.3.1 / Harding rules with the 8 Hz strobe control) instead of a native run; `--host native` keeps the old way. Derby, BomberDude, Pugball, BikeMesa, Spout and Chromite pass every entry on both backends
+- **racer**: two sweep entries are marked as known failures, waiting on the game: at speed the kerbs' crisp red and white stripes pass the corner of the view about 20 times a second (a regular 20 Hz flicker on the salt flats, just over the bound on an integrated GPU and under it on a discrete one), and off the orbit track's start the item boxes taken at the chase camera (their sparkle bursts and light, the boxes' shells sweeping the view) and the start boosts' flares flash the bottom of the view four times in a second
+
 ## v0.22.0 (2026-11-10)
 
 - **All games**: Engine v0.44.2 (from v0.42.0). The menus take touch: a tap works the title, pause, settings and graphics pages, and a tap on the join screen seats you and starts. While a game loads, its first frames draw the shadows and lights play draws instead of leaving out the sunlit parts of the scene (and a red "no program" warning up for good)
