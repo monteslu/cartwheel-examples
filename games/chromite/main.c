@@ -150,7 +150,9 @@ static int32_t dbg_boss_plates = -1, dbg_boss_tells, dbg_beam_tells;
 /* what the screen shows, as the world draws it (for the newcomer gate, which plays by what is drawn): the craft
  * (x, y; 99 = none), and the enemy rounds nearest the ship */
 static float view_enemies[VIEW_N * 2], view_rounds[VIEW_N * 2]; /* sim_view (study.c) */
-static void view_fill(void) { sim_view(&G.S, view_enemies, view_rounds); }
+/* the rounds as the tick before showed them: a newcomer gate sees how they move in one read (view.rounds_prev) */
+static float view_rounds_prev[VIEW_N * 2];
+static void view_fill(void) { memcpy(view_rounds_prev, view_rounds, sizeof view_rounds); sim_view(&G.S, view_enemies, view_rounds); }
 static int32_t dbg_rules, dbg_chain, dbg_chain_best, dbg_mult10, dbg_escapes, dbg_point_blanks, dbg_cancelled, dbg_hitstop_ticks;
 /* rumble requests made (presentation; the engine's cw.rumble shows the last one) */
 static int32_t rumbles;
@@ -549,6 +551,7 @@ static void init(void *u) {
   cw_debug_i32("continues", &G.continues);
   cw_debug_f32_array("view.enemies", view_enemies, VIEW_N * 2);
   cw_debug_f32_array("view.rounds", view_rounds, VIEW_N * 2);
+  cw_debug_f32_array("view.rounds_prev", view_rounds_prev, VIEW_N * 2);
   cw_debug_i32("boss.plates", &dbg_boss_plates);
   cw_debug_i32("boss.tells", &dbg_boss_tells);
   cw_debug_i32("beam.tells", &dbg_beam_tells);

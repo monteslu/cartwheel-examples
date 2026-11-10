@@ -29,11 +29,13 @@ const arg = (n, d) => { const i = process.argv.indexOf(n); return i > 0 ? proces
 const CART = resolve(arg('--cart', join(ROOT, 'build/cart-wgpu/carts/spout.wasc')));
 const BACKENDS = process.argv.includes('--gl') ? ['gl'] : process.argv.includes('--webgpu') ? ['webgpu'] : ['gl', 'webgpu'];
 const bye = async (code) => {
-  try { await fetch('http://127.0.0.1:7331/tool/host', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION }, body: '{"op":"shutdown"}', signal: AbortSignal.timeout(30000) }); } catch {}
+  try { await fetch('http://127.0.0.1:7331/tool/host', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION, 'x-romdev-agent': process.env.ROMDEV_AGENT || 'spout-feel' }, body: '{"op":"shutdown"}', signal: AbortSignal.timeout(30000) }); } catch {}
   process.exit(code);
 };
+let requests = 0; /* romdev requests, printed at the end */
 const tool = async (name, args) => {
-  const r = await fetch(`http://127.0.0.1:7331/tool/${name}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION }, body: JSON.stringify(args) });
+  requests++;
+  const r = await fetch(`http://127.0.0.1:7331/tool/${name}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION, 'x-romdev-agent': process.env.ROMDEV_AGENT || 'spout-feel' }, body: JSON.stringify(args) });
   const t = await r.text();
   let j; try { j = JSON.parse(t); } catch { j = t; }
   if (!r.ok || j?.error) { console.error(`romdev ${name}: ${t.slice(0, 400)}`); await bye(3); }
@@ -43,7 +45,10 @@ const cmd = async (text) => { const j = await tool('wasm', { op: 'command', text
 const state = async () => { const v = await tool('wasm', { op: 'debugState' }), o = {}; for (const f of v.fields) o[f.name] = f.values ?? f.value; return o; };
 const step = (frames) => tool('frame', { op: 'step', frames });
 const pads = (p0) => tool('input', { op: 'set', ports: [p0, {}] });
-const press = async (b) => { await pads({ [b]: true }); await step(4); await pads({}); await step(20); };
+/* ranges, not loops: a press is one request (held 4 frames, let go for 20), a decision of the climb one request (the pad
+   held for its 10 frames) and one read */
+const hold = (p0, frames) => tool('input', { op: 'sequence', steps: [{ input: { ports: [p0, {}] }, frames }] });
+const press = (b) => tool('input', { op: 'sequence', steps: [{ input: { ports: [{ [b]: true }, {}] }, frames: 4 }, { input: { ports: [{}, {}] }, frames: 20 }] });
 let fail = 0;
 const check = (name, ok, detail) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}: ${detail}`); if (!ok) fail++; };
 const load = async (backend) => {
@@ -67,8 +72,7 @@ async function climb(backend, pre, keep) {
     if (y > best + 0.05) best = y, still = 0; else still += 10;
     const brace = !!k['hud.wave_near'], hop = !brace && still >= 60;
     if (hop) still = 0;
-    await pads({ up: !brace, east: brace, south: hop });
-    await step(10);
+    await hold({ up: !brace, east: brace, south: hop }, 10);
     k = await state();
     over += +k['hud.over_pipe'] > 0, samples++;
     banner += +k['weather'] === 1;
@@ -139,5 +143,6 @@ for (const backend of BACKENDS) {
   check('control: sw no_ghost 1 keeps none', gc.n === 0 && gc.shown === 0, `ghost ${gc.n} samples, shown ${gc.shown}`);
 }
 if (seen.gl && seen.webgpu) check('GL and WebGPU agree', seen.gl === seen.webgpu, seen.gl === seen.webgpu ? 'identical studies' : 'the studies differ');
+console.log(`romdev requests: ${requests}`);
 console.log(fail ? `${fail} FAILED` : 'all ok');
 await bye(fail ? 1 : 0);

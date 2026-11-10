@@ -37,12 +37,14 @@ const BACKENDS = process.argv.includes('--gl') ? ['gl'] : process.argv.includes(
 const SEEDS = +arg('--seeds', 3), FIRST = +arg('--first-seed', 1), LEG = arg('--leg', 'all');
 const LIMIT = 60 * 60 * 9; /* frames of play a run may take */
 mkdirSync(OUT, { recursive: true });
+let requests = 0; /* romdev requests, printed at the end */
 const HEADERS = { 'Content-Type': 'application/json', 'x-romdev-session': SESSION, 'x-romdev-agent': process.env.ROMDEV_AGENT || 'chromite-newcomer' };
 const bye = async (code) => {
   try { await fetch('http://127.0.0.1:7331/tool/host', { method: 'POST', headers: HEADERS, body: '{"op":"shutdown"}', signal: AbortSignal.timeout(30000) }); } catch {}
   process.exit(code);
 };
 const tool = async (name, args) => {
+  requests++;
   const r = await fetch(`http://127.0.0.1:7331/tool/${name}`, { method: 'POST', headers: HEADERS, body: JSON.stringify(args), signal: AbortSignal.timeout(300000) });
   const t = await r.text();
   let j; try { j = JSON.parse(t); } catch { j = t; }
@@ -71,6 +73,9 @@ const fields = async (...names) => {
 };
 const step = (frames) => tool('frame', { op: 'step', frames });
 const pads = (p0, p1 = {}) => tool('input', { op: 'set', ports: [p0, p1] });
+/* ranges, not loops: a decision is one read (the fields command: the rounds now and a tick before, view.rounds_prev) and
+   one request that holds the stick for the look's frames and steps them; a press is one request too */
+const seq = (...steps) => tool('input', { op: 'sequence', steps: steps.map(([p0, frames, p1 = {}]) => ({ input: { ports: [p0, p1] }, frames })) });
 let fail = 0;
 const check = (name, ok, detail) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}: ${detail}`); if (!ok) fail++; };
 
@@ -158,37 +163,32 @@ async function load(cart, backend) {
 async function play(cart, backend, tag, seed, idle) {
   await load(cart, backend);
   await cmd('sw rules 0'); /* the default rules, whatever an earlier run saved */
-  if (idle) { await pads({}, { start: true }); await step(4); await pads({}, {}); await step(30); }
+  if (idle) await seq([{}, 4, { start: true }], [{}, 30]);
   const titleState = await rd('game.state');
   await tool('frame', { op: 'stepAndShot', frames: 1, path: join(OUT, `${backend}-${tag}-title.png`) });
-  await pads({ south: true }); await step(4); await pads({}); await step(20); /* the prompt: {fire} : launch */
+  await seq([{ south: true }, 4], [{}, 20]); /* the prompt: {fire} : launch */
   const started = await rd('game.state');
   const bot = new Newcomer(seed);
-  let tpf = 1; /* ticks a frame, measured */
   let continues = 0, frames = 0, reached = false, wall = false, lastLog = 0, sx = 0, sy = 0, shots = 0, bossAt = -1;
   const stick = () => ({ south: true, axes: { lx: sx, ly: -sy } });
   while (frames < LIMIT) {
-    const a = await fields('game.state', 'view.rounds', 'ticks');
-    const st = +[].concat(a['game.state'])[0];
+    const b = await fields('game.state', 'level', 'hero.pos', 'view.enemies', 'view.rounds_prev', 'view.rounds', 'boss.plates');
+    const st = +[].concat(b['game.state'])[0];
     if (st === 4) {
       /* the results card: under the modern rules it reads "{fire} : continue"; a second one is the wall */
       if (continues >= 1) { wall = true; break; }
-      await pads({}); await step(90); await pads({ south: true }); await step(4); await pads({}); await step(20); continues++;
+      await seq([{}, 90], [{ south: true }, 4], [{}, 20]); continues++;
       continue;
     }
-    if (st === 2) { await pads({ start: true }); await step(4); await pads({}); await step(4); continue; } /* never pauses on purpose */
+    if (st === 2) { await seq([{ start: true }, 4], [{}, 4]); continue; } /* never pauses on purpose */
     if (st !== 1) { await step(LOOK); frames += LOOK; continue; }
-    await pads(stick()); await step(1);
-    const b = await fields('game.state', 'level', 'hero.pos', 'view.enemies', 'view.rounds', 'boss.plates', 'ticks');
     if (+[].concat(b.level)[0] >= 2) { reached = true; break; }
     if (bossAt < 0 && +[].concat(b['boss.plates'])[0] >= 0) bossAt = frames;
     const hp = b['hero.pos'];
-    /* the game's clock, not the host's frames: a host can run more than one tick a frame, so the look spans LOOK ticks */
-    const ta = +[].concat(a.ticks)[0], tb = +[].concat(b.ticks)[0], gap = Math.max(1, tb - ta);
-    tpf = tpf * 0.9 + gap * 0.1;
-    bot.see(b['view.enemies'], a['view.rounds'], b['view.rounds'], hp[0], hp[1], gap);
+    /* the rounds a tick apart, as the game kept them (view.rounds_prev is the tick before view.rounds) */
+    bot.see(b['view.enemies'], b['view.rounds_prev'], b['view.rounds'], hp[0], hp[1], 1);
     [sx, sy] = bot.decide();
-    await pads(stick()); await step(Math.max(1, Math.round((LOOK - gap) / tpf)));
+    await seq([stick(), LOOK]);
     frames += LOOK;
     if (frames - lastLog >= 1200) { lastLog = frames; console.log(`  ${backend} ${tag} f ${frames} ticks ${await rd('ticks')} lives ${await rd('lives')} kills ${await rd('kills')} escapes ${await rd('escapes')} continues ${continues} boss plates ${[].concat(b['boss.plates'])[0]}`); }
     if (++shots % 600 === 0) await tool('frame', { op: 'stepAndShot', frames: 1, path: join(OUT, `${backend}-${tag}-${frames}.png`) });
@@ -233,5 +233,6 @@ for (const backend of BACKENDS) {
       `${n}/${SEEDS} beat it; continues ${runs.map((r) => r.continues).join(', ')}`);
   }
 }
+console.log(`romdev requests: ${requests}`);
 console.log(fail ? `${fail} FAILED` : 'all ok');
 await bye(fail ? 1 : 0);
