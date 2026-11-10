@@ -768,6 +768,19 @@ static void cmd_players(int argc, const char **argv, cw_reply *r) {
   G.players = n;
   if (r) cw_reply_printf(r, "{\"players\":%d}", n);
 }
+/* dev aid (key art): the DERBY_CAM_* look and DERBY_NO_HUD for a cart, which has no environment before its first frame */
+static int keyart_car = -1, keyart_nohud;
+static float keyart_a = 0.8f, keyart_d = 5.2f, keyart_h = 1.7f;
+static void cmd_keyart(int argc, const char **argv, cw_reply *r) {
+  if (argc < 2) { cw_reply_error(r, "usage: keyart <car> [angle distance height] [hud 0|1] | keyart off"); return; }
+  if (!strcmp(argv[1], "off")) keyart_car = -1, keyart_nohud = 0;
+  else {
+    keyart_car = atoi(argv[1]) % MAXC;
+    if (argc > 4) keyart_a = (float)atof(argv[2]), keyart_d = (float)atof(argv[3]), keyart_h = (float)atof(argv[4]);
+    keyart_nohud = argc > 5 && atoi(argv[5]) == 0;
+  }
+  cw_reply_printf(r, "{\"car\":%d,\"hud\":%d}", keyart_car, !keyart_nohud);
+}
 static void cmd_bout(int argc, const char **argv, cw_reply *r) {
   int n = argc > 1 ? atoi(argv[1]) : 1;
   pending_bout = n < 1 ? 1 : n;
@@ -897,6 +910,7 @@ static void init(void *u) {
   cw_debug_u32("scenery.hash", &scenery_hash);
   cw_debug_bytes("save.bytes", &SAVE, sizeof SAVE);
   cw_debug_command("bout", "bout [arena]: a quick match now", cmd_bout);
+  cw_debug_command("keyart", "keyart <car> [angle distance height] [hud 0|1] | keyart off: key art (a three-quarter look at a car, the HUD off)", cmd_keyart);
   cw_debug_command("bind", "bind <action> <bindings>: replace an action's bindings (binding text, as input.cfg writes it)", cmd_bind);
   cw_debug_command("players", "players <1..4>: humans in the next bout (splitscreen)", cmd_players);
   cw_debug_command("sw", "sw hint_countdown|no_handling_damage|no_beat|no_classes <0|1>: the old behaviour back (the gates' controls)", cmd_sw);
@@ -1153,6 +1167,7 @@ static void rig_tick(int v) {
       r->snap = true;
     }
   }
+  if (keyart_car >= 0) cam_car = keyart_car, cam_a = keyart_a, cam_d = keyart_d, cam_h = keyart_h;
   if (cam_car >= 0 && v == 0) {
     const car *c = &s->c[cam_car];
     float a = c->h + cam_a;
@@ -2350,7 +2365,7 @@ static void render(void *u, double alpha) {
   float W = cs.x, H = cs.y, s = H / 540.0f;
   static int no_hud = -1; /* dev aid: DERBY_NO_HUD=1 for clean looks at the 3D */
   if (no_hud < 0) no_hud = getenv("DERBY_NO_HUD") != NULL;
-  switch (no_hud ? -1 : (int)G.state) {
+  switch (no_hud || keyart_nohud ? -1 : (int)G.state) {
   case GS_TITLE: draw_title(W, H, s); break;
   case GS_BOUT: draw_hud(W, H, s); break;
   case GS_PAUSE: /* the pause screen over the arena alone (its rows would cross the HUD at a large Text size); the graphics page alone */
