@@ -351,6 +351,17 @@ side of the orbit's road still holds the camera where the fall began. Its contro
 (`sw jump_hold 1`, the flight held at the lip like a fall) must fail on every map.
 Frames before, during and after each map's first jump are kept in `out/racer-jump-camera`.
 
+`tests/bikemesa-rides.mjs` (gate `bikemesa-rides`) plays BikeMesa's ride gates
+(`tests/bikemesa-rides.json`: tricks, lanes, contact between riders, the wrecking
+ball, the loop, the moon's big jump) on the cart through romdev on GL and WebGPU,
+timed from the game's own state instead of frame numbers: it presses through the
+menus as each screen comes up (or sends a start request such as `track 2`), then
+waits on the debug field `ride.start` (the tick of the countdown's GO) and plays
+each ride's input in ticks from GO, so a host that spends longer loading lands the
+same presses on the same stretch of track. Each ride's named state must match its
+`expect`, the WebGPU leg must match the GL leg exactly, and each ride's control
+must miss `expect`.
+
 Without GPU hardware, `CW_TEST_GPU=software` runs on Mesa's software
 renderers (llvmpipe for GL, lavapipe for WebGPU), as CI does:
 

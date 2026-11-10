@@ -174,6 +174,7 @@ static void rider_finish(void);
 static struct {
   /* debug fields */
   int32_t state, track, ticks, state_ticks, ride_ticks, medal, new_best;
+  int32_t ride_start; /* the tick the ride starts on (GO): set when the countdown begins, 0 off a race */
   int32_t stars, locked_bumps;
   int bump_tile, bump_ticks;  /* a locked tile shaking */
   int32_t replays;            /* debug field: wipeout replays shown */
@@ -618,6 +619,8 @@ static bool load_track(int index, bool attract, int riders) {
 static void enter(int state) {
   G.state = state;
   G.state_ticks = 0;
+  if (state == GS_COUNT) G.ride_start = G.ticks + COUNT_TICKS;
+  else if (state != GS_RIDE && state != GS_CRASH && state != GS_REPLAY && state != GS_FINISH) G.ride_start = 0;
 }
 
 static int joined_count(void) {
@@ -1585,6 +1588,7 @@ static void init(void *u) {
   cw_debug_i32("ticks", &G.ticks);
   cw_debug_i32("cam.jolts", &cam_jolts);
   cw_debug_i32("ride.ticks", &G.ride_ticks);
+  cw_debug_i32("ride.start", &G.ride_start); /* gates wait on it: the ride's first tick, known from the countdown on */
   cw_debug_i32("crashes", &P->crashes);
   cw_debug_i32("checkpoint", &P->checkpoint);
   cw_debug_i32("score", &P->score);

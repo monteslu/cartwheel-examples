@@ -1,0 +1,1455 @@
+[
+ {
+  "name": "bikemesa-pinch",
+  "app": "bikemesa",
+  "note": "A pinch on Red Rock Run: past the second checkpoint the cones and lines close lane 0 over 24 m to a barrier. The loop sets a rider two lanes over (lane 1 comes out in lane 3), so the rider moves up lane by lane after it and before the pinch to lane 0 and stays there: it meets the barrier and wipes out, thrown back from it (crashes 1). The control pedals on in lane 3 and rides through.",
+  "menus": {
+   "players": 1,
+   "touch": false
+  },
+  "ticks": 1500,
+  "input": [
+   {
+    "at": 5,
+    "buttons": [
+     "south"
+    ]
+   },
+   {
+    "at": 800,
+    "buttons": [
+     "south",
+     "up"
+    ]
+   },
+   {
+    "at": 806,
+    "buttons": [
+     "south"
+    ]
+   },
+   {
+    "at": 830,
+    "buttons": [
+     "south",
+     "up"
+    ]
+   },
+   {
+    "at": 836,
+    "buttons": [
+     "south"
+    ]
+   },
+   {
+    "at": 900,
+    "buttons": [
+     "south",
+     "up"
+    ]
+   },
+   {
+    "at": 906,
+    "buttons": [
+     "south"
+    ]
+   },
+   {
+    "at": 1250,
+    "buttons": [
+     "south",
+     "up"
+    ]
+   },
+   {
+    "at": 1256,
+    "buttons": [
+     "south"
+    ]
+   },
+   {
+    "at": 1300,
+    "buttons": [
+     "south",
+     "up"
+    ]
+   },
+   {
+    "at": 1306,
+    "buttons": [
+     "south"
+    ]
+   },
+   {
+    "at": 1350,
+    "buttons": [
+     "south",
+     "up"
+    ]
+   },
+   {
+    "at": 1356,
+    "buttons": [
+     "south"
+    ]
+   }
+  ],
+  "expect": {
+   "crashes": 1
+  },
+  "control": {
+   "input": [
+    {
+     "at": 5,
+     "buttons": [
+      "south"
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "name": "bikemesa-ramp",
+  "app": "bikemesa",
+  "note": "A partial ramp: Red Rock Run's first ramp covers lanes 2-3 only (a plank hump with closed sides). Moving down to lane 2 at the start, the rider takes it and flies off its end (air.max 59) and lands clean; the control stays in lane 1 and rides past it on the flat (its longest air, off the slope later, is 53).",
+  "menus": {
+   "players": 1,
+   "touch": false
+  },
+  "ticks": 315,
+  "input": [
+   {
+    "at": 5,
+    "buttons": [
+     "south"
+    ]
+   },
+   {
+    "at": 35,
+    "buttons": [
+     "south",
+     "down"
+    ]
+   },
+   {
+    "at": 41,
+    "buttons": [
+     "south"
+    ]
+   }
+  ],
+  "expect": {
+   "air.max": 59,
+   "crashes": 0
+  },
+  "control": {
+   "input": [
+    {
+     "at": 5,
+     "buttons": [
+      "south"
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "name": "bikemesa-flip",
+  "app": "bikemesa",
+  "note": "Leaning back off the big kicker turns a full backflip; letting go settles the bike and it lands clean (FLIP_POINTS). The backflip banks on the landing: a CLEAN one is worth 500 (trick.banked).",
+  "menus": {
+   "players": 1,
+   "touch": false
+  },
+  "ticks": 1290,
+  "input": [
+   {
+    "at": 5,
+    "buttons": [
+     "south"
+    ]
+   },
+   {
+    "at": 1046,
+    "buttons": [
+     "south"
+    ],
+    "axes": {
+     "lx": -1
+    }
+   },
+   {
+    "at": 1090,
+    "buttons": [
+     "south"
+    ]
+   }
+  ],
+  "expect": {
+   "game.state": 3,
+   "flips": 1,
+   "crashes": 0,
+   "trick.banked": 500
+  },
+  "control": {
+   "input": [
+    {
+     "at": 5,
+     "buttons": [
+      "south"
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "name": "bikemesa-perfect",
+  "app": "bikemesa",
+  "note": "A no-hander over the second jump on Red Rock Run, let go in time, lands with the frame within 0.12 rad of the slope: PERFECT (x1.5). The control rides the same line with no trick, so nothing is judged.",
+  "menus": {
+   "players": 1,
+   "touch": false
+  },
+  "ticks": 1075,
+  "input": [
+   {
+    "at": 5,
+    "buttons": [
+     "south"
+    ]
+   },
+   {
+    "at": 405,
+    "buttons": [
+     "south",
+     "north",
+     "left"
+    ]
+   },
+   {
+    "at": 407,
+    "buttons": [
+     "south",
+     "north"
+    ]
+   },
+   {
+    "at": 445,
+    "buttons": [
+     "south"
+    ]
+   }
+  ],
+  "expect": {
+   "perfects": 1,
+   "crashes": 0
+  },
+  "control": {
+   "input": [
+    {
+     "at": 5,
+     "buttons": [
+      "south"
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "name": "bikemesa-touch-tricks",
+  "app": "bikemesa",
+  "note": "Phone controls end to end, by touch only: a tap on the title and on the first tile, the right thumb holding PEDAL, a tap on HOP (both wheels down: a hop), then the NO HANDS pose button held through the next air and let go before the ground: a PERFECT no-hander banks. The control is the plain touch ride.",
+  "menus": {
+   "players": 1,
+   "touch": true
+  },
+  "ticks": 675,
+  "input": [
+   {
+    "at": 5,
+    "touches": [
+     {
+      "id": 2,
+      "x": 858,
+      "y": 430
+     }
+    ]
+   },
+   {
+    "at": 115,
+    "touches": [
+     {
+      "id": 2,
+      "x": 858,
+      "y": 430
+     },
+     {
+      "id": 3,
+      "x": 864,
+      "y": 292
+     }
+    ]
+   },
+   {
+    "at": 119,
+    "touches": [
+     {
+      "id": 2,
+      "x": 858,
+      "y": 430
+     }
+    ]
+   },
+   {
+    "at": 405,
+    "touches": [
+     {
+      "id": 2,
+      "x": 858,
+      "y": 430
+     },
+     {
+      "id": 4,
+      "x": 640,
+      "y": 328
+     }
+    ]
+   },
+   {
+    "at": 445,
+    "touches": [
+     {
+      "id": 2,
+      "x": 858,
+      "y": 430
+     }
+    ]
+   }
+  ],
+  "expect": {
+   "input.mode": 3,
+   "hops": 1,
+   "poses": 1,
+   "perfects": 1,
+   "crashes": 0
+  },
+  "control": {
+   "input": [
+    {
+     "at": 5,
+     "touches": [
+      {
+       "id": 2,
+       "x": 858,
+       "y": 430
+      }
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "name": "bikemesa-touch-flip",
+  "app": "bikemesa",
+  "note": "Phone controls, a pose and a flip in one air by touch only: the right thumb holds PEDAL; off the big kicker the left thumb lands in the lower left and slides left (the floating lean stick, full back) while another finger holds SUPER; both let go after 44 ticks: a SUPERMAN BACKFLIP lands PERFECT (2520), and a pose with a flip earns the third star's trick (star3.trick). The control is the plain touch ride.",
+  "menus": {
+   "players": 1,
+   "touch": true
+  },
+  "ticks": 1339,
+  "input": [
+   {
+    "at": 5,
+    "touches": [
+     {
+      "id": 2,
+      "x": 858,
+      "y": 430
+     }
+    ]
+   },
+   {
+    "at": 1045,
+    "touches": [
+     {
+      "id": 2,
+      "x": 858,
+      "y": 430
+     },
+     {
+      "id": 5,
+      "x": 150,
+      "y": 400
+     }
+    ]
+   },
+   {
+    "at": 1046,
+    "touches": [
+     {
+      "id": 2,
+      "x": 858,
+      "y": 430
+     },
+     {
+      "id": 5,
+      "x": 40,
+      "y": 400
+     },
+     {
+      "id": 6,
+      "x": 728,
+      "y": 282
+     }
+    ]
+   },
+   {
+    "at": 1090,
+    "touches": [
+     {
+      "id": 2,
+      "x": 858,
+      "y": 430
+     }
+    ]
+   }
+  ],
+  "expect": {
+   "input.mode": 3,
+   "flips": 1,
+   "poses": 1,
+   "star3.trick": 1,
+   "trick.banked": 2520,
+   "crashes": 0
+  },
+  "control": {
+   "input": [
+    {
+     "at": 5,
+     "touches": [
+      {
+       "id": 2,
+       "x": 858,
+       "y": 430
+      }
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "name": "bikemesa-lanes2",
+  "app": "bikemesa",
+  "note": "Lane changes in a two-player race (four lanes; up is a lane further back): P2, in lane 1, presses down on the ground and slides to lane 2; up pressed in the air waits for the landing and takes it to lane 1; up on the ground takes it to lane 0 (P1 is far behind: room there); up again is past the back lane and refused (race.lane_changes 3, in lane 0). The control rides without changing lanes.",
+  "menus": {
+   "players": 2,
+   "touch": false
+  },
+  "ticks": 725,
+  "input": [
+   {
+    "at": 5,
+    "buttons": [],
+    "pad2": {
+     "buttons": [
+      "south"
+     ]
+    }
+   },
+   {
+    "at": 105,
+    "buttons": [
+     "south"
+    ],
+    "pad2": {
+     "buttons": [
+      "south"
+     ]
+    }
+   },
+   {
+    "at": 175,
+    "buttons": [
+     "south"
+    ],
+    "pad2": {
+     "buttons": [
+      "south"
+     ],
+     "axes": {
+      "ly": 1
+     }
+    }
+   },
+   {
+    "at": 185,
+    "buttons": [
+     "south"
+    ],
+    "pad2": {
+     "buttons": [
+      "south"
+     ]
+    }
+   },
+   {
+    "at": 275,
+    "buttons": [
+     "south"
+    ],
+    "pad2": {
+     "buttons": [
+      "south"
+     ],
+     "axes": {
+      "ly": -1
+     }
+    }
+   },
+   {
+    "at": 285,
+    "buttons": [
+     "south"
+    ],
+    "pad2": {
+     "buttons": [
+      "south"
+     ]
+    }
+   },
+   {
+    "at": 425,
+    "buttons": [
+     "south"
+    ],
+    "pad2": {
+     "buttons": [
+      "south"
+     ],
+     "axes": {
+      "ly": -1
+     }
+    }
+   },
+   {
+    "at": 435,
+    "buttons": [
+     "south"
+    ],
+    "pad2": {
+     "buttons": [
+      "south"
+     ]
+    }
+   },
+   {
+    "at": 600,
+    "buttons": [
+     "south"
+    ],
+    "pad2": {
+     "buttons": [
+      "south"
+     ],
+     "axes": {
+      "ly": -1
+     }
+    }
+   },
+   {
+    "at": 610,
+    "buttons": [
+     "south"
+    ],
+    "pad2": {
+     "buttons": [
+      "south"
+     ]
+    }
+   }
+  ],
+  "expect": {
+   "players": 2,
+   "race.lanes": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "race.lane_changes": 3
+  },
+  "control": {
+   "input": [
+    {
+     "at": 5,
+     "buttons": [],
+     "pad2": {
+      "buttons": [
+       "south"
+      ]
+     }
+    },
+    {
+     "at": 105,
+     "buttons": [
+      "south"
+     ],
+     "pad2": {
+      "buttons": [
+       "south"
+      ]
+     }
+    }
+   ]
+  }
+ },
+ {
+  "name": "bikemesa-bump2",
+  "app": "bikemesa",
+  "note": "A fast rear-end: P2 rides ahead, moves up to P1's lane (0) and brakes to a stop; P1 pedals into its back wheel at about 10 m/s, past the 6 m/s a rider shrugs off: P2 goes down (race.crashes [0, 1]), P1 rides on. The control keeps P2 in lane 1: P1 passes through (no contact).",
+  "menus": {
+   "players": 2,
+   "touch": false
+  },
+  "ticks": 675,
+  "input": [
+   {
+    "at": 5,
+    "buttons": [],
+    "pad2": {
+     "buttons": [
+      "south"
+     ]
+    }
+   },
+   {
+    "at": 175,
+    "buttons": [],
+    "pad2": {
+     "buttons": [
+      "south"
+     ],
+     "axes": {
+      "ly": -1
+     }
+    }
+   },
+   {
+    "at": 185,
+    "buttons": [],
+    "pad2": {
+     "buttons": [
+      "east"
+     ]
+    }
+   },
+   {
+    "at": 245,
+    "buttons": [
+     "south"
+    ],
+    "pad2": {
+     "buttons": [
+      "east"
+     ]
+    }
+   }
+  ],
+  "expect": {
+   "players": 2,
+   "race.lanes": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "race.bumps": 1,
+   "race.crashes": [
+    0,
+    1,
+    0,
+    0
+   ]
+  },
+  "control": {
+   "input": [
+    {
+     "at": 5,
+     "buttons": [],
+     "pad2": {
+      "buttons": [
+       "south"
+      ]
+     }
+    },
+    {
+     "at": 185,
+     "buttons": [],
+     "pad2": {
+      "buttons": [
+       "east"
+      ]
+     }
+    },
+    {
+     "at": 245,
+     "buttons": [
+      "south"
+     ],
+     "pad2": {
+      "buttons": [
+       "east"
+      ]
+     }
+    }
+   ]
+  }
+ },
+ {
+  "name": "bikemesa-nudge2",
+  "app": "bikemesa",
+  "note": "Light contact is a shove, not a wipeout: P2 rides ahead in lane 1 and coasts; P1 moves down into lane 1 behind it and, pedalling, catches it: they nudge and jostle (race.bumps 9) a few m/s apart and nobody goes down. Lane 1 has no ramps on Red Rock Run, so the contact is on the flat; the ride ends before the loop. The control keeps P1 in lane 0 (no contact).",
+  "menus": {
+   "players": 2,
+   "touch": false
+  },
+  "ticks": 780,
+  "input": [
+   {
+    "at": 5,
+    "buttons": [],
+    "pad2": {
+     "buttons": [
+      "south"
+     ]
+    }
+   },
+   {
+    "at": 75,
+    "buttons": [
+     "south"
+    ],
+    "pad2": {
+     "buttons": [
+      "south"
+     ]
+    }
+   },
+   {
+    "at": 105,
+    "buttons": [
+     "south"
+    ],
+    "axes": {
+     "ly": 1
+    },
+    "pad2": {
+     "buttons": [
+      "south"
+     ]
+    }
+   },
+   {
+    "at": 111,
+    "buttons": [
+     "south"
+    ],
+    "pad2": {
+     "buttons": [
+      "south"
+     ]
+    }
+   },
+   {
+    "at": 185,
+    "buttons": [
+     "south"
+    ],
+    "pad2": {
+     "buttons": []
+    }
+   }
+  ],
+  "expect": {
+   "players": 2,
+   "race.lanes": [
+    1,
+    1,
+    0,
+    0
+   ],
+   "race.bumps": 9,
+   "race.crashes": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  "control": {
+   "input": [
+    {
+     "at": 5,
+     "buttons": [],
+     "pad2": {
+      "buttons": [
+       "south"
+      ]
+     }
+    },
+    {
+     "at": 75,
+     "buttons": [
+      "south"
+     ],
+     "pad2": {
+      "buttons": [
+       "south"
+      ]
+     }
+    },
+    {
+     "at": 185,
+     "buttons": [
+      "south"
+     ],
+     "pad2": {
+      "buttons": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "name": "bikemesa-land2",
+  "app": "bikemesa",
+  "note": "A massive impact crashes: P2 rides lane 1 and stops just past the first jump's landing; P1 moves down into lane 1 before the jump, takes it and comes down on P2: both riders go down (race.crashes [1, 1]), the normal wipeout. The control leaves P1 in lane 0: it lands clear.",
+  "menus": {
+   "players": 2,
+   "touch": false
+  },
+  "ticks": 1135,
+  "input": [
+   {
+    "at": -35,
+    "buttons": [],
+    "pad2": {
+     "buttons": [
+      "south"
+     ]
+    }
+   },
+   {
+    "at": 425,
+    "buttons": [],
+    "pad2": {
+     "buttons": [
+      "east"
+     ]
+    }
+   },
+   {
+    "at": 495,
+    "buttons": [
+     "south"
+    ],
+    "pad2": {
+     "buttons": [
+      "east"
+     ]
+    }
+   },
+   {
+    "at": 525,
+    "buttons": [
+     "south"
+    ],
+    "axes": {
+     "ly": 1
+    },
+    "pad2": {
+     "buttons": [
+      "east"
+     ]
+    }
+   },
+   {
+    "at": 531,
+    "buttons": [
+     "south"
+    ],
+    "pad2": {
+     "buttons": [
+      "east"
+     ]
+    }
+   }
+  ],
+  "expect": {
+   "players": 2,
+   "race.lanes": [
+    1,
+    1,
+    0,
+    0
+   ],
+   "race.crashes": [
+    1,
+    1,
+    0,
+    0
+   ]
+  },
+  "control": {
+   "input": [
+    {
+     "at": -35,
+     "buttons": [],
+     "pad2": {
+      "buttons": [
+       "south"
+      ]
+     }
+    },
+    {
+     "at": 425,
+     "buttons": [],
+     "pad2": {
+      "buttons": [
+       "east"
+      ]
+     }
+    },
+    {
+     "at": 495,
+     "buttons": [
+      "south"
+     ],
+     "pad2": {
+      "buttons": [
+       "east"
+      ]
+     }
+    }
+   ]
+  }
+ },
+ {
+  "name": "bikemesa-split4",
+  "app": "bikemesa",
+  "note": "A whole four-player race, each rider on its own pad: pads 2-4 join on the player select, four views in a 2x2 grid. Pedalling starts staggered (P1 at GO, P2 30 ticks later, P3 60, P4 90); P4 alone presses up once (race.lane_changes 1). The loop sets the riders two lanes over, P3 and P4 each go down once on the way, and the race runs to the results, which list all four (race.places). The control is the same but P4 never changes lane. On the results screen each pad holds its own buttons (P1 (A), P2 (Y), P3 (X), P4 (B)+(Y)), read back from the platform per pad (cw.padN).",
+  "menus": {
+   "players": 4,
+   "touch": false
+  },
+  "ticks": 3135,
+  "input": [
+   {
+    "at": 5,
+    "buttons": [
+     "south"
+    ],
+    "pad2": {
+     "buttons": []
+    },
+    "pad3": {
+     "buttons": []
+    },
+    "pad4": {
+     "buttons": []
+    }
+   },
+   {
+    "at": 35,
+    "buttons": [
+     "south"
+    ],
+    "pad2": {
+     "buttons": [
+      "south"
+     ]
+    },
+    "pad3": {
+     "buttons": []
+    },
+    "pad4": {
+     "buttons": []
+    }
+   },
+   {
+    "at": 65,
+    "buttons": [
+     "south"
+    ],
+    "pad2": {
+     "buttons": [
+      "south"
+     ]
+    },
+    "pad3": {
+     "buttons": [
+      "south"
+     ]
+    },
+    "pad4": {
+     "buttons": []
+    }
+   },
+   {
+    "at": 95,
+    "buttons": [
+     "south"
+    ],
+    "pad2": {
+     "buttons": [
+      "south"
+     ]
+    },
+    "pad3": {
+     "buttons": [
+      "south"
+     ]
+    },
+    "pad4": {
+     "buttons": [
+      "south"
+     ]
+    }
+   },
+   {
+    "at": 185,
+    "buttons": [
+     "south"
+    ],
+    "pad2": {
+     "buttons": [
+      "south"
+     ]
+    },
+    "pad3": {
+     "buttons": [
+      "south"
+     ]
+    },
+    "pad4": {
+     "buttons": [
+      "south"
+     ],
+     "axes": {
+      "ly": -1
+     }
+    }
+   },
+   {
+    "at": 195,
+    "buttons": [
+     "south"
+    ],
+    "pad2": {
+     "buttons": [
+      "south"
+     ]
+    },
+    "pad3": {
+     "buttons": [
+      "south"
+     ]
+    },
+    "pad4": {
+     "buttons": [
+      "south"
+     ]
+    }
+   },
+   {
+    "at": 3125,
+    "buttons": [
+     "south"
+    ],
+    "pad2": {
+     "buttons": [
+      "north"
+     ]
+    },
+    "pad3": {
+     "buttons": [
+      "west"
+     ]
+    },
+    "pad4": {
+     "buttons": [
+      "east",
+      "north"
+     ]
+    }
+   }
+  ],
+  "expect": {
+   "players": 4,
+   "game.state": 5,
+   "race.lanes": [
+    2,
+    3,
+    3,
+    3
+   ],
+   "race.lane_changes": 1,
+   "race.places": [
+    1,
+    2,
+    3,
+    4
+   ],
+   "race.crashes": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "cw.pad0.buttons": 1,
+   "cw.pad1.buttons": 8,
+   "cw.pad2.buttons": 4,
+   "cw.pad3.buttons": 10,
+   "cw.pad1.connected": 1,
+   "cw.pad2.connected": 1,
+   "cw.pad3.connected": 1
+  },
+  "control": {
+   "input": [
+    {
+     "at": 5,
+     "buttons": [
+      "south"
+     ],
+     "pad2": {
+      "buttons": []
+     },
+     "pad3": {
+      "buttons": []
+     },
+     "pad4": {
+      "buttons": []
+     }
+    },
+    {
+     "at": 35,
+     "buttons": [
+      "south"
+     ],
+     "pad2": {
+      "buttons": [
+       "south"
+      ]
+     },
+     "pad3": {
+      "buttons": []
+     },
+     "pad4": {
+      "buttons": []
+     }
+    },
+    {
+     "at": 65,
+     "buttons": [
+      "south"
+     ],
+     "pad2": {
+      "buttons": [
+       "south"
+      ]
+     },
+     "pad3": {
+      "buttons": [
+       "south"
+      ]
+     },
+     "pad4": {
+      "buttons": []
+     }
+    },
+    {
+     "at": 95,
+     "buttons": [
+      "south"
+     ],
+     "pad2": {
+      "buttons": [
+       "south"
+      ]
+     },
+     "pad3": {
+      "buttons": [
+       "south"
+      ]
+     },
+     "pad4": {
+      "buttons": [
+       "south"
+      ]
+     }
+    },
+    {
+     "at": 3125,
+     "buttons": [
+      "south"
+     ],
+     "pad2": {
+      "buttons": [
+       "north"
+      ]
+     },
+     "pad3": {
+      "buttons": [
+       "west"
+      ]
+     },
+     "pad4": {
+      "buttons": [
+       "east",
+       "north"
+      ]
+     }
+    }
+   ]
+  }
+ },
+ {
+  "name": "bikemesa-wreck",
+  "app": "bikemesa_unlocked",
+  "note": "Downtown: a wrecking ball swings over the track (it only reaches a rider in the air). Pedalling only rides through it to the finish (the set piece is in the sim and the state hash): the ride goes on until the results are up. The control runs without the track request (the title).",
+  "startCmds": [
+   "track 3"
+  ],
+  "ticks": 4000,
+  "input": [
+   {
+    "at": 9,
+    "buttons": [
+     "south"
+    ]
+   }
+  ],
+  "expect": {
+   "game.state": 5,
+   "finished": 1,
+   "crashes": 0
+  },
+  "control": {
+   "startCmds": [],
+   "menus": null,
+   "input": [],
+   "idleFrames": 4181,
+   "note": "no track request: the title, never a ride"
+  },
+  "until": {
+   "game.state": 5
+  },
+  "cap": 1800
+ },
+ {
+  "name": "bikemesa-hop",
+  "app": "bikemesa_unlocked",
+  "note": "Powder Line's split: a hop (pad A / Space) on the kicker's lip carries the bike up onto the high plank deck, which it rides out for the HIGH LINE bonus (high.lines 1, hops 1, no crash). The control pedals the same run without the hop and takes the low line under the deck (high.lines 0).",
+  "startCmds": [
+   "track 2"
+  ],
+  "ticks": 1119,
+  "input": [
+   {
+    "at": 9,
+    "buttons": [
+     "south"
+    ]
+   },
+   {
+    "at": 844,
+    "buttons": [
+     "south",
+     "west"
+    ]
+   },
+   {
+    "at": 847,
+    "buttons": [
+     "south"
+    ]
+   }
+  ],
+  "expect": {
+   "high.lines": 1,
+   "hops": 1,
+   "crashes": 0
+  },
+  "control": {
+   "input": [
+    {
+     "at": 9,
+     "buttons": [
+      "south"
+     ]
+    }
+   ],
+   "startCmds": [
+    "track 2"
+   ]
+  }
+ },
+ {
+  "name": "bikemesa-loop-lanes",
+  "app": "bikemesa_unlocked",
+  "note": "Red Rock Run's loop with two riders side by side: P1 starts in lane 0 and P2 in lane 1; both ride the loop (it sets them two lanes over, to lanes 2 and 3) and on past the pinch with nobody down. The control changes P2's lane twice and P2 goes down.",
+  "startCmds": [
+   "players 2",
+   "track 1"
+  ],
+  "ticks": 2219,
+  "input": [
+   {
+    "at": 9,
+    "buttons": [
+     "south"
+    ],
+    "pad2": {
+     "buttons": [
+      "south"
+     ]
+    }
+   }
+  ],
+  "expect": {
+   "players": 2,
+   "loops": 1,
+   "race.lanes": [
+    2,
+    3,
+    0,
+    0
+   ],
+   "race.crashes": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  "control": {
+   "input": [
+    {
+     "at": 9,
+     "buttons": [
+      "south"
+     ],
+     "pad2": {
+      "buttons": [
+       "south"
+      ]
+     }
+    },
+    {
+     "at": 219,
+     "buttons": [
+      "south"
+     ],
+     "pad2": {
+      "buttons": [
+       "south"
+      ],
+      "axes": {
+       "ly": 1
+      }
+     }
+    },
+    {
+     "at": 229,
+     "buttons": [
+      "south"
+     ],
+     "pad2": {
+      "buttons": [
+       "south"
+      ]
+     }
+    },
+    {
+     "at": 319,
+     "buttons": [
+      "south"
+     ],
+     "pad2": {
+      "buttons": [
+       "south"
+      ],
+      "axes": {
+       "ly": 1
+      }
+     }
+    },
+    {
+     "at": 329,
+     "buttons": [
+      "south"
+     ],
+     "pad2": {
+      "buttons": [
+       "south"
+      ]
+     }
+    }
+   ],
+   "startCmds": [
+    "players 2",
+    "track 1"
+   ]
+  }
+ },
+ {
+  "name": "bikemesa-moon-spin",
+  "app": "bikemesa_unlocked",
+  "note": "Moon Base's biggest jump (nearly six seconds of air): leaning back from the take-off for 190 ticks spins the bike up to the air spin cap (11 rad/s, ramped, the same under any gravity) and round more than four times; let go, it settles and lands SKETCHY, and the air counts four flips at most: a QUAD BACKFLIP, 500 x5.5 x0.5 = 1375. The control only pedals (no flips).",
+  "startCmds": [
+   "track 11"
+  ],
+  "ticks": 2100,
+  "input": [
+   {
+    "at": 9,
+    "buttons": [
+     "south"
+    ]
+   },
+   {
+    "at": 1650,
+    "buttons": [
+     "south"
+    ],
+    "axes": {
+     "lx": -1
+    }
+   },
+   {
+    "at": 1840,
+    "buttons": [
+     "south"
+    ]
+   }
+  ],
+  "expect": {
+   "flips": 4,
+   "crashes": 0,
+   "trick.banked": 1375
+  },
+  "control": {
+   "input": [
+    {
+     "at": 9,
+     "buttons": [
+      "south"
+     ]
+    }
+   ],
+   "startCmds": [
+    "track 11"
+   ]
+  }
+ }
+]

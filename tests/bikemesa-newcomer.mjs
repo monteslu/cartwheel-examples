@@ -2,7 +2,7 @@
 // first track is ridden to the results, alone and with a second pad that joined on the rider pick and was never
 // played. Once a seat still choosing has not pressed anything for five seconds, P1's READY panel offers "(A) start
 // now"; P1 presses it, the idle seat sits the race out and P1 rides Red Rock Run to the finish. (A seat still picking
-// is waited for: bikemesa-split4's riders pick while P1 presses (A) on READY.)
+// is waited for.)
 // Control: sw idle_wait 1 (a joined seat that never readies holds the start, as the game once did) must leave P1
 // on the pick with the race never started.
 //   node tests/bikemesa-newcomer.mjs [--gl] [--webgpu] [--cart <path>]
