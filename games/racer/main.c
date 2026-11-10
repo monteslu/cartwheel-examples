@@ -75,6 +75,8 @@ typedef struct rig {
   float base_fov, fov_k;
   bool falling;      /* off the road and going down: the camera holds its orientation and stays where it was */
   t3_vec3 fall_eye;  /* where the eye stopped when the fall began */
+  float lift;        /* metres the eye was lifted this tick to stay over the road under it */
+  t3_vec3 anc, anc_v; /* the chase's anchor on the kart, its velocity eased (see rig_tick) */
 } rig;
 
 static struct {
@@ -441,6 +443,20 @@ static void spring3(t3_vec3 *x, t3_vec3 *v, t3_vec3 target, float w) {
   x->x += v->x * dt, x->y += v->y * dt, x->z += v->z * dt;
 }
 
+/* sw jump_hold <0|1>: 1 = a jump's flight holds the chase camera at the lip like a fall, as it once did (the control
+ * of tests/racer-jump-camera.mjs) */
+int racer_jump_hold;
+
+/* sample i (or one beside it) is in a jump's flight: the samples there follow the arc its landing is built for */
+static bool in_jump(const track *t, int i) {
+  if (i < 0 || i >= t->nall) return false;
+  for (int j = -2; j <= 2; j++) {
+    int q = i + j;
+    if (q >= 0 && q < t->nall && (t->s[q].flags & TF_GAP)) return true;
+  }
+  return false;
+}
+
 static void rig_tick(int v) {
   rig *r = &G.rig[v];
   if (!cw_node_valid(r->cam)) return;
@@ -523,7 +539,17 @@ static void rig_tick(int v) {
     /* a fall off the road (into space on the orbit, off a branch): the camera does not tumble with the kart. It keeps the
      * up and forward it had and stops where it was, watching the kart drop away; the respawn cuts back to the chase.
      * Turned with the kart, sky, planet and road swung through the view several times a second */
-    bool falling = r->live && !k->loc.on_road && !k->grounded && k->air_ticks > 8 && k->respawn_ticks <= 0;
+    /* (a jump's flight is not a fall: over a gap the road is never "on_road", and held at the lip the view stood still
+     * and watched the kart fly away, then cut back to the chase on the landing. A fall is off the side of the road or
+     * well below it: below a jump's arc by more than its landing can catch, below the road elsewhere. Big air over a
+     * crest is above the road and the chase follows it too) */
+    bool fall_like = racer_jump_hold != 0 || k->loc.i < 0;
+    if (!fall_like) {
+      tsample lm = track_at_loc(s->track, &k->loc, 0);
+      bool gap = in_jump(s->track, k->loc.i);
+      fall_like = fabsf(k->loc.lat) > lm.hw + (gap ? 3.0f : 0.8f) || k->loc.height < (gap ? -6.0f : -1.5f);
+    }
+    bool falling = r->live && !k->loc.on_road && !k->grounded && k->air_ticks > 8 && k->respawn_ticks <= 0 && fall_like;
     if (falling && !r->falling) r->fall_eye = r->eye;
     if (!falling && r->falling) r->live = false; /* the respawn: one cut back to the chase, not a swing across the void */
     r->falling = falling;
@@ -549,6 +575,7 @@ static void rig_tick(int v) {
     if (!r->live || !was_chase) {
       r->erel = erel, r->lrel = lrel;
       r->eye_v = r->look_v = (t3_vec3){ 0, 0, 0 };
+      r->anc = k->p, r->anc_v = k->v;
       r->live = true;
     }
     r->chase = true;
@@ -557,7 +584,14 @@ static void rig_tick(int v) {
     bool on_wall = k->loc.i >= 0 && k->loc.br < 0 && (s->track->s[k->loc.i].flags & TF_WALLTURN) && fabsf(s->track->s[k->loc.i].u.y) < 0.1f;
     spring3(&r->erel, &r->eye_v, erel, on_wall ? 16.0f : 6.0f);
     spring3(&r->lrel, &r->look_v, lrel, on_wall ? 20.0f : 9.0f);
-    r->eye = v3add(k->p, r->erel), r->look = v3add(k->p, r->lrel);
+    /* the eye and the look point hang from an anchor that follows the kart with its velocity eased over a few ticks:
+     * a landing's stop, a bump's kick or a wall's knock is the kart's and never jolts the whole view (pinned to the
+     * kart, the picture took each hit in one frame). It runs at the kart's own velocity, so it never trails at speed */
+    if (r->snap || v3len(v3sub(k->p, r->anc)) > 4.0f) r->anc = k->p, r->anc_v = k->v; /* a kart put back on the road: one cut */
+    r->anc_v = v3add(r->anc_v, v3mul(v3sub(k->v, r->anc_v), 0.25f));
+    r->anc = v3add(r->anc, v3mul(r->anc_v, 1.0f / 60));
+    r->anc = v3add(r->anc, v3mul(v3sub(k->p, r->anc), 0.2f));
+    r->eye = v3add(r->anc, r->erel), r->look = v3add(r->anc, r->lrel);
     if (r->falling) { /* held where the fall began, looking at the kart as it drops away */
       r->eye = r->fall_eye, r->erel = v3sub(r->eye, k->p);
       r->look = v3add(k->p, v3mul(r->up, 0.9f));
@@ -567,12 +601,14 @@ static void rig_tick(int v) {
     {
       static int eye_hint[CW_MAX_VIEWS] = { -1, -1, -1, -1 };
       track_loc el;
+      r->lift = 0;
       track_locate(s->track, r->eye, eye_hint[v], &el);
       eye_hint[v] = el.i;
       if (el.i >= 0 && el.on_road && el.height < 1.2f && el.height > -6.0f) {
         tsample em = track_at_loc(s->track, &el, 0);
+        r->lift = 1.2f - el.height;
         r->eye = v3add(r->eye, v3mul(em.u, 1.2f - el.height));
-        r->erel = v3sub(r->eye, k->p);
+        r->erel = v3sub(r->eye, r->anc);
       }
     }
     e = r->eye, at = r->look;
@@ -931,10 +967,15 @@ static void cmd_eye(int argc, const char **argv, cw_reply *r) {
 }
 
 /* put <s> [speed] [lat] [kart]: a kart on the road there, moving (what RACER_TEST_AT does natively, for hosts with no environment) */
+static int jc_cut; /* frames the jump camera's records leave out after `put` moved a kart (the view cuts to it) */
 static void cmd_put(int argc, const char **argv, cw_reply *r) {
   bool ok = argc > 1 && G.have_track && !G.S.battle;
   int k = argc > 4 ? atoi(argv[4]) & 7 : 0;
   if (ok) sim_put(&G.S, k, (float)atof(argv[1]), argc > 3 ? (float)atof(argv[3]) : 0, argc > 2 ? (float)atof(argv[2]) : 30);
+  /* a kart moved by hand: a view on it cuts there, as at a respawn, instead of swinging across the map */
+  if (ok)
+    for (int v = 0; v < G.nviews; v++)
+      if (game_view_kart(v) == k) G.rig[v].live = false, G.rig[v].snap = true, jc_cut = 3;
   if (r) cw_reply_printf(r, "{\"put\":%d}", ok ? 1 : 0);
 }
 
@@ -950,6 +991,105 @@ static void update(void *u, double dt) {
    * next race, and measuring on would walk High to Low on the same heavy scenery. And only three seconds past the green:
    * the load's tail and the countdown (a Vega 8: 66 ms a frame of first uploads) say nothing about the race */
   cw_quality_auto_measure(G.have_track && ui_race_runs() && cw_quality_get() == G.race_quality && G.S.phase == PH_RACE && G.S.race_ticks > 180);
+}
+
+/* ── the chase camera over the jumps (debug: jcam.*, tests/racer-jump-camera.mjs) ───────────────────────────────────
+ * Every drawn frame from a jump's take-off to 45 frames after the landing, view 0's kart as drawn against view 0's
+ * camera as drawn: where it sits on the screen (x and y from -1 to 1, the middle 0), how far it is from the eye, and the
+ * eye's change of velocity from one frame to the next (a cut or a shake is a spike there). One record a jump. */
+#define JC_MAX 16
+static struct {
+  int32_t n, ndone;
+  int32_t s[JC_MAX], frames[JC_MAX], air[JC_MAX], held[JC_MAX], fell[JC_MAX], speed[JC_MAX];
+  int32_t ndc[JC_MAX * 4];  /* x min, x max, y min, y max, x1000 */
+  int32_t dist[JC_MAX * 2]; /* eye to kart, min and max, mm */
+  int32_t acc[JC_MAX];      /* the eye's largest change of velocity in a frame, mm per frame per frame */
+  int32_t acc_at[JC_MAX];   /* the frame of the record it came at */
+  int32_t kacc[JC_MAX];     /* the drawn kart's own change of velocity at that frame, mm per frame per frame */
+  int32_t lift[JC_MAX];     /* the most the eye was lifted in a tick to stay over the road, mm */
+  int32_t acc_road;         /* the same over chase frames out of any jump (the road's own bumps), for scale */
+  int32_t fall_held;        /* frames out of any jump the camera was held for a fall (off the side, below the road) */
+  int32_t gaps, gap_s0[24], gap_s1[24]; /* the map's jumps, metres along the road from the take-off to the landing */
+  bool active, have1, have2;
+  int after;
+  t3_vec3 e1, e2, k1, k2;
+} JC;
+
+static void jcam_reset(void) {
+  int32_t g = JC.gaps, s0[24], s1[24];
+  memcpy(s0, JC.gap_s0, sizeof s0), memcpy(s1, JC.gap_s1, sizeof s1);
+  memset(&JC, 0, sizeof JC);
+  JC.gaps = g, memcpy(JC.gap_s0, s0, sizeof s0), memcpy(JC.gap_s1, s1, sizeof s1);
+}
+
+static void jcam_frame(cw_vec2 cs) {
+  if (!G.have_track || G.S.battle || G.nviews < 1 || G.cam_mode != 0 || !cw_node_valid(G.rig[0].cam)) { JC.have1 = JC.have2 = false; return; }
+  if (jc_cut > 0) { /* put moved the kart: no record across the cut */
+    jc_cut--;
+    JC.have1 = JC.have2 = false;
+    if (JC.active) JC.active = false, JC.ndone = JC.n;
+    return;
+  }
+  const track *t = G.S.track;
+  JC.gaps = t->ngaps < 24 ? t->ngaps : 24;
+  for (int g = 0; g < JC.gaps; g++) JC.gap_s0[g] = (int32_t)t->s[t->gap_from[g]].s, JC.gap_s1[g] = (int32_t)t->s[t->gap_to[g]].s;
+  int me = game_view_kart(0);
+  const kart *k = &G.S.k[me];
+  t3_object *ko = cw_node3d_object(kartgfx_node(me));
+  if (!ko) return;
+  const t3_mat4 *m = cw_node3d_global_transform(G.rig[0].cam);
+  t3_object *co = cw_node3d_object(G.rig[0].cam);
+  if (!co) return;
+  t3_vec3 eye = co->position, rx = { m->e[0], m->e[1], m->e[2] }, uy = { m->e[4], m->e[5], m->e[6] }, bz = { m->e[8], m->e[9], m->e[10] };
+  t3_vec3 d = v3sub(ko->position, eye);
+  float depth = -v3dot(d, v3norm(bz));
+  cw_value fov = { 0 };
+  if (!cw_node_get_prop(G.rig[0].cam, "fov", &fov)) fov.f = 64;
+  float ty = tanf((float)fov.f * 0.5f * 0.0174533f), asp = cs.y > 0 ? cs.x / cs.y : 16.0f / 9.0f;
+  float nx = depth > 0.1f ? v3dot(d, v3norm(rx)) / depth / (ty * asp) : 9.0f, ny = depth > 0.1f ? v3dot(d, v3norm(uy)) / depth / ty : 9.0f;
+  float acc = 0;
+  bool chase = G.rig[0].chase && k->respawn_ticks <= 0;
+  float kacc = 0;
+  if (JC.have1 && JC.have2 && chase) acc = v3len(v3add(v3sub(eye, v3mul(JC.e1, 2)), JC.e2));
+  if (JC.have1 && JC.have2 && chase) kacc = v3len(v3add(v3sub(ko->position, v3mul(JC.k1, 2)), JC.k2));
+  JC.k2 = JC.k1, JC.k1 = ko->position;
+  JC.e2 = JC.e1, JC.e1 = eye, JC.have2 = JC.have1, JC.have1 = chase;
+  bool gap = in_jump(t, k->loc.i) && !k->grounded;
+  if (gap && !JC.active && JC.n < JC_MAX) {
+    int j = JC.n++;
+    JC.active = true, JC.after = 0;
+    JC.s[j] = (int32_t)k->loc.ms, JC.speed[j] = (int32_t)v3len(k->v);
+    JC.ndc[j * 4] = JC.ndc[j * 4 + 2] = 99999, JC.ndc[j * 4 + 1] = JC.ndc[j * 4 + 3] = -99999;
+    JC.dist[j * 2] = 999999, JC.dist[j * 2 + 1] = 0;
+  }
+  if (!JC.active) {
+    if (G.rig[0].falling) JC.fall_held++;
+    if (chase && (int32_t)(acc * 1000) > JC.acc_road) JC.acc_road = (int32_t)(acc * 1000);
+    return;
+  }
+  int j = JC.n - 1;
+  JC.frames[j]++;
+  if (k->air_ticks > JC.air[j]) JC.air[j] = k->air_ticks;
+  if (G.rig[0].falling) JC.held[j]++;
+  if (k->respawn_ticks > 0) JC.fell[j] = 1;
+  int32_t ix = (int32_t)(CW_CLAMP(nx, -9.0f, 9.0f) * 1000), iy = (int32_t)(CW_CLAMP(ny, -9.0f, 9.0f) * 1000), dm = (int32_t)(v3len(d) * 1000);
+  if (ix < JC.ndc[j * 4]) JC.ndc[j * 4] = ix;
+  if (ix > JC.ndc[j * 4 + 1]) JC.ndc[j * 4 + 1] = ix;
+  if (iy < JC.ndc[j * 4 + 2]) JC.ndc[j * 4 + 2] = iy;
+  if (iy > JC.ndc[j * 4 + 3]) JC.ndc[j * 4 + 3] = iy;
+  if (dm < JC.dist[j * 2]) JC.dist[j * 2] = dm;
+  if (dm > JC.dist[j * 2 + 1]) JC.dist[j * 2 + 1] = dm;
+  if ((int32_t)(acc * 1000) > JC.acc[j]) JC.acc[j] = (int32_t)(acc * 1000), JC.acc_at[j] = JC.frames[j], JC.kacc[j] = (int32_t)(kacc * 1000);
+  if ((int32_t)(G.rig[0].lift * 1000) > JC.lift[j]) JC.lift[j] = (int32_t)(G.rig[0].lift * 1000);
+  /* the record ends 45 frames after the wheels are back down (or at a respawn) */
+  if (gap || !k->grounded) JC.after = 0;
+  else JC.after++;
+  if (JC.after > 45 || JC.fell[j]) JC.active = false, JC.ndone = JC.n;
+}
+
+static void cmd_jcam(int argc, const char **argv, cw_reply *r) {
+  if (argc > 1 && !strcmp(argv[1], "reset")) jcam_reset();
+  if (r) cw_reply_printf(r, "{\"n\":%d,\"done\":%d,\"active\":%d,\"gaps\":%d}", JC.n, JC.ndone, JC.active ? 1 : 0, JC.gaps);
 }
 
 static void render(void *u, double alpha) {
@@ -979,6 +1119,7 @@ static void render(void *u, double alpha) {
   }
   cw_r2d_begin(&(cw_r2d_pass_desc){ .clear = false });
   cw_vec2 cs = cw_r2d_canvas_size();
+  jcam_frame(cs);
   if (!getenv("RACER_STUDIO") && !G.dev_eye) ui_render(cs.x, cs.y); /* models agent: the studio view has no HUD over the kart */
   {
     /* the menus' real karts (kartgfx.c's showroom) hang under view 0's camera, the one view the menus draw over; what
@@ -1050,6 +1191,26 @@ static void init(void *u) {
   cw_debug_command("trial", "trial <map 0..7> [runs]: start a time trial now (the bot drives <runs> runs when it is on)", cmd_trial);
   cw_debug_command("cup", "cup <0..1> [humans] [laps] [races]: a cup now, clicking through its own results (with `bot 1`)", cmd_cup);
   cw_debug_command("eye", "eye <x y z tx ty tz>: hold view 0's camera there looking at the target, no HUD (no arguments: back to the chase)", cmd_eye);
+  cw_debug_i32("jcam.n", &JC.n); /* jumps recorded since `jcam reset` (the chase camera over each: see jcam_frame) */
+  cw_debug_i32("jcam.done", &JC.ndone);
+  cw_debug_field("jcam.s", JC.s, CW_DBG_I32, JC_MAX);
+  cw_debug_field("jcam.frames", JC.frames, CW_DBG_I32, JC_MAX);
+  cw_debug_field("jcam.air", JC.air, CW_DBG_I32, JC_MAX);
+  cw_debug_field("jcam.held", JC.held, CW_DBG_I32, JC_MAX);
+  cw_debug_field("jcam.fell", JC.fell, CW_DBG_I32, JC_MAX);
+  cw_debug_field("jcam.speed", JC.speed, CW_DBG_I32, JC_MAX);
+  cw_debug_field("jcam.ndc", JC.ndc, CW_DBG_I32, JC_MAX * 4);
+  cw_debug_field("jcam.dist", JC.dist, CW_DBG_I32, JC_MAX * 2);
+  cw_debug_field("jcam.acc", JC.acc, CW_DBG_I32, JC_MAX);
+  cw_debug_i32("jcam.acc_road", &JC.acc_road);
+  cw_debug_field("jcam.acc_at", JC.acc_at, CW_DBG_I32, JC_MAX);
+  cw_debug_field("jcam.kacc", JC.kacc, CW_DBG_I32, JC_MAX);
+  cw_debug_field("jcam.lift", JC.lift, CW_DBG_I32, JC_MAX);
+  cw_debug_i32("jcam.fall_held", &JC.fall_held);
+  cw_debug_i32("jumps.n", &JC.gaps);
+  cw_debug_field("jumps.s0", JC.gap_s0, CW_DBG_I32, 24);
+  cw_debug_field("jumps.s1", JC.gap_s1, CW_DBG_I32, 24);
+  cw_debug_command("jcam", "jcam [reset]: the chase camera over the jumps (jcam.* fields); reset starts the records over", cmd_jcam);
   cw_debug_command("put", "put <s> [speed] [lat] [kart]: a kart on the road at s metres, moving", cmd_put);
   cw_debug_command("bot", "bot <0|1|2>: the human karts driven by the CPU driver (2: keyboard-style steering)", cmd_bot);
   cw_debug_command("battle", "battle <arena 0..5> [humans] [secs] [karts] [mode 0 balloons|1 flag|2 hill|3 assault]: an arena round now (secs 0: three minutes)", cmd_battle);

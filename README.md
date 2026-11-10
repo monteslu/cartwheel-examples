@@ -342,6 +342,15 @@ with `sw contact 0`, `sw wheel_lag 1`, and `gap lift 80`) bring back the old way
 and must fail. `--legs float` adds a report of props standing a little above the ground near the
 road (the `floatcheck` debug command), with frames of each to look at.
 
+`tests/racer-jump-camera.mjs` plays racer's cart through romdev on GL and WebGPU and
+drives over every jump of every map with the gas held (each jump on its own, then a
+lap). The cart records each flight (the `jcam.*` debug fields): from the take-off to
+just after the landing the kart stays framed on the screen at the chase distance, the
+camera is never held as for a fall, and the eye never cuts or jolts. A fall off the
+side of the orbit's road still holds the camera where the fall began. Its control
+(`sw jump_hold 1`, the flight held at the lip like a fall) must fail on every map.
+Frames before, during and after each map's first jump are kept in `out/racer-jump-camera`.
+
 Without GPU hardware, `CW_TEST_GPU=software` runs on Mesa's software
 renderers (llvmpipe for GL, lavapipe for WebGPU), as CI does:
 
