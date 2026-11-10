@@ -5,6 +5,7 @@ game_app = racer
 
 name = "racer"
 app = "racer"
+title = "Racer"
 app_id = "org.cartwheel.racer"
 export.linux-x64.platform = "linux-x64"
 export.linux-arm64.platform = "linux-arm64"

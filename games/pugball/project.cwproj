@@ -2,6 +2,7 @@
 ; (CI packages each from the tree scripts/build.sh made for the platform: --build build/<target>)
 name = "pugball"
 app = "pugball"
+title = "Pugball"
 app_id = "org.cartwheel.pugball"
 export.linux-x64.platform = "linux-x64"
 export.linux-arm64.platform = "linux-arm64"
