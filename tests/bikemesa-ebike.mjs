@@ -1,11 +1,12 @@
 // Low-speed electric assist, using the normal pedal/brake inputs.
 // node tests/bikemesa-ebike.mjs build/djbike-cart/carts/bikemesa.wasc webgpu
+import { ROMDEV_URL } from './lib/romdev-url.mjs';
 import assert from 'node:assert/strict';
 import {resolve} from 'node:path';
 import {mkdir,writeFile} from 'node:fs/promises';
 const cart=resolve(process.argv[2]),backend=process.argv[3]||'webgpu';
 async function call(tool,args){
- const r=await fetch(`http://localhost:7331/tool/${tool}`,{method:'POST',headers:{'Content-Type':'application/json','x-romdev-session':`bikemesa-ebike-${backend}`},body:JSON.stringify(args)});
+ const r=await fetch(`${ROMDEV_URL}/tool/${tool}`,{method:'POST',headers:{'Content-Type':'application/json','x-romdev-session':`bikemesa-ebike-${backend}`},body:JSON.stringify(args)});
  const j=await r.json();assert(r.ok&&!j.error,JSON.stringify(j));return j;
 }
 const cmd=async text=>(await call('wasm',{op:'command',text})).reply;

@@ -21,6 +21,7 @@
 //             hand over hand: a steady five pulls a second beats the stick by 5% or more, a ragged rhythm is slower than
 //             the stick. Control: one hand pressed every time (and no hop) never pulls: no climb to the top.
 //   node tests/spout-feel.mjs [--gl] [--webgpu] [--cart <path>]
+import { ROMDEV_URL } from './lib/romdev-url.mjs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -29,13 +30,13 @@ const arg = (n, d) => { const i = process.argv.indexOf(n); return i > 0 ? proces
 const CART = resolve(arg('--cart', join(ROOT, 'build/cart-wgpu/carts/spout.wasc')));
 const BACKENDS = process.argv.includes('--gl') ? ['gl'] : process.argv.includes('--webgpu') ? ['webgpu'] : ['gl', 'webgpu'];
 const bye = async (code) => {
-  try { await fetch('http://127.0.0.1:7331/tool/host', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION, 'x-romdev-agent': process.env.ROMDEV_AGENT || 'spout-feel' }, body: '{"op":"shutdown"}', signal: AbortSignal.timeout(30000) }); } catch {}
+  try { await fetch(ROMDEV_URL+'/tool/host', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION, 'x-romdev-agent': process.env.ROMDEV_AGENT || 'spout-feel' }, body: '{"op":"shutdown"}', signal: AbortSignal.timeout(30000) }); } catch {}
   process.exit(code);
 };
 let requests = 0; /* romdev requests, printed at the end */
 const tool = async (name, args) => {
   requests++;
-  const r = await fetch(`http://127.0.0.1:7331/tool/${name}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION, 'x-romdev-agent': process.env.ROMDEV_AGENT || 'spout-feel' }, body: JSON.stringify(args) });
+  const r = await fetch(`${ROMDEV_URL}/tool/${name}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION, 'x-romdev-agent': process.env.ROMDEV_AGENT || 'spout-feel' }, body: JSON.stringify(args) });
   const t = await r.text();
   let j; try { j = JSON.parse(t); } catch { j = t; }
   if (!r.ok || j?.error) { console.error(`romdev ${name}: ${t.slice(0, 400)}`); await bye(3); }

@@ -1,5 +1,6 @@
 // Exercise the real carousel and controller inputs through romdev.
 // node tests/bikemesa-djbike.mjs build/djbike-cart/carts/bikemesa.wasc webgpu
+import { ROMDEV_URL } from './lib/romdev-url.mjs';
 import assert from 'node:assert/strict';
 import {resolve} from 'node:path';
 import {mkdir,writeFile} from 'node:fs/promises';
@@ -7,7 +8,7 @@ const cart=resolve(process.argv[2]), backend=process.argv[3]||'webgpu';
 const out=resolve('out/djbike',backend);await mkdir(out,{recursive:true});
 const session=`bikemesa-djbike-test-${backend}`;
 async function call(tool,args) {
- const r=await fetch(`${process.env.ROMDEV_URL||"http://localhost:7331"}/tool/${tool}`,{method:'POST',headers:{'Content-Type':'application/json','x-romdev-session':session},body:JSON.stringify(args)});
+ const r=await fetch(`${ROMDEV_URL}/tool/${tool}`,{method:'POST',headers:{'Content-Type':'application/json','x-romdev-session':session},body:JSON.stringify(args)});
  const result=await r.json();assert(r.ok,JSON.stringify(result));assert(!result.error,JSON.stringify(result));return result;
 }
 const cmd=async text=>(await call('wasm',{op:'command',text})).reply;

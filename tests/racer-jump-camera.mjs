@@ -16,6 +16,7 @@
 // frame. Control: sw jump_hold 1 (the flight held the camera at the lip like a fall, then cut back on the landing, as in
 // v0.20.1) must fail the band on every map.
 //   node tests/racer-jump-camera.mjs [--gl] [--webgpu] [--maps 0,1,...] [--legs put,lap,fall,control] [--cart <path>]
+import { ROMDEV_URL } from './lib/romdev-url.mjs';
 import { mkdirSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,7 +41,7 @@ const bye = async (code) => {
 // (node:http, not fetch: fetch gives up on a reply that takes five minutes, and loading the cart on a busy GPU can)
 const post = (name, body) => new Promise((ok, no) => {
   requests++;
-  const q = request(`http://127.0.0.1:7331/tool/${name}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION, 'x-romdev-agent': AGENT } }, (res) => {
+  const q = request(`${ROMDEV_URL}/tool/${name}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION, 'x-romdev-agent': AGENT } }, (res) => {
     let t = '';
     res.setEncoding('utf8');
     res.on('data', (c) => (t += c));

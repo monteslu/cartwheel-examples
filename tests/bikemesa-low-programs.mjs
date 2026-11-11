@@ -5,6 +5,7 @@
 // report is read every second (cw.three.missing, cw.three.missing_states) and must stay empty.
 // Control: --control-cart <a cart built before the fix> must report the missing states on WebGPU.
 //   node tests/bikemesa-low-programs.mjs [--gl] [--webgpu] [--cart <path>] [--control-cart <path>]
+import { ROMDEV_URL } from './lib/romdev-url.mjs';
 import { mkdirSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,12 +18,12 @@ const BACKENDS = process.argv.includes('--gl') ? ['gl'] : process.argv.includes(
 mkdirSync(OUT, { recursive: true });
 // every exit tears this session's romdev host down, a failed run too: a host left loaded holds the server's memory
 const bye = async (code) => {
-  try { await fetch('http://127.0.0.1:7331/tool/host', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION }, body: '{"op":"shutdown"}', signal: AbortSignal.timeout(30000) }); } catch {}
+  try { await fetch(ROMDEV_URL+'/tool/host', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION }, body: '{"op":"shutdown"}', signal: AbortSignal.timeout(30000) }); } catch {}
   process.exit(code);
 };
 const tool = async (name, args) => {
   let r;
-  try { r = await fetch(`http://127.0.0.1:7331/tool/${name}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION }, body: JSON.stringify(args) }); }
+  try { r = await fetch(`${ROMDEV_URL}/tool/${name}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION }, body: JSON.stringify(args) }); }
   catch (e) { console.error(`romdev ${name}: ${e.cause?.message || e.message} (the server is down)`); await bye(3); }
   const t = await r.text();
   let j; try { j = JSON.parse(t); } catch { j = t; }

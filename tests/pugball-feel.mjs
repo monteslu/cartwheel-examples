@@ -15,6 +15,7 @@
 //   big cat     BIG CAT, three {m_alt} presses on: the cat 1.5 times as big (ball.radius 195 cm, NORMAL's 130), drawn
 //               so (a shot of it at the kickoff); the control is the same match under NORMAL
 //   node tests/pugball-feel.mjs [--gl] [--webgpu] [--cart <path>]
+import { ROMDEV_URL } from './lib/romdev-url.mjs';
 import { mkdirSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,11 +26,11 @@ const CART = resolve(arg('--cart', join(ROOT, 'build/cart-wgpu/carts/pugball.was
 const BACKENDS = process.argv.includes('--gl') ? ['gl'] : process.argv.includes('--webgpu') ? ['webgpu'] : ['gl', 'webgpu'];
 mkdirSync(OUT, { recursive: true });
 const bye = async (code) => {
-  try { await fetch('http://127.0.0.1:7331/tool/host', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION }, body: '{"op":"shutdown"}', signal: AbortSignal.timeout(30000) }); } catch {}
+  try { await fetch(ROMDEV_URL+'/tool/host', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION }, body: '{"op":"shutdown"}', signal: AbortSignal.timeout(30000) }); } catch {}
   process.exit(code);
 };
 const tool = async (name, args) => {
-  const r = await fetch(`http://127.0.0.1:7331/tool/${name}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION }, body: JSON.stringify(args) });
+  const r = await fetch(`${ROMDEV_URL}/tool/${name}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION }, body: JSON.stringify(args) });
   const t = await r.text();
   let j; try { j = JSON.parse(t); } catch { j = t; }
   if (!r.ok || j?.error) { console.error(`romdev ${name}: ${t.slice(0, 400)}`); await bye(3); }

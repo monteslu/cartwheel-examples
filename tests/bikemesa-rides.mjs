@@ -12,6 +12,7 @@
 // the state every 10 frames. The request count is printed for each ride.
 //
 //   node tests/bikemesa-rides.mjs [ride ...] [--gl | --webgpu]
+import { ROMDEV_HOST, ROMDEV_PORT } from './lib/romdev-url.mjs';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { join, resolve, dirname } from 'node:path';
@@ -38,7 +39,7 @@ function post(tool, a) {
   calls++;
   const body = JSON.stringify(a);
   return new Promise((ok, fail) => {
-    const req = request({ host: '127.0.0.1', port: 7331, path: `/tool/${tool}`, method: 'POST', agent: false,
+    const req = request({ host: ROMDEV_HOST, port: ROMDEV_PORT, path: `/tool/${tool}`, method: 'POST', agent: false,
       headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), 'x-romdev-session': session, 'x-romdev-agent': AGENT } }, (res) => {
       let t = '';
       res.setEncoding('utf8');

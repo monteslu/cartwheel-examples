@@ -26,6 +26,7 @@
 //           see (a wreck on its wheels, a wall on its footing, animated crowds and beams), so it is a list to look at
 //           (--legs float), not a pass or a fail.
 //   node tests/racer-grounded.mjs [--gl] [--webgpu] [--maps 0,1,...] [--arenas 0,1,...] [--legs shadow,gap,hover,float,control] [--cart <path>]
+import { ROMDEV_URL } from './lib/romdev-url.mjs';
 import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -45,12 +46,12 @@ const SHADOW_MIN_PX = 1500, GAP_MAX_MM = 50, CLASSES = ['all', 'some', 'air', 'j
 mkdirSync(OUT, { recursive: true });
 // every exit tears this session's romdev host down, a failed run too: a host left loaded holds the server's memory
 const bye = async (code) => {
-  try { await fetch('http://127.0.0.1:7331/tool/host', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION, 'x-romdev-agent': process.env.RACER_AGENT || 'racer-grounded' }, body: '{"op":"shutdown"}', signal: AbortSignal.timeout(30000) }); } catch {}
+  try { await fetch(ROMDEV_URL+'/tool/host', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION, 'x-romdev-agent': process.env.RACER_AGENT || 'racer-grounded' }, body: '{"op":"shutdown"}', signal: AbortSignal.timeout(30000) }); } catch {}
   process.exit(code);
 };
 // (node:http, not fetch: fetch gives up on a reply that takes five minutes, and loading the cart on a busy GPU can)
 const post = (name, body) => new Promise((ok, no) => {
-  const q = request(`http://127.0.0.1:7331/tool/${name}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION, 'x-romdev-agent': process.env.RACER_AGENT || 'racer-grounded' } }, (res) => {
+  const q = request(`${ROMDEV_URL}/tool/${name}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION, 'x-romdev-agent': process.env.RACER_AGENT || 'racer-grounded' } }, (res) => {
     let t = '';
     res.setEncoding('utf8');
     res.on('data', (c) => (t += c));

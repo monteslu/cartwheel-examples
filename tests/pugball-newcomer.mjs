@@ -6,6 +6,7 @@
 // Split screen once left the line out, so two newcomers never learned that the throttle is on the triggers.
 // Control: sw split_how 0 (the line left out of split screen, as before) must leave P1 short of the cat.
 //   node tests/pugball-newcomer.mjs [--gl] [--webgpu] [--cart <path>]
+import { ROMDEV_URL } from './lib/romdev-url.mjs';
 import { mkdirSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,11 +15,11 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..'), SESSION = p
 const arg = (n, d) => { const i = process.argv.indexOf(n); return i > 0 ? process.argv[i + 1] : d; };
 const CART = resolve(arg('--cart', join(ROOT, 'build/cart-wgpu/carts/pugball.wasc')));
 const BACKENDS = process.argv.includes('--gl') ? ['gl'] : process.argv.includes('--webgpu') ? ['webgpu'] : ['gl', 'webgpu'];
-const URL = process.env.ROMDEV_URL || 'http://127.0.0.1:7331';
+const URL = process.env.ROMDEV_URL || ROMDEV_URL;
 mkdirSync(OUT, { recursive: true });
 // every exit tears this session's romdev host down, a failed run too: a host left loaded holds the server's memory
 const bye = async (code) => {
-  try { await fetch('http://127.0.0.1:7331/tool/host', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION }, body: '{"op":"shutdown"}', signal: AbortSignal.timeout(30000) }); } catch {}
+  try { await fetch(ROMDEV_URL+'/tool/host', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-romdev-session': SESSION }, body: '{"op":"shutdown"}', signal: AbortSignal.timeout(30000) }); } catch {}
   process.exit(code);
 };
 const tool = async (name, args) => {

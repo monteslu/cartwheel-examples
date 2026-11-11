@@ -24,6 +24,7 @@
 //   node tests/chromite-newcomer.mjs [--gl] [--webgpu] [--cart <path>] [--control-cart <path>] [--seeds n]
 //                                    [--first-seed n] [--leg study|pad|release|all]
 // (a run at the pad takes about as long as the play it makes on a slow host: --seeds and --first-seed split the legs)
+import { ROMDEV_URL } from './lib/romdev-url.mjs';
 import { mkdirSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,12 +41,12 @@ mkdirSync(OUT, { recursive: true });
 let requests = 0; /* romdev requests, printed at the end */
 const HEADERS = { 'Content-Type': 'application/json', 'x-romdev-session': SESSION, 'x-romdev-agent': process.env.ROMDEV_AGENT || 'chromite-newcomer' };
 const bye = async (code) => {
-  try { await fetch('http://127.0.0.1:7331/tool/host', { method: 'POST', headers: HEADERS, body: '{"op":"shutdown"}', signal: AbortSignal.timeout(30000) }); } catch {}
+  try { await fetch(ROMDEV_URL+'/tool/host', { method: 'POST', headers: HEADERS, body: '{"op":"shutdown"}', signal: AbortSignal.timeout(30000) }); } catch {}
   process.exit(code);
 };
 const tool = async (name, args) => {
   requests++;
-  const r = await fetch(`http://127.0.0.1:7331/tool/${name}`, { method: 'POST', headers: HEADERS, body: JSON.stringify(args), signal: AbortSignal.timeout(300000) });
+  const r = await fetch(`${ROMDEV_URL}/tool/${name}`, { method: 'POST', headers: HEADERS, body: JSON.stringify(args), signal: AbortSignal.timeout(300000) });
   const t = await r.text();
   let j; try { j = JSON.parse(t); } catch { j = t; }
   if (!r.ok || j?.error) { console.error(`romdev ${name}: ${t.slice(0, 400)}`); await bye(3); }
