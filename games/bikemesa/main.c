@@ -685,7 +685,7 @@ static void return_to_bikes(void) {
 /* A race's track loads in play under the loading screen (cw_loading_begin), a stage a frame: the rest of the tick
  * that asked for it, and that frame's picture, still have the old track; what followed the load (the countdown, a dev
  * checkpoint) runs once it is in. In the start-up's warm-up (already a loading screen) it loads at once. */
-static struct { int index, riders, stage, checkpoint; } LT;
+static struct { int index, riders, stage, checkpoint; bool hold_then, then_due; } LT;
 static bool warming;
 static void respawn(void);
 static void track_loaded(void) {
@@ -706,11 +706,14 @@ static bool track_load_step(void *u) {
   int bar = LT.stage == LT_PREFETCH ? 5 : LT.stage >= LT_VIEW && LT.stage < LT_CRASH ? 15 + 8 * (LT.stage - LT_VIEW) : LT.stage == LT_RIDERS ? 90 : 100;
   cw_loading_set(bar, 100, LT.stage == LT_PREFETCH ? CW_LOAD_TEXTURES : CW_LOAD_SCENE);
   if (LT.stage >= 0) return false;
-  if (LT.stage == LT_DONE) track_loaded();
+  if (LT.stage == LT_DONE) {
+    if (LT.hold_then) LT.then_due = true; /* (the tick runs it: see track_load_now) */
+    else track_loaded();
+  }
   return true;
 }
 static void start_track_at(int index, int checkpoint) {
-  LT.index = index, LT.riders = G.players, LT.stage = LT_BEGIN, LT.checkpoint = checkpoint;
+  LT.index = index, LT.riders = G.players, LT.stage = LT_BEGIN, LT.checkpoint = checkpoint, LT.hold_then = LT.then_due = false;
   if (warming) {
     if (load_track(index, false, G.players)) track_loaded();
     return;
@@ -718,6 +721,13 @@ static void start_track_at(int index, int checkpoint) {
   cw_loading_begin(track_load_step, NULL);
 }
 static void start_track(int index) { start_track_at(index, 0); }
+/* The debug request `track` loads its track from the request itself, before the frame's tick, and leaves the
+ * countdown to the tick's usual place (fixed, pending_track): a test run then gets the same ticks, in the same
+ * order, as the load in that tick it replaced (the rides gates time their presses from the countdown). */
+static void track_load_now(int index, int checkpoint) {
+  start_track_at(index, checkpoint);
+  LT.hold_then = true;
+}
 
 static bool lane_free(int lane, float x, float room);
 /* a lane a bike can be put down in at x: open from just behind it on past the next narrow's taper */
@@ -1023,6 +1033,7 @@ static void cmd_track(int argc, const char **argv, cw_reply *r) {
   }
   pending_track = n - 1;
   pending_checkpoint = argc > 2 ? atoi(argv[2]) : 0;
+  track_load_now(pending_track, pending_checkpoint);
   cw_reply_printf(r, "{\"track\":%d}", n);
 }
 /* Repeatable inspection aid; no scoring special case in normal gameplay. */
@@ -2350,7 +2361,8 @@ static void fixed(void *u, double dt) {
   }
   if (G.bump_ticks > 0) G.bump_ticks--;
   if (pending_track >= 0) {
-    start_track_at(pending_track, pending_checkpoint);
+    if (LT.then_due) LT.then_due = false, track_loaded(); /* loaded by the request (track_load_now) */
+    else if (!LT.hold_then) start_track_at(pending_track, pending_checkpoint);
     pending_checkpoint = 0;
     pending_track = -1;
   }
