@@ -775,24 +775,39 @@ static void start_match(int stadium) {
   apply_quality();
   music(theme);
   crowd_bed(true);
+  /* A stadium's first match brings programs nothing drew yet (its sky and its surfaces), and
+   * their first render compiled them all in one frame: over a second of a frozen window on a laptop. The engine's
+   * loading phase compiles them a few a frame under its loading screen instead, from the next frame; no tick runs
+   * meanwhile and a test does it inside one frame, so the match is the same tick for tick. (The match itself builds
+   * in tens of milliseconds, here.) Inside the start-up warm-up its own shader phase does it. */
+  if (!cw_loading_active()) cw_loading_begin(NULL, NULL);
 }
 
-/* the title backdrop: the park, the pugs on parade */
+/* the title backdrop: the park, the pugs on parade. It builds in TITLE_STAGES stages (0 first, in order), so the
+ * start-up warm-up can run one a frame under the engine's loading screen; enter_title runs them all at once. The
+ * stages do the same work in the same order either way. */
+enum { TITLE_STAGES = WORLD_PARTS + 3 };
+static pug_look title_looks[MAXP];
+static void enter_title_stage(int stage) {
+  if (stage == 0) { /* the scene and the sim (the first sim builds the arena's collision world) */
+    load_scene(0);
+    bool on[MAXP] = { true, true, true, true, true, true };
+    sim_rules_size(RULES_NORMAL);
+    sim_init(&G.S, on, 300, 5);
+    for (int i = 0; i < MAXP; i++) title_looks[i] = G.look[i];
+  } else if (stage <= WORLD_PARTS) world_build_part(G.scene, &G.S, TH_PARK, title_looks, stage - 1);
+  else if (stage == WORLD_PARTS + 1) fx_init(G.scene, TH_PARK);
+  else {
+    scenery_build(G.scene, TH_PARK, 7);
+    apply_quality(); /* the sun's cascades */
+    G.state = GS_TITLE;
+    G.state_ticks = 0;
+    music(TH_KINDS);
+    crowd_bed(false);
+  }
+}
 static void enter_title(void) {
-  load_scene(0);
-  bool on[MAXP] = { true, true, true, true, true, true };
-  sim_rules_size(RULES_NORMAL);
-  sim_init(&G.S, on, 300, 5);
-  pug_look looks[MAXP];
-  for (int i = 0; i < MAXP; i++) looks[i] = G.look[i];
-  world_build(G.scene, &G.S, TH_PARK, looks);
-  fx_init(G.scene, TH_PARK);
-  scenery_build(G.scene, TH_PARK, 7);
-  apply_quality(); /* the sun's cascades */
-  G.state = GS_TITLE;
-  G.state_ticks = 0;
-  music(TH_KINDS);
-  crowd_bed(false);
+  for (int k = 0; k < TITLE_STAGES; k++) enter_title_stage(k);
 }
 
 static void enter_stadium_select(void) {
@@ -1041,11 +1056,7 @@ static void init(void *u) {
   font_ui_bold = cw_font_load("fonts/Fredoka-Bold.ttf", &fd);
   font_title = cw_font_load("fonts/LilitaOne-Regular.ttf", &fd);
   font_score = cw_font_load("fonts/Bungee-Regular.ttf", &fd);
-  /* Prepare printable English UI glyphs while loading. SDF glyph generation
-   * must not interrupt gameplay when a new score or result first appears. */
-  const cw_font ui_fonts[] = {font_ui, font_ui_bold, font_title, font_score};
-  for (unsigned f = 0; f < sizeof ui_fonts / sizeof ui_fonts[0]; f++)
-    cw_font_preload_range(ui_fonts[f], 32, 126);
+  /* (the printable English glyphs are prepared in the warm-up: warmup) */
 
   for (int i = 0; i < MAXP; i++) {
     G.slot[i] = SAVE.slot[i];
@@ -1127,7 +1138,11 @@ static void init(void *u) {
   cw_pipeline_set_views_shared_post(cw_pipeline_of(cw_scene_app_tree()), true); /* split screen: one post chain over the views */
   cw_debug_command("progress", "progress [show | preset <0..5>]: the save data; preset n = Cup fixtures 1..n won", cmd_progress);
   G.state_hash = 2166136261u;
-  enter_title();
+  /* the title and the glyphs come next, in the warm-up (warmup) */
+}
+
+/* the end of the warm-up: dev aids that start somewhere other than the title */
+static void warmup_done(void) {
   const char *a = getenv("PUG_STADIUM"); /* dev aid: straight into an exhibition */
   if (a && atoi(a) >= 1 && atoi(a) <= STADIUMS) {
     const char *ts = getenv("PUG_TEAM"); /* pugs a side */
@@ -1137,6 +1152,34 @@ static void init(void *u) {
     G.mode = MODE_EXHIBITION;
     start_match(atoi(a));
   }
+}
+
+/* ── the warm-up (cw_app_desc.warmup): the glyphs and the title, before the first playable frame ──
+ * Init used to do all of it at once in the first frame: the four fonts' printable glyphs (their distance fields take
+ * about half a second on a laptop), then the title backdrop (the park's collision world, six pugs and their coat
+ * textures, the crowd), and that first frame held the window for most of a second with nothing on it. Now
+ * it runs a piece a frame under the engine's loading screen, each a few tens of milliseconds: the glyphs in runs of
+ * WARM_GLYPHS, then the title's stages (enter_title_stage). The engine's shader phase that follows
+ * (src/scene/runner.c) compiles the title's programs a slice a frame under the same bar. The order of the work is the
+ * same as before, so the glyph atlases, the textures (tex.hash) and the scene are the same; a test does the whole
+ * warm-up inside its first frame. */
+enum { WARM_GLYPH_LO = 32, WARM_GLYPH_HI = 126, WARM_GLYPHS = 24, WARM_FONTS = 4 };
+enum { WARM_RUNS = (WARM_GLYPH_HI - WARM_GLYPH_LO + WARM_GLYPHS) / WARM_GLYPHS };
+enum { WARM_STEPS = WARM_FONTS * WARM_RUNS + TITLE_STAGES };
+static bool warmup(void *u) {
+  (void)u;
+  static int k;
+  if (k < WARM_FONTS * WARM_RUNS) {
+    /* SDF glyphs made now, so a new score or result never makes them mid-game */
+    const cw_font ui_fonts[WARM_FONTS] = { font_ui, font_ui_bold, font_title, font_score };
+    int lo = WARM_GLYPH_LO + (k % WARM_RUNS) * WARM_GLYPHS, hi = lo + WARM_GLYPHS - 1;
+    cw_font_preload_range(ui_fonts[k / WARM_RUNS], lo, hi > WARM_GLYPH_HI ? WARM_GLYPH_HI : hi);
+  } else enter_title_stage(k - WARM_FONTS * WARM_RUNS);
+  k++;
+  cw_loading_set(k, WARM_STEPS, k < WARM_FONTS * WARM_RUNS ? CW_LOAD_ASSETS : CW_LOAD_SCENE);
+  if (k < WARM_STEPS) return false;
+  warmup_done();
+  return true;
 }
 
 /* ── player input on the pitch ──────────────────────────────────────── */
@@ -3551,7 +3594,7 @@ cw_app_desc cw_main(int argc, char **argv) {
 #ifdef PUGBALL_AUTOPILOT
   cw_set_raw_input_filter(autopilot, NULL);
 #endif
-  static cw_app_desc base = { .title = "Pugball", .width = 960, .height = 540, .debug = true, .init = init, .fixed_update = fixed,
+  static cw_app_desc base = { .title = "Pugball", .width = 960, .height = 540, .debug = true, .init = init, .warmup = warmup, .fixed_update = fixed,
                               .update = update, .render = render, .shutdown = shutdown, .save = &SAVE, .save_size = sizeof SAVE,
                               .touch_pointer = true, /* taps work the menus (the engine's primary-finger pointer) */
                               .max_substeps = 3 /* a slow frame slows the game rather than spiralling */ };

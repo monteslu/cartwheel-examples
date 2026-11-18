@@ -509,17 +509,26 @@ static void start_round(void) {
   music(G.S.theme);
 }
 
-/* the title backdrop: the meadow and the four critters in a row */
+/* the title backdrop: the meadow and the four critters in a row. It builds in TITLE_STAGES stages (0 first, in
+ * order), so the start-up warm-up can run one a frame under the engine's loading screen; enter_title runs them all at
+ * once. The stages do the same work in the same order either way. */
+enum { TITLE_STAGES = 3 };
+static void enter_title_stage(int stage) {
+  if (stage == 0) {
+    load_scene(0);
+    bool on[MAXP] = { true, true, true, true };
+    sim_load(&G.S, G.info, on, 5);
+  } else if (stage == 1) world_build(G.scene, &G.S, G.crit); /* the first one makes the floor and wall textures */
+  else {
+    fx_init(G.scene, G.S.theme);
+    scenery_build(G.scene, G.S.theme, 7);
+    G.state = GS_TITLE;
+    G.state_ticks = 0;
+    music(TH_KINDS);
+  }
+}
 static void enter_title(void) {
-  load_scene(0);
-  bool on[MAXP] = { true, true, true, true };
-  sim_load(&G.S, G.info, on, 5);
-  world_build(G.scene, &G.S, G.crit);
-  fx_init(G.scene, G.S.theme);
-  scenery_build(G.scene, G.S.theme, 7);
-  G.state = GS_TITLE;
-  G.state_ticks = 0;
-  music(TH_KINDS);
+  for (int k = 0; k < TITLE_STAGES; k++) enter_title_stage(k);
 }
 
 static void begin_match(int mode, int arena) {
@@ -661,11 +670,7 @@ static void init(void *u) {
   font_ui = cw_font_load("fonts/Fredoka-SemiBold.ttf", &fd);
   font_ui_bold = cw_font_load("fonts/Fredoka-Bold.ttf", &fd);
   font_title = cw_font_load("fonts/TitanOne-Regular.ttf", &fd);
-  /* Prepare printable English UI glyphs while loading. SDF glyph generation
-   * must not interrupt gameplay when a new score or result first appears. */
-  const cw_font ui_fonts[] = {font_ui, font_ui_bold, font_title};
-  for (unsigned f = 0; f < sizeof ui_fonts / sizeof ui_fonts[0]; f++)
-    cw_font_preload_range(ui_fonts[f], 32, 126);
+  /* (the printable English glyphs are prepared in the warm-up: warmup) */
 
   for (int i = 0; i < MAXP; i++) {
     G.slot[i] = SAVE.slot[i];
@@ -730,7 +735,11 @@ static void init(void *u) {
   const char *boom = getenv("BOMBERDUDE_BOOM");
   G.boom_tick = boom ? atoi(boom) : -1;
   if (getenv("BOMBERDUDE_RECORD")) G.rec = fopen(getenv("BOMBERDUDE_RECORD"), "w");
-  enter_title();
+  /* the title and the glyphs come next, in the warm-up (warmup) */
+}
+
+/* the end of the warm-up: dev aids that start somewhere other than the title */
+static void warmup_done(void) {
   const char *a = getenv("BOMBERDUDE_ARENA"); /* dev aid: straight into a Battle round */
   if (a && atoi(a) >= 1 && atoi(a) <= ARENAS) {
     if (getenv("BOMBERDUDE_CPU_ONLY")) G.slot[0] = SLOT_CPU_HARD;
@@ -740,6 +749,33 @@ static void init(void *u) {
       for (int i = 0; i < atoi(np); i++) G.slot[i] = SLOT_CPU_HARD;
     begin_match(MODE_BATTLE, atoi(a));
   }
+}
+
+/* ── the warm-up (cw_app_desc.warmup): the glyphs and the title, before the first playable frame ──
+ * Init used to do all of it at once in the first frame: the three fonts' printable glyphs (their distance fields take
+ * about 0.4 s on a laptop), then the title backdrop. That first frame held the window for about half a second with
+ * nothing on it. Now it runs a piece a frame under the engine's loading screen, each a few tens of milliseconds: the
+ * glyphs in runs of WARM_GLYPHS, then the title's stages (enter_title_stage). The engine's shader phase that follows
+ * (src/scene/runner.c) compiles the title's programs a slice a frame under the same bar. The order of the work is the
+ * same as before, so the glyph atlases, the textures (tex.hash) and the scene are the same; a test does the whole
+ * warm-up inside its first frame. */
+enum { WARM_GLYPH_LO = 32, WARM_GLYPH_HI = 126, WARM_GLYPHS = 24, WARM_FONTS = 3 };
+enum { WARM_RUNS = (WARM_GLYPH_HI - WARM_GLYPH_LO + WARM_GLYPHS) / WARM_GLYPHS };
+enum { WARM_STEPS = WARM_FONTS * WARM_RUNS + TITLE_STAGES };
+static bool warmup(void *u) {
+  (void)u;
+  static int k;
+  if (k < WARM_FONTS * WARM_RUNS) {
+    /* SDF glyphs made now, so a new score or result never makes them mid-game */
+    const cw_font ui_fonts[WARM_FONTS] = { font_ui, font_ui_bold, font_title };
+    int lo = WARM_GLYPH_LO + (k % WARM_RUNS) * WARM_GLYPHS, hi = lo + WARM_GLYPHS - 1;
+    cw_font_preload_range(ui_fonts[k / WARM_RUNS], lo, hi > WARM_GLYPH_HI ? WARM_GLYPH_HI : hi);
+  } else enter_title_stage(k - WARM_FONTS * WARM_RUNS);
+  k++;
+  cw_loading_set(k, WARM_STEPS, k < WARM_FONTS * WARM_RUNS ? CW_LOAD_ASSETS : CW_LOAD_SCENE);
+  if (k < WARM_STEPS) return false;
+  warmup_done();
+  return true;
 }
 
 /* ── player input in a round ────────────────────────────────────────── */
@@ -2471,7 +2507,7 @@ cw_app_desc cw_main(int argc, char **argv) {
 #ifdef BOMBERDUDE_AUTOPILOT
   cw_set_raw_input_filter(autopilot, NULL);
 #endif
-  static cw_app_desc base = { .title = "BomberDude", .width = 960, .height = 540, .debug = true, .init = init, .fixed_update = fixed,
+  static cw_app_desc base = { .title = "BomberDude", .width = 960, .height = 540, .debug = true, .init = init, .warmup = warmup, .fixed_update = fixed,
                               .update = update, .render = render, .shutdown = shutdown, .save = &SAVE, .save_size = sizeof SAVE,
                               .touch_pointer = true };
   const char *res = getenv("BOMBERDUDE_RES");

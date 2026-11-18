@@ -111,6 +111,10 @@ extern pug_dev DEV;
 
 /* world.c: the arena shell, pitch, goals, pads, pugs and the cat */
 void world_build(cw_node scene, const sim *s, int theme, const pug_look looks[MAXP]);
+/* the same in WORLD_PARTS parts, 0 first and in order (a loading screen draws between them): the shell, each pug, then
+ * the cat. world_build runs them all; the result is the same either way */
+enum { WORLD_PARTS = MAXP + 2 };
+void world_build_part(cw_node scene, const sim *s, int theme, const pug_look looks[MAXP], int part);
 void world_reset(void);
 void world_tick(const sim *s);      /* fixed tick: animation state */
 void world_showcase(int ticks, const pug_look looks[MAXP], int focus); /* title / select: pugs on parade */
