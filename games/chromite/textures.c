@@ -16,6 +16,7 @@
 #include <string.h>
 
 #include "cartwheel/jobs.h"
+#include "cartwheel/profile.h"
 #include "cartwheel/quality.h"
 #include "game.h"
 
@@ -172,11 +173,11 @@ static void gen(int kind, float u, float v, int size, texel *t) {
 }
 
 /* texels are pure functions of (kind, u, v): rows fill in parallel and come out the same */
-typedef struct gen_job { int kind, n; texel *tx; } gen_job;
+typedef struct gen_job { int kind, n; texel *tx; int y0; } gen_job;
 static void gen_rows(int begin, int end, int worker, void *ctx) {
   (void)worker;
   const gen_job *j = ctx;
-  for (int y = begin; y < end; y++)
+  for (int y = j->y0 + begin; y < j->y0 + end; y++)
     for (int x = 0; x < j->n; x++) gen(j->kind, (x + 0.5f) / j->n, (y + 0.5f) / j->n, j->n, &j->tx[y * j->n + x]);
 }
 
@@ -210,42 +211,96 @@ static t3_texture *finish(const uint8_t *px, int n, bool srgb, float ru, float r
   return t;
 }
 
-static const mat_set *mat_get(int kind) {
-  mat_set *s = &SETS[kind];
-  if (s->map) return s;
-  if (built_quality < 0) sizes_for_quality();
-  int N = SIZES[kind];
-  texel *tx = malloc(sizeof *tx * (size_t)N * N);
-  uint8_t *a = malloc((size_t)N * N * 4), *nm = malloc((size_t)N * N * 4), *ro = malloc((size_t)N * N * 4),
-          *me = malloc((size_t)N * N * 4), *ao = malloc((size_t)N * N * 4);
-  gen_job job = { kind, N, tx };
-  cw_parallel_for(N, 8, gen_rows, &job);
-  float strength = kind == MT_DECK ? 9.0f : kind == MT_GRATE ? 5.0f : 3.0f;
-  for (int y = 0; y < N; y++)
+/* A set's maps are made in two passes over its rows, both pure per texel (the second reads the first's heights around
+ * each texel for the normals), so either can go a band of rows at a time, on the job pool, and over several frames of
+ * a loading screen (tex_prepare_step): the bytes come out the same however it is cut. Hashing them and making the
+ * textures stays in mat_get, in the order the materials ask for them, so tex.hash is the same too. */
+typedef struct tex_prep { int n, gen_y, conv_y; texel *tx; uint8_t *a, *nm, *ro, *me, *ao; } tex_prep;
+static tex_prep PREP[MT_KINDS];
+typedef struct conv_job { int kind, n; const texel *tx; uint8_t *a, *nm, *ro, *me, *ao; int y0; } conv_job;
+static void conv_rows(int begin, int end, int worker, void *ctx) {
+  (void)worker;
+  const conv_job *j = ctx;
+  const int N = j->n;
+  const texel *tx = j->tx;
+  float strength = j->kind == MT_DECK ? 9.0f : j->kind == MT_GRATE ? 5.0f : 3.0f;
+  for (int y = j->y0 + begin; y < j->y0 + end; y++)
     for (int x = 0; x < N; x++) {
       const texel *t = &tx[y * N + x];
       int i = (y * N + x) * 4;
       /* the linear colour goes out as sRGB bytes */
       float c[3] = { t->r, t->g, t->b };
       for (int k = 0; k < 3; k++) c[k] = c[k] <= 0.0031308f ? c[k] * 12.92f : 1.055f * cw_pow(clamp01(c[k]), 1 / 2.4f) - 0.055f;
-      a[i] = b8(c[0]), a[i + 1] = b8(c[1]), a[i + 2] = b8(c[2]), a[i + 3] = 255;
+      j->a[i] = b8(c[0]), j->a[i + 1] = b8(c[1]), j->a[i + 2] = b8(c[2]), j->a[i + 3] = 255;
       float hx = tx[y * N + (x + 1) % N].h - tx[y * N + (x + N - 1) % N].h;
       float hy = tx[((y + 1) % N) * N + x].h - tx[((y + N - 1) % N) * N + x].h;
       float nx = -hx * strength, ny = -hy * strength, l = sqrtf(nx * nx + ny * ny + 1);
-      nm[i] = b8(nx / l * 0.5f + 0.5f), nm[i + 1] = b8(ny / l * 0.5f + 0.5f), nm[i + 2] = b8(1 / l * 0.5f + 0.5f), nm[i + 3] = 255;
+      j->nm[i] = b8(nx / l * 0.5f + 0.5f), j->nm[i + 1] = b8(ny / l * 0.5f + 0.5f), j->nm[i + 2] = b8(1 / l * 0.5f + 0.5f), j->nm[i + 3] = 255;
       /* r186 reads roughness from G and metalness from B */
-      ro[i] = ro[i + 1] = ro[i + 2] = b8(t->rough), ro[i + 3] = 255;
-      me[i] = me[i + 1] = me[i + 2] = b8(t->metal), me[i + 3] = 255;
-      ao[i] = ao[i + 1] = ao[i + 2] = b8(t->ao), ao[i + 3] = 255;
+      j->ro[i] = j->ro[i + 1] = j->ro[i + 2] = b8(t->rough), j->ro[i + 3] = 255;
+      j->me[i] = j->me[i + 1] = j->me[i + 2] = b8(t->metal), j->me[i + 3] = 255;
+      j->ao[i] = j->ao[i + 1] = j->ao[i + 2] = b8(t->ao), j->ao[i + 3] = 255;
     }
-  tex_hash = cw_hash32(a, (size_t)N * N * 4, tex_hash);
-  tex_hash = cw_hash32(nm, (size_t)N * N * 4, tex_hash);
-  s->map = finish(a, N, true, 1, 1);
-  s->normal = finish(nm, N, false, 1, 1);
-  s->rough = finish(ro, N, false, 1, 1);
-  s->metal = finish(me, N, false, 1, 1);
-  s->ao = finish(ao, N, false, 1, 1);
-  free(tx), free(a), free(nm), free(ro), free(me), free(ao);
+}
+static void prep_free(tex_prep *p) {
+  free(p->tx), free(p->a), free(p->nm), free(p->ro), free(p->me), free(p->ao);
+  memset(p, 0, sizeof *p);
+}
+/* a band of rows of kind's maps: true once both passes are through. rows < 0: all that is left. */
+static bool prep_band(int kind, int rows) {
+  tex_prep *p = &PREP[kind];
+  if (!p->n) {
+    if (built_quality < 0) sizes_for_quality();
+    int N = p->n = SIZES[kind];
+    p->tx = malloc(sizeof *p->tx * (size_t)N * N);
+    p->a = malloc((size_t)N * N * 4), p->nm = malloc((size_t)N * N * 4), p->ro = malloc((size_t)N * N * 4);
+    p->me = malloc((size_t)N * N * 4), p->ao = malloc((size_t)N * N * 4);
+  }
+  const int N = p->n;
+  if (rows < 0) rows = 2 * N;
+  if (p->gen_y < N) {
+    int y1 = p->gen_y + rows < N ? p->gen_y + rows : N;
+    gen_job job = { kind, N, p->tx, p->gen_y };
+    cw_parallel_for(y1 - p->gen_y, 8, gen_rows, &job);
+    rows -= y1 - p->gen_y;
+    p->gen_y = y1;
+  }
+  if (p->gen_y == N && p->conv_y < N && rows > 0) {
+    int y1 = p->conv_y + rows < N ? p->conv_y + rows : N;
+    conv_job job = { kind, N, p->tx, p->a, p->nm, p->ro, p->me, p->ao, p->conv_y };
+    cw_parallel_for(y1 - p->conv_y, 8, conv_rows, &job);
+    p->conv_y = y1;
+  }
+  return p->conv_y == N;
+}
+
+static double ms_now(void) { return (double)cw_profile_now_ns() / 1e6; }
+bool tex_prepare_step(double budget_ms) {
+  if (tex_stale() && built_quality >= 0) return true; /* (a stale set is remade by the load that follows, not here) */
+  double t0 = ms_now();
+  for (int k = 0; k < MT_KINDS; k++) {
+    if (SETS[k].map) continue;
+    while (!prep_band(k, 64))
+      if (ms_now() - t0 > budget_ms) return false;
+    if (ms_now() - t0 > budget_ms) return k == MT_KINDS - 1;
+  }
+  return true;
+}
+
+static const mat_set *mat_get(int kind) {
+  mat_set *s = &SETS[kind];
+  if (s->map) return s;
+  prep_band(kind, -1);
+  tex_prep *p = &PREP[kind];
+  const int N = p->n;
+  tex_hash = cw_hash32(p->a, (size_t)N * N * 4, tex_hash);
+  tex_hash = cw_hash32(p->nm, (size_t)N * N * 4, tex_hash);
+  s->map = finish(p->a, N, true, 1, 1);
+  s->normal = finish(p->nm, N, false, 1, 1);
+  s->rough = finish(p->ro, N, false, 1, 1);
+  s->metal = finish(p->me, N, false, 1, 1);
+  s->ao = finish(p->ao, N, false, 1, 1);
+  prep_free(p);
   return s;
 }
 
@@ -338,17 +393,25 @@ static void env_texel(float u, float v, float shift, float *c) {
   }
 }
 
-static t3_texture *env_make(float shift) {
-  t3_texture *ENV;  /* (this map) */
-  uint16_t *px = malloc(sizeof(uint16_t) * 4 * ENV_W * ENV_H);
-  for (int y = 0; y < ENV_H; y++)
+/* (each texel is a pure function of its place: the rows fill in parallel and come out the same) */
+typedef struct env_job { float shift; uint16_t *px; } env_job;
+static void env_rows(int begin, int end, int worker, void *ctx) {
+  (void)worker;
+  const env_job *j = ctx;
+  for (int y = begin; y < end; y++)
     for (int x = 0; x < ENV_W; x++) {
       float c[3];
       /* a DataTexture is not flipped: row 0 is the bottom of the map (straight down) */
-      env_texel((x + 0.5f) / ENV_W, 1 - (y + 0.5f) / ENV_H, shift, c);
-      uint16_t *p = px + (y * ENV_W + x) * 4;
+      env_texel((x + 0.5f) / ENV_W, 1 - (y + 0.5f) / ENV_H, j->shift, c);
+      uint16_t *p = j->px + (y * ENV_W + x) * 4;
       p[0] = half(c[0]), p[1] = half(c[1]), p[2] = half(c[2]), p[3] = half(1);
     }
+}
+static t3_texture *env_make(float shift) {
+  t3_texture *ENV;  /* (this map) */
+  uint16_t *px = malloc(sizeof(uint16_t) * 4 * ENV_W * ENV_H);
+  env_job job = { shift, px };
+  cw_parallel_for(ENV_H, 8, env_rows, &job);
   tex_hash = cw_hash32(px, sizeof(uint16_t) * 4 * ENV_W * ENV_H, tex_hash);
   ENV = t3_data_texture_new_typed(ENV_W, ENV_H, px, T3_HALF_FLOAT_TYPE);
   free(px);
@@ -383,13 +446,11 @@ t3_texture *tex_map_copy(int kind, float ru, float rv) {
 
 static t3_texture *PLANET, *LAVA;
 
-/* the planet under the orbital ring (equirect, sRGB): deep oceans, continents in rust and ochre with pale
- * deserts, white cloud bands; it sits far below the girders and turns slowly */
-t3_texture *planet_texture(void) {
-  if (PLANET) return PLANET;
-  enum { PW = 1024, PH = 512 };
-  uint8_t *px = malloc((size_t)PW * PH * 4);
-  for (int y = 0; y < PH; y++)
+enum { PW = 1024, PH = 512 };
+static void planet_rows(int begin, int end, int worker, void *ctx) {
+  (void)worker;
+  uint8_t *px = ctx;
+  for (int y = begin; y < end; y++)
     for (int x = 0; x < PW; x++) {
       float u = (x + 0.5f) / PW, v = (y + 0.5f) / PH;
       float land = fbm(u, v, 6, 3, 5, 201), dry = fbm(u, v, 12, 6, 3, 203);
@@ -409,6 +470,13 @@ t3_texture *planet_texture(void) {
       for (int k = 0; k < 3; k++) p[k] = b8(c[k] <= 0.0031308f ? c[k] * 12.92f : 1.055f * cw_pow(clamp01(c[k]), 1 / 2.4f) - 0.055f);
       p[3] = 255;
     }
+}
+/* the planet under the orbital ring (equirect, sRGB): deep oceans, continents in rust and ochre with pale
+ * deserts, white cloud bands; it sits far below the girders and turns slowly */
+t3_texture *planet_texture(void) {
+  if (PLANET) return PLANET;
+  uint8_t *px = malloc((size_t)PW * PH * 4);
+  cw_parallel_for(PH, 8, planet_rows, px);
   tex_hash = cw_hash32(px, (size_t)PW * PH * 4, tex_hash);
   PLANET = t3_texture_new(PW, PH, px);
   free(px);
@@ -419,12 +487,11 @@ t3_texture *planet_texture(void) {
   return PLANET;
 }
 
-/* the foundry's melt (sRGB, tiling): bright orange-yellow rivers between dark cooling crust, for an emissive map */
-t3_texture *lava_texture(void) {
-  if (LAVA) return LAVA;
-  enum { LN = 256 };
-  uint8_t *px = malloc((size_t)LN * LN * 4);
-  for (int y = 0; y < LN; y++)
+enum { LN = 256 };
+static void lava_rows(int begin, int end, int worker, void *ctx) {
+  (void)worker;
+  uint8_t *px = ctx;
+  for (int y = begin; y < end; y++)
     for (int x = 0; x < LN; x++) {
       float u = (x + 0.5f) / LN, v = (y + 0.5f) / LN;
       float n = fbm(u, v, 4, 8, 5, 301), crack = fabsf(fbm(u, v, 8, 8, 4, 303) - 0.5f) * 2;
@@ -434,6 +501,12 @@ t3_texture *lava_texture(void) {
       for (int k = 0; k < 3; k++) p[k] = b8(c[k] <= 0.0031308f ? c[k] * 12.92f : 1.055f * cw_pow(clamp01(c[k]), 1 / 2.4f) - 0.055f);
       p[3] = 255;
     }
+}
+/* the foundry's melt (sRGB, tiling): bright orange-yellow rivers between dark cooling crust, for an emissive map */
+t3_texture *lava_texture(void) {
+  if (LAVA) return LAVA;
+  uint8_t *px = malloc((size_t)LN * LN * 4);
+  cw_parallel_for(LN, 8, lava_rows, px);
   tex_hash = cw_hash32(px, (size_t)LN * LN * 4, tex_hash);
   LAVA = finish(px, LN, true, 1, 1);
   free(px);
@@ -442,6 +515,7 @@ t3_texture *lava_texture(void) {
 
 void tex_free_all(void) {
   built_quality = -1;
+  for (int k = 0; k < MT_KINDS; k++) prep_free(&PREP[k]);
   if (PLANET) t3_release(PLANET), PLANET = NULL;
   if (LAVA) t3_release(LAVA), LAVA = NULL;
   for (int k = 0; k < MT_KINDS; k++) {
@@ -452,4 +526,17 @@ void tex_free_all(void) {
   }
   if (ENV) t3_release(ENV), ENV = NULL;
   if (ENV_LOGO) t3_release(ENV_LOGO), ENV_LOGO = NULL;
+}
+
+float tex_prepare_fraction(void) {
+  double need = 0, done = 0;
+  if (built_quality < 0) sizes_for_quality();
+  for (int k = 0; k < MT_KINDS; k++) {
+    if (SETS[k].map) continue;
+    const tex_prep *p = &PREP[k];
+    int n = p->n ? p->n : SIZES[k];
+    need += 2.0 * n * n;
+    done += (double)(p->gen_y + p->conv_y) * n;
+  }
+  return need > 0 ? (float)(done / need) : 1;
 }
