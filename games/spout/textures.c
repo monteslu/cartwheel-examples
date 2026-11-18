@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cartwheel/jobs.h"
 #include "game.h"
 
 #define N 256
@@ -131,14 +132,24 @@ static t3_texture *finish(const uint8_t *px, bool srgb, float ru, float rv) {
   return t;
 }
 
-static const paper_set *paper_get(int kind) {
-  paper_set *s = &SETS[kind];
-  if (s->map) return s;
-  texel *tx = malloc(sizeof *tx * N * N);
-  uint8_t *a = malloc(N * N * 4), *nm = malloc(N * N * 4), *ro = malloc(N * N * 4), *ao = malloc(N * N * 4);
-  for (int y = 0; y < N; y++)
-    for (int x = 0; x < N; x++) gen(kind, (x + 0.5f) / N, (y + 0.5f) / N, &tx[y * N + x]);
-  for (int y = 0; y < N; y++)
+/* a set's rows, made on the job pool: the texels first, then the bytes (a normal reads the rows either side) */
+typedef struct paper_job {
+  int kind;
+  texel *tx;
+  uint8_t *a, *nm, *ro, *ao;
+} paper_job;
+static void paper_texels(int y0, int y1, int worker, void *ctx) {
+  (void)worker;
+  const paper_job *J = ctx;
+  for (int y = y0; y < y1; y++)
+    for (int x = 0; x < N; x++) gen(J->kind, (x + 0.5f) / N, (y + 0.5f) / N, &J->tx[y * N + x]);
+}
+static void paper_bytes(int y0, int y1, int worker, void *ctx) {
+  (void)worker;
+  const paper_job *J = ctx;
+  const texel *tx = J->tx;
+  uint8_t *a = J->a, *nm = J->nm, *ro = J->ro, *ao = J->ao;
+  for (int y = y0; y < y1; y++)
     for (int x = 0; x < N; x++) {
       const texel *t = &tx[y * N + x];
       int i = (y * N + x) * 4;
@@ -150,6 +161,18 @@ static const paper_set *paper_get(int kind) {
       ro[i] = ro[i + 1] = ro[i + 2] = b8(t->rough), ro[i + 3] = 255;
       ao[i] = ao[i + 1] = ao[i + 2] = b8(t->ao), ao[i + 3] = 255;
     }
+}
+
+static const paper_set *paper_get(int kind) {
+  paper_set *s = &SETS[kind];
+  if (s->map) return s;
+  texel *tx = malloc(sizeof *tx * N * N);
+  uint8_t *a = malloc(N * N * 4), *nm = malloc(N * N * 4), *ro = malloc(N * N * 4), *ao = malloc(N * N * 4);
+  /* rows on the job pool: every texel and byte is a pure function of its position, so the bytes (and tex.hash, taken
+   * below in order) are the ones a single loop made */
+  paper_job J = { kind, tx, a, nm, ro, ao };
+  cw_parallel_for(N, 8, paper_texels, &J);
+  cw_parallel_for(N, 8, paper_bytes, &J);
   tex_hash = cw_hash32(a, N * N * 4, tex_hash);
   tex_hash = cw_hash32(nm, N * N * 4, tex_hash);
   s->map = finish(a, true, 1, 1);
