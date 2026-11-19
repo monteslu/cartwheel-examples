@@ -17,6 +17,7 @@
 #include <string.h>
 
 #include "cartwheel/jobs.h"
+#include "cartwheel/profile.h"
 #include "cartwheel/debug.h"
 #include "cartwheel/particles.h"
 #include "cartwheel/quality.h"
@@ -2736,36 +2737,67 @@ static cw_node particles(cw_node parent, const char *name, const char *const *kv
 #include "autumn.inc"
 #include "nightburbs.inc"
 
+/* The scenery is built in stages (view_build_stage: stage 0 first, each returns the next, -1 once built), in the same
+ * order as one call, so a loading screen can draw between them; view_build runs them all. */
 void view_build(cw_node parent, const track_desc *t, int track_index) {
-  discovery_parent=parent;
-  chocolate_parent=parent;chocolate_track=t;
-  memset(chocolate_prev,0,sizeof chocolate_prev);memset(chocolate_carry,0,sizeof chocolate_carry);memset(chocolate_last,0,sizeof chocolate_last);
-  chocolate_marks=0;cw_debug_i32("chocolate.marks",&chocolate_marks);
-  const theme *th = theme_for(t->theme);
-  S = (uint32_t)(track_index + 1) * 2654435761u + 11;
-  bank_kind = !strcmp(th->name,"nightburbs") ? 4 : !strcmp(th->name, "stuntshow") ? 3 : th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0;
-  t3_object *root = t3_group_new();
-  ground_build(t);
-  ribbon(root, t, th);
-  corkscrews_build(root, t);
-  bank(root, t, th);
-  markers(root, t);
-  int still0 = root->child_count;
-  if (strcmp(th->name, "stuntshow") && strcmp(th->name,"nightburbs")) {
-    landforms(root, t, th, !backdrop_build(parent, t, track_index));
-    if (strcmp(th->name, "neon")) fill(root, t, th);
-    props(root, t, th);
-    props2(root, t, th);
+  for (int st = 0; st >= 0;) st = view_build_stage(parent, t, track_index, st);
+}
+int view_build_stage(cw_node parent, const track_desc *t, int track_index, int stage) {
+  static const theme *th;
+  static t3_object *root;
+  static int still0, chocolate_first;
+  if (stage == 0) {
+    discovery_parent=parent;
+    chocolate_parent=parent;chocolate_track=t;
+    memset(chocolate_prev,0,sizeof chocolate_prev);memset(chocolate_carry,0,sizeof chocolate_carry);memset(chocolate_last,0,sizeof chocolate_last);
+    chocolate_marks=0;cw_debug_i32("chocolate.marks",&chocolate_marks);
+    th = theme_for(t->theme);
+    S = (uint32_t)(track_index + 1) * 2654435761u + 11;
+    bank_kind = !strcmp(th->name,"nightburbs") ? 4 : !strcmp(th->name, "stuntshow") ? 3 : th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0;
+    root = t3_group_new();
+    ground_build(t);
+    ribbon(root, t, th);
+    corkscrews_build(root, t);
+    bank(root, t, th);
+    markers(root, t);
+    still0 = root->child_count;
+    return 1;
   }
-  int chocolate_first=root->child_count;
-  whimsical_props(root, t, th);
-  stuntshow_build(parent, root, t);
-  autumn_build(root,t);
-  nightburbs_build(parent,root,t);
-  chocolate_colliders_build(root,chocolate_first,t);
-  loose_toys_build(root,t);
-  chocolate_fx_build(root,t);
-  merge_still(root, still0, root->child_count, !strcmp(th->name, "neon"));
+  bool open_land = strcmp(th->name, "stuntshow") && strcmp(th->name,"nightburbs");
+  if (stage == 1) {
+    if (open_land) landforms(root, t, th, !backdrop_build(parent, t, track_index));
+    return 2;
+  }
+  if (stage == 2) {
+    if (open_land && strcmp(th->name, "neon")) fill(root, t, th);
+    return 3;
+  }
+  if (stage == 3) {
+    if (open_land) props(root, t, th);
+    return 4;
+  }
+  if (stage == 4) {
+    if (open_land) props2(root, t, th);
+    return 5;
+  }
+  if (stage == 5) {
+    chocolate_first=root->child_count;
+    whimsical_props(root, t, th);
+    return 6;
+  }
+  if (stage == 6) {
+    stuntshow_build(parent, root, t);
+    autumn_build(root,t);
+    nightburbs_build(parent,root,t);
+    chocolate_colliders_build(root,chocolate_first,t);
+    loose_toys_build(root,t);
+    chocolate_fx_build(root,t);
+    return 7;
+  }
+  if (stage == 7) {
+    merge_still(root, still0, root->child_count, !strcmp(th->name, "neon"));
+    return 8;
+  }
   fog_build(parent, th, track_index);
   ice_patches(root, t);
   planks_build(root);
@@ -2959,6 +2991,8 @@ void view_build(cw_node parent, const track_desc *t, int track_index) {
   wx_dz = wx == stars_kv ? -45 : wx == devils_kv ? -9 : wx == gulls_kv ? -8 : -2;
 
   cw_node_set(motes, "seed", cw_val_int(track_index * 7 + 3));
+  view_prefetch_drop(); /* (all taken: this only starts the next prefetch over) */
+  return -1;
 }
 
 /* one fixed tick: wind, and the motes riding along with the camera's area */

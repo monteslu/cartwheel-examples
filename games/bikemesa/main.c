@@ -547,12 +547,27 @@ static void minimap_build(void);
 static float sun_extent, sun_shown; /* the scene's sun's shadow_extent, and the one split screen widened it to (to take in the field) */
 /* index: the track; attract: no scoring (the title's ride-by, the previews);
  * riders: a bike each (local multiplayer), 1 solo */
-static bool load_track(int index, bool attract, int riders) {
+/* A track loads in stages (load_track_stage: stage LT_BEGIN first, each returns the next, LT_DONE once loaded,
+ * LT_FAILED when its scene would not load), in the same order as one call, so it can load under the engine's loading
+ * screen with the bar moving (start_track_at, the warm-up) instead of in one frozen frame; load_track runs them all. */
+static int load_track_riders(bool attract, int riders);
+enum { LT_FAILED = -2, LT_DONE = -1, LT_BEGIN = 0, LT_PREFETCH, LT_VIEW, LT_CRASH = LT_VIEW + 16, LT_RIDERS };
+static int load_track_stage(int index, bool attract, int riders, int stage) {
+  if (stage == LT_PREFETCH) return view_prefetch_step(G.t, 20) ? LT_VIEW : LT_PREFETCH; /* (a deterministic run waits for all) */
+  if (stage >= LT_VIEW && stage < LT_CRASH) {
+    int next = view_build_stage(G.scene, G.t, index, stage - LT_VIEW);
+    return next >= 0 ? LT_VIEW + next : LT_CRASH;
+  }
+  if (stage == LT_CRASH) {
+    crash_world_build(G.t); /* after the scenery: a crash tumbles against the bank and the rocks it placed */
+    return LT_RIDERS;
+  }
+  if (stage == LT_RIDERS) return load_track_riders(attract, riders);
   const track_desc *next_track = track_get(index);
   cw_node next_scene = cw_scene_instance_path(next_track->scene);
   if (CW_HANDLE_IS_NULL(next_scene)) {
     cw_error("bikemesa: scene '%s' failed to load", next_track->scene);
-    return false;
+    return LT_FAILED;
   }
   cw_tree *t = cw_scene_app_tree();
   models_unbind();
@@ -570,8 +585,10 @@ static bool load_track(int index, bool attract, int riders) {
   cw_node_walk(G.scene, find_nodes, NULL);
   music_play(G.t->music);
   bike_world_create(G.t); /* first: the scenery asks it for the ground's height */
-  view_build(G.scene, G.t, index);
-  crash_world_build(G.t); /* after the scenery: a crash tumbles against the bank and the rocks it placed */
+  return LT_PREFETCH;
+}
+/* the last stage: the riders, their bikes and views */
+static int load_track_riders(bool attract, int riders) {
   for (int i = 0; i < MAX_RIDERS; i++) {
     models_set_selection(i, G.chr[i], G.bike[i], G.color[i]);
     models_person_only(i,person_preview_build&&G.slot[i]==SLOT_RIDER);
@@ -612,8 +629,13 @@ static bool load_track(int index, bool attract, int riders) {
   }
   char mem[256];
   mem_line(mem, sizeof mem);
-  cw_info("bikemesa: track %d %s (%s): %s", index + 1, G.t->name, G.t->theme, mem);
-  return true;
+  cw_info("bikemesa: track %d %s (%s): %s", G.track, G.t->name, G.t->theme, mem);
+  return LT_DONE;
+}
+static bool load_track(int index, bool attract, int riders) {
+  int st = LT_BEGIN;
+  while (st >= 0) st = load_track_stage(index, attract, riders, st);
+  return st == LT_DONE;
 }
 
 static void enter(int state) {
@@ -660,8 +682,51 @@ static void return_to_bikes(void) {
   preview_load();
 }
 
-static void start_track(int index) {
-  if (load_track(index, false, G.players)) enter(GS_COUNT);
+/* A race's track loads in play under the loading screen (cw_loading_begin), a stage a frame: the rest of the tick
+ * that asked for it, and that frame's picture, still have the old track; what followed the load (the countdown, a dev
+ * checkpoint) runs once it is in. In the start-up's warm-up (already a loading screen) it loads at once. */
+static struct { int index, riders, stage, checkpoint; bool hold_then, then_due; } LT;
+static bool warming;
+static void respawn(void);
+static void track_loaded(void) {
+  enter(GS_COUNT);
+  int c = LT.checkpoint;
+  if (c > 0 && c <= G.t->check_count) {
+    P->checkpoint = P->next_check = c;
+    P->check_x = G.t->checks[(c - 1) * 2];
+    P->check_y = G.t->checks[(c - 1) * 2 + 1];
+    respawn();
+    enter(GS_RIDE);
+  }
+}
+static bool track_load_step(void *u) {
+  (void)u;
+  LT.stage = load_track_stage(LT.index, false, LT.riders, LT.stage);
+  /* the bar (of 100): the signs' images, the scenery's stages, the crash world and the riders */
+  int bar = LT.stage == LT_PREFETCH ? 5 : LT.stage >= LT_VIEW && LT.stage < LT_CRASH ? 15 + 8 * (LT.stage - LT_VIEW) : LT.stage == LT_RIDERS ? 90 : 100;
+  cw_loading_set(bar, 100, LT.stage == LT_PREFETCH ? CW_LOAD_TEXTURES : CW_LOAD_SCENE);
+  if (LT.stage >= 0) return false;
+  if (LT.stage == LT_DONE) {
+    if (LT.hold_then) LT.then_due = true; /* (the tick runs it: see track_load_now) */
+    else track_loaded();
+  }
+  return true;
+}
+static void start_track_at(int index, int checkpoint) {
+  LT.index = index, LT.riders = G.players, LT.stage = LT_BEGIN, LT.checkpoint = checkpoint, LT.hold_then = LT.then_due = false;
+  if (warming) {
+    if (load_track(index, false, G.players)) track_loaded();
+    return;
+  }
+  cw_loading_begin(track_load_step, NULL);
+}
+static void start_track(int index) { start_track_at(index, 0); }
+/* The debug request `track` loads its track from the request itself, before the frame's tick, and leaves the
+ * countdown to the tick's usual place (fixed, pending_track): a test run then gets the same ticks, in the same
+ * order, as the load in that tick it replaced (the rides gates time their presses from the countdown). */
+static void track_load_now(int index, int checkpoint) {
+  start_track_at(index, checkpoint);
+  LT.hold_then = true;
 }
 
 static bool lane_free(int lane, float x, float room);
@@ -968,6 +1033,7 @@ static void cmd_track(int argc, const char **argv, cw_reply *r) {
   }
   pending_track = n - 1;
   pending_checkpoint = argc > 2 ? atoi(argv[2]) : 0;
+  track_load_now(pending_track, pending_checkpoint);
   cw_reply_printf(r, "{\"track\":%d}", n);
 }
 /* Repeatable inspection aid; no scoring special case in normal gameplay. */
@@ -1567,12 +1633,6 @@ static void init(void *u) {
   font_ui_bold = cw_font_load("fonts/Fredoka-Bold.ttf", &fd);
   font_title = cw_font_load("fonts/Bungee-Regular.ttf", &fd);
   font_num = cw_font_load("fonts/LilitaOne-Regular.ttf", &fd);
-  /* SDF glyphs bake on first use. Populate the small English UI repertoire
-   * during loading: finish/results must not bake a dozen letters mid-frame.
-   * One bake serves all text sizes (including split-screen HUDs). */
-  const cw_font ui_fonts[] = {font_ui, font_ui_bold, font_title, font_num};
-  for (unsigned f = 0; f < sizeof ui_fonts / sizeof ui_fonts[0]; f++)
-    cw_font_preload_range(ui_fonts[f], 32, 126);
 
 
   cw_debug_i32("game.state", &G.state);
@@ -1654,10 +1714,38 @@ static void init(void *u) {
   G.players = 1;
   for (int p = 0; p < MAX_RIDERS; p++) G.bike[p] = 0, G.color[p] = bike_default_color(0);
   cw_pipeline_set_view_hook(cw_pipeline_of(cw_scene_app_tree()), view_hook, NULL);
-  load_track(0, true, 1);
+}
+
+/* the start-up's work, a piece a frame under the engine's loading screen (cw_app_desc.warmup) before the first tick:
+ * the fonts' glyphs, then the title's track a stage at a time. A deterministic run (a test) does it all inside the
+ * first frame, in the same order as one long init did. */
+enum { WARM_FONT_PIECES = 4 * 3 }; /* each font's printable ASCII in three pieces */
+static bool warmup(void *u) {
+  (void)u;
+  static int piece, stage = LT_BEGIN;
+  if (piece < WARM_FONT_PIECES) {
+    /* SDF glyphs bake on first use. Populate the small English UI repertoire
+     * during loading: finish/results must not bake a dozen letters mid-frame.
+     * One bake serves all text sizes (including split-screen HUDs). */
+    const cw_font ui_fonts[] = { font_ui, font_ui_bold, font_title, font_num };
+    int lo = 32 + (piece % 3) * 32, hi = piece % 3 == 2 ? 126 : lo + 31;
+    cw_font_preload_range(ui_fonts[piece / 3], lo, hi);
+    piece++;
+    cw_loading_set(piece * 30 / WARM_FONT_PIECES, 100, CW_LOAD_ASSETS);
+    return false;
+  }
+  if (stage >= 0) {
+    stage = load_track_stage(0, true, 1, stage);
+    int bar = stage == LT_PREFETCH ? 32 : stage >= LT_VIEW && stage < LT_CRASH ? 35 + 6 * (stage - LT_VIEW) : stage == LT_RIDERS ? 95 : 100;
+    cw_loading_set(bar, 100, CW_LOAD_SCENE);
+    if (stage >= 0) return false;
+  }
   enter(GS_TITLE);
+  warming = true; /* (a dev start track loads here, in this frame: start_track_at) */
   const char *st = getenv("BIKEMESA_START_TRACK"); /* dev aid; the gates go through the menus */
   if (st && atoi(st) >= 1 && atoi(st) <= (int)CW_ARRAY_LEN(TRACKS)) start_track(atoi(st) - 1);
+  warming = false;
+  return true;
 }
 
 /* the title's autopilot: pedal steadily, keep the frame level */
@@ -2273,14 +2361,8 @@ static void fixed(void *u, double dt) {
   }
   if (G.bump_ticks > 0) G.bump_ticks--;
   if (pending_track >= 0) {
-    start_track(pending_track);
-    if (pending_checkpoint > 0 && pending_checkpoint <= G.t->check_count) {
-      P->checkpoint = P->next_check = pending_checkpoint;
-      P->check_x = G.t->checks[(pending_checkpoint-1)*2];
-      P->check_y = G.t->checks[(pending_checkpoint-1)*2+1];
-      respawn();
-      enter(GS_RIDE);
-    }
+    if (LT.then_due) LT.then_due = false, track_loaded(); /* loaded by the request (track_load_now) */
+    else if (!LT.hold_then) start_track_at(pending_track, pending_checkpoint);
     pending_checkpoint = 0;
     pending_track = -1;
   }
@@ -3491,7 +3573,7 @@ cw_app_desc cw_main(int argc, char **argv) {
 #ifdef BIKEMESA_AUTOPILOT
   cw_set_raw_input_filter(autopilot_filter, NULL);
 #endif
-  static cw_app_desc base = { .title = GAME_TITLE, .width = 960, .height = 540, .debug = true, .init = init,
+  static cw_app_desc base = { .title = GAME_TITLE, .width = 960, .height = 540, .debug = true, .init = init, .warmup = warmup,
                               .fixed_update = fixed, .update = update, .render = render, .shutdown = shutdown,
                               .save = &SAVE, .save_size = sizeof SAVE, .touch_pointer = true };
   const char *res = getenv("BIKEMESA_RES");

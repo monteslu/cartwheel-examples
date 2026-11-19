@@ -350,21 +350,38 @@ static void play_events(const sim *S) {
 
 /* ── the game ───────────────────────────────────────────────────────── */
 
-static void load_world(int variation) {
-  if (cw_node_valid(G.scene)) {
-    fx_free();
-    world_free();
-    cw_node_free(G.scene);
+/* A stage world loads in stages (load_world_stage: stage 0 first, each returns the next, -1 once loaded), so it can
+ * load under the engine's loading screen with the bar moving (begin_world_load, the warm-up) instead of in one frozen
+ * frame; load_world runs them all at once. The order of the work is the same either way (tex.hash, model.hash and
+ * world.hash come out the same). */
+enum { LS_FREE, LS_TEXTURES, LS_SCENE, LS_WORLD, LS_LAST = LS_WORLD + 16 };
+static int load_world_stage(int variation, int stage) {
+  if (stage == LS_FREE) {
+    if (cw_node_valid(G.scene)) {
+      fx_free();
+      world_free();
+      cw_node_free(G.scene);
+      G.scene = (cw_node){ 0 };
+    }
+    /* the graphics preset sets the maps' resolution: remake them (and what uses them) when it changed */
+    if (tex_stale()) models_free(), tex_free_all();
+    return LS_TEXTURES;
   }
-  /* the graphics preset sets the maps' resolution: remake them (and what uses them) when it changed */
-  if (tex_stale()) models_free(), tex_free_all();
-  G.scene = cw_scene_instance_path("scenes/chromite.cwscene");
-  cw_node_add_child(cw_tree_root(cw_scene_app_tree()), G.scene);
-  G.camera = cw_node_get(G.scene, "Camera");
-  G.sun = cw_node_get(G.scene, "Sun");
-  /* the key light from up the screen and to the left, down across the deck */
-  cw_node3d_look_at(G.sun, (t3_vec3){ 0, -10, 0 }, (t3_vec3){ 0, 1, 0 });
-  world_build(G.scene, variation);
+  if (stage == LS_TEXTURES) /* the maps' texels, in bands of rows on the job pool (a deterministic run waits for all) */
+    return tex_prepare_step(cw_loading_active() ? 20 : 1e9) ? LS_SCENE : LS_TEXTURES;
+  if (stage == LS_SCENE) {
+    G.scene = cw_scene_instance_path("scenes/chromite.cwscene");
+    cw_node_add_child(cw_tree_root(cw_scene_app_tree()), G.scene);
+    G.camera = cw_node_get(G.scene, "Camera");
+    G.sun = cw_node_get(G.scene, "Sun");
+    /* the key light from up the screen and to the left, down across the deck */
+    cw_node3d_look_at(G.sun, (t3_vec3){ 0, -10, 0 }, (t3_vec3){ 0, 1, 0 });
+    return LS_WORLD;
+  }
+  if (stage < LS_LAST) {
+    int next = world_build_stage(G.scene, variation, stage - LS_WORLD);
+    if (next >= 0) return LS_WORLD + next;
+  }
   fx_init(G.scene);
   /* each stage world its own grade and air: the fortress steel-blue in its haze, the orbital ring cold and clear
    * over the planet (thin haze far down), the foundry warm with smoke over the melt */
@@ -380,11 +397,47 @@ static void load_world(int variation) {
     cw_node_set(haze, "color", cw_val_color(h[2], h[3], h[4], 1));
   }
   G.variation = variation;
+  return -1;
+}
+/* the bar for a stage (of 100): the maps are most of a load */
+static int load_world_bar(int stage) {
+  if (stage <= LS_FREE) return 0;
+  if (stage == LS_TEXTURES) return 2 + (int)(80 * tex_prepare_fraction());
+  if (stage == LS_SCENE) return 82;
+  return stage < LS_LAST ? 84 + 2 * (stage - LS_WORLD) : 100;
+}
+static void load_world(int variation) {
+  for (int st = LS_FREE; st >= 0;) st = load_world_stage(variation, st);
+}
+
+/* a stage world loaded in play (a new level, another graphics preset) under the loading screen: the old world stays
+ * up for the rest of the frame that asked, then a stage a frame. It is asked for from a tick, whose end ran the
+ * effects one step (fx_hero, fx_update) on the old world: the last stage runs that step on the new one, as a load in
+ * the tick did. */
+static struct { int variation, stage; } LW;
+static bool warming; /* in the start-up's warm-up, which is a loading screen already: a load runs at once */
+static bool world_load_step(void *u) {
+  (void)u;
+  LW.stage = load_world_stage(LW.variation, LW.stage);
+  cw_loading_set(load_world_bar(LW.stage), 100, LW.stage == LS_TEXTURES ? CW_LOAD_TEXTURES : CW_LOAD_SCENE);
+  if (LW.stage >= 0) return false;
+  fx_hero(&G.S);
+  fx_update(1.0f / 60);
+  return true;
+}
+static void begin_world_load(int variation) {
+  if (warming) {
+    load_world(variation);
+    return;
+  }
+  LW.variation = variation, LW.stage = LS_FREE;
+  G.variation = variation; /* (asked for once: the checks below compare with it) */
+  cw_loading_begin(world_load_step, NULL);
 }
 
 static void new_game(int level) {
   sim_new_game(&G.S, level, SKILL_BASE[SAVE.skill], 0xc4801eu + (uint32_t)level * 7919u, SAVE.rules == RULES_CLASSIC ? RULES_CLASSIC : RULES_MODERN);
-  if ((level - 1) % 3 != G.variation) load_world((level - 1) % 3);
+  if ((level - 1) % 3 != G.variation) begin_world_load((level - 1) % 3);
   G.prev = G.S;
   G.state = GS_PLAY;
   G.state_ticks = 0;
@@ -502,11 +555,6 @@ static void init(void *u) {
   audio_init();
   font_ui = cw_font_load("fonts/Oswald-VF.ttf", NULL);
   font_title = cw_font_load("fonts/Hack-Bold.ttf", NULL);
-  /* Prepare printable English UI glyphs while loading. SDF glyph generation
-   * must not interrupt gameplay when a new score or result first appears. */
-  const cw_font ui_fonts[] = {font_ui, font_title};
-  for (unsigned f = 0; f < sizeof ui_fonts / sizeof ui_fonts[0]; f++)
-    cw_font_preload_range(ui_fonts[f], 32, 126);
 
   cw_debug_i32("game.state", &G.state);
   cw_debug_i32("ticks", &G.ticks);
@@ -565,7 +613,27 @@ static void init(void *u) {
   cw_debug_i32("probe.refreshes", &probe_refreshes);
   cw_debug_i32("probe.every", &probe_every);
   G.variation = -1;
-  load_world(0);
+}
+
+/* the start-up's work, a stage a frame under the engine's loading screen (cw_app_desc.warmup) before the first tick:
+ * the fonts' glyphs, the first stage world, then the title (a dev start level's world loads in that last frame). A deterministic
+ * run (a test) does it all inside the first frame, in the same order as one long init did. */
+static bool warmup(void *u) {
+  (void)u;
+  static int step, stage = LS_FREE;
+  if (step < 2) {
+    /* Prepare printable English UI glyphs while loading. SDF glyph generation
+     * must not interrupt gameplay when a new score or result first appears. */
+    cw_font_preload_range(step == 0 ? font_ui : font_title, 32, 126);
+    cw_loading_set(++step * 2, 100, CW_LOAD_ASSETS);
+    return false;
+  }
+  if (stage >= 0) {
+    stage = load_world_stage(0, stage);
+    cw_loading_set(4 + 96 * (stage < 0 ? 100 : load_world_bar(stage)) / 100, 100, stage == LS_TEXTURES ? CW_LOAD_TEXTURES : CW_LOAD_SCENE);
+    return false;
+  }
+  warming = true; /* (a dev start level's world loads here, in this frame: begin_world_load) */
   sim_new_game(&G.S, 1, SKILL_BASE[SAVE.skill], 0xc4801eu, RULES_MODERN);
   G.S.mode = PLAY_LEVEL_OVER; /* the title: the deck scrolls, nothing spawns */
   G.S.success = 1e9f;
@@ -581,6 +649,8 @@ static void init(void *u) {
 #ifdef CHROMITE_AUTOPILOT
   if (getenv("CHROMITE_BOSS")) cheat_boss = 1; /* art aid: straight to the level's command ship */
 #endif
+  warming = false;
+  return true;
 }
 
 static bool pressed(cw_action a) { return cw_action_just_pressed(0, a); }
@@ -649,7 +719,7 @@ static void menu_step(int dx) {
   if (G.cursor == M_RULES) SAVE.rules = SAVE.rules == RULES_CLASSIC ? RULES_MODERN : RULES_CLASSIC;
   if (G.cursor == M_GFX) {
     cw_quality_cycle(), SAVE.quality = cw_quality_saved();
-    if (tex_stale()) load_world(G.variation);
+    if (tex_stale()) begin_world_load(G.variation);
   }
   if (G.cursor == M_TEXT) dx < 0 ? cw_text_scale_cycle_back() : cw_text_scale_cycle();
   if (G.cursor == M_TEXTBG) {
@@ -793,7 +863,7 @@ static void fixed(void *u, double dt) {
     /* the next level: a new deck every level, the script by level */
     sim_next_level(&G.S);
     if (G.S.level > SAVE.best_level) SAVE.best_level = G.S.level, save_write();
-    if ((G.S.level - 1) % 3 != G.variation) load_world((G.S.level - 1) % 3);
+    if ((G.S.level - 1) % 3 != G.variation) begin_world_load((G.S.level - 1) % 3);
     G.prev = G.S;
     G.state = GS_PLAY;
     G.state_ticks = 0;
@@ -1289,7 +1359,7 @@ cw_app_desc cw_main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   cw_scene_register_builtin_types();
-  static cw_app_desc base = { .title = "Chromite", .width = 960, .height = 540, .debug = true, .init = init, .fixed_update = fixed,
+  static cw_app_desc base = { .title = "Chromite", .width = 960, .height = 540, .debug = true, .init = init, .warmup = warmup, .fixed_update = fixed,
                               .update = update, .render = render, .shutdown = shutdown, .save = &SAVE, .save_size = sizeof SAVE,
                               .touch_pointer = true };
   cw_app_desc d = cw_scene_app(NULL, &base);

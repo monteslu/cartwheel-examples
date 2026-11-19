@@ -210,6 +210,10 @@ void tex_free_all(void);
 t3_texture *planet_texture(void); /* the orbital stage's planet (equirect) */
 t3_texture *lava_texture(void);   /* the foundry stage's melt (tiling, for an emissive map) */
 bool tex_stale(void); /* the graphics preset changed since the maps were made */
+/* make the next bands of the maps that are not made yet, for about budget_ms (a loading screen calls it a frame at a
+ * time): true once all are ready to hand out. The textures themselves are made by their first use, in the same order. */
+bool tex_prepare_step(double budget_ms);
+float tex_prepare_fraction(void); /* how much of what tex_prepare_step has to make is made, 0..1 */
 extern uint32_t tex_hash;
 
 /* models.c */
@@ -234,6 +238,7 @@ extern uint32_t model_hash;
 #define CAM_FOLLOW 0.12f
 #define GROUND_Y -14.0f   /* the fortress deck */
 void world_build(cw_node root, int variation);
+int world_build_stage(cw_node root, int variation, int stage); /* one stage of world_build: 0 first, returns the next, -1 when built */
 void world_free(void);
 void world_sync(const sim *prev, const sim *cur, float alpha, float t, int state);
 void world_chips_spawn(const sim *S); /* the tick's cancelled rounds become score chips flying home */

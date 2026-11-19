@@ -313,6 +313,10 @@ enum { L3_SCENE, L3_RIDER, L3_BIKE, L3_HAND, L3_TOY }; /* the crash world's laye
 
 /* view.c: the track ribbon and the scenery around it, per theme */
 void view_build(cw_node parent, const track_desc *t, int track_index);
+/* decode the next of what the track's scenery will need (its signs' images) for about budget_ms: true once all are ready */
+bool view_prefetch_step(const track_desc *t, double budget_ms);
+void view_prefetch_drop(void); /* drop what a build did not use */
+int view_build_stage(cw_node parent, const track_desc *t, int track_index, int stage); /* one stage of view_build: 0 first, returns the next, -1 when built */
 void view_tick(float rider_x, float rider_y, float speed, bool grounded);
 void view_forget(void);
 void view_density(float k); /* share of the grass tufts drawn, 0..1 (cw_quality_density) */

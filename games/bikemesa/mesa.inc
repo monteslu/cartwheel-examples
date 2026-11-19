@@ -25,15 +25,51 @@ static void mesa_sign_cache_clear(void) {
   for(int i=0;i<mesa_sign_cache_count;i++)t3_release(mesa_sign_cache[i].material);
   mesa_sign_cache_count=0;
 }
+/* The signs' images, decoded ahead (view_prefetch_step): decoding them all is most of building the city, so a loading
+ * screen decodes them a few a frame before the city goes up, and mesa_logo_material takes each one from here instead
+ * of decoding it then. The same decode of the same file: the textures come out the same. */
+static const char *const MESA_SIGN_FILES[] = { "signs/azdistilling.png", "signs/casacopal-mural-reconstructed.png", "signs/casacopal-official.png", "signs/chupacabra.png", "signs/diamonddons-official.jpg", "signs/espiritu-wordmark.png", "signs/goatandram.png", "signs/guadalupe-official.png", "signs/heatsync.png", "signs/hopes-official.png", "signs/levelone.jpg", "signs/lostdutchman-official.png", "signs/madcandy.png", "signs/mainburger.png", "signs/mangos-official.png", "signs/margaritas-official.png", "signs/nct-reconstructed.png", "signs/oro.png", "signs/phantomfox.png", "signs/pizzamart-reconstructed.png", "signs/proof.png", "signs/quechevere.png", "signs/republica-official.png", "signs/sacred-pint-reconstructed.png", "signs/worth.jpg" };
+enum { MESA_SIGNS = sizeof MESA_SIGN_FILES / sizeof MESA_SIGN_FILES[0] };
+static t3_texture *mesa_sign_decoded[MESA_SIGNS];
+static int mesa_sign_next;
+static t3_texture *mesa_sign_decode(const char *file) {
+  size_t size=0;
+  void *bytes=cw_asset_load(file,&size);
+  t3_texture *tx=bytes?t3_texture_load_memory(bytes,size):NULL;
+  free(bytes);
+  return tx;
+}
+static t3_texture *mesa_sign_take(const char *file) {
+  for(int i=0;i<MESA_SIGNS;i++) if(!strcmp(file,MESA_SIGN_FILES[i])) {
+    t3_texture *tx=mesa_sign_decoded[i];
+    mesa_sign_decoded[i]=NULL;
+    return tx;
+  }
+  return NULL;
+}
+static double mesa_now_ms(void) { return (double)cw_profile_now_ns()/1e6; }
+bool view_prefetch_step(const track_desc *t,double budget_ms) {
+  if(strcmp(t->theme,"neon")) return true;
+  double t0=mesa_now_ms();
+  while(mesa_sign_next<MESA_SIGNS) {
+    if(!mesa_sign_decoded[mesa_sign_next]) mesa_sign_decoded[mesa_sign_next]=mesa_sign_decode(MESA_SIGN_FILES[mesa_sign_next]);
+    mesa_sign_next++;
+    if(mesa_now_ms()-t0>budget_ms) return mesa_sign_next>=MESA_SIGNS;
+  }
+  return true;
+}
+/* what a build did not take (a load given up half way) */
+void view_prefetch_drop(void) {
+  for(int i=0;i<MESA_SIGNS;i++) if(mesa_sign_decoded[i]) t3_release(mesa_sign_decoded[i]),mesa_sign_decoded[i]=NULL;
+  mesa_sign_next=0;
+}
 static t3_material *mesa_logo_material(const char *file) {
   for(int i=0;i<mesa_sign_cache_count;i++)if(!strcmp(file,mesa_sign_cache[i].file)) {
     t3_retain(mesa_sign_cache[i].material);
     return mesa_sign_cache[i].material;
   }
-  size_t size=0;
-  void *bytes=cw_asset_load(file,&size);
-  t3_texture *tx=bytes?t3_texture_load_memory(bytes,size):NULL;
-  free(bytes);
+  t3_texture *tx=mesa_sign_take(file);
+  if(!tx) tx=mesa_sign_decode(file);
   if(!tx) { cw_warn("bikemesa: missing landmark sign %s",file); return NULL; }
   if(!strcmp(file,"signs/margaritas-official.png") && tx->pixels) {
     for(int j=0;j<tx->height;j++)for(int i=0;i<tx->width;i++) {

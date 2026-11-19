@@ -852,30 +852,48 @@ static void chips_sync(const sim *cur, float t) {
   T3_OBJ(W.chips)->visible = n > 0;
 }
 
+/* The world is built in stages (world_build_stage: the first stage is 0, each returns the next, -1 after the last), so
+ * a loading screen can draw between them; world_build runs them all at once. */
+int world_build_stage(cw_node root, int variation, int stage) {
+  switch (stage) {
+  case 0:
+    world_free();
+    models_init();
+    W.variation = variation;
+    W.node = cw_node_new("Node3D", "World");
+    cw_node_add_child(root, W.node);
+    W.root = t3_group_new();
+    W.play = t3_group_new();
+    t3_object_add(W.root, W.play);
+    t3_release(W.play);
+    W.halo_tex = halo_texture();
+    return 1;
+  case 1:
+    deck_materials(variation);
+    return 2;
+  case 2:
+    build_deck(variation);
+    build_fire();
+    build_powerups();
+    build_beam_tell();
+    build_hero();
+    build_bomb();
+    build_chips();
+    return 3;
+  case 3:
+    logo_build(W.root, W.halo_tex);
+    hud3d_build(W.root);
+    return 4;
+  default:
+    probe_build(W.node, W.root);
+    cw_node3d_set_object(W.node, W.root);
+    t3_release(W.root);
+    return -1;
+  }
+}
+
 void world_build(cw_node root, int variation) {
-  world_free();
-  models_init();
-  W.variation = variation;
-  W.node = cw_node_new("Node3D", "World");
-  cw_node_add_child(root, W.node);
-  W.root = t3_group_new();
-  W.play = t3_group_new();
-  t3_object_add(W.root, W.play);
-  t3_release(W.play);
-  W.halo_tex = halo_texture();
-  deck_materials(variation);
-  build_deck(variation);
-  build_fire();
-  build_powerups();
-  build_beam_tell();
-  build_hero();
-  build_bomb();
-  build_chips();
-  logo_build(W.root, W.halo_tex);
-  hud3d_build(W.root);
-  probe_build(W.node, W.root);
-  cw_node3d_set_object(W.node, W.root);
-  t3_release(W.root);
+  for (int st = 0; st >= 0;) st = world_build_stage(root, variation, st);
 }
 
 t3_texture *world_halo_texture(void) { return W.halo_tex; }
