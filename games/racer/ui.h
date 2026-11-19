@@ -43,6 +43,14 @@ typedef struct race_setup {
 
 /* ── provided by main.c ─────────────────────────────────────────────── */
 void game_start_race(const race_setup *rs);
+/* the same a stage at a time (a loading screen draws between them): stage 0 first, then each stage it returns until
+ * LOAD_STAGES (loaded) or -1 (failed) */
+enum { LOAD_STAGES = 4 };
+int game_start_race_stage(const race_setup *rs, int stage);
+/* the same as a loading phase in play (cw_loading_begin): from the next frame a stage a frame under the loading screen,
+ * then done() (NULL: nothing) */
+void game_load_race(const race_setup *rs, void (*done)(void));
+bool game_race_loading(void);                /* a game_load_race has not finished */
 void game_end_race(void);                    /* unload the race (back to a bare front end) */
 bool game_is_trial(void);                    /* the race loaded is a time trial */
 /* a time trial's instant retry: the same race over from the grid, no menu and no reload (a short countdown) */
@@ -70,6 +78,9 @@ void ui_race_over(void);                     /* main: the race has ended (everyo
 void ui_render(float W, float H);            /* 2D over the 3D frame */
 void ui_enter_race(const race_setup *rs);    /* dev aids and tests: start this race now, as if chosen from the menus */
 void ui_shutdown(void);
+/* main.c's warm-up: the front end's demo race it loads under the loading screen, and what follows its load */
+bool ui_attract_setup(race_setup *rs); /* false: no demo race at start-up (a dev run starts elsewhere) */
+void ui_attract_loaded(void);
 /* the save data's ghost for a map's time trial (NULL when there is none yet) */
 const ghost_saved *ui_trial_ghost(int map);
 /* dev aid and gates: the next n trial runs retry by themselves a moment after the results appear (with the bot driving) */

@@ -6,6 +6,7 @@
 
 #include "cartwheel/base.h"
 #include "cartwheel/debug.h"
+#include "cartwheel/jobs.h"
 #include "cartwheel/quality.h"
 #include "cartwheel/terrain.h"
 #include "land.h"
@@ -19,17 +20,52 @@ land_def land_defaults(void) {
   return d;
 }
 
+/* The heights and the paint are a million and a half samples each on the big maps (most of a map's load, the warm-up's
+ * longest step): rows run on the job pool. The callbacks only read the map; the one thing they build lazily (the road's
+ * spatial index, props.c) is built by a call on this thread first, so the workers find it ready. Each sample is the
+ * same value whichever thread computes it. */
+typedef struct {
+  const land_def *d;
+  int sx, sz;
+  float *h;
+  uint32_t *ctl;
+} land_job;
+
+static void land_heights(int begin, int end, int worker, void *ctx) {
+  (void)worker;
+  const land_job *J = ctx;
+  const land_def *d = J->d;
+  for (int j = begin; j < end; j++)
+    for (int i = 0; i < J->sx; i++) J->h[(size_t)j * J->sx + i] = d->height(d->x0 + (float)i * d->spacing, d->z0 + (float)j * d->spacing, d->ud);
+}
+
+static void land_paints(int begin, int end, int worker, void *ctx) {
+  (void)worker;
+  const land_job *J = ctx;
+  const land_def *d = J->d;
+  const int sx = J->sx, sz = J->sz;
+  const float *h = J->h;
+  for (int j = begin; j < end; j++)
+    for (int i = 0; i < sx; i++) {
+      size_t o = (size_t)j * sx + i;
+      int i0 = i > 0 ? i - 1 : i, i1 = i < sx - 1 ? i + 1 : i, j0 = j > 0 ? j - 1 : j, j1 = j < sz - 1 ? j + 1 : j;
+      float gx = (h[(size_t)j * sx + i1] - h[(size_t)j * sx + i0]) / ((float)(i1 - i0) * d->spacing);
+      float gz = (h[(size_t)j1 * sx + i] - h[(size_t)j0 * sx + i]) / ((float)(j1 - j0) * d->spacing);
+      land_paint p = d->paint(d->x0 + (float)i * d->spacing, h[o], d->z0 + (float)j * d->spacing, sqrtf(gx * gx + gz * gz), d->ud);
+      J->ctl[o] = cw_terrain_control(p.base, p.over, CW_CLAMP(p.blend, 0, 255), 0, 0, false);
+    }
+}
+
 cw_node land_build(cw_node parent, const land_def *d) {
   const int sx = d->nx + 1, sz = d->nz + 1;
   size_t n = (size_t)sx * (size_t)sz;
   float *h = malloc(sizeof(float) * n);
+  land_job J = { d, sx, sz, h, NULL };
+  /* (the lazy state the callbacks share, built here before the workers start: see land_job) */
+  (void)d->paint(d->x0, d->height(d->x0, d->z0, d->ud), d->z0, 0, d->ud);
+  cw_parallel_for(sz, 8, land_heights, &J);
   float lo = 1e9f, hi = -1e9f;
-  for (int j = 0; j < sz; j++)
-    for (int i = 0; i < sx; i++) {
-      float y = d->height(d->x0 + (float)i * d->spacing, d->z0 + (float)j * d->spacing, d->ud);
-      h[(size_t)j * sx + i] = y;
-      lo = fminf(lo, y), hi = fmaxf(hi, y);
-    }
+  for (size_t o = 0; o < n; o++) lo = fminf(lo, h[o]), hi = fmaxf(hi, h[o]);
   lo -= 1.0f, hi += 1.0f;
   cw_node node = cw_node_new("Terrain3D", "Land");
   cw_node_set(node, "size_x", cw_val_int(d->nx));
@@ -62,16 +98,8 @@ cw_node land_build(cw_node parent, const land_def *d) {
     return node;
   }
   cw_terrain_set_heights_m(t, 0, 0, sx, sz, h);
-  uint32_t *ctl = malloc(sizeof(uint32_t) * n);
-  for (int j = 0; j < sz; j++)
-    for (int i = 0; i < sx; i++) {
-      size_t o = (size_t)j * sx + i;
-      int i0 = i > 0 ? i - 1 : i, i1 = i < sx - 1 ? i + 1 : i, j0 = j > 0 ? j - 1 : j, j1 = j < sz - 1 ? j + 1 : j;
-      float gx = (h[(size_t)j * sx + i1] - h[(size_t)j * sx + i0]) / ((float)(i1 - i0) * d->spacing);
-      float gz = (h[(size_t)j1 * sx + i] - h[(size_t)j0 * sx + i]) / ((float)(j1 - j0) * d->spacing);
-      land_paint p = d->paint(d->x0 + (float)i * d->spacing, h[o], d->z0 + (float)j * d->spacing, sqrtf(gx * gx + gz * gz), d->ud);
-      ctl[o] = cw_terrain_control(p.base, p.over, CW_CLAMP(p.blend, 0, 255), 0, 0, false);
-    }
+  uint32_t *ctl = J.ctl = malloc(sizeof(uint32_t) * n);
+  cw_parallel_for(sz, 8, land_paints, &J);
   cw_terrain_set_control(t, 0, 0, sx, sz, ctl);
   cw_terrain_scatter_invalidate(t);
   free(ctl), free(h);

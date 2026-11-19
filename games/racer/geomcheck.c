@@ -275,6 +275,9 @@ void geomclean_begin(cw_node scene, t3_object *root, const track *t) {
   queue_walk(root, NULL);
 }
 
+/* the share of the queue done, 0..1 */
+float geomclean_progress(void) { return njob < 0 ? 1.0f : njob > 0 ? (float)jcur / (float)njob : 0.0f; }
+
 /* a frame's share: true once the queue is empty */
 bool geomclean_step(int budget) {
   while (jcur < njob && budget > 0) {

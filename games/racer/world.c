@@ -73,6 +73,7 @@ static struct {
 const track_geo *world_geo(void) { return &W.geo; }
 cw_node world_scene(void) { return W.scene; }
 const track *world_track(void) { return W.sim && W.map && !W.map->arena ? W.sim->track : NULL; }
+float world_settle_progress(void) { return world_ready() ? 1.0f : W.clean_frames < 4 ? 0.0f : geomclean_progress(); }
 bool world_ready(void) { return !W.sim || !W.map || W.map->arena || W.cleaned || getenv("RACER_NOCLEAN"); }
 
 void world_reset(void) {
@@ -138,6 +139,11 @@ static void dev_walk(cw_node n, int depth, const char *hide) {
 }
 
 void world_build(cw_node scene, const sim *s, const map_def *map) {
+  world_build_road(scene, s, map);
+  world_build_scenery(scene, s, map);
+}
+
+void world_build_road(cw_node scene, const sim *s, const map_def *map) {
   world_reset();
   W.map = map;
   W.scene = scene, W.sim = s, W.checked = false, W.cleaned = false, W.clean_frames = 0;
@@ -222,6 +228,9 @@ void world_build(cw_node scene, const sim *s, const map_def *map) {
     t3_release(m);
   }
   kartgfx_build(W.root, s);
+}
+
+void world_build_scenery(cw_node scene, const sim *s, const map_def *map) {
   ground_forget(); /* the last map's ground must not stand in for this one's */
   if (map->scenery) map->scenery(scene, s->track, 1234);
   /* three or four views: the height fog keeps its haze but not its volumetric light shafts (a froxel grid per view) */
@@ -264,7 +273,9 @@ void world_frame(double alpha) {
     if (ro && W.clean_frames == 0) geomclean_snapshot(ro);
     if (ro && ++W.clean_frames == 4) geomclean_begin(W.scene, ro, W.sim->track);
     /* behind the loading screen's black (world_ready holds the fade and the race), so it takes big bites */
-    if (ro && W.clean_frames >= 4 && geomclean_step(400000)) W.cleaned = true, cw_info("geomclean: done on frame %d", W.clean_frames);
+    /* (a bite of 400000 triangles held one frame for 1.3 to 1.9 s; each test of a triangle depends on the one before, so
+     * the bites are smaller and more frames take them, the window answering between them) */
+    if (ro && W.clean_frames >= 4 && geomclean_step(12000)) W.cleaned = true, cw_info("geomclean: done on frame %d", W.clean_frames);
     if (ro && W.clean_frames >= 4) W.clean_frames++;
   }
   /* dev aid: RACER_GROUNDQ=x,z logs the ground's height there once */

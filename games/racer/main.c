@@ -291,19 +291,32 @@ static void views_setup(void) {
   if (cw_node_valid(post)) cw_node_set(post, "ssao", cw_val_bool(false)), cw_node_set(post, "depth_prepass", cw_val_bool(false));
 }
 
-void game_start_race(const race_setup *rs) {
+/* A race loads in stages (load_*), so the warm-up can run one a frame under the engine's loading screen and its bar
+ * moves between them; game_start_race runs them all at once. LD carries what the stages share. */
+static struct {
+  race_setup rs;
+  const map_def *md;
+  int map, humans;
+  bool battle;
+} LD;
+
+/* the map's scene and its track; false when either failed */
+static bool load_scene(const race_setup *rs) {
   unload();
   G.race_quality = cw_quality_get();
   G.setup = *rs;
-  bool battle = rs->mode == RM_BATTLE && !rs->attract;
+  LD.rs = *rs;
+  rs = &LD.rs;
+  bool battle = LD.battle = rs->mode == RM_BATTLE && !rs->attract;
   int map = rs->map < 0 ? -1 : rs->map >= NMAPS ? NMAPS - 1 : rs->map;
   if (battle) map = rs->map < 0 ? 0 : rs->map % NARENAS;
-  const map_def *md = battle ? ARENAS[map] : map < 0 ? &map_test : MAPS[map];
+  LD.map = map;
+  const map_def *md = LD.md = battle ? ARENAS[map] : map < 0 ? &map_test : MAPS[map];
   cw_tree *t = cw_scene_app_tree();
   G.scene = cw_scene_instance_path(md->scene);
   if (CW_HANDLE_IS_NULL(G.scene)) {
     cw_error("racer: %s failed to load", md->scene);
-    return;
+    return false;
   }
   cw_node_add_child(cw_tree_root(t), G.scene);
   G.sun = cw_node_get(G.scene, "Sun");
@@ -311,9 +324,18 @@ void game_start_race(const race_setup *rs) {
   if (cw_node_valid(cam)) cw_node_set(cam, "interpolate", cw_val_bool(true));
   if (!track_build(&G.trk, md->spec)) {
     cw_error("racer: the track of map %d did not build", map);
-    return;
+    return false;
   }
   G.have_track = true;
+  return true;
+}
+
+/* the karts, the sim and the road (the map's scenery is the next stage) */
+static void load_road(void) {
+  const race_setup *rs = &LD.rs;
+  const map_def *md = LD.md;
+  int map = LD.map;
+  bool battle = LD.battle;
   bool on[MAXK];
   int veh[MAXK];
   memset(G.human, 0, sizeof G.human);
@@ -367,7 +389,18 @@ void game_start_race(const race_setup *rs) {
       for (int i = 0; i < MAXK; i++) G.S.k[i].colour = G.S.k[i].team & 1; /* Red, Blue */
   }
   for (int v = 0; v < CW_MAX_VIEWS; v++) G.pl[v] = v;
-  world_build(G.scene, &G.S, md);
+  LD.humans = humans;
+  world_build_road(G.scene, &G.S, md);
+}
+
+/* the map's scenery: the longest stage by far */
+static void load_scenery(void) { world_build_scenery(G.scene, &G.S, LD.md); }
+
+/* the ghost, items, effects, views and sound: the race is ready */
+static void load_finish(void) {
+  const race_setup *rs = &LD.rs;
+  const map_def *md = LD.md;
+  int map = LD.map, humans = LD.humans;
   if (G.trial && rs->ghost && ghost_load(rs->ghost, &G.trk)) ghost_gfx_build(G.scene);
   if (G.trial) ghost_rec_start(&G.S.k[0]);
   items_build(G.scene, &G.S);
@@ -381,6 +414,77 @@ void game_start_race(const race_setup *rs) {
   G.cam_t = 0;
   G.loaded = 1;
   cw_info("racer: map %d (%s), %d humans, %d laps, track %.0f m", map, md->name, humans, G.S.laps, G.trk.length);
+}
+
+void game_start_race(const race_setup *rs) {
+  if (!load_scene(rs)) return;
+  load_road();
+  load_scenery();
+  load_finish();
+}
+
+/* One stage of loading rs, for a loading screen that draws between them: stage 0 first, then the stage returned,
+ * until it returns LOAD_STAGES (loaded) or -1 (failed: nothing is loaded). */
+int game_start_race_stage(const race_setup *rs, int stage) {
+  switch (stage) {
+  case 0: return load_scene(rs) ? 1 : (unload(), -1);
+  case 1: load_road(); return 2;
+  case 2: load_scenery(); return 3;
+  default: load_finish(); return LOAD_STAGES;
+  }
+}
+
+/* ── loading a race under the loading screen ──────────────────────────
+ * A race loaded in one go froze the window for seconds: its scenery took over a second to build and its first render
+ * compiled every shader in the same frame (the front end's demo race at start-up, and every race picked from the
+ * menus). Now it loads a stage a frame under the engine's loading screen, its bar and each stage's name shown before
+ * the stage runs, and the engine's shader phase that follows compiles the new map's programs a slice a frame under the
+ * same bar (the stages are its first half). At start-up the warm-up runs it (cw_app_desc.warmup); in play a loading
+ * phase does (cw_loading_begin, game_load_race). Dev and test runs that start somewhere else (RACER_MAP, RACER_UI, the
+ * _auto build, the debug channel's race commands) load in one go as before. */
+static struct {
+  race_setup rs;
+  int stage;
+  void (*done)(void);
+  bool on;
+} PL;
+
+/* one stage of PL's race: true once it is loaded (or failed), when PL.done has run */
+static bool race_load_step(void *u) {
+  (void)u;
+  static const int at[LOAD_STAGES] = { 0, 4, 12, 90 }; /* the bar after each stage, of 100: the scenery is most of it */
+  static const cw_load_stage label[LOAD_STAGES] = { CW_LOAD_ASSETS, CW_LOAD_MESHES, CW_LOAD_SCENE, CW_LOAD_SCENE };
+  PL.stage = game_start_race_stage(&PL.rs, PL.stage);
+  if (PL.stage >= 0 && PL.stage < LOAD_STAGES) {
+    cw_loading_set(at[PL.stage], 100, label[PL.stage]);
+    return false;
+  }
+  cw_loading_set(100, 100, CW_LOAD_SCENE);
+  PL.on = false;
+  if (PL.done) PL.done();
+  return true;
+}
+
+void game_load_race(const race_setup *rs, void (*done)(void)) {
+  PL.rs = *rs, PL.stage = 0, PL.done = done, PL.on = true;
+  cw_loading_begin(race_load_step, NULL);
+}
+
+bool game_race_loading(void) { return PL.on; }
+
+static bool warmup(void *u) {
+  (void)u;
+  if (!PL.on) {
+    static bool asked;
+    if (asked) return true;
+    asked = true;
+#ifdef RACER_AUTOPILOT
+    return true;
+#endif
+    if (!ui_attract_setup(&PL.rs)) return true;
+    PL.stage = 0, PL.done = ui_attract_loaded, PL.on = true;
+  }
+  return race_load_step(NULL);
 }
 
 /* ── input ──────────────────────────────────────────────────────────── */
@@ -1254,7 +1358,7 @@ cw_app_desc cw_main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   cw_scene_register_builtin_types();
-  static cw_app_desc base = { .title = GAME_TITLE, .width = 960, .height = 540, .debug = true, .init = init, .fixed_update = fixed,
+  static cw_app_desc base = { .title = GAME_TITLE, .width = 960, .height = 540, .debug = true, .init = init, .warmup = warmup, .fixed_update = fixed,
                               .update = update, .render = render, .shutdown = shutdown, .touch_pointer = true, .max_substeps = 3, .reversed_depth = true };
   /* ui agent: the save data and RACER_RES (pure getters from ui.c) */
   base.save = ui_save_ptr();

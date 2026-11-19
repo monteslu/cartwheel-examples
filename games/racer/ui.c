@@ -38,6 +38,7 @@
 #include "cartwheel/quality.h"
 #include "cartwheel/quality_menu.h"
 #include "cartwheel/render2d.h"
+#include "cartwheel/ui.h"
 #include "arena.h"
 #include "ui.h"
 #include "world.h"
@@ -922,23 +923,46 @@ static void goto_mode(int m) {
   U.sel = 0;
 }
 
-static void start_attract(int map) {
-  race_setup rs = { .map = map, .laps = 3, .humans = 0, .cpu_skill = 3, .items = true, .attract = true };
+static race_setup attract_setup(int map) {
   U.tr.on = false;
   U.cup.on = false;
-  game_start_race(&rs);
+  return (race_setup){ .map = map, .laps = 3, .humans = 0, .cpu_skill = 3, .items = true, .attract = true };
+}
+static void attract_started(int map) {
   game_set_camera(1);
   U.attract_on = game_loaded();
   U.attract_ticks = 0;
   U.attract_map = map;
 }
+static void start_attract(int map) {
+  race_setup rs = attract_setup(map);
+  game_start_race(&rs);
+  attract_started(map);
+}
+/* the demo race behind the front end in play (the next map of the rotation, back to the title), loaded a stage a frame
+ * under the loading screen (game_load_race) */
+static void attract_loaded(void) { attract_started(U.attract_map); }
+static void load_attract(int map) {
+  race_setup rs = attract_setup(map);
+  U.attract_map = map;
+  game_load_race(&rs, attract_loaded);
+}
+
+/* the first demo race, loaded by main.c's warm-up under the loading screen; a dev run that starts somewhere else
+ * (RACER_MAP, RACER_UI) leaves it to the second tick as before */
+bool ui_attract_setup(race_setup *rs) {
+  if (getenv("RACER_MAP") || getenv("RACER_UI")) return false;
+  *rs = attract_setup(U.attract_map);
+  return true;
+}
+void ui_attract_loaded(void) { attract_started(U.attract_map); }
 
 static int next_attract_map(void) { return (U.attract_map + 3) % NMAPS; }
 
-void ui_enter_race(const race_setup *rs) {
-  U.setup = *rs;
-  U.last = *rs;
-  game_start_race(rs);
+/* what follows a race's load (ui_enter_race at once, enter_race_loading under the loading screen) */
+static race_setup entering;
+static void entered_race(void) {
+  const race_setup *rs = &entering;
   U.attract_on = false;
   goto_mode(M_RACE);
   hud_reset();
@@ -950,6 +974,22 @@ void ui_enter_race(const race_setup *rs) {
   U.fade = 1;
   U.fade_dir = -1;
   /* the humans' input players: human i is read from player i (join may have remapped the pads) */
+}
+
+void ui_enter_race(const race_setup *rs) {
+  entering = *rs;
+  U.setup = *rs;
+  U.last = *rs;
+  game_start_race(rs);
+  entered_race();
+}
+
+/* a race the player picked, loaded a stage a frame under the loading screen (game_load_race) */
+static void enter_race_loading(const race_setup *rs) {
+  entering = *rs;
+  U.setup = *rs;
+  U.last = *rs;
+  game_load_race(rs, entered_race);
 }
 
 bool ui_race_runs(void) {
@@ -983,12 +1023,12 @@ static void run_pending(void) {
   switch (what) {
   case PD_START_RACE: {
     race_setup rs = U.setup;
-    ui_enter_race(&rs);
+    enter_race_loading(&rs);
     break;
   }
   case PD_RESTART: {
     race_setup rs = U.last;
-    ui_enter_race(&rs);
+    enter_race_loading(&rs);
     break;
   }
   case PD_NEXT_MAP: {
@@ -1000,18 +1040,18 @@ static void run_pending(void) {
         if (list[i] == rs.map) at = i;
       rs.map = n > 0 ? list[(at + 1) % n] : 0;
       U.bt.arena = rs.map;
-      ui_enter_race(&rs);
+      enter_race_loading(&rs);
       break;
     }
     rs.map = (rs.map + 1) % NMAPS;
     U.map = rs.map;
     if (rs.mode == RM_TRIAL) rs.ghost = trial_ghost_for(rs.map);
-    ui_enter_race(&rs);
+    enter_race_loading(&rs);
     break;
   }
   case PD_CUP_NEXT: {
     race_setup rs = cup_race_setup();
-    ui_enter_race(&rs);
+    enter_race_loading(&rs);
     break;
   }
   case PD_TO_MENU:
@@ -1022,11 +1062,11 @@ static void run_pending(void) {
     goto_mode(M_TITLE);
     U.title_menu = 1;
     U.sel = 0;
-    start_attract(next_attract_map());
+    load_attract(next_attract_map());
     audio_music(0);
     break;
   case PD_ATTRACT:
-    start_attract(next_attract_map());
+    load_attract(next_attract_map());
     break;
   default: break;
   }
@@ -1173,9 +1213,11 @@ void ui_fixed(void) {
   /* the dev screen is chosen before the demo race loads */
   if (U.ticks == 1 && getenv("RACER_UI")) dev_screen();
   /* the demo race behind the front end (not when a dev run starts a race by itself) */
-  if (U.ticks == 2 && !getenv("RACER_MAP") && !game_loaded() && U.mode != M_RACE && U.mode != M_PAUSE && U.mode != M_RESULTS) {
-    start_attract(U.attract_map);
-    audio_music(0);
+  if (U.ticks == 2 && !getenv("RACER_MAP") && U.mode != M_RACE && U.mode != M_PAUSE && U.mode != M_RESULTS) {
+    /* (the warm-up has loaded it already, unless a dev run skipped that or the load failed) */
+    bool fresh = !game_loaded();
+    if (fresh) start_attract(U.attract_map);
+    if (fresh || U.attract_on) audio_music(0);
   }
   if (U.attract_on && game_loaded() && U.mode != M_RACE) {
     if (++U.attract_ticks > ATTRACT_SECS * 60 && U.pending == PD_NONE && U.fade_dir == 0) begin_pending(PD_ATTRACT);
@@ -1200,4 +1242,14 @@ void ui_render(float W, float H) {
   hud_draw(W, H);
   scr_draw(W, H);
   if (U.fade > 0) cw_r2d_rect(cw_rect_make(0, 0, W, H), rgba(0.01f, 0.01f, 0.02f, ease_io(U.fade)));
+  /* the map settling behind the black (world_ready: its scenery cleared from the lanes, a bite a frame): a bar, so the
+   * wait after the loading screen reads as more of it */
+  if (U.fade >= 1 && game_loaded() && !world_ready()) {
+    float s = H / 540.0f, bw = fminf(W * 0.6f, 420 * s), x = (W - bw) * 0.5f, y = H * 0.5f, p = world_settle_progress();
+    cw_r2d_rect(cw_rect_make(x, y, bw, 6 * s), rgba(0.165f, 0.188f, 0.271f, 1));
+    cw_r2d_rect(cw_rect_make(x, y, bw * p, 6 * s), rgba(1, 0.698f, 0.243f, 1));
+    char label[64];
+    snprintf(label, sizeof label, "Preparing the track\xe2\x80\xa6 %d%%", (int)(p * 100));
+    cw_r2d_text(cw_ui_font_sans(), label, cw_v2(x, y + 14 * s), &(cw_text_style){ .size = 16 * s, .color = rgba(0.604f, 0.631f, 0.714f, 1) });
+  }
 }
