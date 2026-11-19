@@ -556,18 +556,22 @@ void world_reset(void) {
   memset(&W, 0, sizeof W);
 }
 
-void world_build(cw_node scene, const sim *s, int theme, const pug_look looks[MAXP]) {
-  world_reset();
-  W.theme = theme;
-  W.root = cw_node_new("Node3D", "World");
-  cw_node_add_child(scene, W.root);
-  const look *L = &LOOKS[theme];
-  build_pitch(W.root, L);
-  build_bowl(W.root, L);
-  build_goals(W.root);
-  net_build(W.root, s);
-  build_pads(W.root, s);
-  for (int i = 0; i < MAXP; i++) {
+void world_build_part(cw_node scene, const sim *s, int theme, const pug_look looks[MAXP], int part) {
+  if (part == 0) {
+    world_reset();
+    W.theme = theme;
+    W.root = cw_node_new("Node3D", "World");
+    cw_node_add_child(scene, W.root);
+    const look *L = &LOOKS[theme];
+    build_pitch(W.root, L);
+    build_bowl(W.root, L);
+    build_goals(W.root);
+    net_build(W.root, s);
+    build_pads(W.root, s);
+    return;
+  }
+  if (part <= MAXP) { /* pug part - 1: its first build makes its coat's textures */
+    int i = part - 1;
     W.on[i] = s->p[i].on;
     pug_build(&W.pug[i], s->p[i].team, looks[i]);
     t3_retain(W.pug[i].root);
@@ -576,6 +580,7 @@ void world_build(cw_node scene, const sim *s, int theme, const pug_look looks[MA
     W.pug_node[i] = hang(W.root, name, W.pug[i].root);
     cw_node_set(W.pug_node[i], "interpolate", cw_val_bool(true));
     W.pug[i].root->visible = W.on[i];
+    return;
   }
   /* a ring on the floor under the cat while it flies: where it will land */
   W.ring_mat = t3_mesh_basic_material_new(0xffffff);
@@ -601,6 +606,10 @@ void world_build(cw_node scene, const sim *s, int theme, const pug_look looks[MA
   W.cat_q = (t3_quat){ 0, 0, 0, 1 };
   W.ready = true;
   world_tick(s);
+}
+
+void world_build(cw_node scene, const sim *s, int theme, const pug_look looks[MAXP]) {
+  for (int part = 0; part < WORLD_PARTS; part++) world_build_part(scene, s, theme, looks, part);
 }
 
 /* ── animation ──────────────────────────────────────────────────────── */

@@ -33,10 +33,16 @@ typedef struct mb {
   int hcap;
 } mb;
 
+/* The table is indexed by the low bits, and the arena's positions are mostly whole metres, whose float bits end in a
+ * run of zeros: the products alone left those low bits zero, nearly every vertex fell in one cluster and the linear
+ * probe walked it (about 80 ms of a first match's start on a laptop). The final mix spreads the high bits down. It
+ * only finds vertices faster: the mesh (its vertices in first-seen order, its triangles) is the same. */
 static uint32_t vhash(t3_vec3 p) {
   uint32_t a, b, c;
   memcpy(&a, &p.x, 4), memcpy(&b, &p.y, 4), memcpy(&c, &p.z, 4);
-  return (a * 73856093u) ^ (b * 19349663u) ^ (c * 83492791u);
+  uint32_t h = (a * 73856093u) ^ (b * 19349663u) ^ (c * 83492791u);
+  h ^= h >> 16, h *= 0x7feb352du, h ^= h >> 15, h *= 0x846ca68bu, h ^= h >> 16;
+  return h;
 }
 
 static int vert(mb *m, t3_vec3 p) {
