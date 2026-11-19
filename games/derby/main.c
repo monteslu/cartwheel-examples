@@ -872,11 +872,7 @@ static void init(void *u) {
   font_title = cw_font_load("fonts/BlackOpsOne-Regular.ttf", &sdf);
   font_hud = cw_font_load("fonts/RussoOne-Regular.ttf", &sdf);
   font_small = cw_font_load("fonts/Oswald-VF.ttf", &sdf);
-  /* Prepare printable English UI glyphs while loading. SDF glyph generation
-   * must not interrupt gameplay when a new score or result first appears. */
-  const cw_font ui_fonts[] = {font_title, font_hud, font_small};
-  for (unsigned f = 0; f < sizeof ui_fonts / sizeof ui_fonts[0]; f++)
-    cw_font_preload_range(ui_fonts[f], 32, 126);
+  /* (the fonts' glyphs are made in the warm-up, below) */
 
   cw_debug_i32("game.state", &G.state);
   cw_debug_i32("bout.phase", &G.phase);
@@ -942,9 +938,14 @@ static double wall_now(void) { /* dev timing only (DERBY_WARM_TIMES) */
 }
 
 /* the warm-up (cw_app_desc.warmup), a step a frame under the engine's
- * loading screen: the texture sets, then the title field's cars one by one,
- * then the arena itself; the engine's shader phase follows */
-static int warm_tex, warm_car;
+ * loading screen: the fonts' glyphs a band at a time, the texture sets, then
+ * the title field's cars one by one, then the arena itself; the engine's
+ * shader phase follows. The glyphs used to be made in init: printable English
+ * in three SDF fonts, a frame of about a tenth of a second with the bar at
+ * nothing; now each band of one font is a step of its own. */
+enum { GLYPH_FIRST = 32, GLYPH_LAST = 126, GLYPH_BAND = 24, GLYPH_FONTS = 3 };
+#define GLYPH_BANDS ((GLYPH_LAST - GLYPH_FIRST + GLYPH_BAND) / GLYPH_BAND)
+static int warm_glyph, warm_tex, warm_car;
 static bool warm_crack;
 static bool warmup_step(void);
 static bool warmup(void *u) {
@@ -955,10 +956,19 @@ static bool warmup(void *u) {
   return done;
 }
 static bool warmup_step(void) {
-  const int total = TEX_KINDS + MAXC + 1;
+  const int glyphs = GLYPH_FONTS * GLYPH_BANDS, total = glyphs + TEX_KINDS + MAXC + 1;
+  if (warm_glyph < glyphs) { /* printable English, a band of one font a step: no glyph is made in play */
+    const cw_font fonts[GLYPH_FONTS] = { font_title, font_hud, font_small };
+    int b = warm_glyph % GLYPH_BANDS;
+    uint32_t first = (uint32_t)(GLYPH_FIRST + b * GLYPH_BAND), last = first + GLYPH_BAND - 1;
+    cw_font_preload_range(fonts[warm_glyph / GLYPH_BANDS], first, last > GLYPH_LAST ? GLYPH_LAST : last);
+    warm_glyph++;
+    cw_loading_set(warm_glyph, total, warm_glyph < glyphs ? CW_LOAD_ASSETS : CW_LOAD_TEXTURES);
+    return false;
+  }
   if (warm_tex < TEX_KINDS) { /* the texture sets, a band of rows a frame */
     if (tex_warm(warm_tex)) warm_tex++;
-    cw_loading_set(warm_tex, total, CW_LOAD_TEXTURES);
+    cw_loading_set(glyphs + warm_tex, total, CW_LOAD_TEXTURES);
     return false;
   }
   if (warm_car < MAXC) { /* the windscreen crack, then the title field's cars, one a frame */
@@ -969,7 +979,7 @@ static bool warmup_step(void) {
     }
     world_prebuild_car(warm_car, G.kind[warm_car], &G.look[warm_car]);
     warm_car++;
-    cw_loading_set(TEX_KINDS + warm_car, total, CW_LOAD_MESHES);
+    cw_loading_set(glyphs + TEX_KINDS + warm_car, total, CW_LOAD_MESHES);
     return false;
   }
   enter_title();

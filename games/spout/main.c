@@ -494,11 +494,7 @@ static void init(void *u) {
   audio_init();
   font_ui = cw_font_load("fonts/PatrickHand-Regular.ttf", NULL);
   font_title = cw_font_load("fonts/Sniglet-ExtraBold.ttf", NULL);
-  /* Prepare printable English UI glyphs while loading. SDF glyph generation
-   * must not interrupt gameplay when a new score or result first appears. */
-  const cw_font ui_fonts[] = {font_ui, font_title};
-  for (unsigned f = 0; f < sizeof ui_fonts / sizeof ui_fonts[0]; f++)
-    cw_font_preload_range(ui_fonts[f], 32, 126);
+  /* (the fonts' glyphs and the title's world load in the warm-up, below) */
 
   G.stopmotion = true;
   cw_debug_command("level", "level <1..5>: inspect a playable level without changing unlocks",cmd_level);
@@ -546,14 +542,39 @@ static void init(void *u) {
   cw_debug_u32("state.hash", &G.state_hash);
   cw_debug_u32("tex.hash", &tex_hash);
   cw_debug_u32("world.hash", &world_hash);
-  cw_tree_add_hook(cw_scene_app_tree(), 2, 0, sync_hook, NULL);
+}
+
+/* ── the warm-up (cw_app_desc.warmup): a step a frame under the engine's loading screen ──
+ * The fonts' glyphs (SDF generation, 10 to 30 ms a band of 16) and then the title's world (its paper made on the job
+ * pool) used to load in init, one frame of a third of a second with the bar at nothing. Now each is a step with the
+ * bar moving between them, and the engine's shader phase follows. A test run does the whole warm-up inside its first
+ * frame, so its ticks are the ones init gave. The sync hook joins once the world is built: the tree's pre-render
+ * runs between steps and must not pose a world still loading. */
+enum { GLYPH_FIRST = 32, GLYPH_LAST = 126, GLYPH_BAND = 16 };
+#define GLYPH_BANDS ((GLYPH_LAST - GLYPH_FIRST + GLYPH_BAND) / GLYPH_BAND)
+static bool warmup(void *u) {
+  (void)u;
+  static int step;
+  const cw_font fonts[] = { font_ui, font_title };
+  const int nf = (int)(sizeof fonts / sizeof fonts[0]), glyph_steps = nf * GLYPH_BANDS, total = glyph_steps + 1;
+  if (step < glyph_steps) { /* printable English, a band of one font a step: no glyph is made in play */
+    int f = step / GLYPH_BANDS, b = step % GLYPH_BANDS;
+    uint32_t first = (uint32_t)(GLYPH_FIRST + b * GLYPH_BAND), last = first + GLYPH_BAND - 1;
+    cw_font_preload_range(fonts[f], first, last > GLYPH_LAST ? GLYPH_LAST : last);
+    step++;
+    cw_loading_set(step, total, step < glyph_steps ? CW_LOAD_ASSETS : CW_LOAD_SCENE);
+    return false;
+  }
   load_world(0, true);
+  cw_tree_add_hook(cw_scene_app_tree(), 2, 0, sync_hook, NULL);
   G.state = GS_TITLE;
 #ifdef SPOUT_AUTOPILOT
   start_level(0);
 #endif
   const char *sl = getenv("SPOUT_START_LEVEL");
   if (sl && atoi(sl) >= 1 && atoi(sl) <= LEVELS_BUILT) start_level(atoi(sl) - 1);
+  cw_loading_set(total, total, CW_LOAD_SCENE);
+  return true;
 }
 
 static bool pressed(cw_action a) { return cw_action_just_pressed(0, a); }
@@ -1422,7 +1443,7 @@ cw_app_desc cw_main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   cw_scene_register_builtin_types();
-  static cw_app_desc base = { .title = "Spout", .width = 960, .height = 540, .debug = true, .init = init, .fixed_update = fixed,
+  static cw_app_desc base = { .title = "Spout", .width = 960, .height = 540, .debug = true, .init = init, .warmup = warmup, .fixed_update = fixed,
                               .update = update, .render = render, .shutdown = shutdown, .save = &SAVE, .save_size = sizeof SAVE,
                               .touch_pointer = true };
   cw_app_desc d = cw_scene_app(NULL, &base);
