@@ -3,6 +3,11 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.25.0 (2026-11-19)
+
+- **All games**: Engine v0.50.4 (from v0.49.0). In a cart the wasmcart host draws the on-screen pad, so a phone or tablet never shows two sets of controls: each cart's manifest lists the pad parts the game uses (worked out from its input bindings), and the host draws those. Native builds (desktop, Android) keep the engine's own touch controls as before. Also three.c 0.187.8: no holes in distant ground on Metal (racer's far terrain on a Mac)
+- **bikemesa, bomberdude, chromite, derby, pugball, spout**: Their own touch buttons and sticks draw only in native builds; in a cart the host's pad takes their place, and a tap still works every menu
+
 ## v0.24.0 (2026-11-19)
 
 - **All games**: Engine v0.49.0 (from v0.46.0). A level loaded in play shows the loading screen instead of freezing the window, the loading bar never steps back, overlays draw at the output's full size over a scaled scene, and water shows what is just under its surface

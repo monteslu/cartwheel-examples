@@ -1338,7 +1338,7 @@ static void render(void *u, double alpha) {
 #endif
   else {
     draw_hud(W, H, s);
-    if (input_mode == DEV_TOUCH && G.state == GS_PLAY) draw_touch();
+    if (input_mode == DEV_TOUCH && G.state == GS_PLAY && cw_touch_controls_on()) draw_touch(); /* a cart: the host draws the pad */
     if (G.state == GS_PAUSE) draw_pause(W, H, s);
     if (G.state == GS_OVER) draw_over(W, H, s);
   }

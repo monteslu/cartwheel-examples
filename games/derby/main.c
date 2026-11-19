@@ -2106,7 +2106,7 @@ static void draw_hud(float W, float H, float s) {
   const sim *S = &G.S;
   char buf[96];
   int me = focus_car();
-  bool touch = touch_controls && on_touch();
+  bool touch = touch_controls && on_touch() && cw_touch_controls_on(); /* a cart: the host draws the pad */
   bool split = nviews > 1;
   if (split) draw_split_hud(W, H, s), me = -1; /* the per-view plates stand in for P1's */
   float plate_top = H; /* where the player's plate starts (the countdown's hint stays above it) */

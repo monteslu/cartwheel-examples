@@ -3548,7 +3548,7 @@ static void render(void *u, double alpha) {
   case GS_STADIUM: draw_stadium_select(W, H, s); break;
   case GS_MATCH:
     draw_hud(W, H, s);
-    if (touch_controls && on_touch() && humans() == 1) draw_touch(W, H, s);
+    if (touch_controls && on_touch() && humans() == 1 && cw_touch_controls_on()) draw_touch(W, H, s); /* a cart: the host draws the pad */
     break;
   case GS_PAUSE:
     if (pause_layout_of(W, H).hud) draw_hud(W, H, s); /* the HUD stays when the menu fits under the scoreboard */

@@ -1189,7 +1189,9 @@ static void draw_hud(float W, float H, float s) {
   else if (S->weather == WX_WARN)
     title_text(S->L->theme == THEME_WINTER ? "snow's coming - hold tight!" : "rain's coming - hold tight!", bx + 16 * s * (sw_old_hud != 0), by, 30 * s, rgba(1, 0.85f, 0.5f, 1),
                CW_ALIGN_CENTER, sw_old_hud ? W - 32 * s : bw);
-  if (on_touch()) draw_touch();
+  if (on_touch()) {
+    if (cw_touch_controls_on()) draw_touch(); /* a cart: the host draws the pad */
+  }
   else if (G.state_ticks < 600) {
     const char *h = G.S.hands ? "{hand_l} then {hand_r}, in turn: climb   {left|right|down} walk round, down   {jump} jump   {brace} hold   {silk} silk up   {down} + {silk} line down   {brace} + {silk} web"
                               : "{left|right|up|down} climb   {jump} jump   {brace} hold   {silk} silk up   {down} + {silk} line down   {brace} + {silk} web";

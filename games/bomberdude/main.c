@@ -2478,7 +2478,7 @@ static void render(void *u, double alpha) {
   case GS_INTRO:
   case GS_PLAY:
     draw_hud(W, H, s);
-    if (ON_TOUCH && touch_controls) draw_touch(W, H, s);
+    if (ON_TOUCH && touch_controls && cw_touch_controls_on()) draw_touch(W, H, s); /* a cart: the host draws the pad */
     break;
   case GS_PAUSE:
     if (pause_layout_of(W, H).hud) draw_hud(W, H, s); /* the cards stay when the menu fits under them */

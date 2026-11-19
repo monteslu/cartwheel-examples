@@ -3040,7 +3040,7 @@ static void touch_label(const char *s, float x, float y, float size, cw_color c,
   cw_r2d_text(ui_font(size), s, cw_v2(x, y), &st);
 }
 static void draw_touch(float W, float H, float s) {
-  if (!on_touch()) return;
+  if (!on_touch() || !cw_touch_controls_on()) return; /* in a cart the host draws the on-screen pad */
   int ww, wh;
   cw_window_size(&ww, &wh);
   float kx = W / (float)ww, ky = H / (float)wh, k = (float)wh / 540.0f;
