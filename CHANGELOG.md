@@ -3,6 +3,19 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.24.0 (2026-11-19)
+
+- **All games**: Engine v0.49.0 (from v0.46.0). A level loaded in play shows the loading screen instead of freezing the window, the loading bar never steps back, overlays draw at the output's full size over a scaled scene, and water shows what is just under its surface
+- **All games**: No more frozen start-up. Every game used to build its fonts, textures and first scene inside one frame before the first picture; each now loads a step a frame under the loading screen with its bar, then compiles its shaders a slice a frame under the same bar
+- **racer**: The demo race behind the title and every race picked from the menus (start, restart, next map, the cup's next race) load in stages under the loading screen instead of one frame of over a second followed by long shader compiles. The terrain fills on every core, and the track clearing that follows (which held one frame for 1.3 to 1.9 s) goes in small bites with a "Preparing the track" bar
+- **spout**: Start-up's longest frame went from 310 to 830 ms to under 100 ms; the paper textures are made on every core (the world's first build from about 130 ms to about 35 ms)
+- **derby**: The fonts load under the loading screen instead of a first frame of 120 to 145 ms with the bar at 0
+- **pugball**: No 0.75 s frozen first frame: the fonts and the title stadium load under the loading screen. A first match in a new stadium compiles its shaders under the loading screen (stadium 2 used to stop for 1.36 s in one frame), and the arena's collision mesh builds in 1.5 ms instead of 82
+- **bomberdude**: No 0.5 s frozen first frame: the fonts and the title load under the loading screen
+- **bikemesa**: Start-up's longest frame went from 590 to 730 ms to under 100 ms. A race loads under the loading screen with the countdown after it: Downtown used to freeze for 476 to 588 ms (its street signs now decode a few a frame), and now loads in steps of at most about 130 ms
+- **chromite**: Start-up's worst frame went from 0.9 to 1.8 s to about 170 ms (its maps are made in bands over frames, on every core). Levels 2 and 3 load in about 80 ms frames instead of 256 ms, and a graphics preset change on the title in 68 ms instead of 1.0 to 1.3 s
+- **Tests**: bikemesa-djbike compares the game's named state (no longer the host's audio and job counters) and bounds the canyon's grass blades as every Red Rock Run gate does, and runs on WebGPU too
+
 ## v0.23.3 (2026-11-10)
 
 - **racer**: Wreck Orbit's corkscrew cages cast no shadows. Their frames pass the kart about three and a half times a second, and their sun shadows swept over the kart and the road as often, a regular light and dark pulse. The frames and their glowing rings look the same; the kart stays evenly lit through the corkscrews
