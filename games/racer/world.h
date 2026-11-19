@@ -62,6 +62,9 @@ void showroom_reset(void);
 
 /* world.c */
 void world_build(cw_node scene, const sim *s, const map_def *map);
+/* world_build in two parts, a frame apart under the loading screen (main.c's warm-up): the road and karts, then the map's scenery */
+void world_build_road(cw_node scene, const sim *s, const map_def *map);
+void world_build_scenery(cw_node scene, const sim *s, const map_def *map);
 bool world_ready(void); /* the map has settled (its scenery cleared from the lanes): the loading screen may lift */
 void world_reset(void);
 void world_tick(const sim *s);
@@ -108,6 +111,9 @@ float ground_height_cb(float x, float z, void *ud);
 void geomcheck_run(cw_node scene, t3_object *root, const track *t);
 void geomclean_begin(cw_node scene, t3_object *root, const track *t); /* at load: scenery in the lanes is cut out over */
 bool geomclean_step(int budget);                                       /* the next frames, budget triangles a frame (geomcheck.c) */
+float geomclean_progress(void);                                        /* its share done, 0..1 */
+/* how far the map has settled (world_ready at 1): the lanes' clean, under the loading screen's black */
+float world_settle_progress(void);
 void groundv_run(cw_node scene, t3_object *root, float qx, float qz); /* dev aid RACER_GROUNDV */
 void geomclean_snapshot(t3_object *root); /* the places of everything on the first frame: what moves is not cleaned */
 void stats_events(const sim *s);      /* fixed tick: dev aid RACER_STATS=1 logs the race's dynamics when it ends (stats.c) */
