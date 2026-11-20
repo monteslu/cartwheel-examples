@@ -32,6 +32,7 @@
 #include "cartwheel/debug.h"
 #include "cartwheel/environment.h"
 #include "cartwheel/pipeline.h"
+#include "cartwheel/save.h"
 #include "cartwheel/decals.h"
 #include "cartwheel/platform.h"
 #include "cartwheel/prompt.h"
@@ -85,13 +86,6 @@ const track_desc *track_get(int i) { return i >= 0 && i < (int)CW_ARRAY_LEN(TRAC
 #define POSE_MIN 12
 #define LAND_PERFECT 0.12f
 #define LAND_CLEAN 0.35f
-#define SAVE_MAGIC 0x534D4B42u /* 'BKMS' */
-#define SAVE_VERSION 12
-#define SAVE_V11_SIZE 244 /* version 11: no text settings */
-_Static_assert(offsetof(save_data, text_size) == SAVE_V11_SIZE, "version 11 ended where the text settings start");
-#define SAVE_V3_SIZE 204
-#define SAVE_V8_SIZE 208
-#define SAVE_V9_SIZE 220
 #define STAR2 3000 /* a run's score for the second star */
 #define STAR3 8000
 
@@ -360,21 +354,118 @@ static cw_rect finish_action_rect(int i, float W, float H, float s) { (void)W, (
 
 /* ── save data ──────────────────────────────────────────────────────── */
 
-static uint32_t save_sum(void) {
-  const uint8_t *b = (const uint8_t *)&SAVE.tr;
+/* The save is the engine's save store (cartwheel/save.h) over the app's save data, with one slot, "progress", that
+ * holds save_data. A field added at the end of save_data needs nothing: an older slot loads with it at 0. Change
+ * PROGRESS_VERSION (and give cw_save_read a migrate hook) only for a change a prefix copy cannot follow. */
+#define PROGRESS_VERSION 1
+static uint8_t save_block[sizeof(save_data) + 4096]; /* room for the slot to grow and for more slots */
+
+/* Before the store the save data was one struct, legacy_save: versions 3 to 12. A block holding one is read once,
+ * carried to version 12 by the steps below and written into the "progress" slot (save_legacy). */
+#define LEGACY_MAGIC 0x534D4B42u /* 'BKMS' */
+#define LEGACY_VERSION 12
+#define SAVE_V11_SIZE 244 /* version 11: no text settings */
+#define SAVE_V3_SIZE 204
+#define SAVE_V8_SIZE 208
+#define SAVE_V9_SIZE 220
+typedef struct legacy_save {
+  uint32_t magic;
+  uint16_t version, size;
+  uint32_t checksum;
+  save_track tr[BIKEMESA_TRACKS_MAX];
+  uint32_t quality;
+  uint8_t text_size, text_bg, pad[2];
+} legacy_save;
+#define LEGACY_HEAD offsetof(legacy_save, tr) /* what follows the header is save_data's start, byte for byte */
+_Static_assert(offsetof(legacy_save, text_size) == SAVE_V11_SIZE, "version 11 ended where the text settings start");
+_Static_assert(sizeof(save_data) >= sizeof(legacy_save) - LEGACY_HEAD, "save_data only grows");
+static legacy_save L;
+
+static uint32_t legacy_sum(void) {
+  const uint8_t *b = (const uint8_t *)&L.tr;
   uint32_t h = 2166136261u;
   /* Legacy saves are shorter; hash their original payload before moving quality. */
-  size_t n = SAVE.size >= 12 && SAVE.size <= sizeof SAVE ? SAVE.size - 12 : 0;
+  size_t n = L.size >= 12 && L.size <= sizeof L ? L.size - 12 : 0;
   for (size_t i = 0; i < n; i++) h = (h ^ b[i]) * 16777619u;
-  return h ^ (SAVE.version | (uint32_t)SAVE.size << 16);
+  return h ^ (L.version | (uint32_t)L.size << 16);
 }
+/* L, as loaded: carried to version 12, or false when it is not a save this game wrote */
+static bool legacy_upgrade(void) {
+  if (L.magic == LEGACY_MAGIC && L.version == 3 && L.size == SAVE_V3_SIZE && L.checksum == legacy_sum()) {
+    L.quality = L.tr[15].best_ticks ? (uint32_t)L.tr[15].best_ticks : L.tr[15].stars;
+    memset(&L.tr[13], 0, 3 * sizeof L.tr[0]);
+    memcpy((uint8_t *)&L + 204, &L.quality, sizeof L.quality);
+    L.version = 4;
+    L.size = SAVE_V8_SIZE;
+    L.checksum = legacy_sum();
+  }
+  /* Downtown now finishes at 873 m instead of 289/385/729 m. Retain unlocks,
+   * trick achievements and other tracks; the old time/medal is incomparable. */
+  if (L.magic == LEGACY_MAGIC && (L.version == 4 || L.version == 5 || L.version == 6) && L.size == SAVE_V8_SIZE && L.checksum == legacy_sum()) {
+    L.tr[2].best_ticks = 0;
+    L.tr[2].medal = 0;
+    L.tr[13].best_ticks = 0; L.tr[13].medal = 0;
+    L.version = 8;
+    L.checksum = legacy_sum();
+  }
+  /* Giant circus loop changes only track 14's time/medal comparison. */
+  if (L.magic == LEGACY_MAGIC && L.version == 7 && L.size == SAVE_V8_SIZE && L.checksum == legacy_sum()) {
+    L.tr[13].best_ticks = 0; L.tr[13].medal = 0;
+    L.version = 8; L.checksum = legacy_sum();
+  }
+  if (L.magic == LEGACY_MAGIC && L.version == 8 && L.size == SAVE_V8_SIZE && L.checksum == legacy_sum()) {
+    uint32_t old_quality;
+    memcpy(&old_quality, (const uint8_t *)&L + 204, sizeof old_quality);
+    memset(&L.tr[16], 0, 3 * sizeof L.tr[16]);
+    L.quality = old_quality;
+    L.version = LEGACY_VERSION;
+    L.size = (uint16_t)sizeof L;
+    L.checksum = legacy_sum();
+  }
+  if (L.magic == LEGACY_MAGIC && L.version == 9 && L.size == SAVE_V9_SIZE && L.checksum == legacy_sum()) {
+    uint32_t old_quality;
+    memcpy(&old_quality, (const uint8_t *)&L + 216, sizeof old_quality);
+    memset(&L.tr[17], 0, 2 * sizeof L.tr[17]);
+    L.quality = old_quality;
+    L.version = LEGACY_VERSION;
+    L.size = (uint16_t)sizeof L;
+    L.checksum = legacy_sum();
+  }
+  if (L.magic == LEGACY_MAGIC && L.version == 10 && L.size == 232 && L.checksum == legacy_sum()) {
+    uint32_t old_quality;
+    memcpy(&old_quality, (const uint8_t *)&L + 228, sizeof old_quality);
+    memset(&L.tr[18], 0, sizeof L.tr[18]);
+    L.quality = old_quality;
+    L.version = LEGACY_VERSION;
+    L.size = (uint16_t)sizeof L;
+    L.checksum = legacy_sum();
+  }
+  /* version 11 ended at the graphics word: the text settings start at their defaults (legacy_sum hashes by the saved size) */
+  if (L.magic == LEGACY_MAGIC && L.version == 11 && L.size == SAVE_V11_SIZE && L.checksum == legacy_sum()) {
+    L.text_size = L.text_bg = L.pad[0] = L.pad[1] = 0;
+    L.version = LEGACY_VERSION;
+    L.size = (uint16_t)sizeof L;
+    L.checksum = legacy_sum();
+  }
+  return L.magic == LEGACY_MAGIC && L.version == LEGACY_VERSION && L.size == sizeof L && L.checksum == legacy_sum();
+}
+/* the store found the old struct in the block: keep its progress in the slot */
+static bool save_imported;
+static void save_legacy(cw_save_store *st, const void *old, size_t n, void *u) {
+  (void)u;
+  if (getenv("CW_TEST_SAVE_NO_IMPORT")) return; /* the save gate's control: an old save is lost */
+  memset(&L, 0, sizeof L);
+  memcpy(&L, old, n < sizeof L ? n : sizeof L);
+  if (!legacy_upgrade()) {
+    cw_warn("bikemesa: save data rejected (magic %08x version %u), starting fresh", L.magic, L.version);
+    return;
+  }
+  save_imported = cw_save_write(st, "progress", PROGRESS_VERSION, (const uint8_t *)&L + LEGACY_HEAD, sizeof L - LEGACY_HEAD);
+}
+
 static void save_reset(void) {
   memset(&SAVE, 0, sizeof SAVE);
-  SAVE.magic = SAVE_MAGIC;
-  SAVE.version = SAVE_VERSION;
-  SAVE.size = (uint16_t)sizeof SAVE;
   SAVE.tr[0].shown = 1;
-  SAVE.checksum = save_sum();
 }
 /* Graphics settings have their own field; version 3 used the unused last track. */
 #define QUALITY_SAVE SAVE.quality
@@ -385,66 +476,14 @@ static void save_write(void) {
   }
   SAVE.text_size = cw_text_scale_saved();
   SAVE.text_bg = (uint8_t)cw_text_backdrop_get();
-  SAVE.checksum = save_sum();
-  cw_save_commit();
+  cw_save_store *st = cw_save_app_store(NULL, NULL);
+  if (st && cw_save_write(st, "progress", PROGRESS_VERSION, &SAVE, sizeof SAVE)) cw_save_commit();
 }
 static void save_check(void) {
-  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 3 && SAVE.size == SAVE_V3_SIZE && SAVE.checksum == save_sum()) {
-    SAVE.quality = SAVE.tr[15].best_ticks ? (uint32_t)SAVE.tr[15].best_ticks : SAVE.tr[15].stars;
-    memset(&SAVE.tr[13], 0, 3 * sizeof SAVE.tr[0]);
-    memcpy((uint8_t *)&SAVE + 204, &SAVE.quality, sizeof SAVE.quality);
-    SAVE.version = 4;
-    SAVE.size = SAVE_V8_SIZE;
-    SAVE.checksum = save_sum();
-  }
-  /* Downtown now finishes at 873 m instead of 289/385/729 m. Retain unlocks,
-   * trick achievements and other tracks; the old time/medal is incomparable. */
-  if (SAVE.magic == SAVE_MAGIC && (SAVE.version == 4 || SAVE.version == 5 || SAVE.version == 6) && SAVE.size == SAVE_V8_SIZE && SAVE.checksum == save_sum()) {
-    SAVE.tr[2].best_ticks = 0;
-    SAVE.tr[2].medal = 0;
-    SAVE.tr[13].best_ticks = 0; SAVE.tr[13].medal = 0;
-    SAVE.version = 8;
-    SAVE.checksum = save_sum();
-  }
-  /* Giant circus loop changes only track 14's time/medal comparison. */
-  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 7 && SAVE.size == SAVE_V8_SIZE && SAVE.checksum == save_sum()) {
-    SAVE.tr[13].best_ticks = 0; SAVE.tr[13].medal = 0;
-    SAVE.version = 8; SAVE.checksum = save_sum();
-  }
-  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 8 && SAVE.size == SAVE_V8_SIZE && SAVE.checksum == save_sum()) {
-    uint32_t old_quality;
-    memcpy(&old_quality, (const uint8_t *)&SAVE + 204, sizeof old_quality);
-    memset(&SAVE.tr[16], 0, 3 * sizeof SAVE.tr[16]);
-    SAVE.quality = old_quality;
-    SAVE.version = SAVE_VERSION;
-    SAVE.size = (uint16_t)sizeof SAVE;
-    SAVE.checksum = save_sum();
-  }
-  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 9 && SAVE.size == SAVE_V9_SIZE && SAVE.checksum == save_sum()) {
-    uint32_t old_quality;
-    memcpy(&old_quality, (const uint8_t *)&SAVE + 216, sizeof old_quality);
-    memset(&SAVE.tr[17], 0, 2 * sizeof SAVE.tr[17]);
-    SAVE.quality = old_quality;
-    SAVE.version = SAVE_VERSION;
-    SAVE.size = (uint16_t)sizeof SAVE;
-    SAVE.checksum = save_sum();
-  }
-  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 10 && SAVE.size == 232 && SAVE.checksum == save_sum()) {
-    uint32_t old_quality;memcpy(&old_quality,(const uint8_t *)&SAVE+228,sizeof old_quality);
-    memset(&SAVE.tr[18],0,sizeof SAVE.tr[18]);SAVE.quality=old_quality;
-    SAVE.version=SAVE_VERSION;SAVE.size=(uint16_t)sizeof SAVE;SAVE.checksum=save_sum();
-  }
-  /* version 11 ended at the graphics word: the text settings start at their defaults (save_sum hashes by the saved size) */
-  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 11 && SAVE.size == SAVE_V11_SIZE && SAVE.checksum == save_sum()) {
-    SAVE.text_size = SAVE.text_bg = SAVE.pad[0] = SAVE.pad[1] = 0;
-    SAVE.version = SAVE_VERSION;
-    SAVE.size = (uint16_t)sizeof SAVE;
-    SAVE.checksum = save_sum();
-  }
-  if (SAVE.magic != SAVE_MAGIC || SAVE.version != SAVE_VERSION || SAVE.size != sizeof SAVE || SAVE.checksum != save_sum()) {
-    if (SAVE.magic) cw_warn("bikemesa: save data rejected (magic %08x version %u), starting fresh", SAVE.magic, SAVE.version);
-    save_reset();
-  }
+  cw_save_store *st = cw_save_app_store(save_legacy, NULL);
+  cw_save_result r = st ? cw_save_read(st, "progress", PROGRESS_VERSION, &SAVE, sizeof SAVE, NULL, NULL) : CW_SAVE_NONE;
+  if (r == CW_SAVE_NONE || r == CW_SAVE_DISCARDED || r == CW_SAVE_NEWER) save_reset();
+  if (save_imported) cw_save_commit(); /* the old struct, now a store */
   for (int i = 0; i < BIKEMESA_TRACKS_MAX; i++)
     if (SAVE.tr[i].medal > 3) SAVE.tr[i].medal = 3;
 }
@@ -1102,7 +1141,7 @@ static void cmd_bike_pick(int argc, const char **argv, cw_reply *r) {
 static void cmd_progress(int argc, const char **argv, cw_reply *r) {
   if (argc >= 3 && !strcmp(argv[1], "preset")) save_preset(atoi(argv[2]));
   save_fields();
-  cw_reply_printf(r, "{\"unlocked\":%d,\"checksum\":%u}", dbg_unlocked, SAVE.checksum);
+  cw_reply_printf(r, "{\"unlocked\":%d,\"checksum\":%u}", dbg_unlocked, cw_hash32(&SAVE, sizeof SAVE, CW_HASH32_INIT));
 }
 
 /* ── the camera ─────────────────────────────────────────────────────── */
@@ -1695,7 +1734,7 @@ static void init(void *u) {
   cw_debug_u32("tex.hash", &tex_hash);
   cw_debug_u32("wind.hash", &wind_hash);
   cw_debug_i32("save.unlocked", &dbg_unlocked);
-  cw_debug_bytes("save.bytes", &SAVE, sizeof SAVE);
+  cw_debug_bytes("save.progress", &SAVE, sizeof SAVE);
   cw_debug_command("inspect", "inspect off | inspect eyeX eyeY eyeZ targetX targetY targetZ: inspection camera", cmd_inspect);
   cw_debug_command("mem", "mem: the engine's live memory by tag and the cart's heap", cmd_mem);
   cw_debug_command("track", "track <1..n> [checkpoint]: ride a track or resume at a checkpoint", cmd_track);
@@ -3575,7 +3614,7 @@ cw_app_desc cw_main(int argc, char **argv) {
 #endif
   static cw_app_desc base = { .title = GAME_TITLE, .width = 960, .height = 540, .debug = true, .init = init, .warmup = warmup,
                               .fixed_update = fixed, .update = update, .render = render, .shutdown = shutdown,
-                              .save = &SAVE, .save_size = sizeof SAVE, .touch_pointer = true };
+                              .save = save_block, .save_size = sizeof save_block, .touch_pointer = true };
   const char *res = getenv("BIKEMESA_RES");
   if (res && strchr(res, 'x')) {
     base.width = atoi(res);

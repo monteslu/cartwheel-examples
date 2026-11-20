@@ -20,6 +20,7 @@
 #include <string.h>
 
 #include "cartwheel/debug.h"
+#include "cartwheel/save.h"
 #include "cartwheel/platform.h"
 #include "cartwheel/prompt.h"
 #include "cartwheel/quality.h"
@@ -38,10 +39,10 @@ enum { GS_TITLE, GS_SELECT, GS_PLAY, GS_PAUSE, GS_WIN };
 
 /* ── save ───────────────────────────────────────────────────────────── */
 
-#define SAVE_MAGIC 0x54554f53u /* 'SOUT' */
-#define SAVE_VERSION 5
-/* version 5: the ghost of each spout's best climb and the dry-climb ribbons; version 4: the text size
- * (cw_text_scale_saved) and the text background; version 3 ended at the graphics settings */
+/* The save is the engine's save store (cartwheel/save.h) over the app's save data, with one slot, "progress", that
+ * holds save_data. A field added at the end of save_data needs nothing: an older slot loads with it at 0. Change
+ * PROGRESS_VERSION (and give cw_save_read a migrate hook) only for a change a prefix copy cannot follow. */
+#define PROGRESS_VERSION 1
 #define GHOST_EVERY 8   /* ticks between a ghost's samples */
 #define GHOST_MAX 900   /* samples: a climb of two minutes */
 typedef struct ghost_track {
@@ -49,25 +50,77 @@ typedef struct ghost_track {
   uint8_t s[GHOST_MAX][5]; /* the spider's angle (16 bits round the pipe), height (16 bits over 40 m), lift (8 bits over 1 m) */
 } ghost_track;
 typedef struct save_data {
-  uint32_t magic;
-  uint16_t version, size;
   struct { int32_t cleared, best_ticks, dews, flies; } lv[SP_LEVELS];
   uint8_t quality[4]; /* the graphics settings: cw_quality_saved() little-endian, 0 = none chosen */
   uint8_t text_size, text_bg; /* cw_text_scale_saved() (0 = none chosen), cw_text_backdrop_get() */
   uint8_t dry, hands;         /* dry: a bit per spout climbed with no wash and no knock (the dry-climb ribbon); hands: 1 two hands */
-  ghost_track ghost[SP_LEVELS];
-  uint32_t checksum;
+  ghost_track ghost[SP_LEVELS]; /* the ghost of each spout's best climb */
 } save_data;
 static save_data SAVE;
+static uint8_t save_block[sizeof(save_data) + 4096]; /* room for the slot to grow and for more slots */
 
-static uint32_t save_sum(void) { return cw_hash32(&SAVE.lv, offsetof(save_data, checksum) - offsetof(save_data, lv), CW_HASH32_INIT) ^ (SAVE.version | (uint32_t)SAVE.size << 16); }
-static void save_reset(void) {
-  memset(&SAVE, 0, sizeof SAVE);
-  SAVE.magic = SAVE_MAGIC;
-  SAVE.version = SAVE_VERSION;
-  SAVE.size = sizeof SAVE;
-  SAVE.checksum = save_sum();
+/* Before the store the save data was one struct, legacy_save (versions 3 to 5; version 5: the ghosts and the dry-climb
+ * ribbons; version 4: the text size and the text background; version 3 ended at the graphics settings). A block holding
+ * one is read once, carried to version 5 and written into the "progress" slot (save_legacy). */
+#define LEGACY_MAGIC 0x54554f53u /* 'SOUT' */
+#define LEGACY_VERSION 5
+typedef struct legacy_save {
+  uint32_t magic;
+  uint16_t version, size;
+  struct { int32_t cleared, best_ticks, dews, flies; } lv[SP_LEVELS];
+  uint8_t quality[4];
+  uint8_t text_size, text_bg;
+  uint8_t dry, hands;
+  ghost_track ghost[SP_LEVELS];
+  uint32_t checksum;
+} legacy_save;
+#define LEGACY_HEAD offsetof(legacy_save, lv) /* from here to the checksum is save_data's start, byte for byte */
+#define LEGACY_BODY (offsetof(legacy_save, checksum) - LEGACY_HEAD)
+_Static_assert(sizeof(save_data) >= LEGACY_BODY, "save_data only grows");
+static legacy_save L;
+
+static uint32_t legacy_sum(void) { return cw_hash32(&L.lv, LEGACY_BODY, CW_HASH32_INIT) ^ (L.version | (uint32_t)L.size << 16); }
+/* a version 4 save: the same fields up to the text bytes (its spare bytes were zero), its checksum where the ghosts now
+ * are */
+static bool legacy_from_v4(void) {
+  enum { V4_SIZE = offsetof(legacy_save, ghost) + sizeof(uint32_t) };
+  if (L.magic != LEGACY_MAGIC || L.version != 4 || L.size != V4_SIZE) return false;
+  uint32_t stored, sum = cw_hash32(&L.lv, offsetof(legacy_save, ghost) - LEGACY_HEAD, CW_HASH32_INIT) ^ (4u | (uint32_t)V4_SIZE << 16);
+  memcpy(&stored, &L.ghost, sizeof stored);
+  if (stored != sum) return false;
+  memset(L.ghost, 0, sizeof L.ghost);
+  L.dry = L.hands = 0;
+  return true;
 }
+/* a version 3 save: the same fields up to the graphics settings, its checksum where the text bytes now are */
+static bool legacy_from_v3(void) {
+  enum { V3_SIZE = offsetof(legacy_save, text_size) + sizeof(uint32_t) };
+  if (L.magic != LEGACY_MAGIC || L.version != 3 || L.size != V3_SIZE) return false;
+  uint32_t stored, sum = cw_hash32(&L.lv, offsetof(legacy_save, text_size) - LEGACY_HEAD, CW_HASH32_INIT) ^ (3u | (uint32_t)V3_SIZE << 16);
+  memcpy(&stored, &L.text_size, sizeof stored);
+  if (stored != sum) return false;
+  L.text_size = L.text_bg = L.dry = L.hands = 0;
+  memset(L.ghost, 0, sizeof L.ghost);
+  return true;
+}
+static bool legacy_upgrade(void) {
+  if (legacy_from_v3() || legacy_from_v4()) return true;
+  return L.magic == LEGACY_MAGIC && L.version == LEGACY_VERSION && L.size == sizeof L && L.checksum == legacy_sum();
+}
+static bool save_imported;
+static void save_legacy(cw_save_store *st, const void *old, size_t n, void *u) {
+  (void)u;
+  if (getenv("CW_TEST_SAVE_NO_IMPORT")) return; /* the save gate's control: an old save is lost */
+  memset(&L, 0, sizeof L);
+  memcpy(&L, old, n < sizeof L ? n : sizeof L);
+  if (!legacy_upgrade()) {
+    cw_warn("spout: save data rejected (magic %08x version %u), starting fresh", L.magic, L.version);
+    return;
+  }
+  save_imported = cw_save_write(st, "progress", PROGRESS_VERSION, &L.lv, LEGACY_BODY);
+}
+
+static void save_reset(void) { memset(&SAVE, 0, sizeof SAVE); }
 static uint32_t gfx_saved(void) {
   return SAVE.quality[0] | (uint32_t)SAVE.quality[1] << 8 | (uint32_t)SAVE.quality[2] << 16 | (uint32_t)SAVE.quality[3] << 24;
 }
@@ -77,41 +130,14 @@ static void save_write(void) {
     for (int i = 0; i < 4; i++) SAVE.quality[i] = (uint8_t)(q >> (8 * i));
   SAVE.text_size = cw_text_scale_saved();
   SAVE.text_bg = (uint8_t)cw_text_backdrop_get();
-  SAVE.checksum = save_sum();
-  cw_save_commit();
-}
-/* a version 4 save: the same fields up to the text bytes (its spare bytes were zero), its checksum where the ghosts now
- * are */
-static bool save_from_v4(void) {
-  enum { V4_SIZE = offsetof(save_data, ghost) + sizeof(uint32_t) };
-  if (SAVE.magic != SAVE_MAGIC || SAVE.version != 4 || SAVE.size != V4_SIZE) return false;
-  uint32_t stored, sum = cw_hash32(&SAVE.lv, offsetof(save_data, ghost) - offsetof(save_data, lv), CW_HASH32_INIT) ^ (4u | (uint32_t)V4_SIZE << 16);
-  memcpy(&stored, &SAVE.ghost, sizeof stored);
-  if (stored != sum) return false;
-  memset(SAVE.ghost, 0, sizeof SAVE.ghost);
-  SAVE.dry = SAVE.hands = 0;
-  SAVE.version = SAVE_VERSION;
-  SAVE.size = sizeof SAVE;
-  SAVE.checksum = save_sum();
-  return true;
-}
-/* a version 3 save: the same fields up to the graphics settings, its checksum where the text bytes now are */
-static bool save_from_v3(void) {
-  enum { V3_SIZE = offsetof(save_data, text_size) + sizeof(uint32_t) };
-  if (SAVE.magic != SAVE_MAGIC || SAVE.version != 3 || SAVE.size != V3_SIZE) return false;
-  uint32_t stored, sum = cw_hash32(&SAVE.lv, offsetof(save_data, text_size) - offsetof(save_data, lv), CW_HASH32_INIT) ^ (3u | (uint32_t)V3_SIZE << 16);
-  memcpy(&stored, &SAVE.text_size, sizeof stored);
-  if (stored != sum) return false;
-  SAVE.text_size = SAVE.text_bg = SAVE.dry = SAVE.hands = 0;
-  memset(SAVE.ghost, 0, sizeof SAVE.ghost);
-  SAVE.version = SAVE_VERSION;
-  SAVE.size = sizeof SAVE;
-  SAVE.checksum = save_sum();
-  return true;
+  cw_save_store *st = cw_save_app_store(NULL, NULL);
+  if (st && cw_save_write(st, "progress", PROGRESS_VERSION, &SAVE, sizeof SAVE)) cw_save_commit();
 }
 static void save_check(void) {
-  if (save_from_v3() || save_from_v4()) return;
-  if (SAVE.magic != SAVE_MAGIC || SAVE.version != SAVE_VERSION || SAVE.size != sizeof SAVE || SAVE.checksum != save_sum()) save_reset();
+  cw_save_store *st = cw_save_app_store(save_legacy, NULL);
+  cw_save_result r = st ? cw_save_read(st, "progress", PROGRESS_VERSION, &SAVE, sizeof SAVE, NULL, NULL) : CW_SAVE_NONE;
+  if (r == CW_SAVE_NONE || r == CW_SAVE_DISCARDED || r == CW_SAVE_NEWER) save_reset();
+  if (save_imported) cw_save_commit(); /* the old struct, now a store */
 }
 static bool level_open(int i) { return i < LEVELS_BUILT && (i == 0 || SAVE.lv[i - 1].cleared); }
 
@@ -535,6 +561,7 @@ static void init(void *u) {
   cw_debug_i32("pulls", &G.S.pulls);
   cw_debug_i32("fumbles", &G.S.fumbles);
   cw_debug_i32("save.hands", &dbg_hands);
+  cw_debug_bytes("save.progress", &SAVE, sizeof SAVE);
   cw_debug_i32("save.unlocked", &dbg_unlocked);
   cw_debug_i32("save.cleared", &dbg_cleared);
   cw_debug_i32("select.locked_bumps", &G.locked_bumps);
@@ -1446,7 +1473,7 @@ cw_app_desc cw_main(int argc, char **argv) {
   (void)argv;
   cw_scene_register_builtin_types();
   static cw_app_desc base = { .title = "Spout", .width = 960, .height = 540, .debug = true, .init = init, .warmup = warmup, .fixed_update = fixed,
-                              .update = update, .render = render, .shutdown = shutdown, .save = &SAVE, .save_size = sizeof SAVE,
+                              .update = update, .render = render, .shutdown = shutdown, .save = save_block, .save_size = sizeof save_block,
                               .touch_pointer = true };
   cw_app_desc d = cw_scene_app(NULL, &base);
   return d;

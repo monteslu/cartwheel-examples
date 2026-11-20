@@ -123,10 +123,8 @@ typedef struct save_track {
   uint8_t medal;       /* 0 none, 1 bronze, 2 silver, 3 gold */
   uint8_t cleared, shown, stars; /* stars: 1 finished, 2 and 3 for trick scores (STAR2, STAR3) */
 } save_track;
+/* the "progress" slot of the save store (cartwheel/save.h): a field added at the END loads as 0 from an older save */
 typedef struct save_data {
-  uint32_t magic;
-  uint16_t version, size;
-  uint32_t checksum;
   save_track tr[BIKEMESA_TRACKS_MAX];
   uint32_t quality; /* independent of track scores */
   uint8_t text_size, text_bg, pad[2]; /* version 12: cw_text_scale_saved() (0 = none chosen), cw_text_backdrop_get() */

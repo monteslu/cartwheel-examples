@@ -35,6 +35,7 @@
 
 #include "cartwheel/audio.h"
 #include "cartwheel/debug.h"
+#include "cartwheel/save.h"
 #include "cartwheel/input.h"
 #include "cartwheel/math.h"
 #include "cartwheel/pipeline.h"
@@ -83,11 +84,8 @@ typedef enum {
   SFX_ENGINE, SFX_SKID, SFX_MOVE, SFX_SELECT, SFX_HORN2, SFX_COUNT
 } sfx_id;
 
-/* the save: a small versioned, checksummed layout (cw_app_desc.save) */
+/* the save: the "progress" slot of the save store (cartwheel/save.h); a field added at the END loads as 0 from an older save */
 typedef struct save_data {
-  uint32_t magic;          /* 'DRBY' */
-  uint16_t version, size;
-  uint32_t checksum;
   uint32_t bouts, wins, wrecks;
   uint8_t colour, number, kind, pad; /* pad: version 1's graphics preset */
   uint8_t gfx[4];          /* the graphics settings (cw_quality_saved, little-endian) */
@@ -359,17 +357,69 @@ static bool any_pressed(cw_action a) {
 
 /* ── save data ──────────────────────────────────────────────────────── */
 
-#define SAVE_MAGIC 0x59425244u /* 'DRBY' */
-#define SAVE_VERSION 3
-#define SAVE_V1_SIZE offsetof(save_data, gfx)        /* version 1 ended there */
-#define SAVE_V2_SIZE offsetof(save_data, text_scale) /* version 2 there */
+/* The save is the engine's save store (cartwheel/save.h) over the app's save data, with one slot, "progress", that
+ * holds save_data. A field added at the end of save_data needs nothing: an older slot loads with it at 0. Change
+ * PROGRESS_VERSION (and give cw_save_read a migrate hook) only for a change a prefix copy cannot follow. */
+#define PROGRESS_VERSION 1
+static uint8_t save_block[sizeof(save_data) + 4096]; /* room for the slot to grow and for more slots */
+
+/* Before the store the save data was one struct, legacy_save (versions 1 to 3). A block holding one is read once,
+ * carried to version 3 and written into the "progress" slot (save_legacy). */
+#define LEGACY_MAGIC 0x59425244u /* 'DRBY' */
+#define LEGACY_VERSION 3
+typedef struct legacy_save {
+  uint32_t magic;
+  uint16_t version, size;
+  uint32_t checksum;
+  uint32_t bouts, wins, wrecks;
+  uint8_t colour, number, kind, pad; /* pad: version 1's graphics preset */
+  uint8_t gfx[4];
+  uint8_t text_scale, text_bg, pad2[2];
+} legacy_save;
+#define LEGACY_HEAD offsetof(legacy_save, bouts) /* what follows the header is save_data's start, byte for byte */
+#define SAVE_V1_SIZE offsetof(legacy_save, gfx)        /* version 1 ended there */
+#define SAVE_V2_SIZE offsetof(legacy_save, text_scale) /* version 2 there */
+_Static_assert(sizeof(save_data) >= sizeof(legacy_save) - LEGACY_HEAD, "save_data only grows");
+static legacy_save L;
 static uint32_t sum_of(size_t size) {
-  const uint8_t *b = (const uint8_t *)&SAVE + offsetof(save_data, bouts);
+  const uint8_t *b = (const uint8_t *)&L + LEGACY_HEAD;
   uint32_t h = 2166136261u;
-  for (size_t i = 0; i < size - offsetof(save_data, bouts); i++) h = (h ^ b[i]) * 16777619u;
-  return h ^ (SAVE.version | (uint32_t)SAVE.size << 16);
+  for (size_t i = 0; i < size - LEGACY_HEAD; i++) h = (h ^ b[i]) * 16777619u;
+  return h ^ (L.version | (uint32_t)L.size << 16);
 }
-static uint32_t save_sum(void) { return sum_of(sizeof SAVE); }
+static bool legacy_upgrade(void) {
+  /* version 1 (no gfx; its graphics preset in pad): kept, the preset moved over */
+  if (L.magic == LEGACY_MAGIC && L.version == 1 && L.size == SAVE_V1_SIZE && L.checksum == sum_of(SAVE_V1_SIZE)) {
+    memset(L.gfx, 0, sizeof L.gfx);
+    L.gfx[0] = L.pad;
+    L.pad = 0;
+    L.version = 2;
+    L.size = (uint16_t)SAVE_V2_SIZE;
+    L.checksum = sum_of(SAVE_V2_SIZE);
+  }
+  /* version 2 (no text settings): kept, the text settings at their defaults */
+  if (L.magic == LEGACY_MAGIC && L.version == 2 && L.size == SAVE_V2_SIZE && L.checksum == sum_of(SAVE_V2_SIZE)) {
+    L.text_scale = 0, L.text_bg = 0;
+    memset(L.pad2, 0, sizeof L.pad2);
+    L.version = LEGACY_VERSION;
+    L.size = (uint16_t)sizeof L;
+    L.checksum = sum_of(sizeof L);
+  }
+  return L.magic == LEGACY_MAGIC && L.version == LEGACY_VERSION && L.size == sizeof L && L.checksum == sum_of(sizeof L);
+}
+static bool save_imported;
+static void save_legacy(cw_save_store *st, const void *old, size_t n, void *u) {
+  (void)u;
+  if (getenv("CW_TEST_SAVE_NO_IMPORT")) return; /* the save gate's control: an old save is lost */
+  memset(&L, 0, sizeof L);
+  memcpy(&L, old, n < sizeof L ? n : sizeof L);
+  if (!legacy_upgrade()) {
+    cw_warn("derby: save data rejected (magic %08x version %u), starting fresh", L.magic, L.version);
+    return;
+  }
+  save_imported = cw_save_write(st, "progress", PROGRESS_VERSION, (const uint8_t *)&L + LEGACY_HEAD, sizeof L - LEGACY_HEAD);
+}
+
 static uint32_t gfx_saved(void) {
   return SAVE.gfx[0] | (uint32_t)SAVE.gfx[1] << 8 | (uint32_t)SAVE.gfx[2] << 16 | (uint32_t)SAVE.gfx[3] << 24;
 }
@@ -379,41 +429,20 @@ static void save_write(void) {
     for (int i = 0; i < 4; i++) SAVE.gfx[i] = (uint8_t)(q >> (8 * i));
   SAVE.text_scale = cw_text_scale_saved();
   SAVE.text_bg = (uint8_t)cw_text_backdrop_get();
-  SAVE.checksum = save_sum();
-  cw_save_commit();
+  cw_save_store *st = cw_save_app_store(NULL, NULL);
+  if (st && cw_save_write(st, "progress", PROGRESS_VERSION, &SAVE, sizeof SAVE)) cw_save_commit();
 }
 static void save_reset(void) {
   memset(&SAVE, 0, sizeof SAVE);
-  SAVE.magic = SAVE_MAGIC;
-  SAVE.version = SAVE_VERSION;
-  SAVE.size = (uint16_t)sizeof SAVE;
   SAVE.colour = 1;
   SAVE.number = 7;
   SAVE.kind = CAR_SEDAN;
-  SAVE.checksum = save_sum();
 }
 static void save_check(void) {
-  /* version 1 (no gfx; its graphics preset in pad): kept, the preset moved over */
-  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 1 && SAVE.size == SAVE_V1_SIZE && SAVE.checksum == sum_of(SAVE_V1_SIZE)) {
-    memset(SAVE.gfx, 0, sizeof SAVE.gfx);
-    SAVE.gfx[0] = SAVE.pad;
-    SAVE.pad = 0;
-    SAVE.version = 2;
-    SAVE.size = (uint16_t)SAVE_V2_SIZE;
-    SAVE.checksum = sum_of(SAVE_V2_SIZE);
-  }
-  /* version 2 (no text settings): kept, the text settings at their defaults */
-  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 2 && SAVE.size == SAVE_V2_SIZE && SAVE.checksum == sum_of(SAVE_V2_SIZE)) {
-    SAVE.text_scale = 0, SAVE.text_bg = 0;
-    memset(SAVE.pad2, 0, sizeof SAVE.pad2);
-    SAVE.version = SAVE_VERSION;
-    SAVE.size = (uint16_t)sizeof SAVE;
-    SAVE.checksum = save_sum();
-  }
-  if (SAVE.magic != SAVE_MAGIC || SAVE.version != SAVE_VERSION || SAVE.size != sizeof SAVE || SAVE.checksum != save_sum()) {
-    if (SAVE.magic) cw_warn("derby: save data rejected (magic %08x version %u), starting fresh", SAVE.magic, SAVE.version);
-    save_reset();
-  }
+  cw_save_store *st = cw_save_app_store(save_legacy, NULL);
+  cw_save_result r = st ? cw_save_read(st, "progress", PROGRESS_VERSION, &SAVE, sizeof SAVE, NULL, NULL) : CW_SAVE_NONE;
+  if (r == CW_SAVE_NONE || r == CW_SAVE_DISCARDED || r == CW_SAVE_NEWER) save_reset();
+  if (save_imported) cw_save_commit(); /* the old struct, now a store */
   if (SAVE.colour >= CAR_COLOURS) SAVE.colour = 1;
   if (SAVE.kind >= CAR_KINDS) SAVE.kind = 0;
 }
@@ -874,6 +903,7 @@ static void init(void *u) {
   font_small = cw_font_load("fonts/Oswald-VF.ttf", &sdf);
   /* (the fonts' glyphs are made in the warm-up, below) */
 
+  cw_debug_bytes("save.progress", &SAVE, sizeof SAVE);
   cw_debug_i32("game.state", &G.state);
   cw_debug_i32("bout.phase", &G.phase);
   cw_debug_i32("bout.clock", &G.clock);
@@ -2418,7 +2448,7 @@ cw_app_desc cw_main(int argc, char **argv) {
   cw_set_raw_input_filter(autopilot, NULL);
 #endif
   static cw_app_desc base = { .title = GAME_TITLE, .width = 960, .height = 540, .debug = true, .init = init, .warmup = warmup, .fixed_update = fixed,
-                              .update = update, .render = render, .shutdown = shutdown, .save = &SAVE, .save_size = sizeof SAVE,
+                              .update = update, .render = render, .shutdown = shutdown, .save = save_block, .save_size = sizeof save_block,
                               .touch_pointer = true, /* taps work the menus (the engine's primary-finger pointer) */
                               .max_substeps = 3 /* a slow frame slows the game rather than spiralling */ };
   const char *res = getenv("DERBY_RES");

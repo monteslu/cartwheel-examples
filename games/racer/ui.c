@@ -31,6 +31,7 @@
 #include <string.h>
 
 #include "cartwheel/debug.h"
+#include "cartwheel/save.h"
 #include "cartwheel/input.h"
 #include "cartwheel/math.h"
 #include "cartwheel/platform.h"
@@ -108,14 +109,12 @@ typedef struct result_row {
   bool record;
 } result_row;
 
-#define SAVE_MAGIC 0x52435231u /* 'RCR1' */
+#define SAVE_MAGIC 0x52435231u /* 'RCR1': the save before the store (legacy_save) */
 #define SAVE_VERSION 3
-#define SAVE_V1_SIZE 76        /* the bytes a version 1 save held */
+#define SAVE_V1_SIZE 76        /* the bytes a version 1 save held, its header included */
 #define NCUPS 2
+/* the "progress" slot of the save store (cartwheel/save.h); a field added at the END loads as 0 from an older save */
 typedef struct save_data {
-  uint32_t magic;
-  uint16_t version, size;      /* size: version 1 held the byte count; the ghosts took the block past 65535, so version 2 holds it in 4 byte units */
-  uint32_t checksum;
   uint8_t gfx[4];              /* the graphics settings (cw_quality_saved, little-endian) */
   uint8_t music, sfx;          /* 0..10 */
   uint8_t laps, skill, items, map;
@@ -131,8 +130,8 @@ typedef struct save_data {
   uint32_t trial_cs[NMAPS];    /* the best time trial per map, centiseconds, 0 = none yet */
   ghost_saved ghost[NMAPS];    /* the run behind it: 24 KB a map at most */
 } save_data;
-_Static_assert(offsetof(save_data, wins) + 4 == SAVE_V1_SIZE, "a version 1 save was 76 bytes");
-_Static_assert(offsetof(save_data, text_bg) == 30 && offsetof(save_data, text_scale) == 83, "the text settings sit in version 2's pad bytes");
+_Static_assert(12 + offsetof(save_data, wins) + 4 == SAVE_V1_SIZE, "a version 1 save was 76 bytes");
+_Static_assert(12 + offsetof(save_data, text_bg) == 30 && 12 + offsetof(save_data, text_scale) == 83, "the text settings sit in version 2's pad bytes");
 static save_data SAVE;
 
 static struct {
@@ -505,14 +504,68 @@ static float lscale(float W, float H) { return is_portrait(W, H) ? fminf(W / 540
 
 /* ── the save ───────────────────────────────────────────────────────── */
 
+/* The save is the engine's save store (cartwheel/save.h) over the app's save data, with one slot, "progress", that
+ * holds save_data. A field added at the end of save_data needs nothing: an older slot loads with it at 0. Change
+ * PROGRESS_VERSION (and give cw_save_read a migrate hook) only for a change a prefix copy cannot follow. */
+#define PROGRESS_VERSION 1
+static uint8_t save_block[sizeof(save_data) + 4096]; /* room for the slot to grow and for more slots */
+
+/* Before the store the save data was one struct, legacy_save (versions 1 to 3): the same fields after a 12 byte
+ * header. A block holding one is read once, carried to version 3 and written into the "progress" slot (save_legacy). */
+typedef struct legacy_save {
+  uint32_t magic;
+  uint16_t version, size; /* size: version 1 held the byte count; the ghosts took the block past 65535, so version 2 holds it in 4 byte units */
+  uint32_t checksum;
+  save_data d; /* at version 3: save_data as it was when the store came (fields added since are not in it) */
+} legacy_save;
+#define LEGACY_HEAD offsetof(legacy_save, d)
+#define LEGACY_SIZE (LEGACY_HEAD + LEGACY_BODY)
+#define LEGACY_BODY (offsetof(save_data, ghost) + NMAPS * sizeof(ghost_saved)) /* save_data at version 3: it ends at the ghosts */
+_Static_assert(LEGACY_SIZE % 4 == 0, "the size field counts 4 byte units");
+static legacy_save L;
+
 static uint32_t sum_n(size_t total, uint32_t tag) {
-  const uint8_t *b = (const uint8_t *)&SAVE + offsetof(save_data, gfx);
+  const uint8_t *b = (const uint8_t *)&L + LEGACY_HEAD;
   uint32_t h = 2166136261u;
-  for (size_t i = 0; i < total - offsetof(save_data, gfx); i++) h = (h ^ b[i]) * 16777619u;
+  for (size_t i = 0; i < total - LEGACY_HEAD; i++) h = (h ^ b[i]) * 16777619u;
   return h ^ tag;
 }
-static uint32_t sum_of(void) { return sum_n(sizeof SAVE, SAVE.version | (uint32_t)SAVE.size << 16); }
-static uint16_t save_size_field(void) { return (uint16_t)(sizeof SAVE / 4); }
+static uint16_t legacy_size_field(void) { return (uint16_t)(LEGACY_SIZE / 4); }
+static uint32_t sum_of(void) { return sum_n(LEGACY_SIZE, L.version | (uint32_t)L.size << 16); }
+static int save_migrated; /* debug: the save loaded was an older version and was carried over (1: version 1, 2: version 2) */
+static bool legacy_upgrade(void) {
+  if (L.magic == SAVE_MAGIC && L.version == 1 && L.size == SAVE_V1_SIZE && L.checksum == sum_n(SAVE_V1_SIZE, 1u | (uint32_t)SAVE_V1_SIZE << 16)) {
+    /* a version 1 save: everything it held stays (best laps, settings, the last race's choices); the new fields start empty */
+    memset((uint8_t *)&L + SAVE_V1_SIZE, 0, sizeof L - SAVE_V1_SIZE);
+    L.version = SAVE_VERSION;
+    L.size = legacy_size_field();
+    L.d.ghost_on = 1;
+    L.checksum = sum_of();
+    save_migrated = 1;
+    cw_info("racer: save data carried over from version 1");
+  }
+  if (L.magic == SAVE_MAGIC && L.version == 2 && L.size == legacy_size_field() && L.checksum == sum_n(LEGACY_SIZE, 2u | (uint32_t)L.size << 16)) {
+    /* a version 2 save: the same layout; the text settings were pad bytes (zero), so they load as the defaults */
+    L.version = SAVE_VERSION;
+    L.d.text_scale = 0, L.d.text_bg = 0;
+    L.checksum = sum_of();
+    save_migrated = 2;
+  }
+  return L.magic == SAVE_MAGIC && L.version == SAVE_VERSION && L.size == legacy_size_field() && L.checksum == sum_of();
+}
+static bool save_imported;
+static void save_legacy(cw_save_store *st, const void *old, size_t n, void *u) {
+  (void)u;
+  if (getenv("CW_TEST_SAVE_NO_IMPORT")) return; /* the save gate's control: an old save is lost */
+  memset(&L, 0, sizeof L);
+  memcpy(&L, old, n < LEGACY_SIZE ? n : LEGACY_SIZE);
+  if (!legacy_upgrade()) {
+    cw_warn("racer: save data rejected (magic %08x version %u), starting fresh", L.magic, L.version);
+    return;
+  }
+  save_imported = cw_save_write(st, "progress", PROGRESS_VERSION, &L.d, LEGACY_BODY);
+}
+
 static uint32_t gfx_saved(void) { return SAVE.gfx[0] | (uint32_t)SAVE.gfx[1] << 8 | (uint32_t)SAVE.gfx[2] << 16 | (uint32_t)SAVE.gfx[3] << 24; }
 static void save_write(void) {
   uint32_t q = cw_quality_saved();
@@ -522,43 +575,21 @@ static void save_write(void) {
   SAVE.speed_class = (uint8_t)U.cls, SAVE.assist = (uint8_t)U.assist, SAVE.ghost_on = (uint8_t)U.ghost_on, SAVE.cup_pick = (uint8_t)U.cup_sel;
   for (int i = 0; i < MAXV; i++) SAVE.veh[i] = (uint8_t)U.veh[i], SAVE.col[i] = (uint8_t)U.col[i];
   SAVE.text_scale = cw_text_scale_saved(), SAVE.text_bg = (uint8_t)cw_text_backdrop_get();
-  SAVE.checksum = sum_of();
-  cw_save_commit();
+  cw_save_store *st = cw_save_app_store(NULL, NULL);
+  if (st && cw_save_write(st, "progress", PROGRESS_VERSION, &SAVE, sizeof SAVE)) cw_save_commit();
 }
 static void save_reset(void) {
   memset(&SAVE, 0, sizeof SAVE);
-  SAVE.magic = SAVE_MAGIC;
-  SAVE.version = SAVE_VERSION;
-  SAVE.size = save_size_field();
   SAVE.music = 8, SAVE.sfx = 10;
   SAVE.laps = 3, SAVE.skill = 3, SAVE.items = 1;
   SAVE.ghost_on = 1;
   for (int i = 0; i < MAXV; i++) SAVE.veh[i] = (uint8_t)((i * 2 + i / 3) % NVEH), SAVE.col[i] = (uint8_t)i;
-  SAVE.checksum = sum_of();
 }
-static int save_migrated; /* debug: the save loaded was an older version and was carried over (1: version 1, 2: version 2) */
 static void save_check(void) {
-  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 1 && SAVE.size == SAVE_V1_SIZE && SAVE.checksum == sum_n(SAVE_V1_SIZE, 1u | (uint32_t)SAVE_V1_SIZE << 16)) {
-    /* a version 1 save: everything it held stays (best laps, settings, the last race's choices); the new fields start empty */
-    memset((uint8_t *)&SAVE + SAVE_V1_SIZE, 0, sizeof SAVE - SAVE_V1_SIZE);
-    SAVE.version = SAVE_VERSION;
-    SAVE.size = save_size_field();
-    SAVE.ghost_on = 1;
-    SAVE.checksum = sum_of();
-    save_migrated = 1;
-    cw_info("racer: save data carried over from version 1");
-  }
-  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 2 && SAVE.size == save_size_field() && SAVE.checksum == sum_n(sizeof SAVE, 2u | (uint32_t)SAVE.size << 16)) {
-    /* a version 2 save: the same layout; the text settings were pad bytes (zero), so they load as the defaults */
-    SAVE.version = SAVE_VERSION;
-    SAVE.text_scale = 0, SAVE.text_bg = 0;
-    SAVE.checksum = sum_of();
-    save_migrated = 2;
-  }
-  if (SAVE.magic != SAVE_MAGIC || SAVE.version != SAVE_VERSION || SAVE.size != save_size_field() || SAVE.checksum != sum_of()) {
-    if (SAVE.magic) cw_warn("racer: save data rejected (magic %08x version %u), starting fresh", SAVE.magic, SAVE.version);
-    save_reset();
-  }
+  cw_save_store *st = cw_save_app_store(save_legacy, NULL);
+  cw_save_result r = st ? cw_save_read(st, "progress", PROGRESS_VERSION, &SAVE, sizeof SAVE, NULL, NULL) : CW_SAVE_NONE;
+  if (r == CW_SAVE_NONE || r == CW_SAVE_DISCARDED || r == CW_SAVE_NEWER) save_reset();
+  if (save_imported) cw_save_commit(); /* the old struct, now a store */
   if (SAVE.speed_class >= CLASS_COUNT) SAVE.speed_class = 0;
   if (SAVE.assist > 3) SAVE.assist = 0;
   if (SAVE.ghost_on > 1) SAVE.ghost_on = 1;
@@ -582,9 +613,9 @@ static void save_check(void) {
   }
 }
 cw_font ui_menu_font(void) { return U.f_hud; }
-void *ui_save_ptr(void) { return &SAVE; }
+void *ui_save_ptr(void) { return save_block; }
 void ui_save_settings(void) { save_write(); }
-size_t ui_save_size(void) { return sizeof SAVE; }
+size_t ui_save_size(void) { return sizeof save_block; }
 
 bool ui_dev_resolution(int *w, int *h) {
   const char *r = getenv("RACER_RES");
@@ -893,9 +924,8 @@ void ui_init(void) {
   cw_debug_i32("ui.humans", &U.setup.humans);
   cw_debug_i32("ui.map", &U.map); /* the map the map pick has selected (a save remembers the last one) */
   cw_debug_command("sw", "sw idle_wait <0|1>: 1 = the ride pick waits for every seat, an idle one too (control); sw dnf_any <0|1>: 1 = a race ends 40 s after the first kart home, a computer one too (control); sw sun_short <0|1>: 1 = below High the sun throws no shadow on the play (control); sw wheel_lag <0|1>: 1 = the karts' wheels drawn a tick behind their chassis (control); sw contact <0|1>: 0 = no dark under the karts where they meet the road (control); sw jump_hold <0|1>: 1 = a jump's flight holds the chase camera at the lip (control)", cmd_sw);
-  cw_debug_field("save.version", &SAVE.version, CW_DBG_U16, 1);
+  cw_debug_bytes("save.progress", &SAVE, sizeof SAVE);
   cw_debug_i32("save.migrated", &save_migrated);
-  cw_debug_field("save.size", &SAVE.size, CW_DBG_U16, 1);
   cw_debug_field("save.text", &SAVE.text_scale, CW_DBG_U8, 1);
   cw_debug_field("save.text_bg", &SAVE.text_bg, CW_DBG_U8, 1);
   cw_debug_field("save.races", &SAVE.races, CW_DBG_U32, 1);

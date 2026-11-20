@@ -30,6 +30,7 @@
 #include <string.h>
 
 #include "cartwheel/debug.h"
+#include "cartwheel/save.h"
 #include "cartwheel/math.h"
 #include "cartwheel/platform.h"
 #include "cartwheel/prompt.h"
@@ -77,11 +78,8 @@ typedef enum {
   SFX_MOVE, SFX_SELECT, SFX_LOCKED, SFX_READY, SFX_GO, SFX_ROUND_WIN, SFX_MATCH_WIN, SFX_ALARM, SFX_UNLOCK, SFX_COUNT
 } sfx_id;
 
-/* progress, kept in cw_app_desc.save: a small versioned, checksummed layout */
+/* progress: the "progress" slot of the save store (cartwheel/save.h); a field added at the END loads as 0 from an older save */
 typedef struct save_data {
-  uint32_t magic;          /* 'BDSV' */
-  uint16_t version, size;
-  uint32_t checksum;       /* FNV-1a over everything after this field */
   uint8_t cleared[ARENAS]; /* Adventure stages beaten */
   uint8_t shown[ARENAS];   /* its unlock has played on the select screen */
   int32_t best_secs[ARENAS];
@@ -91,7 +89,6 @@ typedef struct save_data {
   uint8_t text_scale;
   uint8_t teams, catchup, random_arena; /* the match rules (once spare bytes: an older save reads 0, free for all, catch-up off, a picked arena) */
 } save_data;
-#define SAVE_V3_SIZE offsetof(save_data, text_scale) /* a version 3 save ends before the text settings */
 static save_data SAVE;
 
 static struct {
@@ -325,53 +322,86 @@ static int m_dy(void) { return (any_pressed(G.a_down, G.k2_down) ? 1 : 0) - (any
 
 /* ── save data ──────────────────────────────────────────────────────── */
 
-#define SAVE_MAGIC 0x56534442u /* 'BDSV' */
-#define SAVE_VERSION 4
+/* The save is the engine's save store (cartwheel/save.h) over the app's save data, with one slot, "progress", that
+ * holds save_data. A field added at the end of save_data needs nothing: an older slot loads with it at 0. Change
+ * PROGRESS_VERSION (and give cw_save_read a migrate hook) only for a change a prefix copy cannot follow. */
+#define PROGRESS_VERSION 1
+static uint8_t save_block[sizeof(save_data) + 4096]; /* room for the slot to grow and for more slots */
 
+/* Before the store the save data was one struct, legacy_save (versions 3 and 4). A block holding one is read once,
+ * carried to version 4 and written into the "progress" slot (save_legacy). */
+#define LEGACY_MAGIC 0x56534442u /* 'BDSV' */
+#define LEGACY_VERSION 4
+typedef struct legacy_save {
+  uint32_t magic;
+  uint16_t version, size;
+  uint32_t checksum; /* FNV-1a over everything after this field */
+  uint8_t cleared[ARENAS], shown[ARENAS];
+  int32_t best_secs[ARENAS];
+  uint8_t crit[MAXP], slot[MAXP];
+  uint8_t wins_needed, pad[3];
+  uint8_t text_scale; /* version 4 */
+  uint8_t teams, catchup, random_arena;
+} legacy_save;
+#define LEGACY_HEAD offsetof(legacy_save, cleared) /* what follows the header is save_data's start, byte for byte */
+#define SAVE_V3_SIZE offsetof(legacy_save, text_scale) /* a version 3 save ends before the text settings */
+_Static_assert(sizeof(save_data) >= sizeof(legacy_save) - LEGACY_HEAD, "save_data only grows");
+static legacy_save L;
 /* FNV-1a over the first n bytes after the checksum, xor the version and size */
-static uint32_t save_sum_n(size_t n) {
-  const uint8_t *b = (const uint8_t *)&SAVE + offsetof(save_data, cleared);
+static uint32_t legacy_sum(size_t n) {
+  const uint8_t *b = (const uint8_t *)&L + LEGACY_HEAD;
   uint32_t h = 2166136261u;
-  for (size_t i = 0; i < n - offsetof(save_data, cleared); i++) h = (h ^ b[i]) * 16777619u;
-  return h ^ (SAVE.version | (uint32_t)SAVE.size << 16);
+  for (size_t i = 0; i < n - LEGACY_HEAD; i++) h = (h ^ b[i]) * 16777619u;
+  return h ^ (L.version | (uint32_t)L.size << 16);
 }
-static uint32_t save_sum(void) { return save_sum_n(sizeof SAVE); }
+static int32_t dbg_migrated;
+static bool legacy_upgrade(void) {
+  /* a version 3 save (no text settings) carries over with the defaults */
+  if (L.magic == LEGACY_MAGIC && L.version == 3 && L.size == SAVE_V3_SIZE && L.checksum == legacy_sum(SAVE_V3_SIZE)) {
+    memset((uint8_t *)&L + SAVE_V3_SIZE, 0, sizeof L - SAVE_V3_SIZE);
+    L.version = LEGACY_VERSION;
+    L.size = (uint16_t)sizeof L;
+    L.checksum = legacy_sum(sizeof L);
+    dbg_migrated = 1;
+  }
+  return L.magic == LEGACY_MAGIC && L.version == LEGACY_VERSION && L.size == sizeof L && L.checksum == legacy_sum(sizeof L);
+}
+static bool save_imported;
+static void save_legacy(cw_save_store *st, const void *old, size_t n, void *u) {
+  (void)u;
+  if (getenv("CW_TEST_SAVE_NO_IMPORT")) return; /* the save gate's control: an old save is lost */
+  memset(&L, 0, sizeof L);
+  memcpy(&L, old, n < sizeof L ? n : sizeof L);
+  if (!legacy_upgrade()) {
+    cw_warn("bomberdude: save data rejected (magic %08x version %u), starting fresh", L.magic, L.version);
+    return;
+  }
+  save_imported = cw_save_write(st, "progress", PROGRESS_VERSION, (const uint8_t *)&L + LEGACY_HEAD, sizeof L - LEGACY_HEAD);
+}
+
 static uint32_t gfx_saved(void) { return SAVE.pad[0] | (uint32_t)SAVE.pad[1] << 8 | (uint32_t)SAVE.pad[2] << 16; }
 static void save_write(void) {
   uint32_t q = cw_quality_saved();
   if (q)
     for (int i = 0; i < 3; i++) SAVE.pad[i] = (uint8_t)(q >> (8 * i));
   SAVE.text_scale = cw_text_scale_saved();
-  SAVE.checksum = save_sum();
-  cw_save_commit();
+  cw_save_store *st = cw_save_app_store(NULL, NULL);
+  if (st && cw_save_write(st, "progress", PROGRESS_VERSION, &SAVE, sizeof SAVE)) cw_save_commit();
 }
 static void save_reset(void) {
   memset(&SAVE, 0, sizeof SAVE);
-  SAVE.magic = SAVE_MAGIC;
-  SAVE.version = SAVE_VERSION;
-  SAVE.size = (uint16_t)sizeof SAVE;
   SAVE.shown[0] = 1;
   SAVE.wins_needed = 3;
   for (int i = 0; i < MAXP; i++) {
     SAVE.crit[i] = (uint8_t)i;
     SAVE.slot[i] = i == 0 ? SLOT_HUMAN : SLOT_CPU_NORMAL;
   }
-  SAVE.checksum = save_sum();
 }
-static int32_t dbg_migrated;
 static void save_check(void) {
-  /* a version 3 save (no text settings) carries over with the defaults */
-  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 3 && SAVE.size == SAVE_V3_SIZE && SAVE.checksum == save_sum_n(SAVE_V3_SIZE)) {
-    memset((uint8_t *)&SAVE + SAVE_V3_SIZE, 0, sizeof SAVE - SAVE_V3_SIZE);
-    SAVE.version = SAVE_VERSION;
-    SAVE.size = (uint16_t)sizeof SAVE;
-    SAVE.checksum = save_sum();
-    dbg_migrated = 1;
-  }
-  if (SAVE.magic != SAVE_MAGIC || SAVE.version != SAVE_VERSION || SAVE.size != sizeof SAVE || SAVE.checksum != save_sum()) {
-    if (SAVE.magic) cw_warn("bomberdude: save data rejected (magic %08x version %u), starting fresh", SAVE.magic, SAVE.version);
-    save_reset();
-  }
+  cw_save_store *st = cw_save_app_store(save_legacy, NULL);
+  cw_save_result r = st ? cw_save_read(st, "progress", PROGRESS_VERSION, &SAVE, sizeof SAVE, NULL, NULL) : CW_SAVE_NONE;
+  if (r == CW_SAVE_NONE || r == CW_SAVE_DISCARDED || r == CW_SAVE_NEWER) save_reset();
+  if (save_imported) cw_save_commit(); /* the old struct, now a store */
   for (int i = 0; i < MAXP; i++) {
     if (SAVE.crit[i] >= CRIT_KINDS) SAVE.crit[i] = (uint8_t)i;
     if (SAVE.slot[i] >= SLOT_KINDS) SAVE.slot[i] = SLOT_CPU_NORMAL;
@@ -406,7 +436,7 @@ static void cmd_progress(int argc, const char **argv, cw_reply *r) {
     save_preset(n);
   }
   save_fields();
-  cw_reply_printf(r, "{\"unlocked\":%d,\"cleared\":%d,\"checksum\":%u}", dbg_unlocked, dbg_cleared, SAVE.checksum);
+  cw_reply_printf(r, "{\"unlocked\":%d,\"cleared\":%d,\"checksum\":%u}", dbg_unlocked, dbg_cleared, cw_hash32(&SAVE, sizeof SAVE, CW_HASH32_INIT));
 }
 
 /* ── scenes and rounds ──────────────────────────────────────────────── */
@@ -723,6 +753,7 @@ static void init(void *u) {
   cw_debug_i32("save.cleared", &dbg_cleared);
   cw_debug_bytes("save.bytes", &SAVE, sizeof SAVE);
   cw_debug_i32("save.migrated", &dbg_migrated);
+  cw_debug_bytes("save.progress", &SAVE, sizeof SAVE);
   cw_debug_command("arena", "arena <1..8>: start a Battle round there now", cmd_arena);
   cw_debug_command("bind", "bind <action> <bindings>: replace an action's bindings (binding text, as input.cfg writes it)", cmd_bind);
   cw_debug_command("touch_controls", "touch_controls <0|1>: this game's own on-screen touch controls", cmd_touch_controls);
@@ -2508,7 +2539,7 @@ cw_app_desc cw_main(int argc, char **argv) {
   cw_set_raw_input_filter(autopilot, NULL);
 #endif
   static cw_app_desc base = { .title = "BomberDude", .width = 960, .height = 540, .debug = true, .init = init, .warmup = warmup, .fixed_update = fixed,
-                              .update = update, .render = render, .shutdown = shutdown, .save = &SAVE, .save_size = sizeof SAVE,
+                              .update = update, .render = render, .shutdown = shutdown, .save = save_block, .save_size = sizeof save_block,
                               .touch_pointer = true };
   const char *res = getenv("BOMBERDUDE_RES");
   if (res && strchr(res, 'x')) {

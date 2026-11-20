@@ -33,6 +33,7 @@
 
 #include "cartwheel/audio.h"
 #include "cartwheel/debug.h"
+#include "cartwheel/save.h"
 #include "cartwheel/gl.h"
 #include "cartwheel/gpu.h"
 #include "cartwheel/pipeline.h"
@@ -100,11 +101,8 @@ typedef enum {
   SFX_UNLOCK, SFX_BOING, SFX_COUNT
 } sfx_id;
 
-/* progress, kept in cw_app_desc.save: a small versioned, checksummed layout */
+/* progress: the "progress" slot of the save store (cartwheel/save.h); a field added at the END loads as 0 from an older save */
 typedef struct save_data {
-  uint32_t magic;          /* 'PUGB' */
-  uint16_t version, size;
-  uint32_t checksum;       /* FNV-1a over everything after this field */
   uint8_t won[STADIUMS];   /* Cup fixtures won */
   uint8_t shown[STADIUMS]; /* its unlock has played on the select screen */
   uint8_t slot[MAXP], coat[MAXP], hat[MAXP], trail[MAXP];
@@ -114,8 +112,7 @@ typedef struct save_data {
   /* version 2: the text size and background (cw_text_scale_saved: one byte holds both) */
   uint8_t text_scale, spare2[3];
 } save_data;
-_Static_assert(offsetof(save_data, best_margin) == 52, "the save keeps its layout");
-#define SAVE_V1_SIZE offsetof(save_data, text_scale) /* a version 1 save ends before the text settings */
+_Static_assert(offsetof(save_data, best_margin) == 40, "the save keeps its layout (the old struct's 52 less its 12 byte header)");
 static save_data SAVE;
 
 static const int MATCH_SECS[3] = { 120, 180, 300 };
@@ -465,17 +462,63 @@ static int m_dy(void) { return (any_pressed(G.m_down) ? 1 : 0) - (any_pressed(G.
 
 /* ── save data ──────────────────────────────────────────────────────── */
 
-#define SAVE_MAGIC 0x42475550u /* 'PUGB' */
-#define SAVE_VERSION 2
+/* The save is the engine's save store (cartwheel/save.h) over the app's save data, with one slot, "progress", that
+ * holds save_data. A field added at the end of save_data needs nothing: an older slot loads with it at 0. Change
+ * PROGRESS_VERSION (and give cw_save_read a migrate hook) only for a change a prefix copy cannot follow. */
+#define PROGRESS_VERSION 1
+static uint8_t save_block[sizeof(save_data) + 4096]; /* room for the slot to grow and for more slots */
 
+/* Before the store the save data was one struct, legacy_save (versions 1 and 2). A block holding one is read once,
+ * carried to version 2 and written into the "progress" slot (save_legacy). */
+#define LEGACY_MAGIC 0x42475550u /* 'PUGB' */
+#define LEGACY_VERSION 2
+typedef struct legacy_save {
+  uint32_t magic;
+  uint16_t version, size;
+  uint32_t checksum; /* FNV-1a over everything after this field */
+  uint8_t won[STADIUMS], shown[STADIUMS];
+  uint8_t slot[MAXP], coat[MAXP], hat[MAXP], trail[MAXP];
+  uint8_t secs_i, cup_next, pad[2];
+  uint8_t sound, spare;
+  int32_t best_margin[STADIUMS];
+  uint8_t text_scale, spare2[3]; /* version 2 */
+} legacy_save;
+#define LEGACY_HEAD offsetof(legacy_save, won) /* what follows the header is save_data's start, byte for byte */
+#define SAVE_V1_SIZE offsetof(legacy_save, text_scale) /* a version 1 save ends before the text settings */
+_Static_assert(sizeof(save_data) >= sizeof(legacy_save) - LEGACY_HEAD, "save_data only grows");
+static legacy_save L;
 /* FNV-1a over the first n bytes after the checksum, xor the version and size */
-static uint32_t save_sum_n(size_t n) {
-  const uint8_t *b = (const uint8_t *)&SAVE + offsetof(save_data, won);
+static uint32_t legacy_sum(size_t n) {
+  const uint8_t *b = (const uint8_t *)&L + LEGACY_HEAD;
   uint32_t h = 2166136261u;
-  for (size_t i = 0; i < n - offsetof(save_data, won); i++) h = (h ^ b[i]) * 16777619u;
-  return h ^ (SAVE.version | (uint32_t)SAVE.size << 16);
+  for (size_t i = 0; i < n - LEGACY_HEAD; i++) h = (h ^ b[i]) * 16777619u;
+  return h ^ (L.version | (uint32_t)L.size << 16);
 }
-static uint32_t save_sum(void) { return save_sum_n(sizeof SAVE); }
+static int32_t dbg_migrated;
+static bool legacy_upgrade(void) {
+  /* a version 1 save (no text settings) carries over with the defaults */
+  if (L.magic == LEGACY_MAGIC && L.version == 1 && L.size == SAVE_V1_SIZE && L.checksum == legacy_sum(SAVE_V1_SIZE)) {
+    memset((uint8_t *)&L + SAVE_V1_SIZE, 0, sizeof L - SAVE_V1_SIZE);
+    L.version = LEGACY_VERSION;
+    L.size = (uint16_t)sizeof L;
+    L.checksum = legacy_sum(sizeof L);
+    dbg_migrated = 1;
+  }
+  return L.magic == LEGACY_MAGIC && L.version == LEGACY_VERSION && L.size == sizeof L && L.checksum == legacy_sum(sizeof L);
+}
+static bool save_imported;
+static void save_legacy(cw_save_store *st, const void *old, size_t n, void *u) {
+  (void)u;
+  if (getenv("CW_TEST_SAVE_NO_IMPORT")) return; /* the save gate's control: an old save is lost */
+  memset(&L, 0, sizeof L);
+  memcpy(&L, old, n < sizeof L ? n : sizeof L);
+  if (!legacy_upgrade()) {
+    cw_warn("pugball: save data rejected (magic %08x version %u), starting fresh", L.magic, L.version);
+    return;
+  }
+  save_imported = cw_save_write(st, "progress", PROGRESS_VERSION, (const uint8_t *)&L + LEGACY_HEAD, sizeof L - LEGACY_HEAD);
+}
+
 static uint32_t gfx_saved(void) { return SAVE.pad[0] | (uint32_t)SAVE.pad[1] << 8; }
 static void save_write(void) {
   uint32_t q = cw_quality_saved();
@@ -484,14 +527,11 @@ static void save_write(void) {
     SAVE.pad[1] = (uint8_t)(q >> 8);
   }
   SAVE.text_scale = cw_text_scale_saved();
-  SAVE.checksum = save_sum();
-  cw_save_commit();
+  cw_save_store *st = cw_save_app_store(NULL, NULL);
+  if (st && cw_save_write(st, "progress", PROGRESS_VERSION, &SAVE, sizeof SAVE)) cw_save_commit();
 }
 static void save_reset(void) {
   memset(&SAVE, 0, sizeof SAVE);
-  SAVE.magic = SAVE_MAGIC;
-  SAVE.version = SAVE_VERSION;
-  SAVE.size = (uint16_t)sizeof SAVE;
   SAVE.shown[0] = 1;
   SAVE.secs_i = 2;
   static const uint8_t SL[MAXP] = { SLOT_HUMAN, SLOT_PRO, SLOT_PRO, SLOT_PRO, SLOT_OFF, SLOT_OFF };
@@ -501,22 +541,12 @@ static void save_reset(void) {
     SAVE.hat[i] = (uint8_t)(i == 0 ? HAT_CAP : (i % 3 == 1 ? HAT_BEANIE : HAT_NONE));
     SAVE.trail[i] = TRAIL_FIRE;
   }
-  SAVE.checksum = save_sum();
 }
-static int32_t dbg_migrated;
 static void save_check(void) {
-  /* a version 1 save (no text settings) carries over with the defaults */
-  if (SAVE.magic == SAVE_MAGIC && SAVE.version == 1 && SAVE.size == SAVE_V1_SIZE && SAVE.checksum == save_sum_n(SAVE_V1_SIZE)) {
-    memset((uint8_t *)&SAVE + SAVE_V1_SIZE, 0, sizeof SAVE - SAVE_V1_SIZE);
-    SAVE.version = SAVE_VERSION;
-    SAVE.size = (uint16_t)sizeof SAVE;
-    SAVE.checksum = save_sum();
-    dbg_migrated = 1;
-  }
-  if (SAVE.magic != SAVE_MAGIC || SAVE.version != SAVE_VERSION || SAVE.size != sizeof SAVE || SAVE.checksum != save_sum()) {
-    if (SAVE.magic) cw_warn("pugball: save data rejected (magic %08x version %u), starting fresh", SAVE.magic, SAVE.version);
-    save_reset();
-  }
+  cw_save_store *st = cw_save_app_store(save_legacy, NULL);
+  cw_save_result r = st ? cw_save_read(st, "progress", PROGRESS_VERSION, &SAVE, sizeof SAVE, NULL, NULL) : CW_SAVE_NONE;
+  if (r == CW_SAVE_NONE || r == CW_SAVE_DISCARDED || r == CW_SAVE_NEWER) save_reset();
+  if (save_imported) cw_save_commit(); /* the old struct, now a store */
   for (int i = 0; i < MAXP; i++) {
     if (SAVE.slot[i] >= SLOT_KINDS) SAVE.slot[i] = SLOT_PRO;
     if (SAVE.coat[i] >= PUG_KINDS) SAVE.coat[i] = 0;
@@ -567,7 +597,7 @@ static void cmd_progress(int argc, const char **argv, cw_reply *r) {
     save_preset(n);
   }
   save_fields();
-  cw_reply_printf(r, "{\"unlocked\":%d,\"won\":%d,\"checksum\":%u}", dbg_unlocked, dbg_won, SAVE.checksum);
+  cw_reply_printf(r, "{\"unlocked\":%d,\"won\":%d,\"checksum\":%u}", dbg_unlocked, dbg_won, cw_hash32(&SAVE, sizeof SAVE, CW_HASH32_INIT));
 }
 
 /* ── scenes and matches ─────────────────────────────────────────────── */
@@ -1117,6 +1147,7 @@ static void init(void *u) {
   cw_debug_i32("save.won", &dbg_won);
   cw_debug_bytes("save.bytes", &SAVE, sizeof SAVE);
   cw_debug_i32("save.migrated", &dbg_migrated);
+  cw_debug_bytes("save.progress", &SAVE, sizeof SAVE);
   cw_debug_command("stadium", "stadium <1..5>: an exhibition there now", cmd_stadium);
   cw_debug_i32("hud.how_views", &how_views); /* split screen: the views showing the controls this frame */
   cw_debug_command("sw", "sw split_how|kick_dodge|exhibition_locked|cam_posts|fov_kick|hitstop <0|1>: the old behaviour back (the gates controls)", cmd_sw);
@@ -3595,7 +3626,7 @@ cw_app_desc cw_main(int argc, char **argv) {
   cw_set_raw_input_filter(autopilot, NULL);
 #endif
   static cw_app_desc base = { .title = "Pugball", .width = 960, .height = 540, .debug = true, .init = init, .warmup = warmup, .fixed_update = fixed,
-                              .update = update, .render = render, .shutdown = shutdown, .save = &SAVE, .save_size = sizeof SAVE,
+                              .update = update, .render = render, .shutdown = shutdown, .save = save_block, .save_size = sizeof save_block,
                               .touch_pointer = true, /* taps work the menus (the engine's primary-finger pointer) */
                               .max_substeps = 3 /* a slow frame slows the game rather than spiralling */ };
   const char *res = getenv("PUG_RES");

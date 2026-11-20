@@ -4793,11 +4793,6 @@
     "note": "racer through romdev, GL and WebGPU: the chase camera follows the kart over every jump of every map (each jump from 60 m before its take-off with the gas held, and one lap with the gas held): from the take-off to 45 frames after the landing the kart stays framed (its middle within 0.5 of the screen's middle across, -0.8 to 0.3 up and down, 3 to 12 m from the eye), the camera is never held as for a fall, and the eye's change of velocity in a frame stays under 250 mm/f2 (no cut, no shake). A fall off the side of the orbit's road still holds the camera where it began. Control: sw jump_hold 1 (the flight held at the lip like a fall, then cut back on the landing) must fail on every map."
   },
   {
-    "name": "racer-save-migration",
-    "script": "tests/racer-save-migration.mjs",
-    "note": "racer's save data: a version 1 save (76 bytes) loads under version 2 with its settings, best laps and counters kept and the new fields (trial times, ghosts, cup trophies, assists) empty; a damaged one and an empty one start fresh. Runs the game's own save loader."
-  },
-  {
     "name": "bikemesa-djbike",
     "app": "bikemesa",
     "frames": 600,
@@ -4963,14 +4958,9 @@
     "note": "nothing floats in derby at night, Low on WebGPU: its autopilot's bout every 50 frames from 300 to 900 keeps 90% of the shadows High draws at the casters' bases over the sweep and 80% in each frame of 5 bases or more (the engine's tests/quality-grounding.mjs: a wall or a row of stands judged at the foot nearest the camera, what stands around the camera not judged). Controls: each frame and the whole sweep with no shadows must fail"
   },
   {
-    "name": "bomberdude-save-migration",
-    "script": "tests/bomberdude-save-migration.mjs",
-    "note": "bomberdude: an older save still loads with its contents and the text settings at their defaults; a saved text size of 200% with the panel background comes back; a damaged save starts fresh; an empty save too"
-  },
-  {
-    "name": "pugball-save-migration",
-    "script": "tests/pugball-save-migration.mjs",
-    "note": "pugball: an older save still loads with its contents and the text settings at their defaults; a saved text size of 200% with the panel background comes back; a damaged save starts fresh; an empty save too"
+    "name": "save-store",
+    "script": "tests/save-store.mjs",
+    "note": "every game keeps its save in the engine save store, one \"progress\" slot: for each of the seven, natively, the last old one-struct save and an older version load exactly as a store slot of the same bytes (the older one as its prefix), differ from the defaults, and leave the file a store whose slot holds the old fields. Control: the same runs with CW_TEST_SAVE_NO_IMPORT=1 (the old struct not imported) must fail all three checks in every game."
   },
   {
     "name": "pugball-newcomer",
