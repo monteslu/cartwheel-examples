@@ -29,3 +29,4 @@ standard+senv+l1001+xplain
 physical+map+rep+instbig+nmap+ao+rmap+senv+l1001
 physical+map+rep+instbig+nmap+ao+rmap+senv+l1001+xplain
 basic+trans+ds
+depth+instbig+xplain
