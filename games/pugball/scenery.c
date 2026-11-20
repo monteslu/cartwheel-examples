@@ -24,6 +24,7 @@
 #include "cartwheel/math.h"
 #include "cartwheel/particles.h"
 #include "cartwheel/quality.h"
+#include "cartwheel/resource.h"
 #include "world.h"
 
 #define MAX_FANS 5200
@@ -1174,6 +1175,19 @@ static flood_at flood_place(int k) {
   float r = AC + d, q = 0.70710678f;
   return (flood_at){ CX[c] * (hx + r * q), CZ[c] * (hz + r * q), (uint8_t)(c < 2 ? 1 : 2) };
 }
+/* the floods' beam: an IES profile (assets/lights/flood.ies, tools/make-ies.mjs) that throws further out over the
+ * pitch than back at the wall, with a firm edge, instead of a plain cone; scenery_flood_profile(false) takes it off */
+static bool flood_ies = true;
+static cw_value flood_profile(void) {
+  cw_value v = { CW_T_RES };
+  if (flood_ies) v.res = cw_res_path_uid("lights/flood.ies");
+  return v;
+}
+void scenery_flood_profile(bool on) {
+  flood_ies = on;
+  for (int k = 0; k < FLOODS; k++)
+    if (cw_node_valid(SC.flood_light[k])) cw_node_set(SC.flood_light[k], "ies_profile", flood_profile());
+}
 void scenery_floodlights(float strength) {
   if (!SC.ready || strength <= 0) return;
   cw_node holder = cw_node_new("Node3D", "Floodlights");
@@ -1193,6 +1207,7 @@ void scenery_floodlights(float strength) {
     cw_node_set(n, "angle", cw_val_float(0.66f));
     cw_node_set(n, "fog_energy", cw_val_float(0.9f)); /* its beam in a night stadium's volumetric haze */
     cw_node_set(n, "penumbra", cw_val_float(0.5f));
+    cw_node_set(n, "ies_profile", flood_profile()); /* shapes the beam; angle still sizes its shadow map */
     cw_node_set(n, "shadow_size", cw_val_int(1024));
     cw_node_set(n, "shadow_bias", cw_val_float(-0.0004f));
     cw_node_set(n, "shadow_normal_bias", cw_val_float(0.04f));

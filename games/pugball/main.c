@@ -41,6 +41,7 @@
 #include "cartwheel/quality_menu.h"
 #include "cartwheel/input.h"
 #include "cartwheel/lighting.h"
+static int32_t dbg_ies; /* lights.ies (ies_count) */
 #include "cartwheel/math.h"
 #include "cartwheel/platform.h"
 #include "cartwheel/prompt.h"
@@ -888,6 +889,30 @@ static int32_t cam_posts = 1, cam_post_pulls; /* the camera's goal-post test (ch
 static int32_t pug_seen;                     /* P1's pug in its picture, nothing of a goal frame in front of it (cam.pug_seen) */
 static float cam_near_k = 1;                 /* 1: the camera at its full distance; 0: pulled all the way in (cam.near_k) */
 static int32_t fov_kick = 1;                   /* sw fov_kick 0: a fixed field of view, as before */
+/* motion blur at speed (PostProcess motion_blur: High and up by the engine, off with the player's reduced motion): the
+ * shutter opens with P1's pug from 14 m/s to supersonic, so a fast run smears the stands past the edges of the
+ * picture and play at an ordinary pace stays sharp. One view only: the post chain is the scene's, and split screen's
+ * views are small. sw blur 0: never (the control) */
+static bool blur_sw = true;
+static int32_t blur_milli;   /* cam.blur: the shutter this frame, x1000 (0: the pass off) */
+static uint64_t blur_frame;  /* the play camera set it this frame (blur_end turns it off when nothing did) */
+static cw_node blur_scene, blur_post; /* the scene whose PostProcess it is */
+static void blur_set(float shutter) {
+  if (blur_scene.id != G.scene.id) { /* a new scene: its PostProcess starts with no blur */
+    blur_scene = G.scene;
+    blur_post = cw_node_valid(G.scene) ? find_type(G.scene, "PostProcess") : (cw_node){ 0 };
+    blur_milli = 0;
+  }
+  int32_t milli = (int32_t)(shutter * 1000 + 0.5f);
+  if (milli == blur_milli || !cw_node_valid(blur_post)) return;
+  cw_node post = blur_post;
+  cw_node_set(post, "motion_blur", cw_val_bool(milli > 0));
+  if (milli > 0) cw_node_set(post, "motion_blur_shutter", cw_val_float(shutter));
+  blur_milli = milli;
+}
+static void blur_end(uint64_t frame) {
+  if (blur_frame != frame && blur_milli) blur_set(0);
+}
 static float fov_now;                          /* P1's view's field of view this frame (cam.fov) */
 static void cam_posts_sw(int v);
 static int32_t kick_dodge_sw(int v) {
@@ -915,7 +940,7 @@ static void cmd_sw(int argc, const char **argv, cw_reply *r) {
    * exhibition_locked 1: the Exhibition's stadiums padlocked until the Cup opens them. Each is the old behaviour (a
    * gate's control) */
   if (argc < 3) {
-    cw_reply_error(r, "usage: sw split_how|kick_dodge|exhibition_locked|cam_posts|fov_kick|hitstop <0|1>");
+    cw_reply_error(r, "usage: sw split_how|kick_dodge|exhibition_locked|cam_posts|fov_kick|hitstop|ies|blur <0|1>");
     return;
   }
   int v = atoi(argv[2]) != 0;
@@ -925,8 +950,10 @@ static void cmd_sw(int argc, const char **argv, cw_reply *r) {
   else if (!strcmp(argv[1], "cam_posts")) cam_posts_sw(v);
   else if (!strcmp(argv[1], "fov_kick")) fov_kick = v;
   else if (!strcmp(argv[1], "hitstop")) hitstop_on = v;
+  else if (!strcmp(argv[1], "blur")) blur_sw = v;
+  else if (!strcmp(argv[1], "ies")) scenery_flood_profile(v); /* 0: the night floods as plain cones (the IES profile's control) */
   else {
-    cw_reply_error(r, "usage: sw split_how|kick_dodge|exhibition_locked|cam_posts|fov_kick|hitstop <0|1>");
+    cw_reply_error(r, "usage: sw split_how|kick_dodge|exhibition_locked|cam_posts|fov_kick|hitstop|ies|blur <0|1>");
     return;
   }
   cw_reply_printf(r, "{\"split_how\":%d,\"kick_dodge\":%d,\"exhibition_locked\":%d,\"cam_posts\":%d}", (int)split_how, (int)kick_dodge_sw(-1),
@@ -1150,12 +1177,14 @@ static void init(void *u) {
   cw_debug_bytes("save.progress", &SAVE, sizeof SAVE);
   cw_debug_command("stadium", "stadium <1..5>: an exhibition there now", cmd_stadium);
   cw_debug_i32("hud.how_views", &how_views); /* split screen: the views showing the controls this frame */
-  cw_debug_command("sw", "sw split_how|kick_dodge|exhibition_locked|cam_posts|fov_kick|hitstop <0|1>: the old behaviour back (the gates controls)", cmd_sw);
+  cw_debug_command("sw", "sw split_how|kick_dodge|exhibition_locked|cam_posts|fov_kick|hitstop|ies|blur <0|1>: the old behaviour back (the gates controls)", cmd_sw);
   cw_debug_field("hud.kick_rect", kick_rect_dbg, CW_DBG_I32, 4);
   cw_debug_i32("hud.kick_dodged", &kick_dodged);
   cw_debug_field("hud.kick_cat", kick_cat, CW_DBG_I32, 3);
   cw_debug_i32("cam.post_pulls", &cam_post_pulls);
   cw_debug_f32("cam.fov", &fov_now);
+  cw_debug_i32("lights.ies", &dbg_ies);
+  cw_debug_i32("cam.blur", &blur_milli);
   cw_debug_f32("cam.near_k", &cam_near_k);
   cw_debug_i32("cam.pug_seen", &pug_seen);
   cw_debug_command("place", "place <x> <z> <yaw>: P1's pug set down there, at rest (a gate's stage)", cmd_place);
@@ -1619,6 +1648,10 @@ static void chase_view(int h, int me, cw_node cam, double alpha, double now, flo
     G.cf_fov[h] += (want_fov - G.cf_fov[h]) * smooth_k(want_fov > G.cf_fov[h] ? 2.5f : 4.0f, dt);
     cw_node_set(cam, "fov", cw_val_float(G.cf_fov[h]));
     if (h == 0) fov_now = G.cf_fov[0];
+  }
+  if (h == 0) {
+    blur_set(blur_sw && G.nviews < 2 ? 0.5f * cw_smoothstep(14.0f, 19.5f, hv) : 0);
+    blur_frame = cw_frame_index();
   }
   if (cam.id == G.camera.id) jolt_track(eye, 1, false);
   if (cam.id == G.camera.id) {
@@ -3556,8 +3589,17 @@ static void draw_pause(float W, float H, float s) {
   }
 }
 
+/* lights.ies: the clustered lights the engine draws with an IES profile this frame (the floods at night; the gate) */
+static void ies_count(void) {
+  cw_lighting_stats ls = { 0 };
+  cw_tree *t = cw_current_tree();
+  if (t) cw_lighting_get_stats(t, &ls);
+  dbg_ies = ls.ies;
+}
 static void render(void *u, double alpha) {
+  ies_count();
   g_rendering = true;
+  blur_end(cw_frame_index());
   (void)u;
   (void)alpha;
   cw_r2d_begin(&(cw_r2d_pass_desc){ .clear = false });

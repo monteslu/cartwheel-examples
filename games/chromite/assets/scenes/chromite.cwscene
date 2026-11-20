@@ -57,6 +57,12 @@ grain = true
 grain_intensity = 0.035
 chromatic_aberration = true
 ca_intensity = 0.001
+glints = true
+glint_threshold = 3
+glint_points = 6
+glint_length = 0.07
+glint_intensity = 0.15
+glint_rotation = 0
 
 [node name="Camera" parent="." type="Camera3D"]
 position = vec3(0, 25.5, 6.8)

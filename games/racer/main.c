@@ -1196,9 +1196,38 @@ static void cmd_jcam(int argc, const char **argv, cw_reply *r) {
   if (r) cw_reply_printf(r, "{\"n\":%d,\"done\":%d,\"active\":%d,\"gaps\":%d}", JC.n, JC.ndone, JC.active ? 1 : 0, JC.gaps);
 }
 
+/* motion blur under a boost (PostProcess motion_blur: High and up by the engine, off with the player's reduced motion):
+ * the shutter opens over a few frames as view 0's kart boosts and closes after it, so a boost smears the roadside and
+ * the rest of the race stays sharp. Solo races only: the post chain is shared by split screen's views. */
+int racer_blur = 1;
+static float blur_k;           /* the shutter, eased */
+static int32_t blur_milli;     /* cam.blur: the shutter set this frame, x1000 (0: the pass off) */
+static cw_node blur_scene, blur_post;
+static void blur_frame(void) {
+  float want = 0;
+  int kid = G.have_track && G.nviews == 1 ? G.view_kart[0] : -1;
+  if (racer_blur && kid >= 0 && kid < MAXK && ui_race_runs()) {
+    const kart *k = &G.S.k[kid];
+    if (k->boost_ticks > 0) want = 0.3f + 0.2f * CW_CLAMP(k->boost_k - 1, 0, 1);
+  }
+  blur_k += (want - blur_k) * (want > blur_k ? 0.15f : 0.06f);
+  if (want == 0 && blur_k < 0.02f) blur_k = 0;
+  if (blur_scene.id != G.scene.id) {
+    blur_scene = G.scene;
+    blur_post = cw_node_valid(G.scene) ? find_type(G.scene, "PostProcess") : (cw_node){ 0 };
+    blur_milli = 0;
+  }
+  int32_t milli = (int32_t)(blur_k * 1000 + 0.5f);
+  if (milli == blur_milli || !cw_node_valid(blur_post)) return;
+  cw_node_set(blur_post, "motion_blur", cw_val_bool(milli > 0));
+  if (milli > 0) cw_node_set(blur_post, "motion_blur_shutter", cw_val_float(blur_k));
+  blur_milli = milli;
+}
+
 static void render(void *u, double alpha) {
   (void)u;
   audio_frame();
+  blur_frame();
   /* dev aid: RACER_JITLOG=1 logs, each frame, the distance from view 0's camera to its kart as last drawn (both blended
    * between ticks): steady at a render rate off the tick rate (CW_FRAME_HZ=144) when the two are drawn alike */
   if (getenv("RACER_JITLOG") && G.have_track && cw_node_valid(G.rig[0].cam)) {
@@ -1266,6 +1295,7 @@ static void init(void *u) {
   G.a_look = cw_action_find("look");
   G.a_reset = cw_action_find("reset");
   cw_debug_i32("ticks", &G.ticks);
+  cw_debug_i32("cam.blur", &blur_milli);
   cw_debug_i32("race.phase", &G.phase);
   cw_debug_i32("race.ticks", &G.S.race_ticks); /* ticks since the lights went out */
   cw_debug_field("karts.boxes", G.boxes, CW_DBG_I32, MAXK); /* item boxes taken */

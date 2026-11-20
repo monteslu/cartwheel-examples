@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "cartwheel/math.h"
+#include "cartwheel/resource.h"
 #include "world.h"
 
 #define CROWD_MAX 700
@@ -312,6 +313,20 @@ static void crowd_pose(int ticks) {
 
 static int flood_shadows = 4; /* scenery_flood_shadows */
 
+/* the floods' beam: an IES profile (assets/lights/flood.ies, tools/make-ies.mjs): a hot core, the reflector's ring
+ * and a firm edge instead of a plain cone. scenery_flood_profile(false) takes it off (sw no_ies: the look before) */
+static bool flood_ies = true;
+static cw_value flood_profile(void) {
+  cw_value v = { CW_T_RES };
+  if (flood_ies) v.res = cw_res_path_uid("lights/flood.ies");
+  return v;
+}
+void scenery_flood_profile(bool on) {
+  flood_ies = on;
+  for (int k = 0; k < 4; k++)
+    if (cw_node_valid(S.flood[k])) cw_node_set(S.flood[k], "ies_profile", flood_profile());
+}
+
 /* floodlight towers at the corners: a pole, a bank of lamps aimed in, a
  * beam through the haze (a cone of its own where the fog is not volumetric) */
 #define FLOOD_RGB 1, 0.66f, 0.36f, 1 /* sodium: the warm dusk the bowl is lit by (a whiter flood read grey and flat on the sheets) */
@@ -377,8 +392,9 @@ static void floodlights(cw_node root) {
     cw_node_add_child(root, sp);
     cw_node_set(sp, "color", cw_val_color(FLOOD_RGB));
     cw_node_set(sp, "energy", cw_val_float(1000)); /* (Light3D's most) */
-    cw_node_set(sp, "angle", cw_val_float(0.72f));
+    cw_node_set(sp, "angle", cw_val_float(0.72f)); /* sizes its shadow map: the profile shapes the light */
     cw_node_set(sp, "penumbra", cw_val_float(0.55f));
+    cw_node_set(sp, "ies_profile", flood_profile());
     cw_node_set(sp, "decay", cw_val_float(2));
     cw_node_set(sp, "range", cw_val_float(160)); /* past the far corner: bounds its clusters and its shadow's depth */
     cw_node_set(sp, "shadow", cw_val_bool(flood_shadows >= (k == 0 || k == 3 ? 2 : 4)));

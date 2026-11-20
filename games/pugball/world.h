@@ -85,6 +85,7 @@ void scenery_crowd_detail(t3_vec3 eye, float focal_pixels);
 void scenery_light_crowd(bool light); /* the crowd's light meshes (split screen) or the full ones */
 void scenery_view_detail(t3_vec3 eye); /* split screen, per view: the grass and crowd thinned with distance */
 void scenery_floodlights(float strength); /* night: the floodlight ring's spot lights (strength 0: none) */
+void scenery_flood_profile(bool on);      /* the night floods' IES profile on (the default) or off (sw ies 0) */
 void scenery_flood_quality(void);         /* their shadows and count at the graphics settings */
 extern uint32_t scenery_hash;
 

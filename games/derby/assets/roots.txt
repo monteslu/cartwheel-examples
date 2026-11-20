@@ -33,3 +33,4 @@ decals/scorch.png
 
 decals/body.png
 decals/mud.png
+lights/flood.ies

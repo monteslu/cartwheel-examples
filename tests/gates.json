@@ -4963,6 +4963,16 @@
     "note": "every game keeps its save in the engine save store, one \"progress\" slot: for each of the seven, natively, the last old one-struct save and an older version load exactly as a store slot of the same bytes (the older one as its prefix), differ from the defaults, and leave the file a store whose slot holds the old fields. Control: the same runs with CW_TEST_SAVE_NO_IMPORT=1 (the old struct not imported) must fail all three checks in every game."
   },
   {
+    "name": "ies-floods",
+    "script": "tests/ies-floods.mjs",
+    "note": "derby (arena 1 at dusk) and pugball (the night stadium) through romdev, GL and WebGPU: paused at one moment, every lit flood is drawn with its IES profile (lights.ies: derby 4, pugball 4 or more), the profile changes at least 0.2% of the picture by more than 16 levels and the picture is not darker (mean at least 98% of the plain floods). Control: sw no_ies 1 / sw ies 0 (plain cones) draws none with a profile and fails the count check."
+  },
+  {
+    "name": "motion-blur",
+    "script": "tests/motion-blur.mjs",
+    "note": "racer and pugball through romdev, GL and WebGPU: the game opens the motion blur shutter only at speed (cam.blur >= 250: racer under a boost in a solo race, pugball from 14 m/s to supersonic) and closes it after; racer never opens it with two views. Control: sw blur 0 never opens it and fails the opening check."
+  },
+  {
     "name": "pugball-newcomer",
     "script": "tests/pugball-newcomer.mjs",
     "note": "pugball through romdev, GL and WebGPU, by the pad and only what the screen shows: the first kickoff teaches how to drive (the throttle is on the triggers) and P1 reaches the cat, alone and with a second pad that joined on the team sheet and idles (split screen: the line in both views). Control: sw split_how 0 (the line left out of split screen, as before) leaves P1, pushing the stick as anyone tries first, short of the cat."

@@ -35,6 +35,8 @@
 
 #include "cartwheel/audio.h"
 #include "cartwheel/debug.h"
+#include "cartwheel/lighting.h"
+static int32_t dbg_ies; /* lights.ies (ies_count) */
 #include "cartwheel/save.h"
 #include "cartwheel/input.h"
 #include "cartwheel/math.h"
@@ -737,6 +739,7 @@ static void cmd_bind(int argc, const char **argv, cw_reply *r) {
 /* sw hint_countdown 1: the controls hint only through the countdown and only
  * on a single screen, as the game once drew it (the newcomer gate's control) */
 static int sw_hint_countdown, sw_no_handling_damage, sw_no_beat, sw_no_classes;
+static int sw_no_ies;
 static void cmd_sw(int argc, const char **argv, cw_reply *r) {
   if (argc > 2 && !strcmp(argv[1], "hint_countdown")) sw_hint_countdown = atoi(argv[2]);
   /* no_classes 1: every body drives the same (the class gate's control) */
@@ -745,8 +748,10 @@ static void cmd_sw(int argc, const char **argv, cw_reply *r) {
   if (argc > 2 && !strcmp(argv[1], "no_beat")) sw_no_beat = atoi(argv[2]);
   /* no_handling_damage 1: hits leave the steering, grip and top speed alone (the pull gate's control) */
   if (argc > 2 && !strcmp(argv[1], "no_handling_damage")) sw_no_handling_damage = atoi(argv[2]), sim_no_handling_damage(sw_no_handling_damage);
-  cw_reply_printf(r, "{\"hint_countdown\":%d,\"no_handling_damage\":%d,\"no_beat\":%d,\"no_classes\":%d}", sw_hint_countdown,
-                  sw_no_handling_damage, sw_no_beat, sw_no_classes);
+  /* no_ies 1: the floodlights as plain cones (the IES profile's control) */
+  if (argc > 2 && !strcmp(argv[1], "no_ies")) sw_no_ies = atoi(argv[2]), scenery_flood_profile(!sw_no_ies);
+  cw_reply_printf(r, "{\"hint_countdown\":%d,\"no_handling_damage\":%d,\"no_beat\":%d,\"no_classes\":%d,\"no_ies\":%d}", sw_hint_countdown,
+                  sw_no_handling_damage, sw_no_beat, sw_no_classes, sw_no_ies);
 }
 /* study opening <n> | study pull: bouts and test drives run without drawing (study.c), for the gates */
 static void cmd_study(int argc, const char **argv, cw_reply *r) {
@@ -948,11 +953,12 @@ static void init(void *u) {
   }
   cw_debug_u32("scenery.hash", &scenery_hash);
   cw_debug_bytes("save.bytes", &SAVE, sizeof SAVE);
+  cw_debug_i32("lights.ies", &dbg_ies);
   cw_debug_command("bout", "bout [arena]: a quick match now", cmd_bout);
   cw_debug_command("keyart", "keyart <car> [angle distance height] [hud 0|1] | keyart off: key art (a three-quarter look at a car, the HUD off)", cmd_keyart);
   cw_debug_command("bind", "bind <action> <bindings>: replace an action's bindings (binding text, as input.cfg writes it)", cmd_bind);
   cw_debug_command("players", "players <1..4>: humans in the next bout (splitscreen)", cmd_players);
-  cw_debug_command("sw", "sw hint_countdown|no_handling_damage|no_beat|no_classes <0|1>: the old behaviour back (the gates' controls)", cmd_sw);
+  cw_debug_command("sw", "sw hint_countdown|no_handling_damage|no_beat|no_classes|no_ies <0|1>: the old behaviour back (the gates' controls)", cmd_sw);
   cw_debug_command("study", "study opening <n> | study pull | study classes <n>: bouts and test drives run without drawing (the gates)", cmd_study);
   cw_debug_i32("views", &G.views);
   G.state_hash = 2166136261u;
@@ -2412,7 +2418,15 @@ static void draw_pause(float W, float H, float s) {
   prompt_line(pause_hint(), W, last.y + last.h + 18 * s + 16 * s * 0.3f, 16 * s);
 }
 
+/* lights.ies: the clustered lights the engine draws with an IES profile this frame (the floods at night; the gate) */
+static void ies_count(void) {
+  cw_lighting_stats ls = { 0 };
+  cw_tree *t = cw_current_tree();
+  if (t) cw_lighting_get_stats(t, &ls);
+  dbg_ies = ls.ies;
+}
 static void render(void *u, double alpha) {
+  ies_count();
   (void)u;
   (void)alpha;
   cw_r2d_begin(&(cw_r2d_pass_desc){ .clear = false });

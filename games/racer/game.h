@@ -431,6 +431,8 @@ extern const map_def map_test; /* the proving ground: RACER_MAP=-1 */
 extern int sim_dnf_any;
 /* sw sun_short <0|1>: 1 = below High (and in three or four views) the sun casts no shadow on the play, as it once did (world.c) */
 extern int world_sun_short;
+/* sw blur <0|1>: 0 = no motion blur under a boost (main.c, the control) */
+extern int racer_blur;
 /* sw wheel_lag <0|1>: 1 = the karts' wheels drawn a tick behind their chassis, as they once were (kartgfx.c) */
 extern int kartgfx_wheel_lag;
 /* sw contact <0|1>: 0 = no dark under the karts where they meet the road, as before (kartgfx.c) */
