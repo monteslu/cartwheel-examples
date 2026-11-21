@@ -290,7 +290,7 @@ void models_sync(const bike_pose *p);
 void models_build_rider(cw_node parent, int idx); /* rider idx's bike and rider, in its colours */
 void models_sync_rider(int idx, const bike_pose *p, float z);
 void models_set_track(const track_desc *t);
-void models_far(int idx, bool far); /* the far look: one draw (split screen's other riders) */
+void models_views(int idx, uint32_t near); /* the near look in the views of near, the far one (one draw) in the others */
 void models_refresh(int idx); /* rider idx's world matrices, after posing it again mid-frame */
 void models_unbind(void); /* before the scene is freed */
 void models_forget(void);

@@ -1402,24 +1402,24 @@ static void replay_camera(cw_node cam, const bike_pose *p, float u,
   cw_node3d_look_at(cam, at, (t3_vec3){ 0, 1, 0 });
 }
 
-/* split screen: before each view draws, the riders take their far look
- * (each view draws every rider: one draw each keeps it cheap), but for the
- * view's own rider close up, in the player select's preview or its wipeout
- * replay. A rider whose replay plays is posed in it in its own view and
- * where it really is in the others (posed again after the scene's matrices
- * were updated for the frame, so it updates its own) */
+/* split screen, once a frame: every view draws every rider in its far look (one draw each keeps it cheap), but for
+ * the view's own rider close up, in the player select's preview or its wipeout replay (cw_object_set_views: the frame
+ * stays one pass) */
+static void views_riders(void) {
+  for (int i = 0; i < NRID; i++)
+    models_views(i, NRID < 2 ? CW_VIEWS_ALL : G.state == GS_CHARACTER || RD[i].replay_t > 0 ? 1u << i : 0);
+}
+
+/* split screen while a rider's replay plays: before each view draws, that rider is posed in its replay in its own
+ * view and where it really is in the others (posed again after the scene's matrices were updated for the frame, so it
+ * updates its own), and the deer as the view's replay or the race has them. Set only on those frames: a frame with a
+ * view hook is drawn view by view */
 static void view_hook(int view, void *u) {
   (void)u;
-  if(NRID>1 && RD[view].replay_t>0) {
-    deer_pose deer[DEER_CROSSINGS];
-    replay_deer(view,replay_tick(&RD[view],0),deer);
-    view_deer_poses(deer);
-  } else if(NRID>1) {
-    deer_pose deer[DEER_CROSSINGS];
-    bike_deer_visual_poses(1,deer);
-    view_deer_poses(deer);
-  }
-  for (int i = 0; i < NRID; i++) models_far(i, !(i == view && (G.state == GS_CHARACTER || RD[i].replay_t > 0)));
+  deer_pose deer[DEER_CROSSINGS];
+  if (RD[view].replay_t > 0) replay_deer(view, replay_tick(&RD[view], 0), deer);
+  else bike_deer_visual_poses(1, deer);
+  view_deer_poses(deer);
   for (int i = 0; i < NRID; i++)
     if (RD[i].replay_t > 0) {
       models_sync_rider(i, i == view ? &RD[i].replay : &RD[i].live, i == view ? RD[i].replay.z : RD[i].live.z);
@@ -1490,6 +1490,13 @@ static void frame_hook(cw_tree *t, double alpha, void *u) {
     contact_end();
     use_rider(0);
     view_frame((float)alpha);
+    deer_pose deer[DEER_CROSSINGS]; /* the race's deer, as every view not in a replay draws them */
+    bike_deer_visual_poses(1, deer);
+    view_deer_poses(deer);
+    views_riders();
+    bool replay = false;
+    for (int i = 0; i < NRID; i++) replay |= RD[i].replay_t > 0;
+    cw_pipeline_set_view_hook(cw_pipeline_of(cw_scene_app_tree()), replay ? view_hook : NULL, NULL);
     view_stream(cams,NRID);
     view_grass(cams, NRID > 2 ? 0 : NRID); /* a quarter of the screen: no grass (its blades are a pixel wide there; three draws a view) */
     return;
@@ -1752,7 +1759,6 @@ static void init(void *u) {
   G.state_hash = CW_HASH32_INIT;
   G.players = 1;
   for (int p = 0; p < MAX_RIDERS; p++) G.bike[p] = 0, G.color[p] = bike_default_color(0);
-  cw_pipeline_set_view_hook(cw_pipeline_of(cw_scene_app_tree()), view_hook, NULL);
 }
 
 /* the start-up's work, a piece a frame under the engine's loading screen (cw_app_desc.warmup) before the first tick:

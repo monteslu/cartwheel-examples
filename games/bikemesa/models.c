@@ -18,6 +18,7 @@
 
 #include "game.h"
 #include "cartwheel/platform.h"
+#include "cartwheel/pipeline.h"
 
 static t3_color lin(float r, float g, float b) {
   float c[3] = { r, g, b };
@@ -938,12 +939,20 @@ static void skin_build(void) {
   free(ps);
 }
 
-/* rider idx near (every material) or far (one draw) */
-void models_far(int idx, bool far) {
+/* rider idx near (every material) in the split screen views of near, far (one draw) in the others; CW_VIEWS_ALL:
+ * one view, near only (masks apply with two views or more, so the far look is hidden instead) */
+void models_views(int idx, uint32_t near) {
   model_t *mm = &MS[CW_CLAMP(idx, 0, MAX_RIDERS - 1)];
   if (!mm->root) return;
-  for (int i = 0; i < mm->near_n; i++) mm->near_mesh[i]->visible = !far;
-  if (mm->far_mesh) mm->far_mesh->visible = far;
+  bool solo = near == CW_VIEWS_ALL;
+  for (int i = 0; i < mm->near_n; i++) {
+    mm->near_mesh[i]->visible = solo || near != 0;
+    cw_object_set_views(mm->near_mesh[i], near);
+  }
+  if (mm->far_mesh) {
+    mm->far_mesh->visible = !solo;
+    cw_object_set_views(mm->far_mesh, solo || !near ? CW_VIEWS_ALL : ~near);
+  }
 }
 
 #include "djbike.inc"
@@ -1483,6 +1492,7 @@ void models_unbind(void) {
     for (int i = 0; i <= MS[r].near_n; i++) {
       t3_object *o = i == 0 ? MS[r].far_mesh : MS[r].near_mesh[i - 1];
       if (!o) continue;
+      cw_object_set_views(o, CW_VIEWS_ALL); /* the mask table holds the mesh too */
       t3_skinned_mesh *sm = (t3_skinned_mesh *)o;
       t3_release(sm->skeleton);
       sm->skeleton = NULL;
