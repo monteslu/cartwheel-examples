@@ -3,6 +3,14 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.26.0 (2026-11-20)
+
+- **All games**: Engine v0.53.4 (from v0.50.4). Reflection probes are lit as the room around them is: under clustered lights and cascaded sun shadows their captures used the main camera's light data, so reflections came out wrong and differed between GL and WebGPU, and a probe captured once on WebGPU could reflect a darker room. Meshes that repeat cast their shadows as one instanced draw. A material that needs five or more shading parts no longer loses one without a word
+- **bikemesa**: Downtown's five reflection probes (captured once, under the city's clustered lights) reflect the same city on GL and WebGPU: at the start line, pixels more than 2 levels apart between the GL and WebGPU carts fell from 4.6% to 0.7% of the frame. Shadow casters repeated across a track draw as one instanced draw (a new program state)
+- **chromite**: The live reflection probe the chrome mirrors is captured with its own camera's clustered flash lights
+- **spout**: Repeated shadow casters draw as one instanced draw (a new program state)
+- **Tests**: Checks for this pin move: every game builds natively and as a cart; the program survey of every game on GL and WebGPU, natively (with every gate's runs, except racer's, whose long races outrun the survey's time limit per run; racer natively on every preset and preset switch) and as carts with every gate's runs, finds no state missing beyond the two added for bikemesa and spout; racer-cup passes on GL with its control; check-prompts, cart-art, check-art and cart-version pass; the _auto replays of bikemesa, bomberdude, chromite, derby, pugball and spout pass natively on GL and WebGPU and the two reach identical state; every cart starts and draws on GL and WebGPU through romdev; BikeMesa's Downtown probes and Chromite's chrome title were compared with the v0.50.4 carts on GL and WebGPU at native scale. None of these games uses TAA
+
 ## v0.25.0 (2026-11-19)
 
 - **All games**: Engine v0.50.4 (from v0.49.0). In a cart the wasmcart host draws the on-screen pad, so a phone or tablet never shows two sets of controls: each cart's manifest lists the pad parts the game uses (worked out from its input bindings), and the host draws those. Native builds (desktop, Android) keep the engine's own touch controls as before. Also three.c 0.187.8: no holes in distant ground on Metal (racer's far terrain on a Mac)
