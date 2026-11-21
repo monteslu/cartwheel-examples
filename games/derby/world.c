@@ -12,6 +12,7 @@
 #include "cartwheel/decals.h"
 #include "cartwheel/debug.h"
 #include "cartwheel/math.h"
+#include "cartwheel/pipeline.h"
 #include "cartwheel/quality.h"
 #include "cartwheel/splats.h"
 #include "world.h"
@@ -557,6 +558,24 @@ void world_lod(t3_vec3 eye, float k, int own) {
     if (k < 1 && i != own && lod == 0 && d > 12 * k * 12 * k) lod = 1; /* a split view: full detail only close by (6 m in a quarter) */
     car_set_trimmed(&W.car[i], k < 1 && i == own);
     car_set_lod(&W.car[i], lod);
+  }
+}
+
+void world_lod_views(const t3_vec3 *eye, const float *k, const int *own, int n) {
+  if (!W.ready) return;
+  for (int i = 0; i < MAXC; i++) {
+    if (!W.on[i]) continue;
+    t3_vec3 p = cw_node3d_position(W.car_node[i]);
+    int lod[CW_MAX_VIEWS];
+    bool trimmed[CW_MAX_VIEWS];
+    for (int v = 0; v < n; v++) { /* world_lod's distances from view v */
+      float near = 25 * k[v], far = (k[v] < 1 ? 20 : 60) * k[v];
+      float dx = p.x - eye[v].x, dz = p.z - eye[v].z, d = dx * dx + dz * dz;
+      lod[v] = d > far * far ? 2 : d > near * near ? 1 : 0;
+      if (k[v] < 1 && i != own[v] && lod[v] == 0 && d > 12 * k[v] * 12 * k[v]) lod[v] = 1;
+      trimmed[v] = k[v] < 1 && i == own[v];
+    }
+    car_set_lod_views(&W.car[i], lod, trimmed, n);
   }
 }
 

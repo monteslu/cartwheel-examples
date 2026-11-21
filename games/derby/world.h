@@ -64,6 +64,8 @@ typedef struct car_model {
   float bumper_a[2], bumper_v[2], hood_a, hood_v;
   bool lid_off;             /* the bonnet came off (debris.c): its lid no longer takes the car's dents */
   float mud, mud_shown[4];  /* mud built up 0..1 (car_mud), and what each level of detail (3: the shared pieces) shows */
+  bool lod_views;           /* split screen: car_set_lod_views chose a level per view (shown: the levels some view draws) */
+  int lods_shown;
 } car_model;
 void car_build(car_model *m, int kind, int colour, int number);
 void car_free(car_model *m);
@@ -73,6 +75,8 @@ void car_mud(car_model *m, float level);
 extern int32_t car_mud_verts;            /* mud built up, 0..1 (rises in steps) */
 void car_set_lod(car_model *m, int lod);            /* 0 full, 1 light, 2 silhouette */
 void car_set_trimmed(car_model *m, bool trimmed);   /* level 0 without the parts a small view cannot show */
+/* split screen: view v (of n) draws level lod[v], trimmed[v] in the view that follows the car (cw_object_set_views) */
+void car_set_lod_views(car_model *m, const int *lod, const bool *trimmed, int n);
 float car_wheel_yaw(const car *c, int w);           /* the front wheels' drawn angle (+: toward +x, the car's left) */
 t3_texture *tex_crack(void);
 t3_texture *tex_crack_clean(void); /* side-window grime, sampled like the crack */
@@ -118,6 +122,8 @@ void world_contact_shadows(const sim *s); /* each frame: blobs under the cars on
  * a split view (k < 1) draws every car but the one it follows (own: -1 none)
  * at level 1 or lighter beyond 12k metres */
 void world_lod(t3_vec3 eye, float k, int own);
+/* split screen: world_lod for each of n views at once (view v: its eye, k and followed car), as view masks */
+void world_lod_views(const t3_vec3 *eye, const float *k, const int *own, int n);
 t3_vec3 world_car_pos(int i);
 
 /* a little mesh builder shared by the 3D files */

@@ -527,22 +527,29 @@ static void line_up(bool with_human) {
   }
 }
 
-/* each car's detail from this view's camera, just before the view renders
- * (a quadrant draws a car half as tall as the full screen does) */
+/* each car's detail from each view's camera, once a frame, as view masks (cw_object_set_views: the frame stays one
+ * pass; a quadrant draws a car half as tall as the full screen does) */
 static int car_of_view(int v);
 static float view_fov = 64; /* the split views' vertical angle (views_setup) */
-static void view_lod(int v, void *u) {
-  (void)u;
+static void views_lod(void) {
   const cw_view *vs = NULL;
   int n = cw_pipeline_views(cw_pipeline_of(cw_scene_app_tree()), &vs);
-  /* the car this view follows (its player's, or the one it watches once that is out) keeps full detail */
-  int me = car_of_view(v), follow = me >= 0 && (!G.S.c[me].wrecked || G.S.c[me].wreck_ticks < 150) ? me : RIG[v].spectate;
-  if (v >= n) return;
-  /* how big a car is drawn there against one player's full screen: the view's
-   * height over the tangent of its half angle (two players' views are
-   * narrower vertically, so a car there is drawn bigger than in a quarter) */
-  float k = vs[v].h * tanf(32 * CW_PI / 180) / tanf(view_fov * 0.5f * CW_PI / 180);
-  world_lod(RIG[v].cam_eye, k < 1 ? k : 0.999f, follow);
+  if (n < 2) return;
+  t3_vec3 eye[CW_MAX_VIEWS];
+  float k[CW_MAX_VIEWS];
+  int follow[CW_MAX_VIEWS];
+  for (int v = 0; v < n; v++) {
+    /* the car this view follows (its player's, or the one it watches once that is out) keeps full detail */
+    int me = car_of_view(v);
+    follow[v] = me >= 0 && (!G.S.c[me].wrecked || G.S.c[me].wreck_ticks < 150) ? me : RIG[v].spectate;
+    /* how big a car is drawn there against one player's full screen: the view's
+     * height over the tangent of its half angle (two players' views are
+     * narrower vertically, so a car there is drawn bigger than in a quarter) */
+    float kv = vs[v].h * tanf(32 * CW_PI / 180) / tanf(view_fov * 0.5f * CW_PI / 180);
+    k[v] = kv < 1 ? kv : 0.999f;
+    eye[v] = RIG[v].cam_eye;
+  }
+  world_lod_views(eye, k, follow, n);
 }
 
 /* splitscreen: a Camera3D per player and the pipeline's views. Two players
@@ -586,7 +593,6 @@ static void views_setup(void) {
   }
   cw_pipeline *pl = cw_pipeline_of(cw_scene_app_tree());
   cw_pipeline_set_views(pl, vw, nviews);
-  cw_pipeline_set_view_hook(pl, view_lod, NULL);
   cw_pipeline_set_views_shared_post(pl, true); /* bloom, the grade and AA once over the laid-out views */
   scenery_light_crowd(true);
   cw_node post = find_type(G.scene, "PostProcess");
@@ -1551,7 +1557,8 @@ static void fixed(void *u, double dt) {
     t3_vec3 eyes[CW_MAX_VIEWS];
     int n = G.state == GS_TITLE ? 1 : nviews;
     for (int v = 0; v < n; v++) eyes[v] = RIG[v].cam_eye;
-    if (n == 1) world_lod(eyes[0], 1, -1); /* splitscreen: per view (view_lod) */
+    if (n == 1) world_lod(eyes[0], 1, -1);
+    else views_lod(); /* splitscreen: per view */
     scenery_beams(eyes, n);
   }
   const sim *s = &G.S;

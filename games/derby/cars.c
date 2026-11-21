@@ -35,6 +35,7 @@
 
 #include "cartwheel/jobs.h"
 #include "cartwheel/math.h"
+#include "cartwheel/pipeline.h"
 #include "world.h"
 
 /* ── per-kind shape (metres; z forward, x to the left, y up) ────────── */
@@ -1238,7 +1239,9 @@ static void shell_free(car_shell *s) {
   memset(s, 0, sizeof *s);
 }
 
+static void car_views_all(car_model *m);
 void car_free(car_model *m) {
+  car_views_all(m); /* (the mask table holds its objects too) */
   for (int l = 0; l < 3; l++) {
     for (int i = 0; i < 3; i++) shell_free(&m->shell[l][i]);
     shell_free(&m->glass[l]);
@@ -1426,6 +1429,8 @@ void car_apply_dents(car_model *m, const car *c) {
   m->ncur = c->ndent;
   dents_catch_up(m, m->lod);
   dents_catch_up(m, 3);
+  for (int l = 0; l < 3 && m->lod_views; l++)
+    if (l != m->lod && (m->lods_shown >> l & 1)) dents_catch_up(m, l); /* every level a split view draws */
 }
 
 /* a car its own split view follows: the small parts a quarter of the
@@ -1438,8 +1443,57 @@ void car_set_trimmed(car_model *m, bool trimmed) {
 }
 
 static void mud_level(car_model *m, int lod, float to);
+static void views_of(t3_object *o, uint32_t views) {
+  if (o) cw_object_set_views(o, views ? views : CW_VIEWS_ALL);
+}
+/* every part back in every view */
+static void car_views_all(car_model *m) {
+  for (int l = 0; l < 3; l++) {
+    views_of(m->bodies[l], CW_VIEWS_ALL);
+    for (int w = 0; w < 4; w++) views_of(m->wheel_lod[w][l], CW_VIEWS_ALL);
+  }
+  views_of(m->hood, CW_VIEWS_ALL);
+  views_of(m->numbers.mesh ? &m->numbers.mesh->base : NULL, CW_VIEWS_ALL);
+  views_of(m->lamps, CW_VIEWS_ALL);
+  views_of(m->details ? &m->details->base : NULL, CW_VIEWS_ALL);
+  views_of(m->beams, CW_VIEWS_ALL);
+  m->lod_views = false;
+}
+/* split screen: what each view draws said once a frame (the frame stays one pass); the levels some view draws catch up
+ * on their dents and mud, the shadows are cast by view 0's (as a frame drawn view by view casts them) */
+void car_set_lod_views(car_model *m, const int *lod, const bool *trimmed, int n) {
+  uint32_t lv[3] = { 0 }, trim = 0;
+  for (int v = 0; v < n; v++) {
+    lv[CW_CLAMP(lod[v], 0, 2)] |= 1u << v;
+    if (trimmed[v]) trim |= 1u << v;
+  }
+  m->lod = CW_CLAMP(lod[0], 0, 2);
+  m->lod_views = true;
+  m->lods_shown = 0;
+  for (int l = 0; l < 3; l++) {
+    if (!lv[l]) continue;
+    m->lods_shown |= 1 << l;
+    dents_catch_up(m, l); /* the dents it missed while another level was drawn */
+    mud_level(m, l, m->mud); /* and the mud */
+  }
+  for (int l = 0; l < 3; l++) {
+    if (m->bodies[l]) m->bodies[l]->visible = lv[l] != 0, views_of(m->bodies[l], lv[l]);
+    for (int w = 0; w < 4; w++)
+      if (m->wheel_lod[w][l]) m->wheel_lod[w][l]->visible = lv[l] != 0, views_of(m->wheel_lod[w][l], lv[l]);
+  }
+  uint32_t near = lv[0] | lv[1]; /* levels 0 and 1 */
+  if (m->hood) m->hood->visible = near != 0, views_of(m->hood, near);
+  if (m->numbers.mesh) m->numbers.mesh->base.visible = near != 0, views_of(&m->numbers.mesh->base, near);
+  if (m->lamps) m->lamps->visible = near != 0, views_of(m->lamps, near);
+  uint32_t all = n >= 32 ? CW_VIEWS_ALL : (1u << n) - 1, untrimmed = all & ~trim;
+  m->trimmed = false; /* (per view now: car_pose lights the beams, the mask leaves them out of the trimmed view) */
+  if (m->details) m->details->base.visible = untrimmed != 0, views_of(&m->details->base, trim ? untrimmed : 0);
+  if (m->beams) m->beams->visible = m->beams_on && untrimmed != 0, views_of(m->beams, trim ? untrimmed : 0);
+}
+
 void car_set_lod(car_model *m, int lod) {
-  if (m->lod == lod) return;
+  if (m->lod == lod && !m->lod_views) return;
+  if (m->lod_views) car_views_all(m);
   m->lod = lod;
   dents_catch_up(m, lod); /* the dents it missed while another level was drawn */
   mud_level(m, lod, m->mud);  /* and the mud */
@@ -1560,4 +1614,6 @@ void car_mud(car_model *m, float level) {
   m->mud = level;
   mud_level(m, m->lod, level);
   mud_level(m, 3, level);
+  for (int l = 0; l < 3 && m->lod_views; l++)
+    if (l != m->lod && (m->lods_shown >> l & 1)) mud_level(m, l, level);
 }
