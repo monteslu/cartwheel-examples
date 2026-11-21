@@ -14,6 +14,7 @@
 #include <string.h>
 
 #include "cartwheel/math.h"
+#include "cartwheel/pipeline.h"
 #include "world.h"
 
 typedef struct mesh_build {
@@ -172,7 +173,7 @@ static struct {
   /* the Node3Ds that carry the pugs, the cat and its ring: their transforms
    * are set on the fixed tick and rendered between the last two ticks */
   cw_node pug_node[MAXP], cat_node, ring_node;
-  bool far_on[MAXP + 1]; /* drawn as their far copies now: the pugs, then the cat */
+  int8_t far_on[MAXP + 1]; /* drawn as their far copies now: the pugs, then the cat (-1: unknown, set both) */
 } W;
 
 static cw_node hang(cw_node parent, const char *name, t3_object *obj) {
@@ -846,8 +847,45 @@ static void set_far(int k, t3_object *body, t3_object *far, bool on) {
   body->visible = !on;
   far->visible = on;
 }
+static bool views_masked; /* world_views_detail put masks on the models */
+/* the models drawn near in the views of near, far in the others (every view: CW_VIEWS_ALL) */
+static void set_far_views(int k, t3_object *body, t3_object *far, uint32_t near, uint32_t all) {
+  if (!body || !far) return;
+  uint32_t fv = all & ~near;
+  body->visible = near != 0;
+  far->visible = fv != 0;
+  cw_object_set_views(body, near && near != all ? near : CW_VIEWS_ALL);
+  cw_object_set_views(far, fv && fv != all ? fv : CW_VIEWS_ALL);
+  W.far_on[k] = -1; /* (set_far's cache: a later one-view call sets both again) */
+}
+void world_views_detail(const t3_vec3 *eye, int n) {
+  if (!W.ready) return;
+  uint32_t all = (1u << n) - 1;
+  for (int i = 0; i <= MAXP; i++) {
+    t3_object *o = cw_node3d_object(i < MAXP ? W.pug_node[i] : W.cat_node);
+    if (!o) continue;
+    float far = i < MAXP ? FAR_PUG : FAR_CAT;
+    uint32_t near = 0;
+    for (int v = 0; v < n; v++) {
+      t3_vec3 d = v3sub(o->position, eye[v]);
+      if (v3dot(d, d) <= far * far) near |= 1u << v;
+    }
+    if (i < MAXP) set_far_views(i, W.pug[i].body, W.pug[i].far, near, all);
+    else set_far_views(i, W.cat.body, W.cat.far, near, all);
+  }
+  views_masked = true;
+}
 void world_view_detail(t3_vec3 eye, bool full) {
   if (!W.ready) return;
+  if (views_masked) { /* back to one view: no masks, set_far sets both */
+    views_masked = false;
+    for (int i = 0; i <= MAXP; i++) {
+      t3_object *body = i < MAXP ? W.pug[i].body : W.cat.body, *far = i < MAXP ? W.pug[i].far : W.cat.far;
+      if (body) cw_object_set_views(body, CW_VIEWS_ALL);
+      if (far) cw_object_set_views(far, CW_VIEWS_ALL);
+      W.far_on[i] = -1;
+    }
+  }
   for (int i = 0; i <= MAXP; i++) {
     t3_object *o = cw_node3d_object(i < MAXP ? W.pug_node[i] : W.cat_node);
     if (!o) continue;

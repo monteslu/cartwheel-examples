@@ -83,7 +83,7 @@ void scenery_reset(void);
 void scenery_quality(float k, float grass); /* share of the crowd and of the grass drawn, 0..1 */
 void scenery_crowd_detail(t3_vec3 eye, float focal_pixels);
 void scenery_light_crowd(bool light); /* the crowd's light meshes (split screen) or the full ones */
-void scenery_view_detail(t3_vec3 eye); /* split screen, per view: the grass and crowd thinned with distance */
+void scenery_views_detail(const t3_vec3 *eye, int n); /* split screen, once a frame: each view's grass thinned with distance */
 void scenery_floodlights(float strength); /* night: the floodlight ring's spot lights (strength 0: none) */
 void scenery_flood_profile(bool on);      /* the night floods' IES profile on (the default) or off (sw ies 0) */
 void scenery_flood_quality(void);         /* their shadows and count at the graphics settings */
@@ -124,6 +124,7 @@ t3_vec3 world_pug_render_pos(int i); /* as drawn this frame (ragdolls included) 
 /* split screen, before each view draws: the pugs and the cat far from its
  * camera (eye) as their far copies; full = every one as itself */
 void world_view_detail(t3_vec3 eye, bool full);
+void world_views_detail(const t3_vec3 *eye, int n); /* split screen, once a frame: each view's far pugs and cat light */
 
 /* net.c: the goals' cloth nets (render only, their own world) */
 void net_build(cw_node root, const sim *s);

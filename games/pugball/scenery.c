@@ -23,6 +23,7 @@
 #include "cartwheel/jobs.h"
 #include "cartwheel/math.h"
 #include "cartwheel/particles.h"
+#include "cartwheel/pipeline.h"
 #include "cartwheel/quality.h"
 #include "cartwheel/resource.h"
 #include "world.h"
@@ -63,6 +64,11 @@ static struct {
    * InstancedMesh each so the views cull the bands they cannot see; the
    * clumps in band order, band b holding [start, start + n) */
   struct { t3_instanced_mesh *im; int start, n; } gband[GRASS_BANDS];
+  /* split screen: each band once more for views 1 to 3 (the same clumps, matrices and colours, a count of its own,
+   * drawn only in its view: cw_object_set_views), so each view thins its grass by its own distance in one pass */
+  t3_instanced_mesh *gview[GRASS_BANDS][CW_MAX_VIEWS - 1];
+  int gband_tick[GRASS_BANDS]; /* the clumps the breeze moves: the most any view draws */
+  bool gviews; /* the view masks are on the bands */
   int gband_shown[GRASS_BANDS]; /* clumps drawn at the current quality */
   float gband_c[GRASS_BANDS][3]; /* each band's middle (x, z) and half its length */
   uint8_t *gband_of;
@@ -353,7 +359,21 @@ static void build_grass(float tint_r, float tint_g, float tint_b) {
     im->mesh.base.receive_shadow = true;
     im->mesh.base.cast_shadow = false;
     SC.gband[b].im = im;
+    SC.gband_tick[b] = nb;
     hang(&im->mesh.base); /* the tree holds it; SC keeps its own reference */
+    for (int v = 0; v < CW_MAX_VIEWS - 1; v++) { /* the split views' copies, hidden until split screen */
+      t3_instanced_mesh *c = t3_instanced_mesh_new(clump, m, 1);
+      t3_release(c->instance_matrix);
+      c->instance_matrix = t3_retain(im->instance_matrix);
+      if (im->instance_color) c->instance_color = t3_retain(im->instance_color);
+      c->count = 0;
+      t3_instanced_mesh_set_bounding_sphere(c, &(t3_sphere){ { (x0 + x1) * 0.5f, 0.15f, (z0 + z1) * 0.5f }, sqrtf(dx * dx + dz * dz + 0.35f * 0.35f) });
+      c->mesh.base.receive_shadow = true;
+      c->mesh.base.cast_shadow = false;
+      c->mesh.base.visible = false;
+      SC.gview[b][v] = c;
+      hang(&c->mesh.base);
+    }
   }
   free(gx), free(gz), free(gyaw), free(gs), free(gsy), free(gcol);
   t3_release(clump);
@@ -382,7 +402,7 @@ static void grass_range(int begin, int end, int worker, void *ctx) {
     if (i >= SC.nclumps) break;
     int b = SC.gband_of[i], li = i - SC.gband[b].start;
     t3_instanced_mesh *im = SC.gband[b].im;
-    if (li >= im->count) continue; /* not drawn at this quality */
+    if (li >= SC.gband_tick[b]) continue; /* not drawn at this quality, in any view */
     float x = SC.gx[i], z = SC.gz[i];
     float bend = 0.08f + 0.5f * gust(x, z, t) + 0.08f * cw_sin(t * 2.4f + x * 1.9f + z * 1.3f);
     /* the pugs and the cat flatten the grass they roll over */
@@ -1124,8 +1144,13 @@ void scenery_reset(void) {
         if (SC.ch[c].im[q]) t3_release(SC.ch[c].im[q]);
     free(SC.fan_team);
     free(SC.fan_kind);
-    for (int b = 0; b < GRASS_BANDS; b++)
-      if (SC.gband[b].im) t3_release(SC.gband[b].im);
+    for (int b = 0; b < GRASS_BANDS; b++) {
+      if (SC.gband[b].im) cw_object_set_views(&SC.gband[b].im->mesh.base, CW_VIEWS_ALL), t3_release(SC.gband[b].im);
+      for (int v = 0; v < CW_MAX_VIEWS - 1; v++)
+        if (SC.gview[b][v]) cw_object_set_views(&SC.gview[b][v]->mesh.base, CW_VIEWS_ALL), t3_release(SC.gview[b][v]);
+    }
+    memset(SC.gview, 0, sizeof SC.gview);
+    SC.gviews = false;
     free(SC.gband_of);
     if (SC.flood) t3_release(SC.flood);
     free(SC.fan_x);
@@ -1234,25 +1259,48 @@ void scenery_flood_quality(void) {
   }
 }
 
-/* split screen, before each view draws: the grass thins out with distance
- * from its camera (eye). A view is a half or a quarter of the screen, so a
- * far blade is under a pixel there; the near ones stay as dense as the
- * quality allows. (The crowd stays whole: split screen draws its light fans.) */
+/* split screen, once a frame: the grass thins out with distance from each view's camera (eye[v], n views; n < 2:
+ * one view, every band whole at the quality's count). A view is a half or a quarter of the screen, so a far blade is
+ * under a pixel there; the near ones stay as dense as the quality allows. View 0 draws the bands themselves, views 1
+ * to 3 their copies, each only in its own view. (The crowd stays whole: split screen draws its light fans.) */
 static float view_share(float d, float near, float far, float least) {
   if (d <= near) return 1;
   if (d >= far) return least;
   return 1 - (1 - least) * (d - near) / (far - near);
 }
-void scenery_view_detail(t3_vec3 eye) {
+void scenery_views_detail(const t3_vec3 *eye, int n) {
   if (!SC.ready) return;
+  if (n < 2 && !SC.gviews) return;
   for (int b = 0; b < GRASS_BANDS; b++) {
     t3_instanced_mesh *im = SC.gband[b].im;
     if (!im) continue;
-    /* across the pitch the band is all near or all far: its distance along it */
-    float dz = fabsf(SC.gband_c[b][1] - eye.z) - SC.gband_c[b][2];
-    float d = dz > 0 ? dz : 0;
-    im->count = (int)(SC.gband_shown[b] * view_share(d, 8, 30, 0.2f));
+    int most = 0;
+    for (int v = 0; v < CW_MAX_VIEWS; v++) {
+      t3_instanced_mesh *vm = v ? SC.gview[b][v - 1] : im;
+      if (!vm) continue;
+      if (n < 2) { /* one view: the band whole, the copies hidden */
+        vm->count = v ? 0 : SC.gband_shown[b];
+        vm->mesh.base.visible = v == 0;
+        cw_object_set_views(&vm->mesh.base, CW_VIEWS_ALL);
+        continue;
+      }
+      if (v >= n) {
+        vm->count = 0;
+        vm->mesh.base.visible = false;
+        cw_object_set_views(&vm->mesh.base, CW_VIEWS_ALL);
+        continue;
+      }
+      /* across the pitch the band is all near or all far: its distance along it */
+      float dz = fabsf(SC.gband_c[b][1] - eye[v].z) - SC.gband_c[b][2];
+      float d = dz > 0 ? dz : 0;
+      vm->count = (int)(SC.gband_shown[b] * view_share(d, 8, 30, 0.2f));
+      vm->mesh.base.visible = true;
+      cw_object_set_views(&vm->mesh.base, 1u << v);
+      if (vm->count > most) most = vm->count;
+    }
+    SC.gband_tick[b] = n < 2 ? SC.gband_shown[b] : most;
   }
+  SC.gviews = n >= 2;
 }
 
 /* Geometry switches retain the same instances, animation and crowd density. */
@@ -1295,7 +1343,7 @@ void scenery_quality(float k, float grass) {
   k = k < 0.05f ? 0.05f : k > 1 ? 1 : k;
   grass = grass < 0.05f ? 0.05f : grass > 1 ? 1 : grass;
   for (int b = 0; b < GRASS_BANDS; b++)
-    if (SC.gband[b].im) SC.gband[b].im->count = SC.gband_shown[b] = (int)(SC.gband[b].n * grass);
+    if (SC.gband[b].im) SC.gband[b].im->count = SC.gband_tick[b] = SC.gband_shown[b] = (int)(SC.gband[b].n * grass);
   for (int c = 0; c < SC.nchunks; c++) {
     struct crowd_chunk *C = &SC.ch[c];
     if (!C->n) continue;

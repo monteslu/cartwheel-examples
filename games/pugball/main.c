@@ -204,7 +204,10 @@ static void apply_quality(void) {
    * keeps its fans, drawn as the light ones) */
   scenery_quality(k, G.nviews && k > 0.66f ? 0.66f : k);
   scenery_light_crowd(G.nviews >= 2); /* and its views are small: the light fans */
-  if (!G.nviews) world_view_detail((t3_vec3){ 0, 0, 0 }, true); /* one camera: every pug in full */
+  if (!G.nviews) { /* one camera: every pug in full, every grass band whole */
+    world_view_detail((t3_vec3){ 0, 0, 0 }, true);
+    scenery_views_detail(NULL, 0);
+  }
   if (!cw_node_valid(G.scene)) return;
   cw_node post = find_type(G.scene, "PostProcess");
 
@@ -995,7 +998,7 @@ static cw_font font_ui, font_ui_bold, font_title, font_score;
 
 static void cam_frame(cw_tree *t, double alpha, void *user);
 static void cmd_camtrace(int argc, const char **argv, cw_reply *r);
-static void view_hook(int view, void *user);
+static void views_detail(cw_tree *t, double alpha, void *user);
 
 /* the render-time camera log (debug command camtrace2): what is drawn each
  * frame, the camera object's position and the pug's place on screen */
@@ -1194,7 +1197,7 @@ static void init(void *u) {
   cw_tree_add_hook(cw_scene_app_tree(), 2, 10, cam_log, NULL); /* after the nodes write their objects */
   cw_debug_command("camtrace", "camtrace [0|1]: print the chase camera every frame (pcam t eye.xyz pug.sx pug.sy)", cmd_camtrace);
   cw_tree_add_hook(cw_scene_app_tree(), 2, -10, cam_frame, NULL); /* before the nodes write their objects */
-  cw_pipeline_set_view_hook(cw_pipeline_of(cw_scene_app_tree()), view_hook, NULL);
+  cw_tree_add_hook(cw_scene_app_tree(), 2, 10, views_detail, NULL); /* after the nodes write their objects */
   cw_pipeline_set_views_shared_post(cw_pipeline_of(cw_scene_app_tree()), true); /* split screen: one post chain over the views */
   cw_debug_command("progress", "progress [show | preset <0..5>]: the save data; preset n = Cup fixtures 1..n won", cmd_progress);
   G.state_hash = 2166136261u;
@@ -1730,17 +1733,22 @@ static void cam_frame(cw_tree *t, double alpha, void *user) {
     apply_quality();
   }
 }
-/* before each split-screen view draws: the pugs and the cat far from its
- * camera in their light meshes, the grass and the crowd thinned with distance */
-static void view_hook(int view, void *user) {
-  (void)user;
+/* split screen, once a frame (cw_object_set_views: the frame stays one pass): the pugs and the cat far from a view's
+ * camera in their light meshes in that view, each view's grass thinned with distance from its camera */
+static void views_detail(cw_tree *t, double alpha, void *user) {
+  (void)t, (void)alpha, (void)user;
   const cw_view *vs = NULL;
   int n = cw_pipeline_views(cw_pipeline_of(cw_scene_app_tree()), &vs);
-  if (view >= n || !cw_node_valid(vs[view].camera)) return;
-  const t3_mat4 *m = cw_node3d_global_transform(vs[view].camera);
-  t3_vec3 eye = { m->e[12], m->e[13], m->e[14] };
-  world_view_detail(eye, false);
-  scenery_view_detail(eye);
+  if (n < 2) return;
+  t3_vec3 eye[CW_MAX_VIEWS];
+  for (int v = 0; v < n; v++) {
+    eye[v] = (t3_vec3){ 0, 0, 0 };
+    if (!cw_node_valid(vs[v].camera)) continue;
+    const t3_mat4 *m = cw_node3d_global_transform(vs[v].camera);
+    eye[v] = (t3_vec3){ m->e[12], m->e[13], m->e[14] };
+  }
+  world_views_detail(eye, n);
+  scenery_views_detail(eye, n);
 }
 static void cmd_camtrace(int argc, const char **argv, cw_reply *r) {
   G.camtrace = argc > 1 ? atoi(argv[1]) : !G.camtrace;
