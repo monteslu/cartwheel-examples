@@ -3,6 +3,26 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.28.0 (2026-11-21)
+
+- **All games**: Engine v0.57.6 (from v0.53.4). Split screen draws every view in one pass: one render of the scene for all the views, with reflection probes, the depth prepass, water, screen-space reflections and the clustered lights' shadows taking part, and on GL each view handed to the GPU as soon as it is drawn. Every program table is regenerated and stamped with the engine's shader sources (racer's water reads its view's rectangle)
+- **bikemesa**: Split screen says once a frame which rider each view draws close up and which far (view masks) instead of switching the riders before each view, so a split race draws in one pass on every track, Downtown's reflection probes included. A rider's wipeout replay in its own view still draws view by view, for the frames it plays
+- **derby**: Each split view's car detail (full, light or silhouette, and the followed car without the small parts its view cannot show) is chosen from that view's camera once a frame instead of before each view, so a split-screen bout draws in one pass in both arenas
+- **pugball**: Pugs and the cat far from a view's camera, and the grass thinned with distance, are chosen per view once a frame (each view has its own copy of each grass band, sharing its blades), so a split-screen match draws in one pass
+- **Timing** (wall ms a frame, the view-switching build against this one, release carts through romdev on a Radeon 890M, interleaved rounds of 600 frames, rounds another session ran in left out; load average 2 to 7, GPU clock 1.9 to 2.4 GHz):
+
+  | | GL 2 players | GL 4 players | WebGPU 2 players | WebGPU 4 players |
+  |---|---|---|---|---|
+  | bikemesa, Red Rock Run | 5.07 -> 4.81 | 5.29 -> 5.06 | 7.46 -> 6.93 | 6.08 -> 5.92 |
+  | bikemesa, Downtown | 7.01 -> 6.43 | 7.75 -> 6.99 | 6.99 -> 6.84 | 7.59 -> 7.44 |
+  | derby, arena 1 | 12.11 -> 11.82 | 13.97 -> 13.41 | 14.93 -> 14.40 | 16.23 -> 15.99 |
+  | derby, arena 2 | 12.00 -> 11.10 | 14.34 -> 12.40 | 14.20 -> 13.35 | 16.26 -> 14.90 |
+  | pugball | 7.09 -> 6.81 | 8.09 -> 7.76 | 8.25 -> 7.93 | 8.82 -> 8.61 |
+
+  (derby arena 2 and bikemesa Red Rock Run measured on engine v0.57.1, pugball at 2 players on GL on v0.57.6, the rest on v0.57.4, the same engine as v0.57.6)
+- **Tests**: split-onepass (each game's split screen on the cart through romdev, pads driving: the frame drawn in one pass, and the picture against the view-switching build within 0.3% of pixels over 16 levels; controls: that build 20 frames later must differ, and `pipeline views_array 0` must report the views drawn on their own) and split-onepass-timing (the two builds interleaved). bikemesa-touch and pugball-touch drive the games' own on-screen controls, which only native builds draw since the hosts draw the on-screen pad, so they run natively only; bikemesa-rides plays its touch rides on the cart as the host's pad sends them (both pass, their controls fail)
+- **Checks for this release**: one pass in all 112 surveyed split frames (bikemesa tracks 1 to 19, derby arenas 1 and 2, pugball stadiums 1 to 5; 2 and 4 players; every preset on the tracks, arenas and stadiums that have probes, a depth prepass or water; GL and WebGPU); the picture against the view-switching build at 2 and 4 players on GL and WebGPU at most 0.123% at single frames and at most 0.086% over 240 frames of play (derby arena 1 at most 0.018%); bikemesa's split wipeout replay identical to that build's; racer's water map at 2 players High, one pass against the views drawn on their own, at most 0.004% (control 25% or more); the program survey of every app natively (racer without its gates) and of every cart with every gate's runs finds no state missing (engine v0.57.1; bikemesa, derby and pugball again on v0.57.4); every gate of bikemesa, derby and pugball passes on GL and WebGPU, natively and as carts (v0.57.1; the split-screen, touch and ride gates again on v0.57.4); every cart starts and draws on GL and WebGPU through romdev; check-prompts, cart-art, check-art and cart-version pass
+
 ## v0.27.0 (2026-11-21)
 
 - **All games**: Saves use the engine's save store: one "progress" slot that can grow. A later update that adds a field to a game's save keeps every player's progress (Chromite and Spout used to start over on any change). Saves from before load once through each game's old version chain and are rewritten as a store, so nothing earned is lost
