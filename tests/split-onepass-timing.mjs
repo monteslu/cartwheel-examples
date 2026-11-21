@@ -1,10 +1,12 @@
 // Split screen wall time, the view hook build against the one-pass build: each game's split screen on two RELEASE
 // carts through romdev (a host that waits for each frame), the same deterministic start and pad play, the two carts
 // interleaved over rounds (A, B, A, B...), frame({op:'timing'}) over the same frames of play. Prints wall, CPU and GPU
-// ms a frame (median of the rounds' means), the load average and the GPU clock.
+// ms a frame (median of the rounds' means, over the rounds no other session ran in when there are two or more), the
+// load average and the GPU clock.
 //
 //   node tests/split-onepass-timing.mjs --game bikemesa|derby|pugball --players 2|4 --gpu gl|webgpu
-//        --old <view hook cart> [--new build/cart-wgpu/carts/<game>.wasc] [--rounds 3] [--frames 300] [--json <file>]
+//        --old <view hook cart> [--new build/cart-wgpu/carts/<game>.wasc] [--scene <track or arena>] [--rounds 3] [--frames 300]
+//        [--json <file>]  (pugball plays stadium 1, the split scripts' stadium)
 import { request as httpRequest } from 'node:http';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { loadavg } from 'node:os';
@@ -18,6 +20,7 @@ const argv = process.argv.slice(2);
 const opt = (k, d) => (argv.includes('--' + k) ? argv[argv.indexOf('--' + k) + 1] : d);
 const GAME = opt('game'), N = Number(opt('players', '2')), GPU = opt('gpu', 'gl');
 const ROUNDS = Number(opt('rounds', '3')), FRAMES = Number(opt('frames', '300'));
+const SCENE = Number(opt('scene', GAME === 'derby' ? '2' : '1'));
 const CARTS = { old: resolve(opt('old')), new: resolve(opt('new', join(ROOT, `build/cart-wgpu/carts/${GAME}.wasc`))) };
 const BASE = new URL(ROMDEV_URL);
 const post = (tool, args, session) => new Promise((ok, fail) => {
@@ -74,7 +77,7 @@ async function measure(which, round) {
     if (GAME === 'pugball') await post('input', { op: 'sequence', steps: scriptSteps(`pugball-split${N}.json`) }, session);
     else {
       await cmd(`players ${N}`);
-      await cmd(GAME === 'derby' ? 'bout 2' : 'track 1');
+      await cmd(GAME === 'derby' ? `bout ${SCENE}` : `track ${SCENE}`);
       await post('input', { op: 'sequence', steps: [{ input: { ports: [{}, {}, {}, {}] }, frames: 240 }] }, session);
     }
     const la = loadavg()[0];
@@ -95,7 +98,9 @@ for (let r = 0; r < ROUNDS; r++)
     rows[which].push(m);
     console.log(`round ${r} ${which.padEnd(3)} wall ${m.wall?.toFixed(2)} cpu ${m.cpu?.toFixed(2)} gpu ${m.gpu != null ? m.gpu.toFixed(2) : '-'} ms, one pass ${m.views_array} "${m.why || ''}", load ${m.load.toFixed(1)}, GPU clock ${m.clock ? Math.round(m.clock) + ' MHz' : '?'}${m.noisy ? ' NOISY' : ''}`);
   }
-const sum = (w) => ({ wall: median(rows[w].map((m) => m.wall)), cpu: median(rows[w].map((m) => m.cpu)), gpu: rows[w][0].gpu != null ? median(rows[w].map((m) => m.gpu)) : null });
+// the rounds romdev saw no other session in (contention): another session's GPU work only ever adds to a round
+const quiet = (w) => { const q = rows[w].filter((m) => !m.noisy); return q.length >= 2 ? q : rows[w]; };
+const sum = (w) => ({ wall: median(quiet(w).map((m) => m.wall)), cpu: median(quiet(w).map((m) => m.cpu)), gpu: rows[w][0].gpu != null ? median(quiet(w).map((m) => m.gpu)) : null, rounds: quiet(w).length });
 const o = sum('old'), n = sum('new');
-console.log(`${GAME} ${N}p ${GPU} (${rows.new[0].adapter || '?'}): wall ${o.wall.toFixed(2)} -> ${n.wall.toFixed(2)} ms (${(100 * (n.wall / o.wall - 1)).toFixed(1)}%), cpu ${o.cpu?.toFixed(2)} -> ${n.cpu?.toFixed(2)}, gpu ${o.gpu?.toFixed(2) ?? '-'} -> ${n.gpu?.toFixed(2) ?? '-'}`);
+console.log(`${GAME} ${N}p scene ${SCENE} ${GPU} (${rows.new[0].adapter || '?'}): wall ${o.wall.toFixed(2)} -> ${n.wall.toFixed(2)} ms (${(100 * (n.wall / o.wall - 1)).toFixed(1)}%; quiet rounds ${o.rounds}/${n.rounds}), cpu ${o.cpu?.toFixed(2)} -> ${n.cpu?.toFixed(2)}, gpu ${o.gpu?.toFixed(2) ?? '-'} -> ${n.gpu?.toFixed(2) ?? '-'}`);
 if (opt('json')) writeFileSync(resolve(opt('json')), JSON.stringify({ game: GAME, players: N, gpu: GPU, old: rows.old, new: rows.new, summary: { old: o, new: n } }, null, 1));
