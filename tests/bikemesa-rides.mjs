@@ -30,6 +30,13 @@ const TRACE = argv.includes("--trace") ? +argv[argv.indexOf("--trace") + 1] : 0;
 const only2 = only.filter((a) => !/^\d+$/.test(a));
 const BACKENDS = argv.includes('--gl') ? ['gl'] : argv.includes('--webgpu') ? ['webgpu'] : ['gl', 'webgpu'];
 const RIDES = JSON.parse(readFileSync(process.env.BIKEMESA_RIDES || join(ROOT, 'tests', 'bikemesa-rides.json'), 'utf8')).filter((r) => !only2.length || only2.includes(r.name));
+// a ride by the cart's own touch controls (drawn only in native builds since the hosts draw the on-screen pad) plays
+// its "hostPad" input here: the presses the host's pad sends for the same touches, from the same ticks
+for (const r of RIDES)
+  if (r.hostPad) {
+    console.log(`note ${r.name}: on a cart host, as the host pad sends it: ${r.hostPad.note}`);
+    Object.assign(r, { input: r.hostPad.input, expect: r.hostPad.expect, control: { ...r.control, input: r.hostPad.controlInput } });
+  }
 if (only2.length && RIDES.length !== only2.length) { console.log(`FAIL no ride named ${only2.filter((n) => !RIDES.some((r) => r.name === n)).join(', ')}`); process.exit(1); }
 const GS = { TITLE: 0, SELECT: 1, COUNT: 2, RIDE: 3, FINISH: 5, CHARACTER: 7 };
 const AGENT = process.env.CW_ROMDEV_AGENT || 'bikemesa-rides';

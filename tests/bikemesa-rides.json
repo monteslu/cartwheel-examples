@@ -346,6 +346,57 @@
      ]
     }
    ]
+  },
+  "hostPad": {
+   "note": "On a cart host the host draws the on-screen pad (cartwheel-engine v0.50.0: carts turn their own touch controls off) and sends what it presses as pad input, so on a cart this ride plays the same presses as the host pad sends them: PEDAL is the south button, HOP west, NO HANDS the left shoulder, SUPER both shoulders, the lean stick full back the d-pad left.",
+   "input": [
+    {
+     "at": 5,
+     "buttons": [
+      "south"
+     ]
+    },
+    {
+     "at": 115,
+     "buttons": [
+      "south",
+      "west"
+     ]
+    },
+    {
+     "at": 119,
+     "buttons": [
+      "south"
+     ]
+    },
+    {
+     "at": 405,
+     "buttons": [
+      "south",
+      "l"
+     ]
+    },
+    {
+     "at": 445,
+     "buttons": [
+      "south"
+     ]
+    }
+   ],
+   "expect": {
+    "hops": 1,
+    "poses": 1,
+    "perfects": 1,
+    "crashes": 0
+   },
+   "controlInput": [
+    {
+     "at": 5,
+     "buttons": [
+      "south"
+     ]
+    }
+   ]
   }
  },
  {
@@ -432,6 +483,48 @@
        "x": 858,
        "y": 430
       }
+     ]
+    }
+   ]
+  },
+  "hostPad": {
+   "note": "On a cart host the host draws the on-screen pad (cartwheel-engine v0.50.0: carts turn their own touch controls off) and sends what it presses as pad input, so on a cart this ride plays the same presses as the host pad sends them: PEDAL is the south button, HOP west, NO HANDS the left shoulder, SUPER both shoulders, the lean stick full back the d-pad left. The d-pad leans the bike fully at once where the thumb slid out over a tick, so the pad lets go two ticks sooner to land the same SUPERMAN BACKFLIP perfect (2475 banked).",
+   "input": [
+    {
+     "at": 5,
+     "buttons": [
+      "south"
+     ]
+    },
+    {
+     "at": 1046,
+     "buttons": [
+      "south",
+      "left",
+      "l",
+      "r"
+     ]
+    },
+    {
+     "at": 1088,
+     "buttons": [
+      "south"
+     ]
+    }
+   ],
+   "expect": {
+    "flips": 1,
+    "poses": 1,
+    "perfects": 1,
+    "star3.trick": 1,
+    "trick.banked": 2475,
+    "crashes": 0
+   },
+   "controlInput": [
+    {
+     "at": 5,
+     "buttons": [
+      "south"
      ]
     }
    ]
