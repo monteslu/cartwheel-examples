@@ -916,10 +916,11 @@ void scenery_tick(const sim *s, int ticks) {
     for (int k = 0; k < 2; k++)
       if (maps[k]) maps[k]->offset = (t3_vec2){ ticks * 0.0004f, ticks * 0.00025f };
   }
-  if (SC.neon[0]) /* neon flicker: now and then one sign stutters */
+  if (SC.neon[0]) /* now and then one sign sags: it dims and comes back over half a second (a soft dip, never a flicker) */
     for (int k = 0; k < 4; k++) {
       int ph = (ticks + k * 97) % 400;
-      SC.neon[k]->emissive_intensity = ph < 12 && (ph / 3) % 2 ? 0.6f : 5 + 0.6f * cw_sin(ticks * 0.05f + k);
+      float dip = ph < 30 ? cw_sin(3.1415927f * ph / 30.0f) : 0;
+      SC.neon[k]->emissive_intensity = (5 + 0.6f * cw_sin(ticks * 0.05f + k)) * (1 - 0.8f * dip * dip);
     }
   if (cw_node_valid(SC.storm)) {
     bool on = s && s->storm > 0;
