@@ -4,7 +4,9 @@
  * (debug field scenery.hash), and it only ever draws.
  *
  *   meadow   rolling grass with thousands of instanced blades swaying in a
- *            slow travelling breeze, flowers, round trees, a fence
+ *            slow travelling breeze (the engine's foliage wind,
+ *            cartwheel/foliage.h: on the GPU, every frame), flowers, round
+ *            trees, a fence
  *   frost    snow drifts, snowy pines, ice crystals, falling snow
  *   forge    basalt, glowing lava pools that breathe, jagged rocks, embers
  *   temple   jungle: big leaves, palms, mossy statues, fireflies
@@ -15,7 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "cartwheel/jobs.h"
+#include "cartwheel/foliage.h"
 #include "cartwheel/math.h"
 #include "cartwheel/particles.h"
 #include "world.h"
@@ -35,6 +37,7 @@ static struct {
   float blade_x[BLADES], blade_z[BLADES], blade_h[BLADES], blade_lean[BLADES];
   float blade_cy[BLADES], blade_sy[BLADES]; /* cos and sin of half the blade's yaw (fixed) */
   int nblades;
+  t3_material *blade_mat; /* the blades' material: it carries the foliage wind */
   t3_material *lava, *sea, *neon[4], *windows;
   cw_node weather, storm;
   bool storm_on;
@@ -271,6 +274,25 @@ static void build_meadow(void) {
   }
   SC.nblades = BLADES;
   free(bl);
+  /* each blade's place, turn, lean and height, set once: the breeze moves them on the GPU */
+  for (int i = 0; i < BLADES; i++) {
+    float cy = SC.blade_cy[i], sy = SC.blade_sy[i], cb, sb;
+    cw_sincos(SC.blade_lean[i] * 0.5f, &sb, &cb);
+    t3_quat q = { cy * sb, sy * cb, -sy * sb, cy * cb }; /* the yaw, then the lean about the blade's x axis */
+    t3_mat4 mx;
+    t3_mat4_compose(&mx, (t3_vec3){ SC.blade_x[i], -0.3f, SC.blade_z[i] }, q, (t3_vec3){ 1, SC.blade_h[i], 1 });
+    int b = SC.blade_part[i];
+    t3_instanced_mesh_set_matrix_at(SC.bpart[b].im, i - SC.bpart[b].start, &mx);
+  }
+  /* the breeze: gusts travelling across the meadow and a gentle sway between */
+  cw_foliage_desc fd = cw_foliage_default();
+  fd.wind = cw_wind_default();
+  fd.wind.strength = 0.22f;
+  fd.wind.frequency = 0.35f;
+  fd.wind.direction[0] = 0.87f, fd.wind.direction[1] = 0.5f;
+  fd.wind.gust = 0.6f;
+  fd.wind.gust_scale = 15;
+  if (cw_foliage_apply_mesh(gm, bg, &fd)) SC.blade_mat = t3_retain(gm);
   t3_release(bg);
   t3_release(gm);
   /* flowers: a stem and a five-petal head (instanced heads in many colours) */
@@ -830,6 +852,7 @@ void scenery_reset(void) {
   if (SC.ready) {
     for (int b = 0; b < BLADE_PARTS; b++)
       if (SC.bpart[b].im) t3_release(SC.bpart[b].im);
+    if (SC.blade_mat) cw_foliage_remove(SC.blade_mat), t3_release(SC.blade_mat);
     if (SC.lava) t3_release(SC.lava);
     if (SC.sea) t3_release(SC.sea);
     if (SC.windows) t3_release(SC.windows);
@@ -866,7 +889,7 @@ void scenery_build(cw_node scene, int theme, uint32_t seed) {
 }
 
 /* the share of the meadow's blades and the crowd drawn (cw_quality_density):
- * the instances past it are neither drawn nor swayed */
+ * the instances past it are not drawn */
 static float density = 1;
 static void apply_density(void) {
   float k = density < 0.05f ? 0.05f : density > 1 ? 1 : density;
@@ -883,38 +906,10 @@ void scenery_density(float k) {
   if (SC.ready) apply_density();
 }
 
-/* blades [begin, end) bent by the breeze at time *(float *)ctx: each one
- * from its own fields alone, so the result is the same on any thread */
-static void sway(int begin, int end, int worker, void *ctx) {
-  (void)worker;
-  float t = *(const float *)ctx;
-  for (int i = begin; i < end; i++) {
-    float x = SC.blade_x[i], z = SC.blade_z[i];
-    float gust = cw_sin(x * 0.35f + z * 0.2f - t) * 0.5f + 0.5f;
-    float bend = SC.blade_lean[i] + 0.22f * gust + 0.05f * cw_sin(t * 3 + i);
-    float cy = SC.blade_cy[i], sy = SC.blade_sy[i], cb, sb;
-    cw_sincos(bend * 0.5f, &sb, &cb);
-    /* a quaternion from yaw then a bend about the blade's x axis */
-    t3_quat q = { cy * sb, sy * cb, -sy * sb, cy * cb };
-    t3_mat4 mx;
-    t3_mat4_compose(&mx, (t3_vec3){ x, -0.3f, z }, q, (t3_vec3){ 1, SC.blade_h[i], 1 });
-    int b = SC.blade_part[i], li = i - SC.bpart[b].start;
-    if (li < SC.bpart[b].im->count) t3_instanced_mesh_set_matrix_at(SC.bpart[b].im, li, &mx);
-  }
-}
-
 void scenery_tick(const sim *s, int ticks) {
   if (!SC.ready) return;
   SC.ticks = ticks;
   crowd_tick(s, ticks);
-  /* the breeze: a slow wave travelling across the meadow (every other tick),
-   * the blades shared out over the job pool */
-  if (SC.nblades && (ticks & 1) == 0) {
-    float t = ticks * 0.025f;
-    cw_parallel_for(SC.nblades, 256, sway, &t); /* the blades not drawn are skipped */
-    for (int b = 0; b < BLADE_PARTS; b++)
-      if (SC.bpart[b].im) SC.bpart[b].im->instance_matrix->version++;
-  }
   if (SC.lava) SC.lava->emissive_intensity = 2.2f + 0.8f * cw_sin(ticks * 0.025f);
   if (SC.sea) {
     t3_texture *maps[2] = { SC.sea->normal_map, SC.sea->map };
