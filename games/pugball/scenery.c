@@ -5,7 +5,9 @@
  *
  *   pitch    thousands of instanced grass clumps (curved, tapered blades)
  *            in the mown stripes, swaying in a slow travelling breeze and
- *            flattened where the pugs and the cat roll over them
+ *            pushed aside where the pugs and the cat roll through them,
+ *            standing up again behind (the engine's foliage wind and movers,
+ *            cartwheel/foliage.h: on the GPU, every frame)
  *   stands   concrete tiers swept round the bowl, moulded seats in blocks
  *            of the team colours, and a crowd of dog fans in jerseys who
  *            bob along and leap up on a goal
@@ -20,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cartwheel/foliage.h"
 #include "cartwheel/jobs.h"
 #include "cartwheel/math.h"
 #include "cartwheel/particles.h"
@@ -67,13 +70,16 @@ static struct {
   /* split screen: each band once more for views 1 to 3 (the same clumps, matrices and colours, a count of its own,
    * drawn only in its view: cw_object_set_views), so each view thins its grass by its own distance in one pass */
   t3_instanced_mesh *gview[GRASS_BANDS][CW_MAX_VIEWS - 1];
-  int gband_tick[GRASS_BANDS]; /* the clumps the breeze moves: the most any view draws */
+  int gband_tick[GRASS_BANDS]; /* the clumps the most any view draws */
   bool gviews; /* the view masks are on the bands */
   int gband_shown[GRASS_BANDS]; /* clumps drawn at the current quality */
   float gband_c[GRASS_BANDS][3]; /* each band's middle (x, z) and half its length */
   uint8_t *gband_of;
   float *gx, *gz, *gyaw, *gs, *gsy;
   int nclumps;
+  t3_material *grass_mat;       /* the clumps' material: it carries the foliage wind and bend */
+  int mover[MAXP + 1];          /* foliage movers: the pugs, then the cat (ids + 1; 0 none) */
+  float mover_at[MAXP + 1][2];  /* where each was last tick (a jump: a replay cut, a respawn) */
   t3_material *flood;
   float ring_y, ring_d;         /* the floodlights: their height and distance out from the wall */
   cw_node flood_light[FLOODS];  /* night: a spot light under each lamp (none by day) */
@@ -376,65 +382,59 @@ static void build_grass(float tint_r, float tint_g, float tint_b) {
     }
   }
   free(gx), free(gz), free(gyaw), free(gs), free(gsy), free(gcol);
+  /* each clump's place, turn and size, set once: the breeze and the pugs bend them on the GPU */
+  for (int i = 0; i < n; i++) {
+    int bi = SC.gband_of[i];
+    float sn, c, sc = SC.gs[i];
+    cw_sincos(SC.gyaw[i], &sn, &c);
+    float mx[16] = { c * sc, 0, -sn * sc, 0, 0, SC.gsy[i], 0, 0, sn * sc, 0, c * sc, 0, SC.gx[i], 0, SC.gz[i], 1 };
+    memcpy((float *)SC.gband[bi].im->instance_matrix->array + 16 * (i - SC.gband[bi].start), mx, sizeof mx);
+  }
+  for (int bi = 0; bi < GRASS_BANDS; bi++)
+    if (SC.gband[bi].im) SC.gband[bi].im->instance_matrix->version++;
+  /* the breeze: broad gusts travelling down the pitch's long diagonal, a little sway between; the clumps the pugs and
+   * the cat roll through lie over away from them and stand up again behind */
+  cw_foliage_desc fd = cw_foliage_default();
+  fd.wind = cw_wind_default();
+  fd.wind.strength = 0.075f;
+  fd.wind.frequency = 0.4f;
+  fd.wind.direction[0] = 0.96f, fd.wind.direction[1] = 0.28f;
+  fd.wind.gust = 0.65f;
+  fd.wind.gust_scale = 18;
+  fd.bend = 1.2f;
+  if (cw_foliage_apply_mesh(m, clump, &fd)) SC.grass_mat = t3_retain(m);
   t3_release(clump);
   t3_release(m);
 }
 
-/* the breeze: two broad travelling gusts and a small flutter, a function of
- * the tick and the position only (every host draws the same breeze) */
-static const float WIND_X = 0.96f, WIND_Z = 0.28f;
-static float gust(float x, float z, float t) {
-  float p = x * WIND_X + z * WIND_Z, q = -x * WIND_Z + z * WIND_X;
-  float g1 = 0.5f + 0.5f * cw_sin(6.2831853f * (p / 22 - t / 7.5f));
-  float g2 = 0.5f + 0.5f * cw_sin(6.2831853f * ((p * 0.7f + q * 0.35f) / 13 - t / 9.7f) + 1.7f);
-  float g = g1 * 0.65f + g2 * 0.35f;
-  return g * g;
-}
-/* half the clumps a tick (alternating): a breeze at 30 Hz per blade; in
- * blocks on the job pool, each writing only its own clumps */
-static struct { const sim *s; float t; int parity; } GT;
-static void grass_range(int begin, int end, int worker, void *ctx) {
-  (void)worker, (void)ctx;
-  const sim *s = GT.s;
-  float t = GT.t;
-  for (int j = begin; j < end; j++) {
-    int i = j * 2 + GT.parity;
-    if (i >= SC.nclumps) break;
-    int b = SC.gband_of[i], li = i - SC.gband[b].start;
-    t3_instanced_mesh *im = SC.gband[b].im;
-    if (li >= SC.gband_tick[b]) continue; /* not drawn at this quality, in any view */
-    float x = SC.gx[i], z = SC.gz[i];
-    float bend = 0.08f + 0.5f * gust(x, z, t) + 0.08f * cw_sin(t * 2.4f + x * 1.9f + z * 1.3f);
-    /* the pugs and the cat flatten the grass they roll over */
-    float press = 0;
-    for (int k = 0; k < MAXP; k++) {
+/* the pugs and the cat as foliage movers: each tick where they are; one in the air (or off the pitch) pushes nothing.
+ * A jump (a replay cut to another moment, a pug set back at kick-off) moves the mover there without a trail. */
+static void grass_movers(const sim *s) {
+  if (!SC.grass_mat) return;
+  for (int k = 0; k <= MAXP; k++) {
+    bool ball = k == MAXP;
+    float x, z, y, r;
+    bool on;
+    if (ball) x = s->ball.x, z = s->ball.z, y = s->ball.y - RB, r = 1.05f, on = true;
+    else {
       const pug *u = &s->p[k];
-      if (!u->on || u->dead || u->p.y > 1.2f) continue;
-      float dx = x - u->p.x, dz = z - u->p.z, d2 = dx * dx + dz * dz;
-      if (d2 < 0.5f) press = fmaxf(press, 1 - d2 / 0.5f);
+      x = u->p.x, z = u->p.z, y = u->p.y, r = 0.7f, on = u->on && !u->dead;
     }
-    if (s->ball.y < RB + 0.4f) {
-      float dx = x - s->ball.x, dz = z - s->ball.z, d2 = dx * dx + dz * dz;
-      if (d2 < 1.1f) press = fmaxf(press, 1 - d2 / 1.1f);
+    on = on && y < (ball ? 0.4f : 1.2f);
+    cw_foliage_mover m = cw_foliage_mover_default();
+    m.x = x, m.z = z, m.radius = r, m.strength = 1, m.recover = 1.2f;
+    if (on && !SC.mover[k]) {
+      SC.mover[k] = cw_foliage_mover_add(&m) + 1;
+    } else if (!on && SC.mover[k]) {
+      cw_foliage_mover_remove(SC.mover[k] - 1);
+      SC.mover[k] = 0;
+    } else if (on) {
+      float dx = x - SC.mover_at[k][0], dz = z - SC.mover_at[k][1];
+      if (dx * dx + dz * dz > 4) cw_foliage_mover_set(SC.mover[k] - 1, &m);
+      else cw_foliage_mover_update(SC.mover[k] - 1, x, z);
     }
-    float sy = SC.gsy[i] * (1 - 0.7f * press);
-    float sn, c, sc = SC.gs[i];
-    cw_sincos(SC.gyaw[i], &sn, &c);
-    float kx = bend * WIND_X, kz = bend * WIND_Z;
-    float m[16] = { c * sc, 0, -sn * sc, 0, 0, sy, 0, 0, sn * sc, 0, c * sc, 0, x, 0, z, 1 };
-    for (int col = 0; col < 3; col++) {
-      m[col * 4 + 0] += kx * m[col * 4 + 1];
-      m[col * 4 + 2] += kz * m[col * 4 + 1];
-    }
-    memcpy((float *)im->instance_matrix->array + 16 * li, m, sizeof m);
+    SC.mover_at[k][0] = x, SC.mover_at[k][1] = z;
   }
-}
-static void grass_tick(const sim *s, float t, int parity) {
-  if (!SC.nclumps) return;
-  GT.s = s, GT.t = t, GT.parity = parity;
-  cw_parallel_for((SC.nclumps - parity + 1) / 2, 256, grass_range, NULL); /* the clumps not drawn are skipped */
-  for (int b = 0; b < GRASS_BANDS; b++)
-    if (SC.gband[b].im) SC.gband[b].im->instance_matrix->version++;
 }
 
 /* ── the stands, the crowd, the roof ────────────────────────────────── */
@@ -1163,6 +1163,8 @@ void scenery_reset(void) {
     free(SC.gyaw);
     free(SC.gs);
     free(SC.gsy);
+    if (SC.grass_mat) cw_foliage_remove(SC.grass_mat), t3_release(SC.grass_mat);
+    cw_foliage_movers_clear();
   }
   memset(&SC, 0, sizeof SC);
 }
@@ -1358,6 +1360,6 @@ void scenery_quality(float k, float grass) {
 void scenery_tick(const sim *s, int ticks, int cheer) {
   if (!SC.ready) return;
   SC.ticks++;
-  grass_tick(s, ticks / 60.0f, ticks & 1);
+  grass_movers(s);
   if ((ticks & 1) == 0 || cheer) crowd_tick(ticks, cheer);
 }
