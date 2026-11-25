@@ -113,15 +113,16 @@ static const char *const PICK_R[] = { "amount", "60", "lifetime", "0.6", "lifeti
   "emission_shape", "RING", "emission_radius", "0.6", "emission_inner_radius", "0.5", "emission_normal_speed", "5", "spread", "10",
   "speed_min", "0.2", "speed_max", "0.6", "gravity", "vec3(0, 0, 0)", "damping", "2.5", "size", "0.35", "size_curve", "\"0 1, 1 0\"",
   "energy", "6", "blend", "ADD", NULL };
-/* the flash: one star flare that blooms for a few frames */
+/* the flash: one star flare that blooms for a few frames, its four spikes square to the screen as the bloom glints are
+ * (angle_random 0: a lens star, never tilted at random) */
 static const char *const FLASH_R[] = { "amount", "1", "lifetime", "0.22", "explosiveness", "1", "one_shot", "true", "emission_shape", "POINT",
   "spread", "0", "speed_min", "0", "speed_max", "0", "gravity", "vec3(0, 0, 0)", "size", "7", "size_curve", "\"0 0.6, 0.15 1, 1 0.2\"",
-  "texture", "\"fx/flare.png\"", "color_ramp", "\"0 1 0.9 0.75 1, 1 1 0.5 0.2 0\"", "energy", "5", "blend", "ADD", NULL };
+  "texture", "\"fx/flare.png\"", "angle", "0", "angle_random", "0", "color_ramp", "\"0 1 0.9 0.75 1, 1 1 0.5 0.2 0\"", "energy", "5", "blend", "ADD", NULL };
 
-/* a muzzle flash: a small blue-white flare for a frame or two */
+/* a muzzle flash: a small blue-white flare for a frame or two, upright as the flash is */
 static const char *const MUZZLE_R[] = { "amount", "1", "lifetime", "0.06", "explosiveness", "1", "one_shot", "true", "emission_shape", "POINT",
   "spread", "0", "speed_min", "0", "speed_max", "0", "gravity", "vec3(0, 0, 0)", "size", "1.1", "size_curve", "\"0 1, 1 0.4\"",
-  "texture", "\"fx/flare.png\"", "color_ramp", "\"0 0.6 0.8 1 1, 1 0.3 0.5 1 0\"", "energy", "4", "blend", "ADD", NULL };
+  "texture", "\"fx/flare.png\"", "angle", "0", "angle_random", "0", "color_ramp", "\"0 0.6 0.8 1 1, 1 0.3 0.5 1 0\"", "energy", "4", "blend", "ADD", NULL };
 /* the hero's exhaust: hot gas off each nozzle, blue-white to orange, trailing behind */
 static const char *const EXHAUST_R[] = { "amount", "70", "lifetime", "0.32", "lifetime_random", "0.3", "emission_shape", "SPHERE",
   "emission_radius", "0.04", "direction", "vec3(0, 0, 1)", "spread", "7", "speed_min", "7", "speed_max", "10", "gravity", "vec3(0, 0, 0)",
