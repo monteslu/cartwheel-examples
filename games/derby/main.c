@@ -760,8 +760,10 @@ static void cmd_sw(int argc, const char **argv, cw_reply *r) {
   /* old_floor 1: the floor as one 6 m tile repeated, as it was (the floor-repeat control; from the next bout) */
   if (argc > 2 && !strcmp(argv[1], "old_floor")) world_old_floor = atoi(argv[2]);
   if (argc > 2 && !strcmp(argv[1], "floor_macro")) world_floor_macro(atoi(argv[2])); /* dev aid */
-  cw_reply_printf(r, "{\"hint_countdown\":%d,\"no_handling_damage\":%d,\"no_beat\":%d,\"no_classes\":%d,\"no_ies\":%d,\"old_floor\":%d}",
-                  sw_hint_countdown, sw_no_handling_damage, sw_no_beat, sw_no_classes, sw_no_ies, world_old_floor);
+  /* no_churn 1: the wheels leave the floor as it was built (the floor tracks' motion control; at once) */
+  if (argc > 2 && !strcmp(argv[1], "no_churn")) world_no_churn = atoi(argv[2]);
+  cw_reply_printf(r, "{\"hint_countdown\":%d,\"no_handling_damage\":%d,\"no_beat\":%d,\"no_classes\":%d,\"no_ies\":%d,\"old_floor\":%d,\"no_churn\":%d}",
+                  sw_hint_countdown, sw_no_handling_damage, sw_no_beat, sw_no_classes, sw_no_ies, world_old_floor, world_no_churn);
 }
 /* study opening <n> | study pull: bouts and test drives run without drawing (study.c), for the gates */
 static void cmd_study(int argc, const char **argv, cw_reply *r) {
@@ -980,7 +982,7 @@ static void init(void *u) {
   cw_debug_command("keyart", "keyart <car> [angle distance height] [hud 0|1] | keyart off: key art (a three-quarter look at a car, the HUD off)", cmd_keyart);
   cw_debug_command("bind", "bind <action> <bindings>: replace an action's bindings (binding text, as input.cfg writes it)", cmd_bind);
   cw_debug_command("players", "players <1..4>: humans in the next bout (splitscreen)", cmd_players);
-  cw_debug_command("sw", "sw hint_countdown|no_handling_damage|no_beat|no_classes|no_ies|old_floor <0|1>: the old behaviour back (the gates' controls)", cmd_sw);
+  cw_debug_command("sw", "sw hint_countdown|no_handling_damage|no_beat|no_classes|no_ies|old_floor|no_churn <0|1>: the old behaviour back (the gates' controls)", cmd_sw);
   cw_debug_command("study", "study opening <n> | study pull | study classes <n>: bouts and test drives run without drawing (the gates)", cmd_study);
   cw_debug_i32("views", &G.views);
   G.state_hash = 2166136261u;

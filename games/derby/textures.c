@@ -72,11 +72,14 @@ static void rgb(texel *t, float r, float g, float b) { t->r = r, t->g = g, t->b 
 
 /* the arena floor: churned mud, tyre tracks pressed in it (soft-edged,
  * crossing), clods and stones, wet patches that go dark and glossy */
-static uint32_t dirt_seed; /* added to every seed of g_dirt: 0 the dirt every surface uses, others the floor's second layer */
+static uint32_t dirt_seed; /* added to every seed of g_dirt: 0 the dirt every surface uses, others the floor's other layers */
+static bool dirt_wet;      /* the floor's wet mud: the same dirt soaked (dark, glossy, its ruts deeper) */
+static bool dirt_churn;    /* the floor's churned dirt: tyre furrows along v with tread in them, berms thrown up */
 static void g_dirt(float u, float v, texel *t) {
   const uint32_t S = dirt_seed;
   float n1 = fbm(u, v, 4, 5, 11 + S), n2 = fbm(u, v, 24, 4, 12 + S), n3 = fbm(u, v, 64, 2, 16 + S);
   float wet = clamp01((fbm(u, v, 2, 3, 13 + S) - 0.52f) * 4);
+  if (dirt_wet) wet = 0.55f + 0.45f * wet;
   /* tracks: a few wide, soft furrows wandering in two directions */
   float rut = 0;
   for (int k = 0; k < 4; k++) {
@@ -86,12 +89,31 @@ static void g_dirt(float u, float v, texel *t) {
     rut += clamp01(1 - d * 7) * clamp01(1 - d * 7) * (0.35f + 0.65f * fbm(u, v, 8, 2, 40 + S + (uint32_t)k));
   }
   rut = clamp01(rut) * 0.8f;
+  /* churned: nine tyre furrows across the tile (about 0.3 m wide on its 4 m tile) running along v, wandering a little,
+   * of uneven depth, with tread blocks pressed across them; the dirt pushed out of each stands as a low berm beside it */
+  float berm = 0;
+  if (dirt_churn) {
+    float tr = 0;
+    for (int k = 0; k < 3; k++) {
+      float w = fbm(u, v, 1, 2, 50 + S + (uint32_t)k) * 0.6f;
+      float d = fabsf(fractf(u * 3 + w + (float)k * 0.37f) - 0.5f) * 9; /* 0 at the furrow's middle, 1 at its edge */
+      float band = clamp01(1 - d);
+      band = band * band * (3 - 2 * band);
+      float tread = clamp01((fabsf(fractf(v * 40 + d * 0.6f) - 0.5f) * 2 - 0.35f) * 4); /* chevrons */
+      tr += band * (0.55f + 0.45f * fbm(u, v, 4, 2, 60 + S + (uint32_t)k)) * (0.8f + 0.2f * tread);
+      berm += clamp01(1 - fabsf(d - 1.35f) * 2.5f) * fbm(u, v, 16, 2, 70 + S + (uint32_t)k);
+    }
+    rut = clamp01(rut * 0.5f + tr);
+    berm = clamp01(berm);
+    wet = clamp01(0.12f + 0.25f * wet + 0.35f * rut * fbm(u, v, 8, 2, 80 + S)); /* water stands in the furrows */
+  }
   float d1, d2;
   uint32_t id;
   cells(u, v, 48, 15 + S, &d1, &d2, &id);
   float pebble = (id & 15) == 0 ? clamp01(1 - d1 * 3.2f) : 0;
   float clod = clamp01((n2 - 0.62f) * 5) * (1 - wet);
   float k = 0.72f + 0.28f * n1 + 0.1f * (n3 - 0.5f) - 0.1f * rut + 0.08f * clod;
+  if (dirt_churn) k = k * 0.8f - 0.14f * rut + 0.08f * berm; /* turned over: darker, the furrows darkest, the berms catching light */
   rgb(t, 0.36f * k, 0.27f * k, 0.2f * k);
   t->r = mixf(t->r, t->r * 0.5f, wet), t->g = mixf(t->g, t->g * 0.52f, wet), t->b = mixf(t->b, t->b * 0.58f, wet);
   if (pebble > 0) {
@@ -99,7 +121,9 @@ static void g_dirt(float u, float v, texel *t) {
     t->r = mixf(t->r, pc, pebble), t->g = mixf(t->g, pc * 0.95f, pebble), t->b = mixf(t->b, pc * 0.9f, pebble);
   }
   t->h = 0.5f + 0.3f * n2 + 0.1f * n3 - 0.3f * rut + 0.35f * pebble + 0.2f * clod;
+  if (dirt_churn) t->h = 0.55f + 0.2f * n2 + 0.1f * n3 - 0.45f * rut + 0.25f * berm + 0.2f * pebble;
   t->rough = mixf(0.94f, 0.18f, wet) - 0.15f * pebble;
+  if (dirt_churn) t->rough = fmaxf(t->rough, 0.42f); /* churned, not standing water: no mirror sheen under the low lights */
   t->ao = 0.75f + 0.25f * (1 - rut * 0.6f) - 0.1f * pebble;
 }
 
@@ -395,7 +419,7 @@ bool tex_warm(int kind) {
 static uint8_t *FLOOR_PX[TEX_FLOOR_LAYERS][2];
 static texel *FLOOR_TX;
 static int floor_layer, floor_row;
-static const uint32_t FLOOR_SEED[TEX_FLOOR_LAYERS] = { 0, 1000 };
+static const uint32_t FLOOR_SEED[TEX_FLOOR_LAYERS] = { 0, 1000, 2000, 3000 };
 typedef struct floor_job { int y0; } floor_job;
 static void floor_rows(int begin, int end, int worker, void *ctx) {
   (void)worker;
@@ -414,9 +438,13 @@ bool tex_floor_warm(void) {
   if (!FLOOR_TX) FLOOR_TX = malloc(sizeof *FLOOR_TX * FN * FN);
   int y1 = floor_row + FLOOR_ROWS < FN ? floor_row + FLOOR_ROWS : FN;
   dirt_seed = FLOOR_SEED[floor_layer];
+  dirt_wet = floor_layer == TEX_FLOOR_WET;
+  dirt_churn = floor_layer == TEX_FLOOR_CHURN;
   floor_job j = { floor_row };
   cw_parallel_for((y1 - floor_row) * FN, 256, floor_rows, &j);
   dirt_seed = 0;
+  dirt_wet = false;
+  dirt_churn = false;
   floor_row = y1;
   if (floor_row < FN) return false;
   const texel *tx = FLOOR_TX;

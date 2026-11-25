@@ -5054,7 +5054,12 @@
   {
     "name": "derby-floor",
     "script": "tests/derby-floor.mjs",
-    "note": "derby through romdev, GL and WebGPU, High and Low: top-down over the bowl, the floor's brightness autocorrelation at the old tile's 6 m period is at most two thirds of the old floor's, with patch variation and pixel detail held. Control: sw old_floor 1 (the floor as one repeated 6 m tile) shows the repeat."
+    "note": "derby through romdev, GL and WebGPU, High and Low: top-down over the bowl, the floor's brightness autocorrelation at the old tile's 6 m period is at most two thirds of the old floor's, with patch variation, luma spread, dark ground and pixel detail held; 12 s into the bout the CPU drivers have churned the dirt (tyre tracks: churned texels grow, 2 % of the floor goes darker than without the churn; four-way split at High and Low keeps the old floor's luma spread and dark ground). Controls: sw old_floor 1 (the floor as one repeated 6 m tile) shows the repeat; sw no_churn 1 fails the churn check."
+  },
+  {
+    "name": "bikemesa-grass-wind",
+    "script": "tests/bikemesa-grass-wind.mjs",
+    "note": "bikemesa's cart through romdev, GL and WebGPU, track 1 with the rider waiting at the start: the verge grass sways on the GPU (at least 1 % of the picture changes over 15 frames) and no program is missing. Control: sw still_grass 1 (no wind) leaves the frames all but equal."
   },
   {
     "name": "derby-opening",

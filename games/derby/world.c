@@ -113,10 +113,11 @@ static void build_lot(cw_node root);
 
 /* The dirt is a flat Terrain3D (cartwheel/terrain.h) with two layers of the same churned dirt made from different seeds
  * (textures.c, tex_floor_layer), tiling at different sizes (6 m and 7.3 m, so their repeats never line up), blended by
- * a world-space noise through their heights (puddles and ruts of one give way to the other's along their shapes),
- * with the engine's near-ground macro variation over it: brightness drifting over 14 m patches (macro_tint) and, from
- * 10 m out, a second read of each layer four times larger mixed in (macro_layer; the near ground keeps its one sharp
- * read, so wet spots stay glossy and ruts crisp). On High and Ultra each 5 m zone also turns the tile by its own angle
+ * a world-space noise through their heights (puddles and ruts of one give way to the other's along their shapes), and
+ * a third, the same dirt soaked (dark, glossy), laid where a second noise runs high: puddles and wet patches 1 to 5 m
+ * across, at no pitch, their edges following the dirt's shapes. Over it the engine's near-ground macro variation:
+ * brightness drifting over 14 m patches (macro_tint) and, from 10 m out, a little of a second read of each layer four
+ * times larger (macro_layer; the near ground keeps its one sharp read, so wet spots stay glossy and ruts crisp). On High and Ultra each 5 m zone also turns the tile by its own angle
  * (uv_blend: the terrain blends the turns across the control texels; Medium and below read the nearest texel,
  * where a turn would show its edge, so they keep one angle). The floor used to be one 6 m tile repeated across the bowl: its
  * puddles and ruts read as wallpaper. sw old_floor 1 brings that floor back (the floor-repeat control). */
@@ -142,24 +143,144 @@ static uint32_t zone_hash(int zx, int zz) {
   return h ^ (h >> 13);
 }
 static cw_terrain_def floor_def; /* the floor's shading (cw_terrain_set_shading), kept to change uv_blend */
+/* Churned dirt where the cars drive: a share per control texel (0..1) of the fourth layer, the dirt turned over with
+ * tyre furrows running along its v, and on High and up the angle that turns those furrows along the way the wheels
+ * went (sixteenths of a turn, as the control word has it). The bout starts with the tracks of earlier bouts (lines
+ * laid by world noise: crossing arcs, never on a pitch), and every wheel on the dirt adds to it as it rolls, by the
+ * metre; the texels changed go up fifteen times a second (cw_terrain_set_control on their rectangle). sw no_churn 1
+ * keeps the floor as it was built (the tracks' motion control). */
+enum { FSX = FLOOR_NX + 1, FSZ = FLOOR_NZ + 1 };
+static float churn[FSX * FSZ];
+static uint8_t churn_angle[FSX * FSZ];
+static int churn_dirty[4]; /* x0, z0, x1, z1 of the texels changed since the last upload (x0 > x1: none) */
+static int churned;        /* texels at least a third churned (world.churned: the motion check reads it) */
+int world_no_churn;
+static uint32_t plain_word[FSX * FSZ]; /* each texel's word without churn, and what a churned one keeps of it */
+static float wet_of[FSX * FSZ];
+static uint8_t keep_of[FSX * FSZ];    /* bit 0: the second dirt is its base; bits 1..3: its uv scale; bit 4: a hole */
+static uint32_t churn_word(int i, int j, bool turns) {
+  int k = j * FSX + i;
+  float ch = churn[k];
+  if (!(ch > 0.02f && ch >= wet_of[k])) return plain_word[k];
+  /* churned: the dirt it stands in, turned over, its furrows along the wheels' way */
+  return cw_terrain_control(keep_of[k] & 1, TEX_FLOOR_CHURN, (int)(ch * 255 + 0.5f), turns ? churn_angle[k] : 0, (keep_of[k] >> 1) & 7,
+                            (keep_of[k] >> 4) & 1);
+}
+static uint32_t floor_word(int i, int j, bool turns) {
+  float x = -FLOOR_NX * FLOOR_SPACING * 0.5f + (float)i * FLOOR_SPACING, z = -FLOOR_NZ * FLOOR_SPACING * 0.5f + (float)j * FLOOR_SPACING;
+  const float w = AW + 1.2f, l = AL + 1.2f;
+  bool hole = fabsf(x) > w + 0.01f || fabsf(z) > l + 0.01f;
+  /* the second dirt's share: two octaves of noise over about 9 m, pushed apart so most ground is one or the other */
+  float n = 0.65f * fl_noise(x / 9, z / 9, 71) + 0.35f * fl_noise(x / 3.5f, z / 3.5f, 72);
+  float share = n < 0.35f ? 0 : n > 0.65f ? 1 : (n - 0.35f) / 0.3f;
+  uint32_t zh = zone_hash((int)floorf(x / 5), (int)floorf(z / 5));
+  int angle = turns ? (int)(zh & 15) : 0, scale = turns ? (int)((zh >> 4) % 3) : 0; /* 1x, +20 %, +40 % */
+  /* wet mud: puddles and soaked patches 1 to 5 m across where a second noise runs high, never on a pitch; there
+   * the texel pairs the dirt it stands in with the mud (the mud's edge follows the dirt's shapes by height) */
+  float wn = 0.6f * fl_noise(x / 5, z / 5, 81) + 0.4f * fl_noise(x / 1.8f, z / 1.8f, 82);
+  float wet = wn < 0.53f ? 0 : wn > 0.69f ? 1 : (wn - 0.53f) / 0.16f;
+  wet = wet * wet * (3 - 2 * wet);
+  int k = j * FSX + i;
+  wet_of[k] = wet;
+  keep_of[k] = (uint8_t)((share > 0.5f) | scale << 1 | hole << 4);
+  plain_word[k] = wet > 0.02f ? cw_terrain_control(share > 0.5f, TEX_FLOOR_WET, (int)(wet * 255 + 0.5f), angle, scale, hole)
+                              : cw_terrain_control(0, 1, (int)(share * 255 + 0.5f), angle, scale, hole);
+  return churn_word(i, j, turns);
+}
+/* wheel churn: amount a spread over the four texels round (x, z), the furrows turned to heading h (radians, 0 = +z) */
+static void churn_add(float x, float z, float a, float h) {
+  float gx = (x + FLOOR_NX * FLOOR_SPACING * 0.5f) / FLOOR_SPACING, gz = (z + FLOOR_NZ * FLOOR_SPACING * 0.5f) / FLOOR_SPACING;
+  int i0 = (int)floorf(gx), j0 = (int)floorf(gz);
+  float fx = gx - (float)i0, fz = gz - (float)j0;
+  int ang = ((int)floorf(h * (16 / CW_TAU) + 0.5f) % 16 + 16) % 16;
+  for (int k = 0; k < 4; k++) {
+    int i = i0 + (k & 1), j = j0 + (k >> 1);
+    if (i < 0 || j < 0 || i >= FSX || j >= FSZ) continue;
+    float wgt = (k & 1 ? fx : 1 - fx) * (k >> 1 ? fz : 1 - fz), d = a * wgt;
+    if (d <= 0) continue;
+    float *c = &churn[j * FSX + i], was = *c;
+    *c = fminf(1, was + d);
+    if (*c - was < 1.0f / 255 && !(d > 0.04f && churn_angle[j * FSX + i] != ang)) continue;
+    if (was < 0.34f && *c >= 0.34f) churned++;
+    if (d > 0.04f) churn_angle[j * FSX + i] = (uint8_t)ang; /* the latest wheel to cut it sets its furrows' way */
+    if (i < churn_dirty[0]) churn_dirty[0] = i;
+    if (j < churn_dirty[1]) churn_dirty[1] = j;
+    if (i > churn_dirty[2]) churn_dirty[2] = i;
+    if (j > churn_dirty[3]) churn_dirty[3] = j;
+  }
+}
+/* a pair of wheels (1.6 m apart) rolled d metres along heading h from (x, z): 0.8 of a texel's churn a metre */
+static void churn_roll(float x, float z, float h, float d, float k) {
+  float s, c;
+  cw_sincos(h, &s, &c);
+  churn_add(x + c * 0.8f, z - s * 0.8f, 0.8f * d * k, h);
+  churn_add(x - c * 0.8f, z + s * 0.8f, 0.8f * d * k, h);
+}
+/* the tracks of earlier bouts: arcs laid by world noise (their starts, ways, bends and lengths hashed, their bend
+ * drifting along a noise), turned back before the wall as a driver would, each pass as deep as a car's in places */
+static void churn_seed(void) {
+  memset(churn, 0, sizeof churn);
+  memset(churn_angle, 0, sizeof churn_angle);
+  churned = 0;
+  uint32_t h = 0x6d7a1u;
+#define RND() (h = h * 1664525u + 1013904223u, (float)(h >> 8) / 16777216.0f)
+  for (int p = 0; p < 22; p++) {
+    float x = (RND() * 2 - 1) * (AW - 4), z = (RND() * 2 - 1) * (AL - 4), hd = RND() * CW_TAU;
+    float len = 14 + RND() * 34, bend = (RND() * 2 - 1) * 0.09f, depth = 0.35f + 0.45f * RND();
+    for (float sx = 0; sx < len; sx += 0.25f) {
+      float b = bend + 0.12f * (fl_noise(sx / 7, (float)p * 3.1f, 91) - 0.5f);
+      /* near the wall the driver turns away (towards the middle) */
+      float out = fmaxf(fabsf(x) - (AW - 4), fabsf(z) - (AL - 4));
+      if (out > 0) {
+        float s, c;
+        cw_sincos(hd, &s, &c);
+        if (s * -x + c * -z < 0) b += c * -x - s * -z > 0 ? 0.35f : -0.35f; /* the middle on the right: turn right (h grows) */
+      }
+      hd += b * 0.25f;
+      float s, c;
+      cw_sincos(hd, &s, &c);
+      x += s * 0.25f, z += c * 0.25f;
+      churn_roll(x, z, hd, 0.25f, depth * (0.7f + 0.6f * fl_noise(sx / 3, (float)p * 5.3f, 92)));
+    }
+  }
+#undef RND
+}
+/* every car on the dirt churns it where its wheels roll (render only: from the simulation's state on the tick) */
+static void churn_tick(const sim *s) {
+  static int env_off = -1; /* DERBY_NO_CHURN: as sw no_churn 1 from the start (the cost A/B of a benchmark) */
+  if (env_off < 0) env_off = getenv("DERBY_NO_CHURN") != NULL;
+  if (!cw_node_valid(W.floor) || world_no_churn || env_off) return;
+  for (int i = 0; i < MAXC; i++) {
+    const car *c = &s->c[i];
+    if (!c->on) continue;
+    float sp = sqrtf(c->vx * c->vx + c->vz * c->vz);
+    if (sp < 0.5f) continue;
+    float slip = 1 + 0.25f * (c->slip_f + c->slip_r); /* a slide or a wheelspin digs more */
+    for (int w = 0; w < 4; w++) {
+      const cw_wheel3d *wh = &c->veh.wheel[w];
+      if (!wh->contact || wh->ground.id != s->floor.id) continue;
+      churn_add(wh->point.x, wh->point.z, 0.8f * 0.5f * sp / TICK_HZ * fminf(slip, 2.5f), c->h);
+    }
+  }
+  /* up to the terrain fifteen times a second, the changed rectangle only */
+  if (W.ticks % 4 || churn_dirty[0] > churn_dirty[2]) return;
+  cw_terrain *t = cw_terrain_of(W.floor);
+  if (!t) return;
+  int x0 = churn_dirty[0], z0 = churn_dirty[1], w = churn_dirty[2] - x0 + 1, hgt = churn_dirty[3] - z0 + 1;
+  static uint32_t ctl[FSX * FSZ];
+  for (int j = 0; j < hgt; j++)
+    for (int i = 0; i < w; i++) ctl[j * w + i] = churn_word(x0 + i, z0 + j, W.floor_turns);
+  cw_terrain_set_control(t, x0, z0, w, hgt, ctl);
+  churn_dirty[0] = FSX, churn_dirty[1] = FSZ, churn_dirty[2] = churn_dirty[3] = -1;
+}
 static void floor_control(bool turns) {
   cw_terrain *t = cw_node_valid(W.floor) ? cw_terrain_of(W.floor) : NULL;
   if (!t) return;
-  enum { SX = FLOOR_NX + 1, SZ = FLOOR_NZ + 1 };
-  static uint32_t ctl[SX * SZ];
-  const float w = AW + 1.2f, l = AL + 1.2f;
-  for (int j = 0; j < SZ; j++)
-    for (int i = 0; i < SX; i++) {
-      float x = -FLOOR_NX * FLOOR_SPACING * 0.5f + (float)i * FLOOR_SPACING, z = -FLOOR_NZ * FLOOR_SPACING * 0.5f + (float)j * FLOOR_SPACING;
-      bool hole = fabsf(x) > w + 0.01f || fabsf(z) > l + 0.01f;
-      /* the second dirt's share: two octaves of noise over about 9 m, pushed apart so most ground is one or the other */
-      float n = 0.65f * fl_noise(x / 9, z / 9, 71) + 0.35f * fl_noise(x / 3.5f, z / 3.5f, 72);
-      float share = n < 0.35f ? 0 : n > 0.65f ? 1 : (n - 0.35f) / 0.3f;
-      uint32_t zh = zone_hash((int)floorf(x / 5), (int)floorf(z / 5));
-      int angle = turns ? (int)(zh & 15) : 0, scale = turns ? (int)((zh >> 4) % 3) : 0; /* 1x, +20 %, +40 % */
-      ctl[j * SX + i] = cw_terrain_control(0, 1, (int)(share * 255 + 0.5f), angle, scale, hole);
-    }
-  cw_terrain_set_control(t, 0, 0, SX, SZ, ctl);
+  static uint32_t ctl[FSX * FSZ];
+  for (int j = 0; j < FSZ; j++)
+    for (int i = 0; i < FSX; i++) ctl[j * FSX + i] = floor_word(i, j, turns);
+  cw_terrain_set_control(t, 0, 0, FSX, FSZ, ctl);
+  churn_dirty[0] = FSX, churn_dirty[1] = FSZ, churn_dirty[2] = churn_dirty[3] = -1;
   floor_def.uv_blend = turns; /* the turns blended across the control texels (no seam where two zones meet) */
   cw_terrain_set_shading(t, &floor_def);
   W.floor_turns = turns;
@@ -198,7 +319,7 @@ static bool build_floor_terrain(cw_node root) {
     return false;
   }
   W.floor = n;
-  static const float TILE[TEX_FLOOR_LAYERS] = { 6.0f, 7.3f }; /* metres a tile */
+  static const float TILE[TEX_FLOOR_LAYERS] = { 6.0f, 7.3f, 5.1f, 4.0f }; /* metres a tile */
   for (int i = 0; i < TEX_FLOOR_LAYERS; i++) {
     const uint8_t *ah, *nr;
     int sz;
@@ -208,7 +329,7 @@ static bool build_floor_terrain(cw_node root) {
   cw_terrain_def d = *cw_terrain_get_def(t);
   d.macro_tint = 0.3f;
   d.macro_tint_scale = 14;
-  d.macro_layer = 0.35f;
+  d.macro_layer = 0.15f; /* (more flattened the far ground's puddles and ruts into an even tan) */
   d.macro_layer_scale = 4;
   d.macro_layer_near = 10; /* (the near ground keeps its one sharp read: wet spots stay glossy, ruts crisp) */
   d.macro_layer_far = 40;
@@ -217,6 +338,8 @@ static bool build_floor_terrain(cw_node root) {
   t3_material *m = cw_terrain_material(t);
   if (m) m->roughness = 1, m->metalness = 0;
   W.floor_turns = false;
+  churn_seed();
+  cw_debug_i32("world.churned", &churned);
   floor_control(cw_gfx_get(CW_GFX_EFFECTS) >= CW_QUALITY_HIGH);
   return true;
 }
@@ -224,6 +347,7 @@ static bool build_floor_terrain(cw_node root) {
 static void build_floor(cw_node root) {
   /* the arena: dirt to just under the barriers (the corners hide beneath them) */
   W.floor = (cw_node){ 0 };
+  churned = 0;
   if (!world_old_floor && build_floor_terrain(root)) {
     build_lot(root);
     return;
@@ -779,4 +903,5 @@ void world_tick(const sim *s) {
     }
   }
   skids_tick(s);
+  churn_tick(s);
 }
