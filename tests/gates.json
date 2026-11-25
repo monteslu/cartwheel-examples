@@ -5050,6 +5050,11 @@
     "note": "derby through romdev, GL and WebGPU: the controls hint stays up until each player gives it gas, on one screen and in every split view, with a second pad joined and idle. Control: sw hint_countdown 1 (the hint only during the countdown, none in split screen)."
   },
   {
+    "name": "derby-floor",
+    "script": "tests/derby-floor.mjs",
+    "note": "derby through romdev, GL and WebGPU, High and Low: top-down over the bowl, the floor's brightness autocorrelation at the old tile's 6 m period is at most two thirds of the old floor's, with patch variation and pixel detail held. Control: sw old_floor 1 (the floor as one repeated 6 m tile) shows the repeat."
+  },
+  {
     "name": "derby-opening",
     "script": "tests/derby-opening.mjs",
     "note": "derby through romdev, GL and WebGPU, studies run in the cart without drawing: twenty quick matches with a newcomer in the default car (no bout under half an engine ten seconds in, none wrecked inside 20 s, the median wreck at 45 s or later); damage that drives (hits by a front wheel pull the car, a battered flank grips less, a hurt engine tops out lower); three weight classes (the light sedan quickest, the heavy van toughest, wins per start within 20% of the mean over 200 CPU bouts); GL and WebGPU agree bit for bit. Controls: sw no_classes 1 (every body alike) fails the opening and drives every body the same, sw no_handling_damage 1 runs straight."

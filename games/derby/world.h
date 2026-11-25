@@ -22,6 +22,11 @@ bool tex_warm(int kind); /* a band of the set per call; true once it is made */
 void tex_apply(t3_material *m, int kind, float repeat, float normal_scale, float ao_intensity);
 void tex_apply_uv(t3_material *m, int kind, float ru, float rv, float normal_scale, float ao_intensity);
 void tex_free_all(void);
+/* the arena floor's terrain layers: TEX_FLOOR_LAYERS dirts, RGBA8 size x size each (albedo sRGB + height, normal +
+ * roughness), made a band a call (tex_floor_warm true once all are made), kept for the run */
+enum { TEX_FLOOR_LAYERS = 2 };
+bool tex_floor_warm(void);
+void tex_floor_layer(int i, const uint8_t **albedo_height, const uint8_t **normal_rough, int *size);
 t3_texture *tex_number(int n, const float paint[3]); /* a door roundel with a race number (shared, cached) */
 extern uint32_t tex_hash;
 t3_color lin(float r, float g, float b);           /* screen colour -> linear */
@@ -109,6 +114,9 @@ extern uint32_t scenery_hash;
 /* world.c: the floor, the wall, the cars, the skid marks */
 typedef struct car_look { int colour, number; } car_look;
 void world_build(cw_node scene, const sim *s, int theme, const car_look looks[MAXC]);
+extern int world_old_floor; /* sw old_floor 1: the floor as one repeated tile (the floor-repeat control; next build) */
+void world_floor_gfx(void); /* the graphics changed: the floor's tile turns follow the effects quality */
+void world_floor_macro(int bits); /* dev aid: the floor's macro options by bit (sw floor_macro) */
 /* build car i's model ahead (the warm-up, a car a frame); world_build takes it if it still matches */
 void world_prebuild_car(int i, int kind, const car_look *look);
 void world_reset(void);

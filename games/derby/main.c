@@ -635,6 +635,7 @@ static void apply_gfx(void) {
   int sh = cw_gfx_get(CW_GFX_SHADOWS);
   scenery_flood_shadows(sh <= CW_GFX_SHADOWS_LOW ? 0 : sh == CW_GFX_SHADOWS_MEDIUM ? 2 : 4);
   flood_sun_apply();
+  world_floor_gfx();
 }
 
 static void start_bout(int arena, bool with_human) {
@@ -756,8 +757,11 @@ static void cmd_sw(int argc, const char **argv, cw_reply *r) {
   if (argc > 2 && !strcmp(argv[1], "no_handling_damage")) sw_no_handling_damage = atoi(argv[2]), sim_no_handling_damage(sw_no_handling_damage);
   /* no_ies 1: the floodlights as plain cones (the IES profile's control) */
   if (argc > 2 && !strcmp(argv[1], "no_ies")) sw_no_ies = atoi(argv[2]), scenery_flood_profile(!sw_no_ies);
-  cw_reply_printf(r, "{\"hint_countdown\":%d,\"no_handling_damage\":%d,\"no_beat\":%d,\"no_classes\":%d,\"no_ies\":%d}", sw_hint_countdown,
-                  sw_no_handling_damage, sw_no_beat, sw_no_classes, sw_no_ies);
+  /* old_floor 1: the floor as one 6 m tile repeated, as it was (the floor-repeat control; from the next bout) */
+  if (argc > 2 && !strcmp(argv[1], "old_floor")) world_old_floor = atoi(argv[2]);
+  if (argc > 2 && !strcmp(argv[1], "floor_macro")) world_floor_macro(atoi(argv[2])); /* dev aid */
+  cw_reply_printf(r, "{\"hint_countdown\":%d,\"no_handling_damage\":%d,\"no_beat\":%d,\"no_classes\":%d,\"no_ies\":%d,\"old_floor\":%d}",
+                  sw_hint_countdown, sw_no_handling_damage, sw_no_beat, sw_no_classes, sw_no_ies, world_old_floor);
 }
 /* study opening <n> | study pull: bouts and test drives run without drawing (study.c), for the gates */
 static void cmd_study(int argc, const char **argv, cw_reply *r) {
@@ -812,6 +816,17 @@ static void cmd_players(int argc, const char **argv, cw_reply *r) {
  * light <energy> adds a sodium flood of its own over the car, between it and the camera, so the car and what flies off
  * it read at a thumbnail's size (the bowl's floods light the dirt, the car's sides stay in their own shadow) */
 static int keyart_car = -1, keyart_nohud;
+/* eye x y z tx ty tz: view 0's camera held there looking at the target, no HUD (the floor test's top-down look); eye off */
+static bool eye_on;
+static t3_vec3 eye_at, eye_to;
+static void cmd_eye(int argc, const char **argv, cw_reply *r) {
+  if (argc > 6) {
+    eye_on = true;
+    eye_at = (t3_vec3){ (float)atof(argv[1]), (float)atof(argv[2]), (float)atof(argv[3]) };
+    eye_to = (t3_vec3){ (float)atof(argv[4]), (float)atof(argv[5]), (float)atof(argv[6]) };
+  } else eye_on = false;
+  cw_reply_printf(r, "{\"eye\":%d}", eye_on ? 1 : 0);
+}
 static float keyart_a = 0.8f, keyart_d = 5.2f, keyart_h = 1.7f, keyart_light;
 static cw_node keyart_lamp;
 static void cmd_keyart(int argc, const char **argv, cw_reply *r) {
@@ -961,10 +976,11 @@ static void init(void *u) {
   cw_debug_bytes("save.bytes", &SAVE, sizeof SAVE);
   cw_debug_i32("lights.ies", &dbg_ies);
   cw_debug_command("bout", "bout [arena]: a quick match now", cmd_bout);
+  cw_debug_command("eye", "eye <x y z tx ty tz> | eye off: hold view 0's camera there looking at the target, no HUD", cmd_eye);
   cw_debug_command("keyart", "keyart <car> [angle distance height] [hud 0|1] | keyart off: key art (a three-quarter look at a car, the HUD off)", cmd_keyart);
   cw_debug_command("bind", "bind <action> <bindings>: replace an action's bindings (binding text, as input.cfg writes it)", cmd_bind);
   cw_debug_command("players", "players <1..4>: humans in the next bout (splitscreen)", cmd_players);
-  cw_debug_command("sw", "sw hint_countdown|no_handling_damage|no_beat|no_classes|no_ies <0|1>: the old behaviour back (the gates' controls)", cmd_sw);
+  cw_debug_command("sw", "sw hint_countdown|no_handling_damage|no_beat|no_classes|no_ies|old_floor <0|1>: the old behaviour back (the gates' controls)", cmd_sw);
   cw_debug_command("study", "study opening <n> | study pull | study classes <n>: bouts and test drives run without drawing (the gates)", cmd_study);
   cw_debug_i32("views", &G.views);
   G.state_hash = 2166136261u;
@@ -988,6 +1004,7 @@ static double wall_now(void) { /* dev timing only (DERBY_WARM_TIMES) */
 enum { GLYPH_FIRST = 32, GLYPH_LAST = 126, GLYPH_BAND = 24, GLYPH_FONTS = 3 };
 #define GLYPH_BANDS ((GLYPH_LAST - GLYPH_FIRST + GLYPH_BAND) / GLYPH_BAND)
 static int warm_glyph, warm_tex, warm_car;
+static bool warm_floor;
 static bool warm_crack;
 static bool warmup_step(void);
 static bool warmup(void *u) {
@@ -998,7 +1015,7 @@ static bool warmup(void *u) {
   return done;
 }
 static bool warmup_step(void) {
-  const int glyphs = GLYPH_FONTS * GLYPH_BANDS, total = glyphs + TEX_KINDS + MAXC + 1;
+  const int glyphs = GLYPH_FONTS * GLYPH_BANDS, total = glyphs + TEX_KINDS + 1 + MAXC + 1;
   if (warm_glyph < glyphs) { /* printable English, a band of one font a step: no glyph is made in play */
     const cw_font fonts[GLYPH_FONTS] = { font_title, font_hud, font_small };
     int b = warm_glyph % GLYPH_BANDS;
@@ -1013,6 +1030,11 @@ static bool warmup_step(void) {
     cw_loading_set(glyphs + warm_tex, total, CW_LOAD_TEXTURES);
     return false;
   }
+  if (!warm_floor) { /* the floor's two terrain layers, a band of rows a frame on the job pool */
+    warm_floor = tex_floor_warm();
+    cw_loading_set(glyphs + TEX_KINDS + warm_floor, total, CW_LOAD_TEXTURES);
+    return false;
+  }
   if (warm_car < MAXC) { /* the windscreen crack, then the title field's cars, one a frame */
     if (warm_car == 0 && !warm_crack) {
       warm_crack = tex_crack_warm();
@@ -1021,7 +1043,7 @@ static bool warmup_step(void) {
     }
     world_prebuild_car(warm_car, G.kind[warm_car], &G.look[warm_car]);
     warm_car++;
-    cw_loading_set(glyphs + TEX_KINDS + warm_car, total, CW_LOAD_MESHES);
+    cw_loading_set(glyphs + TEX_KINDS + 1 + warm_car, total, CW_LOAD_MESHES);
     return false;
   }
   enter_title();
@@ -1242,6 +1264,7 @@ static void rig_tick(int v) {
     if (keyart_car >= 0 && keyart_light > 0 && cw_node_valid(keyart_lamp)) /* the key lamp: high, half way out to the camera */
       cw_node3d_set_position(keyart_lamp, (t3_vec3){ c->x + (eye.x - c->x) * 0.5f, c->y + 4.5f, c->z + (eye.z - c->z) * 0.5f });
   }
+  if (eye_on && v == 0) at = eye_to, eye = eye_at, r->snap = true;
   if (r->snap) {
     r->cam_at = at;
     r->cam_eye = eye;
@@ -2441,7 +2464,7 @@ static void render(void *u, double alpha) {
   float W = cs.x, H = cs.y, s = H / 540.0f;
   static int no_hud = -1; /* dev aid: DERBY_NO_HUD=1 for clean looks at the 3D */
   if (no_hud < 0) no_hud = getenv("DERBY_NO_HUD") != NULL;
-  switch (no_hud || keyart_nohud ? -1 : (int)G.state) {
+  switch (no_hud || keyart_nohud || eye_on ? -1 : (int)G.state) {
   case GS_TITLE: draw_title(W, H, s); break;
   case GS_BOUT: draw_hud(W, H, s); break;
   case GS_PAUSE: /* the pause screen over the arena alone (its rows would cross the HUD at a large Text size); the graphics page alone */

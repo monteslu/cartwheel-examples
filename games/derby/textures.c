@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cartwheel/jobs.h"
 #include "cartwheel/math.h"
 #include "world.h"
 
@@ -71,21 +72,23 @@ static void rgb(texel *t, float r, float g, float b) { t->r = r, t->g = g, t->b 
 
 /* the arena floor: churned mud, tyre tracks pressed in it (soft-edged,
  * crossing), clods and stones, wet patches that go dark and glossy */
+static uint32_t dirt_seed; /* added to every seed of g_dirt: 0 the dirt every surface uses, others the floor's second layer */
 static void g_dirt(float u, float v, texel *t) {
-  float n1 = fbm(u, v, 4, 5, 11), n2 = fbm(u, v, 24, 4, 12), n3 = fbm(u, v, 64, 2, 16);
-  float wet = clamp01((fbm(u, v, 2, 3, 13) - 0.52f) * 4);
+  const uint32_t S = dirt_seed;
+  float n1 = fbm(u, v, 4, 5, 11 + S), n2 = fbm(u, v, 24, 4, 12 + S), n3 = fbm(u, v, 64, 2, 16 + S);
+  float wet = clamp01((fbm(u, v, 2, 3, 13 + S) - 0.52f) * 4);
   /* tracks: a few wide, soft furrows wandering in two directions */
   float rut = 0;
   for (int k = 0; k < 4; k++) {
-    float w = fbm(u, v, 2, 2, 14 + (uint32_t)k) * 0.9f;
+    float w = fbm(u, v, 2, 2, 14 + S + (uint32_t)k) * 0.9f;
     float c = fractf((k & 1 ? v : u) * 2 + w + k * 0.31f);
     float d = fabsf(c - 0.5f);
-    rut += clamp01(1 - d * 7) * clamp01(1 - d * 7) * (0.35f + 0.65f * fbm(u, v, 8, 2, 40 + (uint32_t)k));
+    rut += clamp01(1 - d * 7) * clamp01(1 - d * 7) * (0.35f + 0.65f * fbm(u, v, 8, 2, 40 + S + (uint32_t)k));
   }
   rut = clamp01(rut) * 0.8f;
   float d1, d2;
   uint32_t id;
-  cells(u, v, 48, 15, &d1, &d2, &id);
+  cells(u, v, 48, 15 + S, &d1, &d2, &id);
   float pebble = (id & 15) == 0 ? clamp01(1 - d1 * 3.2f) : 0;
   float clod = clamp01((n2 - 0.62f) * 5) * (1 - wet);
   float k = 0.72f + 0.28f * n1 + 0.1f * (n3 - 0.5f) - 0.1f * rut + 0.08f * clod;
@@ -375,6 +378,72 @@ bool tex_warm(int kind) {
   free(ro);
   free(ao);
   return true;
+}
+
+/* ── the arena floor's terrain layers (world.c) ─────────────────────────
+ * The floor is a Terrain3D: its layers are the churned dirt at twice the
+ * surfaces' resolution (FN texels a tile), packed as the terrain wants them
+ * (albedo sRGB + height in alpha; normal + roughness in alpha), in two
+ * variants of different seeds (the second's ruts, puddles and stones lie
+ * elsewhere). The texels are made on the job pool, a band of rows a call,
+ * each a pure function of its place, so every host makes the same bytes
+ * (folded into tex.hash). The surfaces' ambient occlusion goes into the
+ * albedo (a terrain layer has no occlusion map) and their normal scale
+ * into the normals. */
+#define FN 512
+#define FLOOR_ROWS 64
+static uint8_t *FLOOR_PX[TEX_FLOOR_LAYERS][2];
+static texel *FLOOR_TX;
+static int floor_layer, floor_row;
+static const uint32_t FLOOR_SEED[TEX_FLOOR_LAYERS] = { 0, 1000 };
+typedef struct floor_job { int y0; } floor_job;
+static void floor_rows(int begin, int end, int worker, void *ctx) {
+  (void)worker;
+  const floor_job *j = ctx;
+  for (int i = begin; i < end; i++) {
+    int y = j->y0 + i / FN, x = i % FN;
+    texel *t = &FLOOR_TX[y * FN + x];
+    memset(t, 0, sizeof *t);
+    t->a = 1;
+    g_dirt((x + 0.5f) / FN, (y + 0.5f) / FN, t);
+  }
+}
+bool tex_floor_warm(void) {
+  while (floor_layer < TEX_FLOOR_LAYERS && FLOOR_PX[floor_layer][0]) floor_layer++, floor_row = 0;
+  if (floor_layer >= TEX_FLOOR_LAYERS) return true;
+  if (!FLOOR_TX) FLOOR_TX = malloc(sizeof *FLOOR_TX * FN * FN);
+  int y1 = floor_row + FLOOR_ROWS < FN ? floor_row + FLOOR_ROWS : FN;
+  dirt_seed = FLOOR_SEED[floor_layer];
+  floor_job j = { floor_row };
+  cw_parallel_for((y1 - floor_row) * FN, 256, floor_rows, &j);
+  dirt_seed = 0;
+  floor_row = y1;
+  if (floor_row < FN) return false;
+  const texel *tx = FLOOR_TX;
+  uint8_t *ah = malloc(FN * FN * 4), *nr = malloc(FN * FN * 4);
+  /* the dirt's normal strength (3) times the floor's normal scale (1.4), over the finer texel (a slope over half the
+   * distance: twice the step) */
+  const float st = 3 * 1.4f * (float)FN / N;
+  for (int y = 0; y < FN; y++)
+    for (int x = 0; x < FN; x++) {
+      const texel *t = &tx[y * FN + x];
+      int i = (y * FN + x) * 4;
+      float ao = 0.8f + 0.2f * t->ao; /* (a share of it: the occlusion map darkened only the ambient light) */
+      ah[i] = b8(t->r * ao), ah[i + 1] = b8(t->g * ao), ah[i + 2] = b8(t->b * ao), ah[i + 3] = b8(t->h * 0.7f);
+      float hx = tx[y * FN + (x + 1) % FN].h - tx[y * FN + (x + FN - 1) % FN].h;
+      float hy = tx[((y + 1) % FN) * FN + x].h - tx[((y + FN - 1) % FN) * FN + x].h;
+      float nx = -hx * st, ny = -hy * st, l = sqrtf(nx * nx + ny * ny + 1);
+      nr[i] = b8(nx / l * 0.5f + 0.5f), nr[i + 1] = b8(ny / l * 0.5f + 0.5f), nr[i + 2] = b8(1 / l * 0.5f + 0.5f), nr[i + 3] = b8(t->rough);
+    }
+  tex_hash = fnv(nr, FN * FN * 4, fnv(ah, FN * FN * 4, tex_hash));
+  FLOOR_PX[floor_layer][0] = ah, FLOOR_PX[floor_layer][1] = nr;
+  floor_layer++, floor_row = 0;
+  if (floor_layer >= TEX_FLOOR_LAYERS) free(FLOOR_TX), FLOOR_TX = NULL;
+  return floor_layer >= TEX_FLOOR_LAYERS;
+}
+void tex_floor_layer(int i, const uint8_t **albedo_height, const uint8_t **normal_rough, int *size) {
+  while (!tex_floor_warm()) {}
+  *albedo_height = FLOOR_PX[i][0], *normal_rough = FLOOR_PX[i][1], *size = FN;
 }
 
 const tex_set *tex_get(int kind) {

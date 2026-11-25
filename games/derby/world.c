@@ -15,6 +15,7 @@
 #include "cartwheel/pipeline.h"
 #include "cartwheel/quality.h"
 #include "cartwheel/splats.h"
+#include "cartwheel/terrain.h"
 #include "world.h"
 
 #define SKIDS 2600 /* quads in the skid-mark ring */
@@ -24,6 +25,8 @@ static struct {
   bool ready;
   int theme;
   cw_node root;
+  cw_node floor;     /* the dirt's Terrain3D (none: the old plain floor) */
+  bool floor_turns;  /* its control map turns the tile zone by zone (High and up) */
   car_model car[MAXC];
   cw_node car_node[MAXC];
   float mud_m[MAXC]; /* metres driven this bout (the mud's measure) */
@@ -106,8 +109,125 @@ static void add_mesh(cw_node parent, const char *name, t3_geometry *g, t3_materi
 
 /* ── the floor ──────────────────────────────────────────────────────── */
 
+static void build_lot(cw_node root);
+
+/* The dirt is a flat Terrain3D (cartwheel/terrain.h) with two layers of the same churned dirt made from different seeds
+ * (textures.c, tex_floor_layer), tiling at different sizes (6 m and 7.3 m, so their repeats never line up), blended by
+ * a world-space noise through their heights (puddles and ruts of one give way to the other's along their shapes),
+ * with the engine's near-ground macro variation over it: brightness drifting over 14 m patches (macro_tint) and, from
+ * 10 m out, a second read of each layer four times larger mixed in (macro_layer; the near ground keeps its one sharp
+ * read, so wet spots stay glossy and ruts crisp). On High and Ultra each 5 m zone also turns the tile by its own angle
+ * (uv_blend: the terrain blends the turns across the control texels; Medium and below read the nearest texel,
+ * where a turn would show its edge, so they keep one angle). The floor used to be one 6 m tile repeated across the bowl: its
+ * puddles and ruts read as wallpaper. sw old_floor 1 brings that floor back (the floor-repeat control). */
+int world_old_floor;
+#define FLOOR_SPACING 0.5f
+#define FLOOR_NX 96  /* 48 m: the dirt (to 1.2 m under the barriers) and a margin cut out as holes */
+#define FLOOR_NZ 128 /* 64 m */
+static float fl_noise(float x, float z, uint32_t seed) {
+  int x0 = (int)floorf(x), z0 = (int)floorf(z);
+  float fx = x - (float)x0, fz = z - (float)z0;
+  fx = fx * fx * (3 - 2 * fx), fz = fz * fz * (3 - 2 * fz);
+  float c[4];
+  for (int k = 0; k < 4; k++) {
+    uint32_t h = (uint32_t)(x0 + (k & 1)) * 374761393u + (uint32_t)(z0 + (k >> 1)) * 668265263u + seed * 2246822519u;
+    h = (h ^ (h >> 13)) * 1274126177u;
+    c[k] = (float)((h ^ (h >> 16)) & 0xffffff) / 16777216.0f;
+  }
+  return (c[0] + (c[1] - c[0]) * fx) * (1 - fz) + (c[2] + (c[3] - c[2]) * fx) * fz;
+}
+static uint32_t zone_hash(int zx, int zz) {
+  uint32_t h = (uint32_t)zx * 2654435761u ^ (uint32_t)zz * 2246822519u ^ 0x9e3779b9u;
+  h = (h ^ (h >> 15)) * 2246822519u;
+  return h ^ (h >> 13);
+}
+static cw_terrain_def floor_def; /* the floor's shading (cw_terrain_set_shading), kept to change uv_blend */
+static void floor_control(bool turns) {
+  cw_terrain *t = cw_node_valid(W.floor) ? cw_terrain_of(W.floor) : NULL;
+  if (!t) return;
+  enum { SX = FLOOR_NX + 1, SZ = FLOOR_NZ + 1 };
+  static uint32_t ctl[SX * SZ];
+  const float w = AW + 1.2f, l = AL + 1.2f;
+  for (int j = 0; j < SZ; j++)
+    for (int i = 0; i < SX; i++) {
+      float x = -FLOOR_NX * FLOOR_SPACING * 0.5f + (float)i * FLOOR_SPACING, z = -FLOOR_NZ * FLOOR_SPACING * 0.5f + (float)j * FLOOR_SPACING;
+      bool hole = fabsf(x) > w + 0.01f || fabsf(z) > l + 0.01f;
+      /* the second dirt's share: two octaves of noise over about 9 m, pushed apart so most ground is one or the other */
+      float n = 0.65f * fl_noise(x / 9, z / 9, 71) + 0.35f * fl_noise(x / 3.5f, z / 3.5f, 72);
+      float share = n < 0.35f ? 0 : n > 0.65f ? 1 : (n - 0.35f) / 0.3f;
+      uint32_t zh = zone_hash((int)floorf(x / 5), (int)floorf(z / 5));
+      int angle = turns ? (int)(zh & 15) : 0, scale = turns ? (int)((zh >> 4) % 3) : 0; /* 1x, +20 %, +40 % */
+      ctl[j * SX + i] = cw_terrain_control(0, 1, (int)(share * 255 + 0.5f), angle, scale, hole);
+    }
+  cw_terrain_set_control(t, 0, 0, SX, SZ, ctl);
+  floor_def.uv_blend = turns; /* the turns blended across the control texels (no seam where two zones meet) */
+  cw_terrain_set_shading(t, &floor_def);
+  W.floor_turns = turns;
+}
+/* dev aid (sw floor_macro): bit 0 the macro tint, bit 1 the macro layer, bit 2 uv_blend off (3: as built) */
+void world_floor_macro(int bits) {
+  cw_terrain *t = cw_node_valid(W.floor) ? cw_terrain_of(W.floor) : NULL;
+  if (!t) return;
+  cw_terrain_def d = floor_def;
+  if (!(bits & 1)) d.macro_tint = 0;
+  if (!(bits & 2)) d.macro_layer = 0;
+  if (bits & 4) d.uv_blend = false;
+  cw_terrain_set_shading(t, &d);
+}
+/* the graphics changed: High and up turn the floor's tile zone by zone, below they keep one angle */
+void world_floor_gfx(void) {
+  bool turns = cw_gfx_get(CW_GFX_EFFECTS) >= CW_QUALITY_HIGH;
+  if (cw_node_valid(W.floor) && turns != W.floor_turns) floor_control(turns);
+}
+static bool build_floor_terrain(cw_node root) {
+  cw_node n = cw_node_new("Terrain3D", "Dirt");
+  cw_node_set(n, "size_x", cw_val_int(FLOOR_NX));
+  cw_node_set(n, "size_z", cw_val_int(FLOOR_NZ));
+  cw_node_set(n, "region_size", cw_val_int(32));
+  cw_node_set(n, "vertex_spacing", cw_val_float(FLOOR_SPACING));
+  cw_node_set(n, "min_height", cw_val_float(0));
+  cw_node_set(n, "max_height", cw_val_float(1));
+  cw_node_set(n, "grid_quads", cw_val_int(32));
+  cw_node_set(n, "physics", cw_val_bool(false)); /* the cars drive on the simulation's own floor */
+  cw_node_set(n, "cast_shadow", cw_val_bool(false));
+  cw_node_add_child(root, n);
+  cw_terrain *t = cw_terrain_of(n);
+  if (!t) {
+    cw_warn("derby: the floor terrain did not build; the plain floor instead");
+    cw_node_free(n);
+    return false;
+  }
+  W.floor = n;
+  static const float TILE[TEX_FLOOR_LAYERS] = { 6.0f, 7.3f }; /* metres a tile */
+  for (int i = 0; i < TEX_FLOOR_LAYERS; i++) {
+    const uint8_t *ah, *nr;
+    int sz;
+    tex_floor_layer(i, &ah, &nr, &sz);
+    cw_terrain_set_layer_pixels(t, i, ah, nr, sz, sz, 1 / TILE[i]);
+  }
+  cw_terrain_def d = *cw_terrain_get_def(t);
+  d.macro_tint = 0.3f;
+  d.macro_tint_scale = 14;
+  d.macro_layer = 0.35f;
+  d.macro_layer_scale = 4;
+  d.macro_layer_near = 10; /* (the near ground keeps its one sharp read: wet spots stay glossy, ruts crisp) */
+  d.macro_layer_far = 40;
+  cw_terrain_set_shading(t, &d);
+  floor_def = d;
+  t3_material *m = cw_terrain_material(t);
+  if (m) m->roughness = 1, m->metalness = 0;
+  W.floor_turns = false;
+  floor_control(cw_gfx_get(CW_GFX_EFFECTS) >= CW_QUALITY_HIGH);
+  return true;
+}
+
 static void build_floor(cw_node root) {
   /* the arena: dirt to just under the barriers (the corners hide beneath them) */
+  W.floor = (cw_node){ 0 };
+  if (!world_old_floor && build_floor_terrain(root)) {
+    build_lot(root);
+    return;
+  }
   float w = AW + 1.2f, l = AL + 1.2f;
   mesh_build b = { 0 };
   int nx = 24, nz = 32;
@@ -126,6 +246,10 @@ static void build_floor(cw_node root) {
   t3_material *m = phys(lin(1, 1, 1), 0.9f, 0);
   tex_apply(m, TEX_DIRT, 1, 1.4f, 1);
   add_mesh(root, "Dirt", mb_finish(&b), m, false, true);
+  build_lot(root);
+}
+
+static void build_lot(cw_node root) {
   /* the lot round it: gravel out to the fence and beyond */
   mesh_build g = { 0 };
   float R = 140;

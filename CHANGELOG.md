@@ -5,8 +5,10 @@ carts and desktop and Android builds are on its GitHub release. Entries name the
 
 ## v0.30.0 (2026-11-24)
 
+- **derby**: The arena floor no longer repeats one 6 m tile across the bowl. The dirt is now a terrain of two dirts made from different seeds, tiling at 6 m and 7.3 m and blended along their own shapes by a noise over the floor, with the engine's near-ground variation over it (brightness drifting over 14 m patches, and from 10 m out a second, larger read of each dirt) and, on High and Ultra, the tile turned zone by zone with the turns blended. Its puddles and ruts no longer stand in rows, the near ground stays as sharp as before, and the dirt is made at twice the resolution under the loading screen
 - **chromite**: The star flare at the heart of every blast and the muzzle flare at the guns start upright (the particles' start angle, from engine v0.70.1): their four spikes sit square to the screen, as the bloom's glints do, instead of tilting at random from blast to blast. Its program table gains the see-through chrome under the haze on Very Low and Low (`physical+trans+env+cc+l1001+xcluster_hfog_plain_gi`), which the variant closure did not add and the engine drew with its nearest program. The first heavy craft that falls still builds the passes of the ring that bends the picture on the frame it first fires (4 builds on WebGPU, 2 on GL): the engine cannot build those ahead yet
 - **Tests**: the quality sweeps' control (one state taken out of a game's table) passes when the engine reports the state and either skips its draws or, since engine v0.78.0, draws them with the nearest program that covers them (`cw.three.covered`); it failed on every game since the pin move
+- **Tests**: derby-floor (the cart through romdev, GL and WebGPU, High and Low: top-down over the bowl, the brightness autocorrelation at the old tile's 6 m period, measured as the engine's terrain-detail test does, falls from 0.044 to -0.004 on High and from 0.077 to -0.003 on Low; 2 m patches vary at least as much and the pixel-to-pixel detail holds; control: sw old_floor 1, the old floor, shows the repeat)
 
 ## v0.29.1 (2026-11-24)
 
