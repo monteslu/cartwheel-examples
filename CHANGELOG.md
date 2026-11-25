@@ -3,6 +3,11 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.30.0 (2026-11-24)
+
+- **chromite**: The star flare at the heart of every blast and the muzzle flare at the guns start upright (the particles' start angle, from engine v0.70.1): their four spikes sit square to the screen, as the bloom's glints do, instead of tilting at random from blast to blast. Its program table gains the see-through chrome under the haze on Very Low and Low (`physical+trans+env+cc+l1001+xcluster_hfog_plain_gi`), which the variant closure did not add and the engine drew with its nearest program. The first heavy craft that falls still builds the passes of the ring that bends the picture on the frame it first fires (4 builds on WebGPU, 2 on GL): the engine cannot build those ahead yet
+- **Tests**: the quality sweeps' control (one state taken out of a game's table) passes when the engine reports the state and either skips its draws or, since engine v0.78.0, draws them with the nearest program that covers them (`cw.three.covered`); it failed on every game since the pin move
+
 ## v0.29.1 (2026-11-24)
 
 - **bikemesa, derby**: Their program tables carry the stamp of the engine sources they were made from again. v0.29.0 shipped the two tables without it (the programs inside were the same), so configuring the games stopped at the table check
