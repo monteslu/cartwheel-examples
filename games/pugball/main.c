@@ -943,7 +943,7 @@ static void cmd_sw(int argc, const char **argv, cw_reply *r) {
    * exhibition_locked 1: the Exhibition's stadiums padlocked until the Cup opens them. Each is the old behaviour (a
    * gate's control) */
   if (argc < 3) {
-    cw_reply_error(r, "usage: sw split_how|kick_dodge|exhibition_locked|cam_posts|fov_kick|hitstop|ies|blur <0|1>");
+    cw_reply_error(r, "usage: sw split_how|kick_dodge|exhibition_locked|cam_posts|fov_kick|hitstop|ies|blur|still_grass|grass_movers <0|1>");
     return;
   }
   int v = atoi(argv[2]) != 0;
@@ -954,9 +954,11 @@ static void cmd_sw(int argc, const char **argv, cw_reply *r) {
   else if (!strcmp(argv[1], "fov_kick")) fov_kick = v;
   else if (!strcmp(argv[1], "hitstop")) hitstop_on = v;
   else if (!strcmp(argv[1], "blur")) blur_sw = v;
+  else if (!strcmp(argv[1], "still_grass")) scenery_still_grass = v; /* the grass-sway check's control (from the next match) */
+  else if (!strcmp(argv[1], "grass_movers")) scenery_no_movers = !v; /* the grass-movers check's control */
   else if (!strcmp(argv[1], "ies")) scenery_flood_profile(v); /* 0: the night floods as plain cones (the IES profile's control) */
   else {
-    cw_reply_error(r, "usage: sw split_how|kick_dodge|exhibition_locked|cam_posts|fov_kick|hitstop|ies|blur <0|1>");
+    cw_reply_error(r, "usage: sw split_how|kick_dodge|exhibition_locked|cam_posts|fov_kick|hitstop|ies|blur|still_grass|grass_movers <0|1>");
     return;
   }
   cw_reply_printf(r, "{\"split_how\":%d,\"kick_dodge\":%d,\"exhibition_locked\":%d,\"cam_posts\":%d}", (int)split_how, (int)kick_dodge_sw(-1),
@@ -1129,6 +1131,8 @@ static void init(void *u) {
   for (int k = 0; k < 4; k++) G.ballcam_h[k] = 1;
   G.mvp = -1;
   cw_debug_i32("game.state", &G.state);
+  cw_debug_i32("grass.movers", &scenery_grass_movers);
+  cw_debug_i32("grass.push_p1", &scenery_grass_push_p1);
   cw_debug_i32("game.mode", &G.mode);
   cw_debug_i32("game.rules", &G.rules);
   cw_debug_i32("feel.hitstops", &hitstops);
@@ -1180,7 +1184,7 @@ static void init(void *u) {
   cw_debug_bytes("save.progress", &SAVE, sizeof SAVE);
   cw_debug_command("stadium", "stadium <1..5>: an exhibition there now", cmd_stadium);
   cw_debug_i32("hud.how_views", &how_views); /* split screen: the views showing the controls this frame */
-  cw_debug_command("sw", "sw split_how|kick_dodge|exhibition_locked|cam_posts|fov_kick|hitstop|ies|blur <0|1>: the old behaviour back (the gates controls)", cmd_sw);
+  cw_debug_command("sw", "sw split_how|kick_dodge|exhibition_locked|cam_posts|fov_kick|hitstop|ies|blur|still_grass|grass_movers <0|1>: the old behaviour back (the gates controls; still_grass: the pitch without the foliage wind and movers from the next match; grass_movers 0: no grass pushed aside)", cmd_sw);
   cw_debug_field("hud.kick_rect", kick_rect_dbg, CW_DBG_I32, 4);
   cw_debug_i32("hud.kick_dodged", &kick_dodged);
   cw_debug_field("hud.kick_cat", kick_cat, CW_DBG_I32, 3);

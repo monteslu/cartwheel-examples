@@ -608,6 +608,15 @@ static void cmd_ride_hint(int argc, const char **argv, cw_reply *r) {
   if (argc >= 2) G.ride_hint_off = atoi(argv[1]) == 0;
   cw_reply_printf(r, "{\"ride_hint\":%d}", !G.ride_hint_off);
 }
+/* sw still_grass <0|1>: the meadow's grass built without the foliage wind from the next round (the grass-sway check's control) */
+static void cmd_sw(int argc, const char **argv, cw_reply *r) {
+  if (argc < 3 || strcmp(argv[1], "still_grass")) {
+    cw_reply_error(r, "usage: sw still_grass <0|1>");
+    return;
+  }
+  scenery_still_grass = atoi(argv[2]) != 0;
+  cw_reply_printf(r, "{\"still_grass\":%d}", (int)scenery_still_grass);
+}
 static void cmd_revenge(int argc, const char **argv, cw_reply *r) {
   if (argc >= 2) G.revenge = atoi(argv[1]) != 0;
   cw_reply_printf(r, "{\"revenge\":%d}", G.revenge);
@@ -754,6 +763,7 @@ static void init(void *u) {
   cw_debug_bytes("save.bytes", &SAVE, sizeof SAVE);
   cw_debug_i32("save.migrated", &dbg_migrated);
   cw_debug_bytes("save.progress", &SAVE, sizeof SAVE);
+  cw_debug_command("sw", "sw still_grass <0|1>: the meadow's grass without the foliage wind from the next round (the grass-sway check's control)", cmd_sw);
   cw_debug_command("arena", "arena <1..8>: start a Battle round there now", cmd_arena);
   cw_debug_command("bind", "bind <action> <bindings>: replace an action's bindings (binding text, as input.cfg writes it)", cmd_bind);
   cw_debug_command("touch_controls", "touch_controls <0|1>: this game's own on-screen touch controls", cmd_touch_controls);

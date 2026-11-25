@@ -53,6 +53,7 @@ void fx_confetti(t3_vec3 at);       /* a celebration */
 void scenery_build(cw_node scene, int theme, uint32_t seed);
 void scenery_tick(const sim *s, int ticks);
 void scenery_reset(void);
+extern bool scenery_still_grass; /* the meadow built without the foliage wind (debug sw still_grass 1) */
 void scenery_density(float k); /* share of the grass and crowd drawn, 0..1 (cw_quality_density) */
 extern uint32_t scenery_hash;
 

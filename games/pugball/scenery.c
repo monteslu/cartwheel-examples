@@ -402,15 +402,18 @@ static void build_grass(float tint_r, float tint_g, float tint_b) {
   fd.wind.gust = 0.65f;
   fd.wind.gust_scale = 18;
   fd.bend = 1.2f;
-  if (cw_foliage_apply_mesh(m, clump, &fd)) SC.grass_mat = t3_retain(m);
+  if (!scenery_still_grass && cw_foliage_apply_mesh(m, clump, &fd)) SC.grass_mat = t3_retain(m);
   t3_release(clump);
   t3_release(m);
 }
 
 /* the pugs and the cat as foliage movers: each tick where they are; one in the air (or off the pitch) pushes nothing.
  * A jump (a replay cut to another moment, a pug set back at kick-off) moves the mover there without a trail. */
+int scenery_grass_movers, scenery_grass_push_p1; /* debug fields grass.movers and grass.push_p1 (thousandths) */
 static void grass_movers(const sim *s) {
-  if (!SC.grass_mat) return;
+  scenery_grass_movers = cw_foliage_mover_count();
+  scenery_grass_push_p1 = (int)(1000 * cw_foliage_push_at(s->p[0].p.x, s->p[0].p.z, NULL, NULL));
+  if (!SC.grass_mat || scenery_no_movers) return;
   for (int k = 0; k <= MAXP; k++) {
     bool ball = k == MAXP;
     float x, z, y, r;
@@ -1133,6 +1136,9 @@ static void build_outside(int theme) {
 }
 
 /* ── lifecycle ──────────────────────────────────────────────────────── */
+
+bool scenery_still_grass; /* debug sw still_grass 1: the pitch built without the foliage wind and movers (a check's control) */
+bool scenery_no_movers;   /* debug sw grass_movers 0: the pugs and the cat push no grass aside (a check's control) */
 
 void scenery_reset(void) {
   if (SC.ready) {

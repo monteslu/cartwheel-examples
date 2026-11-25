@@ -292,7 +292,7 @@ static void build_meadow(void) {
   fd.wind.direction[0] = 0.87f, fd.wind.direction[1] = 0.5f;
   fd.wind.gust = 0.6f;
   fd.wind.gust_scale = 15;
-  if (cw_foliage_apply_mesh(gm, bg, &fd)) SC.blade_mat = t3_retain(gm);
+  if (!scenery_still_grass && cw_foliage_apply_mesh(gm, bg, &fd)) SC.blade_mat = t3_retain(gm);
   t3_release(bg);
   t3_release(gm);
   /* flowers: a stem and a five-petal head (instanced heads in many colours) */
@@ -847,6 +847,8 @@ static void crowd_tick(const sim *s, int ticks) {
 }
 
 /* ── the public side ────────────────────────────────────────────────── */
+
+bool scenery_still_grass; /* debug sw still_grass 1: the meadow built without the foliage wind (a check's control) */
 
 void scenery_reset(void) {
   if (SC.ready) {

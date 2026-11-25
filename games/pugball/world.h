@@ -80,6 +80,9 @@ void fx_set_trail(int pug, int kind);  /* the boost trail cosmetic */
 void scenery_build(cw_node scene, int theme, uint32_t seed);
 void scenery_tick(const sim *s, int ticks, int cheer);
 void scenery_reset(void);
+extern bool scenery_still_grass; /* the pitch built without the foliage wind and movers (debug sw still_grass 1) */
+extern int scenery_grass_movers, scenery_grass_push_p1; /* debug fields: foliage movers, the push at P1's pug (thousandths) */
+extern bool scenery_no_movers;   /* the pugs and the cat push no grass aside (debug sw grass_movers 0) */
 void scenery_quality(float k, float grass); /* share of the crowd and of the grass drawn, 0..1 */
 void scenery_crowd_detail(t3_vec3 eye, float focal_pixels);
 void scenery_light_crowd(bool light); /* the crowd's light meshes (split screen) or the full ones */
