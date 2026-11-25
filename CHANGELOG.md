@@ -3,6 +3,10 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.29.1 (2026-11-24)
+
+- **bikemesa, derby**: Their program tables carry the stamp of the engine sources they were made from again. v0.29.0 shipped the two tables without it (the programs inside were the same), so configuring the games stopped at the table check
+
 ## v0.29.0 (2026-11-24)
 
 - **All games**: Engine v0.78.2 (from v0.57.6). Every program table is regenerated against the new SDK with its variant closure (each surveyed material in every fog, shadow, environment and lighting combination its class reaches, and each terrain material at every terrain quality), so no draw goes missing after a preset change in play; a state no table has would now draw with the nearest program that covers it instead of being skipped. Split screen draws each view's spot and omni shadows from that view's own casters (the picture matches each view drawn alone). With height or volumetric fog, transparent materials, particles and trails are fogged at their own distance after the fog
