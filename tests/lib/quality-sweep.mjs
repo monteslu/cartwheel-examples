@@ -110,7 +110,7 @@ function controlBuild(game, app, state, tables, outDir) {
       let c = readFileSync(src, 'utf8');
       const rows = c.split('\n');
       // '*': the lit rows out, to list what a scene draws (--control-state '*' with a control that then fails)
-      const out = rows.filter((l) => (state === '*' ? /^  \{ "(standard|physical)/.test(l) : l.startsWith(`  { "${state}", `)));
+      const out = rows.filter((l) => (state === '*' ? /^  \{ "(standard|physical)/.test(l) : [].concat(state).some((s) => l.startsWith(`  { "${s}", `))));
       if (out.length) {
         c = rows.filter((l) => !out.includes(l)).join('\n').replace(new RegExp(`(const t3_gen_table ${t}_${suffix} = \\{ programs, )(\\d+)( \\})`), (_, a, n, b) => `${a}${+n - out.length}${b}`);
         removed++;
@@ -149,7 +149,7 @@ function controlBuild(game, app, state, tables, outDir) {
  * @param {string} g.game       games/<game>
  * @param {string[]} g.tables   its program tables (programs/<table>.txt)
  * @param {object[]} g.scenes   { name, app, frames, cmds?, env?, input?, reach?, show?, presets?, swap? (also run built at High and switched to Very Low and back, and the reverse: 'swapdown', 'swapup'), spread? (false: the warm-up in frame 1, as the gate whose input script it replays was timed), mustNotReach? (a control: its reach must fail, and a run that reaches it does) }
- * @param {object|object[]} g.control    { state, scene (a scene's name), gpu?, quality? }: a state that scene draws at that preset; several when one scene can not speak for the rest
+ * @param {object|object[]} g.control    { state, scene (a scene's name), gpu?, quality? }: a state that scene draws at that preset (or an array of states taken out together, such as a fogged state and its _plain twin the engine can draw it with); several when one scene can not speak for the rest
  * @param {string[]} [g.qualities] the presets
  */
 export function sweep({ game, tables, scenes, control, qualities = QUALITIES }) {
@@ -188,8 +188,8 @@ export function sweep({ game, tables, scenes, control, qualities = QUALITIES }) 
       const q = k.quality || 'low';
       const r = runScene(OUT, sc, gpu, q, exe);
       const covered = (r.state && r.state['cw.three.covered']) || 0;
-      const ok = !r.failed && r.missing.includes(state) && (r.skipped > 0 || covered > 0);
-      console.log(`${ok ? 'ok  ' : 'FAIL'} control ${gpu} ${q} ${sc.name}, ${state} out of the table: must report it and skip or cover its draws: ${r.failed || `missing [${r.missing.join(' ')}] skipped ${r.skipped} covered ${covered}`}`);
+      const ok = !r.failed && [].concat(state).some((s) => r.missing.includes(s)) && (r.skipped > 0 || covered > 0);
+      console.log(`${ok ? 'ok  ' : 'FAIL'} control ${gpu} ${q} ${sc.name}, ${[].concat(state).join(' and ')} out of the table: must report it and skip or cover its draws: ${r.failed || `missing [${r.missing.join(' ')}] skipped ${r.skipped} covered ${covered}`}`);
       if (!ok) fail++;
     }
     rmSync(dir, { recursive: true, force: true });
