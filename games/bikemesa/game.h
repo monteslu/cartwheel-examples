@@ -322,6 +322,7 @@ void view_ground_detail(bool full); /* distant ground with every map (true) or i
 void view_fx(int views); /* volumetric fog for this many views (0: as before) and the graphics settings */
 void view_frame(float alpha); /* moving scenery (the bridge planks) at the frame's alpha */
 void view_stream(const cw_node *cameras, int n);
+void view_grass_still(bool still); /* the wind off in the grass (the still_grass control) */
 void view_grass(const cw_node *cameras, int n); /* the grass the cameras see, posed once for the frame (after they are placed); none: no grass */
 void fx_dust(float x, float y, float amount);
 void fx_burst(float x, float y, int kind);

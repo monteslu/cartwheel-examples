@@ -1110,8 +1110,10 @@ static void cmd_bind(int argc, const char **argv, cw_reply *r) {
  * until it does, as the game once did (the newcomer gate's control) */
 static int sw_idle_wait;
 static void cmd_sw(int argc, const char **argv, cw_reply *r) {
+  static int still_grass;
   if (argc > 2 && !strcmp(argv[1], "idle_wait")) sw_idle_wait = atoi(argv[2]);
-  cw_reply_printf(r, "{\"idle_wait\":%d}", sw_idle_wait);
+  if (argc > 2 && !strcmp(argv[1], "still_grass")) view_grass_still((still_grass = atoi(argv[2])) != 0);
+  cw_reply_printf(r, "{\"idle_wait\":%d,\"still_grass\":%d}", sw_idle_wait, still_grass);
 }
 /* players n: riders in the next race (a test's way in to 3 and 4; riders without a pad idle) */
 static void cmd_players(int argc, const char **argv, cw_reply *r) {
@@ -1751,7 +1753,7 @@ static void init(void *u) {
   cw_debug_field("sweep.fail", dbg_sweep_fail, CW_DBG_I32, 5);
   cw_debug_command("chocolate", "chocolate [crash|ride [1|2]]: inspect decals or exercise either river",cmd_chocolate);
   cw_debug_command("players", "players <1..4>: riders in the next race (split screen)", cmd_players);
-  cw_debug_command("sw", "sw idle_wait <0|1>: 1 = a joined seat that never readies holds the start (control)", cmd_sw);
+  cw_debug_command("sw", "sw idle_wait <0|1>: 1 = a joined seat that never readies holds the start (control); sw still_grass <0|1>: 1 = no wind in the grass (control)", cmd_sw);
   cw_debug_command("bind", "bind <action> <bindings>: replace an action's bindings (binding text, as input.cfg writes it)", cmd_bind);
   cw_debug_command("bike_pick", "bike_pick <0..6> <0..7>: inspect a frame and paint", cmd_bike_pick);
   cw_debug_command("progress", "progress [show | preset <n>]: the save data", cmd_progress);

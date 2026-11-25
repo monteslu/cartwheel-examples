@@ -156,6 +156,8 @@ standard+instbig+shadow+senv+l1001+xterrainfx
 standard+instbig+shadow+senv+l1001+xterrainfxmin_plain
 basic+map+trans+instbig+icol+xhfog
 standard+instbig+shadow+senv+l1001+xterrainfxlow
+physical+vcol+instbig+shadow+senv+icol+sheen+l1001+xfoliage
+physical+trans+shadow+senv+cc+l1001+xhfog
 # closure (tools/programs.mjs): 364 state(s), the surveyed materials in the environments surveyed for their class
 basic+map+trans+xhfog
 basic+trans+xhfog
@@ -521,3 +523,25 @@ standard+vcol+shadow+skin+senv+l1301+s100+xcluster
 standard+vcol+shadow+skin+senv+l1301+s100+xcluster_gi
 standard+vcol+shadow+skin+senv+l1301+s100+xcluster_plain_gi
 standard+vcol+shadow+skin+senv+l1301+s100+xplain
+# closure (tools/programs.mjs): 5 state(s), the surveyed materials in the environments surveyed for their class
+physical+vcol+instbig+shadow+senv+icol+sheen+l1301+s100+xcluster_foliage
+physical+vcol+instbig+shadow+senv+icol+sheen+l1301+s100+xcluster_foliage_gi
+physical+vcol+instbig+shadow+senv+icol+sheen+l1301+s100+xcluster_foliage_plain_gi
+physical+vcol+instbig+shadow+senv+icol+sheen+l1301+s100+xfoliage
+physical+vcol+instbig+shadow+senv+icol+sheen+l1301+s100+xfoliage_plain
+# closure (tools/programs.mjs): 15 state(s), the surveyed materials in the environments surveyed for their class
+physical+map+rep+nearest+rmap+mmap+shadow+senv+bs+transm+l1001+xhfog
+physical+map+rep+nearest+rmap+mmap+shadow+senv+bs+transm+l1301+s100+xhfog
+physical+map+rep+nearest+rmap+mmap+shadow+senv+transm+l1001+xhfog
+physical+map+rep+nearest+rmap+mmap+shadow+senv+transm+l1301+s100+xhfog
+physical+shadow+senv+bs+transm+l1001+xhfog
+physical+shadow+senv+bs+transm+l1301+s100+xhfog
+physical+shadow+senv+transm+l1001+xhfog
+physical+shadow+senv+transm+l1301+s100+xhfog
+physical+trans+shadow+senv+cc+l1301+s100+xhfog
+standard+map+trans+rep+shadow+senv+l1001+xhfog
+standard+map+trans+rep+shadow+senv+l1301+s100+xhfog
+standard+map+trans+shadow+skin+senv+l1001+xhfog_meshdecal
+standard+map+trans+shadow+skin+senv+l1301+s100+xhfog_meshdecal
+standard+trans+shadow+senv+l1001+xhfog
+standard+trans+shadow+senv+l1301+s100+xhfog

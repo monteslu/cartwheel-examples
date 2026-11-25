@@ -19,6 +19,7 @@
 #include "cartwheel/jobs.h"
 #include "cartwheel/profile.h"
 #include "cartwheel/debug.h"
+#include "cartwheel/foliage.h"
 #include "cartwheel/particles.h"
 #include "cartwheel/quality.h"
 #include "cartwheel/stream.h"
@@ -815,10 +816,13 @@ static void bank(t3_object *root, const track_desc *t, const theme *th) {
 
 /* ── boulders and grass along the track ───────────────────────────────── */
 
-typedef struct sway { float x, y, z, yaw, s, sy, flex, col[3], c, sn; } sway; /* c, sn: cw_cos / cw_sin of yaw, once */
+typedef struct sway { float x, y, z, yaw, s, sy, col[3], c, sn; } sway; /* c, sn: cw_cos / cw_sin of yaw, once */
 enum { TUFTS = 5000, BOULDERS = 160 };
 static sway tuft_at[TUFTS];
 static int n_tufts, wind_t;
+static t3_material *tuft_mat; /* the tufts' material (the meshes hold it), for its wind */
+static float tuft_h;          /* the tuft mesh's height (the wind's full lean is at its top) */
+static bool grass_still;      /* sw still_grass 1: the wind off (a control) */
 static float density = 1; /* view_density */
 static float tuft_reach; /* a tuft's bounding radius per unit of its scale, bent as far as the wind goes */
 /* the tufts in chunks along the track, TUFT_CHUNK metres each: one
@@ -874,47 +878,36 @@ static t3_geometry *geo_tuft(void) {
   return mb_done(&b);
 }
 
-static const float WIND_X = 0.94f, WIND_Z = 0.34f;
-static float gust(float x, float z, float t) {
-  float p = x * WIND_X + z * WIND_Z;
-  float g1 = 0.5f + 0.5f * cw_sin(6.2831853f * (p / 24 - t / 7.0f));
-  float g2 = 0.5f + 0.5f * cw_sin(6.2831853f * (p / 13 - t / 9.3f) + 1.7f);
-  float g = g1 * 0.65f + g2 * 0.35f;
-  return g * g;
+/* The wind is the engine's foliage wind on the tuft material's vertices (cartwheel/foliage.h): each blade bends over by
+ * its height share squared (the root stays put, the tip leans most), with a phase from where it stands and gust fronts
+ * rolling along the verge, drawn on the GPU in every view, the shadows bending with it. The instances never move: each
+ * tuft's matrix is its rest pose, written once when the track is built (the whole track's visible grass used to be
+ * sheared on the CPU every frame and its matrices uploaded again). */
+static const cw_wind TUFT_WIND = { .strength = 0.2f, .frequency = 0.35f, .direction = { 0.94f, 0.34f }, .gust = 0.75f,
+                                   .gust_scale = 20 };
+static void grass_wind_apply(void) {
+  if (!tuft_mat) return;
+  cw_foliage_desc d = cw_foliage_default();
+  d.wind = TUFT_WIND;
+  if (grass_still) d.wind.strength = 0;
+  d.height = tuft_h;
+  cw_foliage_apply(tuft_mat, &d);
+}
+void view_grass_still(bool still) {
+  grass_still = still;
+  grass_wind_apply();
 }
 
-/* the wind's pose of tuft a at time t (seconds) */
-static void sway_matrix(const sway *a, float t, float *m) {
-  float bend = (0.06f + 0.36f * gust(a->x, a->z, t) + 0.04f * cw_sin(t * 2.3f + a->x * 1.7f)) * a->flex;
-  float c = a->c, s = a->sn, kx = bend * WIND_X, kz = bend * WIND_Z;
+/* tuft a's rest pose */
+static void sway_matrix(const sway *a, float *m) {
+  float c = a->c, s = a->sn;
   float r[16] = { c * a->s, 0, -s * a->s, 0, 0, a->sy, 0, 0, s * a->s, 0, c * a->s, 0, a->x, a->y, a->z, 1 };
-  for (int col = 0; col < 3; col++) {
-    r[col * 4 + 0] += kx * r[col * 4 + 1];
-    r[col * 4 + 2] += kz * r[col * 4 + 1];
-  }
   memcpy(m, r, sizeof r);
 }
 
-/* Only the chunks the camera can see are posed and drawn; the job pool
- * poses their tufts (each a function of its own sway and t, so every host
- * alike). The renderer culls each drawn chunk again on its instances'
- * bounds. The whole track's grass used to be swayed every tick and drawn
- * every frame. */
-typedef struct sway_job { const int *vis; const int *first; int nvis; float t; } sway_job;
-static void sway_range(int begin, int end, int worker, void *ctx) {
-  (void)worker;
-  const sway_job *j = ctx;
-  int v = 0;
-  for (int i = begin; i < end; i++) {
-    while (v + 1 < j->nvis && j->first[v + 1] <= i) v++;
-    tuft_chunk *c = &tch[j->vis[v]];
-    int k = i - j->first[v];
-    sway_matrix(&tuft_at[c->start + k], j->t, (float *)c->im->instance_matrix->array + (size_t)k * 16);
-  }
-}
-/* the tuft chunks any of the n frusta sees (none given: all), swayed once for them all */
+/* the tuft chunks any of the n frusta sees (none given: all) are drawn (the renderer culls each drawn chunk again on its
+ * instances' bounds) */
 static void sway_shown(const t3_frustum *f, int nf) {
-  int vis[MAX_TUFT_CHUNKS], first[MAX_TUFT_CHUNKS], nvis = 0, total = 0;
   for (int i = 0; i < n_tch; i++) {
     tuft_chunk *c = &tch[i];
     c->count = (int)(c->n * density);
@@ -923,15 +916,7 @@ static void sway_shown(const t3_frustum *f, int nf) {
     bool on = c->count > 0 && seen;
     c->im->count = on ? c->count : 0;
     c->im->mesh.base.visible = on;
-    if (!on) continue;
-    vis[nvis] = i;
-    first[nvis++] = total;
-    total += c->count;
   }
-  if (!total) return;
-  sway_job j = { vis, first, nvis, wind_t / 60.0f };
-  cw_parallel_for(total, 64, sway_range, &j);
-  for (int v = 0; v < nvis; v++) tch[vis[v]].im->instance_matrix->version++;
 }
 
 /* ── rocks: irregular faceted shapes, never smooth domes ──────────────
@@ -1128,8 +1113,9 @@ static void fill(t3_object *root, const track_desc *t, const theme *th) {
        (fabsf(x-t->finish_x*.34f)<3.7f||fabsf(x-t->finish_x*.73f)<3.7f))continue;
     if(!strcmp(th->name,"toybox")&&x>t->finish_x&&x<t->finish_x+14)continue;
     if (z < -TRACK_HALF_W - 0.3f) y = bank_y(x, z, th->far_kind == 1 ? 1 : !strcmp(th->name, "neon") ? 2 : 0);
-    float s = 0.7f + rnd() * 0.8f, yaw = rnd() * 6.2831853f, sy = 0.8f + rnd() * 0.6f, g = rnd(), flex = 0.7f + rnd() * 0.6f;
-    tuft_at[n_tufts] = (sway){ x, y - 0.02f, z, yaw, s, s * sy, flex };
+    float s = 0.7f + rnd() * 0.8f, yaw = rnd() * 6.2831853f, sy = 0.8f + rnd() * 0.6f, g = rnd();
+    (void)rnd(); /* (each tuft's own flex for the old CPU wind: drawn still, so the placements after it stay as they were) */
+    tuft_at[n_tufts] = (sway){ x, y - 0.02f, z, yaw, s, s * sy };
     tuft_at[n_tufts].c = cw_cos(yaw);
     tuft_at[n_tufts].sn = cw_sin(yaw);
     const float *c = g < 0.5f ? th->tuft : th->tuft2;
@@ -1139,9 +1125,12 @@ static void fill(t3_object *root, const track_desc *t, const theme *th) {
     n_tufts++;
   }
   /* a tuft's reach: its geometry's bounding sphere about the root (the
-   * instance's origin), stretched by the strongest bend (shear up to 0.6 of
-   * the height: 1.17x) with room to spare */
+   * instance's origin), stretched by the strongest bend with room to spare */
   t3_geometry_compute_bounding_sphere(tg);
+  t3_geometry_compute_bounding_box(tg);
+  tuft_h = tg->bounding_box.max.y;
+  tuft_mat = n_tufts ? bl : NULL;
+  grass_wind_apply();
   {
     t3_sphere bs = tg->bounding_sphere;
     tuft_reach = (sqrtf(bs.center.x * bs.center.x + bs.center.y * bs.center.y + bs.center.z * bs.center.z) + bs.radius) * 1.5f + 0.05f;
@@ -1169,6 +1158,7 @@ static void fill(t3_object *root, const track_desc *t, const theme *th) {
       for (int i = 0; i < cnt[c]; i++) {
         const sway *a = &tuft_at[at[c] + i];
         t3_instanced_mesh_set_color_at(k->im, i, (t3_color){ a->col[0], a->col[1], a->col[2] });
+        sway_matrix(a, (float *)k->im->instance_matrix->array + (size_t)i * 16);
         float r = tuft_reach * (a->s > a->sy ? a->s : a->sy);
         lo = (t3_vec3){ fminf(lo.x, a->x - r), fminf(lo.y, a->y - r), fminf(lo.z, a->z - r) };
         hi = (t3_vec3){ fmaxf(hi.x, a->x + r), fmaxf(hi.y, a->y + r), fmaxf(hi.z, a->z + r) };
@@ -1176,6 +1166,7 @@ static void fill(t3_object *root, const track_desc *t, const theme *th) {
       t3_vec3 ce = { (lo.x + hi.x) * 0.5f, (lo.y + hi.y) * 0.5f, (lo.z + hi.z) * 0.5f };
       float dx = hi.x - ce.x, dy = hi.y - ce.y, dz = hi.z - ce.z;
       k->sph = (t3_sphere){ ce, sqrtf(dx * dx + dy * dy + dz * dz) };
+      k->im->instance_matrix->version++;
       k->im->mesh.base.receive_shadow = true;
       t3_object_add(root, k->im);
       t3_release(k->im);
@@ -2997,12 +2988,14 @@ int view_build_stage(cw_node parent, const track_desc *t, int track_index, int s
 
 /* one fixed tick: wind, and the motes riding along with the camera's area */
 void view_tick(float rider_x, float rider_y, float speed, bool grounded) {
-  wind_t++; /* the grass is posed for the frame, the tufts in view only (view_grass) */
-  if (n_tufts) { /* wind.hash: every 64th tuft's pose (the wind's math on this host; which tufts are in view is not hashed) */
+  wind_t++; /* (the ticks, for wind.hash; the grass sways on the GPU) */
+  if (n_tufts) { /* wind.hash: every 64th tuft's rest pose and the tick (where the grass stands, the same on every
+                 * host; the sway itself is the engine's, drawn on the GPU, whose CPU copy cw_wind_lean came out
+                 * different in its last bits on a native build and on a cart) */
     float m[16];
     uint32_t h = (uint32_t)wind_t;
     for (int i = 0; i < n_tufts; i += 64) {
-      sway_matrix(&tuft_at[i], wind_t / 60.0f, m);
+      sway_matrix(&tuft_at[i], m);
       h = cw_hash32(m, sizeof m, h);
     }
     wind_hash = h;
@@ -3087,5 +3080,6 @@ void view_forget(void) {
   memset(chain_mesh, 0, sizeof chain_mesh);
   n_tch = 0;
   n_tufts = 0;
+  tuft_mat = NULL; /* (the meshes holding it went with the scene) */
   dust = burst_n = motes = hfog = mist = (cw_node){ 0 };
 }
