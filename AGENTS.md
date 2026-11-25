@@ -25,6 +25,10 @@ node deps/cartwheel-sdk/linux-x64/tools/check-prompts.mjs games/<game>   # the b
   release (its source commit and every SDK line with its sha256).
 - A new material state fails the gates and names itself: add it to the game's program table with
   `node deps/cartwheel-sdk/<host>/tools/programs.mjs <app> --build build/native` and commit the generated files.
+- An engine pin move restamps every table: configure stops on a stale one and prints the regenerate command. Use the
+  SDK's tool (`node deps/cartwheel-sdk/<host>/tools/programs.mjs --table games/<g>/programs/<g>.txt ...`), never
+  `deps/cartwheel-engine/tools/programs.mjs`, and a few tables at a time: on a fresh SDK, runs started together race
+  unpacking the three.js tarball and the first fails (run one table alone first, then three at a time).
 - Generated assets come from each game's `tools/` scripts: change the script, rerun it and commit both.
 
 ## No strobing

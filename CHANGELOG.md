@@ -3,6 +3,12 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.29.0 (2026-11-24)
+
+- **All games**: Engine v0.78.2 (from v0.57.6). Every program table is regenerated against the new SDK with its variant closure (each surveyed material in every fog, shadow, environment and lighting combination its class reaches, and each terrain material at every terrain quality), so no draw goes missing after a preset change in play; a state no table has would now draw with the nearest program that covers it instead of being skipped. Split screen draws each view's spot and omni shadows from that view's own casters (the picture matches each view drawn alone). With height or volumetric fog, transparent materials, particles and trails are fogged at their own distance after the fog
+- **Tests and tools**: racer's tools/programs.sh and AGENTS.md use the SDK's tools/programs.mjs (the copy that matches the SDK the games build with), a few tables at a time
+- **Checks for this pin move**: every table regenerated on v0.78.2; every game builds natively and as a release cart; the program survey of every cart (each preset from the start and each switch both ways, GL and WebGPU, `--dry`) lists no missing state; every cart starts and draws on GL and WebGPU through romdev with no missing state; check-prompts, cart-art, check-art and cart-version pass
+
 ## v0.28.0 (2026-11-21)
 
 - **All games**: Engine v0.57.6 (from v0.53.4). Split screen draws every view in one pass: one render of the scene for all the views, with reflection probes, the depth prepass, water, screen-space reflections and the clustered lights' shadows taking part, and on GL each view handed to the GPU as soon as it is drawn. Every program table is regenerated and stamped with the engine's shader sources (racer's water reads its view's rectangle)
