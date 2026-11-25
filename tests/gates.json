@@ -504,6 +504,10 @@
   {
     "name": "bomberdude-touch",
     "app": "bomberdude",
+    "hosts": [
+      "native"
+    ],
+    "hostsNote": "Native only: this gate drives with the game's own on-screen stick and buttons, which only native builds draw. On a cart host the host draws the on-screen pad (cartwheel-engine v0.50.0) and sends pad input, which the pad gates (bomberdude-quick, bomberdude-round) cover.",
     "frames": 270,
     "maxGt16": 0.05,
     "fields": [
@@ -565,11 +569,9 @@
       "vsGl": 0.25,
       "maxGt16": 0.05,
       "hosts": [
-        "native",
-        "romdev",
-        "chromium"
+        "native"
       ],
-      "note": "WebGPU on every host: the same dual cart on romdev and Chromium against native WebGPU."
+      "note": "WebGPU natively, against the GL reference (native only: see hostsNote)."
     },
     "note": "BomberDude (games/bomberdude): the rules are integer only (sim.c), so the named state must match exactly on every host; pixels within the usual tolerance (sub-pixel grass blades and particles). Touch only: one tap on QUICK BATTLE, the floating stick walks round a corner, the BOMB button drops one, the stick walks away, the PAUSE button pauses.",
     "input": "bomberdude-touch.json"
