@@ -20,6 +20,7 @@
 #include <string.h>
 
 #include "cartwheel/debug.h"
+#include "cartwheel/pipeline.h"
 #include "cartwheel/save.h"
 #include "cartwheel/platform.h"
 #include "cartwheel/prompt.h"
@@ -492,6 +493,7 @@ static sim_input autopilot(const sim *S) {
 
 static cw_font font_ui, font_title;
 static void sync_hook(cw_tree *t, double alpha, void *u);
+static int32_t late_builds; /* engine pass builds after the warm-up (late_builds_measure) */
 
 static void init(void *u) {
   (void)u;
@@ -521,6 +523,14 @@ static void init(void *u) {
   font_ui = cw_font_load("fonts/PatrickHand-Regular.ttf", NULL);
   font_title = cw_font_load("fonts/Sniglet-ExtraBold.ttf", NULL);
   /* (the fonts' glyphs and the title's world load in the warm-up, below) */
+  /* the depth of field turns on with play on High and Ultra (sync_hook): its pass is built by the engine's prewarm
+   * under the loading screen, not on the first frame of the climb (cw.pass_builds stays flat from the title on) */
+  {
+    cw_pipeline *p = cw_pipeline_of(cw_scene_app_tree());
+    cw_post_settings later = *cw_pipeline_settings(p);
+    later.dof = true, later.dof_focus_range = 0.9f, later.dof_blur = 7, later.dof_near_blur = 0.3f;
+    cw_post_prewarm(p, &later);
+  }
 
   G.stopmotion = true;
   cw_debug_command("level", "level <1..5>: inspect a playable level without changing unlocks",cmd_level);
@@ -569,6 +579,7 @@ static void init(void *u) {
   cw_debug_u32("state.hash", &G.state_hash);
   cw_debug_u32("tex.hash", &tex_hash);
   cw_debug_u32("world.hash", &world_hash);
+  cw_debug_i32("pass.late_builds", &late_builds);
 }
 
 /* ── the warm-up (cw_app_desc.warmup): a step a frame under the engine's loading screen ──
@@ -878,7 +889,14 @@ static void sync_hook(cw_tree *t, double alpha, void *u) {
 }
 
 static void gfx_input(void);
+/* engine pass builds (programs, WebGPU pipelines) after the warm-up and its prewarm: 0 when nothing builds in play */
+static void late_builds_measure(void) {
+  static int frames, base = -1;
+  if (++frames == 3) base = cw_pipeline_pass_builds(); /* (a test's warm-up and prewarm run in its first frame) */
+  if (base >= 0) late_builds = cw_pipeline_pass_builds() - base;
+}
 static void update(void *u, double dt) {
+  late_builds_measure();
   read_device();
   gfx_input();
   cw_quality_auto_measure(G.state == GS_PLAY); /* the preset steps down when play runs slow */

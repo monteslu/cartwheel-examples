@@ -3402,6 +3402,64 @@
       "silk",
       "zips",
       "pecks",
+      "flies",
+      "pass.late_builds",
+      "cw.quality"
+    ],
+    "webgpu": {
+      "vsGl": 0.25,
+      "maxGt16": 0.05,
+      "hosts": [
+        "native",
+        "romdev",
+        "chromium"
+      ],
+      "note": "WebGPU on every host, compared against GL."
+    },
+    "note": "Spout: the depth of field turns on with play on High and Ultra; the engine prewarm (cw_post_prewarm in init) builds its pass under the loading screen, so no engine pass builds in play (pass.late_builds 0 from the title into the climb). The control, CW_TEST_NO_PREWARM=1, builds it on the first frame of the climb.",
+    "name": "spout-prewarm",
+    "frames": 300,
+    "input": "spout-climb.json",
+    "expect": {
+      "game.state": 2,
+      "cw.quality": 3,
+      "pass.late_builds": 0
+    },
+    "startCmds": [
+      "quality high"
+    ],
+    "controlEnv": {
+      "CW_TEST_NO_PREWARM": "1"
+    }
+  },
+  {
+    "app": "spout",
+    "maxGt16": 0.05,
+    "fields": [
+      "game.state",
+      "game.level",
+      "spider.state",
+      "checkpoint",
+      "weather",
+      "washes",
+      "knocks",
+      "jumps",
+      "braced",
+      "dews",
+      "select.locked_bumps",
+      "save.unlocked",
+      "save.cleared",
+      "input.mode",
+      "win.ticks",
+      "new_best",
+      "spider.pos",
+      "state.hash",
+      "tex.hash",
+      "world.hash",
+      "ticks",
+      "silk",
+      "zips",
+      "pecks",
       "flies"
     ],
     "webgpu": {
