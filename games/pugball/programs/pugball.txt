@@ -441,3 +441,21 @@ standard+senv+l1301+xcsm
 standard+senv+l1301+xcsm_plain
 standard+shadow+senv+l1301+s100+xcluster
 standard+shadow+senv+l1301+s100+xcluster_plain
+physical+vcol+instbig+senv+icol+sheen+l0301+xcsm_foliage
+physical+vcol+instbig+senv+icol+sheen+l0001+xclusteries_csm_foliage
+physical+vcol+instbig+senv+icol+sheen+l0301+xcsm_foliage_plain
+physical+trans+senv+l0001+xclusteries_csm_hfog_plain
+physical+trans+shadow+senv+l1301+s100+xhfog_plain
+physical+vcol+instbig+senv+icol+sheen+l0001+xclusteries_csm_foliage_plain
+physical+vcol+instbig+shadow+senv+icol+sheen+l1301+s100+xfoliage
+physical+vcol+instbig+shadow+senv+icol+sheen+l1301+s100+xfoliage_plain
+# closure (tools/programs.mjs): 9 state(s), the surveyed materials in the environments surveyed for their class
+physical+trans+senv+l1301+xclusteries_csm_hfog_plain
+physical+vcol+instbig+senv+icol+sheen+l1301+xcluster_csm_foliage
+physical+vcol+instbig+senv+icol+sheen+l1301+xcluster_csm_foliage_plain
+physical+vcol+instbig+senv+icol+sheen+l1301+xclusteries_csm_foliage
+physical+vcol+instbig+senv+icol+sheen+l1301+xclusteries_csm_foliage_plain
+physical+vcol+instbig+senv+icol+sheen+l1301+xcsm_foliage
+physical+vcol+instbig+senv+icol+sheen+l1301+xcsm_foliage_plain
+physical+vcol+instbig+shadow+senv+icol+sheen+l1301+s100+xcluster_foliage
+physical+vcol+instbig+shadow+senv+icol+sheen+l1301+s100+xcluster_foliage_plain
