@@ -37,6 +37,7 @@ basic+trans+ds+xhfog
 sprite+map+trans+xhfog
 basic+trans+xhfog
 physical+trans+env+cc+l1001+xcluster_hfog_gi
+physical+trans+env+cc+l1001+xcluster_hfog_plain_gi
 basic+trans+instbig+icol+xhfog
 basic+trans+instbig+xhfog
 basic+map+trans+instbig+xhfog
