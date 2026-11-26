@@ -85,7 +85,7 @@ for (const game of games) {
   for (const [k, v] of Object.entries(SMOKE || SLICE ? {} : gate.expect || {})) if (!same(all[k], v)) problems.push(`${k} = ${JSON.stringify(all[k])}, the gate expects ${JSON.stringify(v)}`);
   for (const f of gate.fields) if (all[f] === undefined) problems.push(`${f}: missing from the state`);
   if (GPU !== 'auto' && api !== GPU) problems.push(`ran on ${api}, not ${GPU}`);
-  if (all['cw.gpu.errors']) problems.push(`${all['cw.gpu.errors']} GPU error(s)`);
+  if (all['cw.gpu.errors']) problems.push(`${all['cw.gpu.errors']} GPU error(s)`, ...(r.stderr || '').split('\n').filter((l) => /WebGPU( [a-z ]+ error)?:/.test(l)).slice(0, 8).map((l) => `  ${l.slice(0, 600)}`)); /* the engine's own lines say what went wrong */
   let matched = null;
   if (REF && !SMOKE) {
     const refFile = join(REF, `${game}.json`);
