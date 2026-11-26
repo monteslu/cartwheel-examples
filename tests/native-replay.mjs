@@ -20,6 +20,9 @@
 //   --smoke N  run each game N frames only: it starts and draws on that API
 //           (no expectations); for runners too slow for the full replay
 //
+// With --gpu webgpu each game first runs 8 frames unchecked, to warm the
+// driver's shader cache (see below; CW_REPLAY_NO_PRIME=1 skips it).
+//
 // Exit status: 0 when every game ran, met its gate's expectations and (with
 // --ref) matched; 1 otherwise.
 import { spawnSync } from 'node:child_process';
@@ -69,6 +72,24 @@ for (const game of games) {
   };
   if (GPU === 'auto') delete env.CW_GPU;
   else env.CW_GPU = GPU;
+  // WebGPU: a short run first, so the replay starts with the driver's shader cache warm. A replay does the whole
+  // warm-up in frame 1 (CW_WARMUP_SPREAD=0), drawing every program the game has. On a software renderer
+  // (lavapipe, CI's runners) each program is compiled to machine code when its first draw executes, on the
+  // driver's queue thread, not when the pipeline is made: derby's cost about 25 s on CI's arm64 runner. Frame 1's
+  // submits sometimes block until that is done and sometimes not; when not, about 12 s of it is still queued
+  // when frame 4 waits for frame 2, past the engine's 10 s frame wait ("waiting for the GPU failed (status 2)",
+  // 10 of 24 cold derby runs there). With the cache warm the same wait is about 1 s. The run's state is not
+  // affected (the cache only holds compiled shaders). Eight frames: frame 8 has waited for frames 1 to 6, so
+  // every program compiled in frame 1 has been compiled and written to the cache before the run exits.
+  // CW_REPLAY_NO_PRIME=1 skips it (the control).
+  let primed = '';
+  if (GPU === 'webgpu' && !SMOKE && !process.env.CW_REPLAY_NO_PRIME) {
+    const p0 = Date.now();
+    const pe = { ...env, CW_FRAMES: '8' };
+    delete pe.CW_DEBUG_DUMP;
+    const p = spawnSync(bin, [], { env: pe, encoding: 'utf8', timeout: +(process.env.CW_RUN_TIMEOUT_MS || 3600000), cwd: dirname(bin) });
+    primed = `, shaders primed in ${((Date.now() - p0) / 1000).toFixed(1)} s${p.error || p.status !== 0 ? ` (that run ${p.error ? p.error.message : `exited ${p.status ?? p.signal}`})` : ''}`;
+  }
   const t0 = Date.now();
   const r = spawnSync(bin, [], { env, encoding: 'utf8', timeout: +(process.env.CW_RUN_TIMEOUT_MS || 3600000), cwd: dirname(bin) });
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
@@ -99,7 +120,7 @@ for (const game of games) {
   }
   if (!SMOKE) writeFileSync(join(OUT, `${game}.json`), JSON.stringify({ gate: gate.name, app: gate.app, frames: SLICE || gate.frames, gpu: GPU, api, adapter,
     platform: `${process.platform}-${process.arch}`, seconds: +secs, matched, state }, null, 2) + '\n');
-  if (problems.length) { failed++; console.error(`${game}: FAIL (${api}, ${secs} s)\n  ${problems.join('\n  ')}`); }
-  else console.log(`${game}: ok (${api}${adapter ? `, ${adapter}` : ''}, ${SMOKE || SLICE || gate.frames} frames${SMOKE ? ' (smoke)' : SLICE ? ' (slice)' : ''}, ${secs} s${matched ? ', state identical to the reference' : ''})`);
+  if (problems.length) { failed++; console.error(`${game}: FAIL (${api}, ${secs} s${primed})\n  ${problems.join('\n  ')}`); }
+  else console.log(`${game}: ok (${api}${adapter ? `, ${adapter}` : ''}, ${SMOKE || SLICE || gate.frames} frames${SMOKE ? ' (smoke)' : SLICE ? ' (slice)' : ''}, ${secs} s${primed}${matched ? ', state identical to the reference' : ''})`);
 }
 process.exit(failed ? 1 : 0);
