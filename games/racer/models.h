@@ -90,6 +90,8 @@ typedef struct veh_geo {
   t3_geometry *g[S_COUNT];
   t3_geometry *tyre, *rim[2];            /* rim[0] for the +x (left) wheels, rim[1] the right */
   t3_geometry *tyre_lo, *rim_lo[2];      /* the same, plain, for a kart seen from far */
+  t3_geometry *tyre_blur;                /* the tyre turning too fast to see its tread: the blocks smeared into a ring */
+  t3_geometry *rim_mid[2], *rim_blur[2]; /* the rim with its spokes smeared over part of their gap, and blurred to a disc */
   wheel_look wl;
   anchor flame[4];                       /* exhaust mouths: position and the way the flame points */
   int nflame;
@@ -145,11 +147,32 @@ typedef struct kart_rig {
   /* the four tyres, the rims of each side, the arms, forearms and gloves: one instanced draw a set, its copies placed
    * from the (hidden) part objects each frame by rig_sync_parts */
   t3_instanced_mesh *im_tyre, *im_rim[2], *im_arm_up, *im_arm_lo, *im_hand;
+  /* the wheels as drawn (rig_wheel_roll): each wheel's rim and tyre turn [0] rim, [1] tyre, and which of their crisp,
+   * smeared or blurred version shows (WHEEL_CRISP..); the part objects carry only the steer */
+  float roll[4][2], roll_d[4][2]; /* the turn drawn, and its step this frame */
+  uint8_t roll_look[4][2];
+  t3_instanced_mesh *im_tyre_blur, *im_rim_mid[2], *im_rim_blur[2];
 } kart_rig;
+
+/* Wheels and the wagon-wheel effect: a rim with n spokes looks the same every 2pi/n of turn, so the eye reads the turn
+ * between two drawn frames as the shortest way to the next look. Past half a spoke gap a frame it reads backwards, and at
+ * race speeds that is most of the time. So a wheel is drawn by how far it turns a frame, as a share of its spoke gap:
+ * crisp spokes turning with the wheel up to WHEEL_SMEAR_AT, then spokes smeared over part of the gap and turned at most
+ * WHEEL_STEP_CAP of it a frame (always forward), then past WHEEL_BLUR_AT a disc with no spokes to read. The tyre's tread
+ * blocks the same against their own spacing: crisp, then a smooth ring. Each step back down waits for WHEEL_HYST less,
+ * so a wheel at a steady speed never flickers between two looks. tests/racer-wheel-alias.mjs reads these numbers. */
+#define WHEEL_SMEAR_AT 0.30f
+#define WHEEL_BLUR_AT 0.75f
+#define WHEEL_STEP_CAP 0.30f
+#define WHEEL_HYST 0.06f
+enum { WHEEL_CRISP, WHEEL_SMEAR, WHEEL_BLUR };
 
 void rig_build(kart_rig *r, int veh, int colour, int number);
 void rig_free(kart_rig *r);
 void rig_far_distance(kart_rig *r, float metres);
+/* each drawn frame, before rig_sync_parts: wheel w turned step radians (signed, + rolls forward) since the last drawn
+ * frame; picks its look and advances its drawn turn (see WHEEL_SMEAR_AT) */
+void rig_wheel_roll(kart_rig *r, int w, float step);
 void rig_sync_parts(kart_rig *r); /* after posing: the instanced parts follow their part objects (and their visibility) */ /* where a view switches this kart to its merged far version */
 void place_tube(t3_object *o, t3_vec3 a, t3_vec3 b); /* a unit y cylinder object stretched from a to b */
 

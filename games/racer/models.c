@@ -432,6 +432,59 @@ static void build_wheel(veh_geo *vg, const vehicle_def *vd) {
     t3_vec2 pl[3] = { dish[0], dish[1], dish[2] };
     mb_lathe(&ml, along_x(0), pl, 3, 12, wl->rim);
     vg->rim_lo[side] = mb_done(&ml);
+
+    /* the rim turning too fast to follow (rig_wheel_roll): no grime wobble (it would turn too), the spokes first smeared
+     * over part of their gap, a bright core and dimmer trails each side, then blurred to a disc whose rings carry the
+     * colour the spokes average out to at that radius (the marked spoke a tint of its own) */
+    for (int blur = 0; blur < 2; blur++) {
+      mb bm = { .jit = 0 };
+      mb_lathe(&bm, along_x(0), br, 4, 22, wl->rim);
+      mb_lathe(&bm, along_x(0), dish, 3, 22, dark);
+      mb_cyl(&bm, hx, rr * 0.2f, rr * 0.24f, w * 0.18f, 10, C_CHROME);
+      float gap = 6.2831853f / (float)wl->spokes;
+      if (!blur) {
+        for (int i = 0; i < wl->spokes; i++) {
+          const float *col = i == 0 ? wl->mark : wl->rim;
+          for (int t = -1; t <= 1; t++) {
+            float a = gap * ((float)i + 0.13f * (float)t), len = rr * 0.86f;
+            float c[3];
+            rgb_mix(c, col, dark, t == 0 ? 0.2f : 0.55f);
+            xf sx = xf_at(face + sg * w * (0.04f - 0.005f * (float)(t * t)), cosf(a) * len * 0.5f, sinf(a) * len * 0.5f);
+            sx.q = t3_quat_from_axis_angle(v3(1, 0, 0), a);
+            mb_rbox(&bm, sx, w * 0.1f, len, rr * (i == 0 ? 0.22f : 0.16f), 0.008f, 1, c);
+          }
+        }
+      } else {
+        float x = face + sg * w * 0.06f;
+        float edge[5] = { 0.18f, 0.32f, 0.48f, 0.66f, 0.86f };
+        for (int k = 0; k < 4; k++) {
+          float r0 = rr * edge[k], r1 = rr * edge[k + 1], rm = 0.5f * (r0 + r1), ring = 6.2831853f * rm;
+          float cover = fminf(rr * (0.16f * (float)(wl->spokes - 1) + 0.22f) / ring, 1.0f), mk = rr * 0.22f / ring;
+          float c[3];
+          for (int j = 0; j < 3; j++) c[j] = dark[j] * (1 - cover) + wl->rim[j] * (cover - mk) + wl->mark[j] * mk;
+          t3_vec2 an[2] = { { r0, x }, { r1, x } };
+          if (sg > 0) {
+            t3_vec2 t0 = an[0];
+            an[0] = an[1], an[1] = t0;
+          }
+          mb_lathe(&bm, along_x(0), an, 2, 22, c);
+        }
+      }
+      if (blur) vg->rim_blur[side] = mb_done(&bm);
+      else vg->rim_mid[side] = mb_done(&bm);
+    }
+  }
+  /* the tyre turning too fast to see its tread: one rounded profile out to the blocks' tops across the tread (the blocks
+   * smeared into a ring), the shoulders rolling into the sidewalls */
+  {
+    mb tb = { .jit = 0 };
+    float top = Rb + lug * 0.98f, mid = Rb + lug * 0.55f; /* (the blocks reach R: the ring touches the road where they did) */
+    t3_vec2 pr[10] = { { rr * 0.92f, -w * 0.42f }, { Rb * 0.8f, -w * 0.5f }, { Rb * 0.95f, -w * 0.47f }, { mid, -w * 0.41f }, { top, -w * 0.3f },
+                       { top, w * 0.3f }, { mid, w * 0.41f }, { Rb * 0.95f, w * 0.47f }, { Rb * 0.8f, w * 0.5f }, { rr * 0.92f, w * 0.42f } };
+    float c[3];
+    rgb_mul(c, body, 0.92f); /* the grooves between the blocks darken it a little */
+    mb_lathe(&tb, along_x(0), pr, 10, 28, c);
+    vg->tyre_blur = mb_done(&tb);
   }
 }
 
@@ -472,6 +525,11 @@ void kit_free(void) {
       if (VG[v]->rim[i]) t3_release(VG[v]->rim[i]);
     for (int i = 0; i < 2; i++)
       if (VG[v]->rim_lo[i]) t3_release(VG[v]->rim_lo[i]);
+    if (VG[v]->tyre_blur) t3_release(VG[v]->tyre_blur);
+    for (int i = 0; i < 2; i++) {
+      if (VG[v]->rim_mid[i]) t3_release(VG[v]->rim_mid[i]);
+      if (VG[v]->rim_blur[i]) t3_release(VG[v]->rim_blur[i]);
+    }
     free(VG[v]);
     VG[v] = NULL;
   }
@@ -794,6 +852,11 @@ static void rig_build_sets(kart_rig *r) {
   const veh_geo *vg = r->vg;
   r->im_tyre = part_set(r->near, vg->tyre, r->mat[S_DARK], 4);
   for (int sd = 0; sd < 2; sd++) r->im_rim[sd] = part_set(r->near, vg->rim[sd], r->mat[S_METAL], 2);
+  r->im_tyre_blur = part_set(r->near, vg->tyre_blur, r->mat[S_DARK], 4);
+  for (int sd = 0; sd < 2; sd++) {
+    r->im_rim_mid[sd] = part_set(r->near, vg->rim_mid[sd], r->mat[S_METAL], 2);
+    r->im_rim_blur[sd] = part_set(r->near, vg->rim_blur[sd], r->mat[S_METAL], 2);
+  }
   if (r->arm_up[0]) {
     t3_object *body = r->arm_up[0]->parent;
     r->im_arm_up = part_set(body, ((t3_mesh *)r->arm_up[0])->geometry, r->mat[S_DARK], 2);
@@ -813,13 +876,52 @@ static void set_from(t3_instanced_mesh *im, int i, const t3_object *o) {
   t3_instanced_mesh_set_matrix_at(im, i, &m);
 }
 
+void rig_wheel_roll(kart_rig *r, int w, float step) {
+  const wheel_look *wl = &r->vg->wl;
+  float gap[2] = { 6.2831853f / (float)wl->spokes, 6.2831853f / (float)wl->lugs };
+  for (int p = 0; p < 2; p++) {
+    float f = fabsf(step) / gap[p]; /* this frame's turn, in spoke (or tread block) gaps */
+    uint8_t *lk = &r->roll_look[w][p];
+    if (*lk == WHEEL_CRISP && f > WHEEL_SMEAR_AT) *lk = p ? WHEEL_BLUR : WHEEL_SMEAR; /* a tyre has no smeared look */
+    if (*lk == WHEEL_SMEAR && f > WHEEL_BLUR_AT) *lk = WHEEL_BLUR;
+    if (*lk == WHEEL_BLUR && f < (p ? WHEEL_SMEAR_AT : WHEEL_BLUR_AT) - WHEEL_HYST) *lk = p ? WHEEL_CRISP : WHEEL_SMEAR;
+    if (*lk == WHEEL_SMEAR && f < WHEEL_SMEAR_AT - WHEEL_HYST) *lk = WHEEL_CRISP;
+    /* crisp turns with the wheel (under WHEEL_SMEAR_AT a gap a frame: forward); the rest forward, at most the cap */
+    if (kartgfx_wheel_alias) *lk = WHEEL_CRISP; /* the control: the old way */
+    float cap = WHEEL_STEP_CAP * gap[p], d = *lk == WHEEL_CRISP ? step : fmaxf(fminf(step, cap), -cap);
+    r->roll_d[w][p] = d;
+    float a = r->roll[w][p] + d;
+    r->roll[w][p] = a - floorf(a / 6.2831853f) * 6.2831853f;
+  }
+}
+
+/* an instanced copy from a part object turned about its axle by roll, or folded to nothing when this look is not shown */
+static void set_wheel(t3_instanced_mesh *im, int i, const t3_object *o, float roll, bool on) {
+  t3_mat4 m;
+  t3_quat q = t3_quat_multiply(o->quaternion, t3_quat_from_axis_angle(v3(1, 0, 0), roll));
+  t3_mat4_compose(&m, o->position, q, on ? o->scale : v3(0, 0, 0));
+  t3_instanced_mesh_set_matrix_at(im, i, &m);
+}
+
 void rig_sync_parts(kart_rig *r) {
   if (!r->im_tyre) return;
+  bool any[5] = { false };
   for (int w = 0; w < 4; w++) {
-    set_from(r->im_tyre, w, r->wheel[w]);
-    set_from(r->im_rim[w & 1], w >> 1, r->wheel[w]);
+    int sd = w & 1, i = w >> 1, rl = r->roll_look[w][0], tl = r->roll_look[w][1];
+    set_wheel(r->im_tyre, w, r->wheel[w], r->roll[w][1], tl == WHEEL_CRISP);
+    set_wheel(r->im_tyre_blur, w, r->wheel[w], r->roll[w][1], tl != WHEEL_CRISP);
+    set_wheel(r->im_rim[sd], i, r->wheel[w], r->roll[w][0], rl == WHEEL_CRISP);
+    set_wheel(r->im_rim_mid[sd], i, r->wheel[w], r->roll[w][0], rl == WHEEL_SMEAR);
+    set_wheel(r->im_rim_blur[sd], i, r->wheel[w], r->roll[w][0], rl == WHEEL_BLUR);
+    any[0] |= tl == WHEEL_CRISP, any[1] |= tl != WHEEL_CRISP, any[2] |= rl == WHEEL_CRISP, any[3] |= rl == WHEEL_SMEAR, any[4] |= rl == WHEEL_BLUR;
   }
-  r->im_tyre->instance_matrix->version++, r->im_rim[0]->instance_matrix->version++, r->im_rim[1]->instance_matrix->version++;
+  /* a look no wheel shows is not drawn at all (the usual case: all four wheels of a kart in one look) */
+  t3_instanced_mesh *set[8] = { r->im_tyre, r->im_tyre_blur, r->im_rim[0], r->im_rim[1], r->im_rim_mid[0], r->im_rim_mid[1], r->im_rim_blur[0], r->im_rim_blur[1] };
+  int use[8] = { 0, 1, 2, 2, 3, 3, 4, 4 };
+  for (int j = 0; j < 8; j++) {
+    set[j]->instance_matrix->version++;
+    set[j]->mesh.base.visible = any[use[j]];
+  }
   if (r->im_arm_up) {
     for (int s = 0; s < 2; s++) set_from(r->im_arm_up, s, r->arm_up[s]), set_from(r->im_arm_lo, s, r->arm_lo[s]), set_from(r->im_hand, s, r->hand[s]);
     r->im_arm_up->instance_matrix->version++, r->im_arm_lo->instance_matrix->version++, r->im_hand->instance_matrix->version++;

@@ -1027,6 +1027,7 @@ static void cmd_race(int argc, const char **argv, cw_reply *r) {
   for (int i = 0; i < MAXV; i++) rs.vehicle[i] = i * 2 % NVEH, rs.colour[i] = i;
   if (argc > 4) rs.speed_class = CW_CLAMP(atoi(argv[4]), 0, CLASS_COUNT - 1);
   if (argc > 5) rs.assist_steer = (atoi(argv[5]) & 1) != 0, rs.assist_gas = (atoi(argv[5]) & 2) != 0;
+  if (argc > 6) rs.vehicle[0] = CW_CLAMP(atoi(argv[6]), 0, NVEH - 1);
   ui_enter_race(&rs);
   if (r) cw_reply_printf(r, "{\"race\":%d}", dm);
 }
@@ -1321,7 +1322,7 @@ static void init(void *u) {
   cw_debug_field("karts.best_lap", G.best_lap, CW_DBG_I32, MAXK);
   cw_debug_field("karts.finish_tick", G.finish_tick, CW_DBG_I32, MAXK);
   cw_debug_u32("sim.hash", &G.hash);
-  cw_debug_command("race", "race <map -1..7> [humans] [laps] [class] [assists]: start a race now", cmd_race);
+  cw_debug_command("race", "race <map -1..7> [humans] [laps] [class] [assists] [ride 0..5]: start a race now (ride: the first player's vehicle)", cmd_race);
   cw_debug_command("trial", "trial <map 0..7> [runs]: start a time trial now (the bot drives <runs> runs when it is on)", cmd_trial);
   cw_debug_command("cup", "cup <0..1> [humans] [laps] [races]: a cup now, clicking through its own results (with `bot 1`)", cmd_cup);
   cw_debug_command("eye", "eye <x y z tx ty tz>: hold view 0's camera there looking at the target, no HUD (no arguments: back to the chase)", cmd_eye);

@@ -3,6 +3,11 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.32.0
+
+- **racer**: The wheels no longer look like they roll backwards. At race speed a spoked rim turns more than half a spoke gap between two drawn frames, so the eye read it turning the other way (the wagon-wheel effect), and the tread blocks did the same. Each wheel is now drawn by how far it turns a frame: crisp spokes turning with the wheel at a crawl, then smeared spokes that step forward under a third of a gap a frame, then a blurred disc in the colours the spokes average to, and the tread crisp, then a smooth ring. The turn is taken from the wheel's own spin rate and the time since the last drawn frame, so it holds at any frame rate. No new materials
+- **Tests**: racer-wheel-alias (the drawing rule over every vehicle, 0 to 100 m/s and back, 24 to 240 frames a second: every frame of every rim and tyre reads forward or blurred, where the old rule reads wrong on up to 76% of frames; then the cart through romdev, GL and WebGPU, in all six vehicles from the grid to 90 m/s: 0 wrong frames of 783 each, and the rule run over the cart's frame steps draws what the cart drew; control: sw wheel_alias 1 reads wrong on 509 of 783 rim frames)
+
 ## v0.31.0 (2026-11-26)
 
 - **bikemesa**: The verge grass sways with the engine's foliage wind, on the GPU: each blade bends over from its root (its tip leans most) with gust fronts rolling along the verge, in every view of a split screen, and its shadow bends with it. Before, the visible tufts were sheared on the CPU every frame and their instance matrices uploaded again; now each tuft's matrix is written once when the track is built. Its program table gains the grass's foliage states, the height-fog states tracks 10, 15 and 17 draw at Very Low (the plain lighting) and their depth pass at every preset, which the quality sweep found missing, and the states the variant closure adds for them

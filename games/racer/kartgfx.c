@@ -39,9 +39,25 @@ int kartgfx_wheel_lag;
  * tests/racer-grounded.mjs, with sw sun_short 1) */
 int kartgfx_contact = 1;
 
+/* sw wheel_alias <0|1>: 1 = every wheel drawn crisp at its true turn each frame, the old way (the control of
+ * tests/racer-wheel-alias.mjs: at race speeds the spokes read as turning backwards) */
+int kartgfx_wheel_alias;
+
+/* the wheels as drawn, frame by frame, for one kart's one wheel (debug: wheels.*, tests/racer-wheel-alias.mjs): its speed,
+ * the turn a frame the wheel made and the turn drawn (rim, then tyre, radians), the look each was drawn in */
+#define WR_MAX 1200
+static struct {
+  int32_t n, kart, wheel, veh;
+  float gap[2]; /* the rim's spoke gap and the tyre's tread block gap, radians */
+  float pos[3], fwd[3]; /* where that kart is now and the way it faces (to put a camera beside it) */
+  float speed[WR_MAX], step[WR_MAX * 2], drawn[WR_MAX * 2];
+  int32_t look[WR_MAX * 2];
+} WR = { .wheel = 2 };
+
 static struct {
   kart_rig rig[MAXK];
   kstate st[MAXK];
+  float roll_t[MAXK]; /* the sim clock (ticks) at each kart's last drawn frame, 0 none yet */
   cw_node node[MAXK];
   cw_node contact[MAXK]; /* the dark under each kart where it meets the road (ground_probe places it) */
   const sim *sim;
@@ -336,6 +352,15 @@ static void cmd_gap(int argc, const char **argv, cw_reply *r) {
   cw_reply_printf(r, "{\"tol_mm\":%d}", GAP_TOL_MM);
 }
 
+static void cmd_wheels(int argc, const char **argv, cw_reply *r) {
+  if (argc > 1 && !strcmp(argv[1], "reset")) {
+    WR.n = 0;
+    if (argc > 2) WR.kart = atoi(argv[2]) & 7;
+    if (argc > 3) WR.wheel = atoi(argv[3]) & 3;
+  }
+  cw_reply_printf(r, "{\"n\":%d,\"kart\":%d,\"wheel\":%d}", WR.n, WR.kart, WR.wheel);
+}
+
 void kartgfx_debug_init(void) {
   cw_debug_field("karts.gap_mm", GP.gap, CW_DBG_I32, MAXK);
   cw_debug_field("karts.gnd", GP.gnd, CW_DBG_I32, MAXK);
@@ -353,6 +378,18 @@ void kartgfx_debug_init(void) {
   cw_debug_field("gap.run_s", GP.run_s, CW_DBG_I32, MAXK);
   cw_debug_field("gap.run_tick", GP.run_tick, CW_DBG_I32, MAXK);
   cw_debug_command("gap", "gap [reset] | gap lift <mm>: the drawn tyres' gap to the road (karts.gap_mm, gap.*); reset clears the counts; lift draws the player's kart that far up (a control)", cmd_gap);
+  cw_debug_i32("wheels.n", &WR.n); /* frames recorded since `wheels reset` (up to WR_MAX) */
+  cw_debug_i32("wheels.kart", &WR.kart);
+  cw_debug_i32("wheels.wheel", &WR.wheel);
+  cw_debug_i32("wheels.veh", &WR.veh);
+  cw_debug_f32_array("wheels.gap", WR.gap, 2);
+  cw_debug_f32_array("wheels.pos", WR.pos, 3);
+  cw_debug_f32_array("wheels.fwd", WR.fwd, 3);
+  cw_debug_f32_array("wheels.speed", WR.speed, WR_MAX);
+  cw_debug_f32_array("wheels.step", WR.step, WR_MAX * 2);
+  cw_debug_f32_array("wheels.drawn", WR.drawn, WR_MAX * 2);
+  cw_debug_field("wheels.look", WR.look, CW_DBG_I32, WR_MAX * 2);
+  cw_debug_command("wheels", "wheels reset [kart] [wheel 0..3]: record that kart's wheel as drawn, frame by frame (wheels.*: speed, its turn a frame, the turn drawn and the look, rim then tyre)", cmd_wheels);
   cw_debug_command("kshadow", "kshadow <kart> <0|1>: that kart throws no shadow (0) or its own again (1)", cmd_kshadow);
 }
 
@@ -525,8 +562,11 @@ void kartgfx_frame(const sim *s, float alpha) {
     t3_object_set_quaternion(r->body, qb);
     t3_object_set_scale(r->body, bx.s.x, bx.s.y, bx.s.z);
 
-    /* wheels: steer and spin from the vehicle controller */
+    /* wheels: steer from the vehicle controller; the turn drawn from how far each wheel turned since the last drawn frame
+     * (rig_wheel_roll: crisp, smeared or blurred, never read as rolling backwards) */
     const cw_vehicle3d *car = sim_car(s, i);
+    float now = (float)s->tick + alpha, fdt = K.roll_t[i] > 0 ? clampf_((now - K.roll_t[i]) / (float)TICK_HZ, 0, 0.25f) : 0;
+    K.roll_t[i] = now;
     t3_vec3 wp[4];
     for (int w = 0; w < 4; w++) {
       cw_xform3 lw = cw_vehicle3d_wheel_local(car, w, alpha);
@@ -543,7 +583,19 @@ void kartgfx_frame(const sim *s, float alpha) {
       float cex = comp - 0.16f;
       if (cex > 0) lw.p.y -= cex;
       t3_object_set_position(r->wheel[w], lw.p.x, lw.p.y, lw.p.z);
-      t3_object_set_quaternion(r->wheel[w], lw.q);
+      const cw_wheel3d *cw = &car->wheel[w];
+      t3_object_set_quaternion(r->wheel[w], t3_quat_from_axis_angle(car->def.up, cw->prev_steer + (cw->steer - cw->prev_steer) * alpha));
+      float step = cw->spin_rate * fdt;
+      rig_wheel_roll(r, w, step);
+      if (i == WR.kart && w == WR.wheel && WR.n < WR_MAX && fdt > 0) {
+        int n = WR.n++;
+        const wheel_look *wl = &vg->wl;
+        WR.veh = k->veh, WR.gap[0] = 6.2831853f / (float)wl->spokes, WR.gap[1] = 6.2831853f / (float)wl->lugs;
+        WR.speed[n] = k->speed;
+        t3_vec3 kf = kart_fwd(k);
+        WR.pos[0] = k->p.x, WR.pos[1] = k->p.y, WR.pos[2] = k->p.z, WR.fwd[0] = kf.x, WR.fwd[1] = kf.y, WR.fwd[2] = kf.z;
+        for (int p = 0; p < 2; p++) WR.step[n * 2 + p] = step, WR.drawn[n * 2 + p] = r->roll_d[w][p], WR.look[n * 2 + p] = r->roll_look[w][p];
+      }
       wp[w] = lw.p;
     }
     /* Pogo's springs: from the pod's corners down to each hub */

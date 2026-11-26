@@ -435,6 +435,9 @@ extern int world_sun_short;
 extern int racer_blur;
 /* sw wheel_lag <0|1>: 1 = the karts' wheels drawn a tick behind their chassis, as they once were (kartgfx.c) */
 extern int kartgfx_wheel_lag;
+/* sw wheel_alias <0|1>: 1 = the wheels drawn crisp at their true turn every frame, as they once were: at race speed the
+ * spokes read as turning backwards (kartgfx.c, models.c rig_wheel_roll) */
+extern int kartgfx_wheel_alias;
 /* sw contact <0|1>: 0 = no dark under the karts where they meet the road, as before (kartgfx.c) */
 extern int kartgfx_contact;
 /* sw jump_hold <0|1>: 1 = a jump's flight holds the chase camera at the lip like a fall, as it once did (main.c) */
