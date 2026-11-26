@@ -149,7 +149,10 @@ function controlBuild(game, app, state, tables, outDir) {
  * @param {string} g.game       games/<game>
  * @param {string[]} g.tables   its program tables (programs/<table>.txt)
  * @param {object[]} g.scenes   { name, app, frames, cmds?, env?, input?, reach?, show?, presets?, swap? (also run built at High and switched to Very Low and back, and the reverse: 'swapdown', 'swapup'), spread? (false: the warm-up in frame 1, as the gate whose input script it replays was timed), mustNotReach? (a control: its reach must fail, and a run that reaches it does) }
- * @param {object|object[]} g.control    { state, scene (a scene's name), gpu?, quality? }: a state that scene draws at that preset (or an array of states taken out together, such as a fogged state and its _plain twin the engine can draw it with); several when one scene can not speak for the rest
+ * @param {object|object[]} g.control    { state, scene (a scene's name), gpu?, quality?, reports? }: a state that scene draws at that preset (or an array of states taken out together, such as a fogged state and its _plain twin the engine can draw it with); several when one scene can not speak for the rest.
+ *   reports: the state (or states) the scene then reports missing, when the removed one served it (a table's variant closure
+ *   covers a state with more lights, so the state a scene asks for is often not in the table and the one serving it is the
+ *   one to take out)
  * @param {string[]} [g.qualities] the presets
  */
 export function sweep({ game, tables, scenes, control, qualities = QUALITIES }) {
@@ -188,8 +191,10 @@ export function sweep({ game, tables, scenes, control, qualities = QUALITIES }) 
       const q = k.quality || 'low';
       const r = runScene(OUT, sc, gpu, q, exe);
       const covered = (r.state && r.state['cw.three.covered']) || 0;
-      const ok = !r.failed && [].concat(state).some((s) => r.missing.includes(s)) && (r.skipped > 0 || covered > 0);
-      console.log(`${ok ? 'ok  ' : 'FAIL'} control ${gpu} ${q} ${sc.name}, ${[].concat(state).join(' and ')} out of the table: must report it and skip or cover its draws: ${r.failed || `missing [${r.missing.join(' ')}] skipped ${r.skipped} covered ${covered}`}`);
+      const reported = [].concat((!opt('--control-state') && k.reports) || state); /* the state the scene asks for (the removed one, or the one it served) */
+      const same = reported.join() === [].concat(state).join();
+      const ok = !r.failed && reported.some((s) => r.missing.includes(s)) && (r.skipped > 0 || covered > 0);
+      console.log(`${ok ? 'ok  ' : 'FAIL'} control ${gpu} ${q} ${sc.name}, ${[].concat(state).join(' and ')} out of the table: must report ${same ? 'it' : reported.join(' or ')} and skip or cover its draws: ${r.failed || `missing [${r.missing.join(' ')}] skipped ${r.skipped} covered ${covered}`}`);
       if (!ok) fail++;
     }
     rmSync(dir, { recursive: true, force: true });
