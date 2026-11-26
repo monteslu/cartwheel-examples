@@ -15,5 +15,6 @@ sweep({
     ...[2, 3, 4].map((n) => unlocked({ name: `split ${n}`, frames: 900, cmds: [`players ${n}`, 'track 1'], input: pedal(2), presets: ['verylow', 'low', 'high'],
       reach: { players: n, 'game.state': (v) => v >= 3 }, show: ['players', 'game.state', 'loops'] })),
     ...Array.from({ length: 19 }, (_, i) => track(i + 1))],
-  control: { state: 'physical+shadow+senv+l1001+xplain', scene: 'track 16', quality: 'verylow' },
+  /* the verge grass at Very Low: it asks for its l1001 foliage state, which the table's closure serves with the l1301 one */
+  control: { state: 'physical+vcol+instbig+shadow+senv+icol+sheen+l1301+s100+xfoliage_plain', reports: 'physical+vcol+instbig+shadow+senv+icol+sheen+l1001+xfoliage_plain', scene: 'track 16', quality: 'verylow' },
 });

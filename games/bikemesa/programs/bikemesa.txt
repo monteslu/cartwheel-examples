@@ -158,6 +158,11 @@ basic+map+trans+instbig+icol+xhfog
 standard+instbig+shadow+senv+l1001+xterrainfxlow
 physical+vcol+instbig+shadow+senv+icol+sheen+l1001+xfoliage
 physical+trans+shadow+senv+cc+l1001+xhfog
+physical+trans+shadow+senv+cc+l1001+xhfog_plain
+depth+xhfog
+depth+xhfog_plain
+physical+shadow+senv+transm+l1001+xhfog_plain
+standard+trans+shadow+senv+l1001+xhfog_plain
 # closure (tools/programs.mjs): 364 state(s), the surveyed materials in the environments surveyed for their class
 basic+map+trans+xhfog
 basic+trans+xhfog
@@ -545,3 +550,19 @@ standard+map+trans+shadow+skin+senv+l1001+xhfog_meshdecal
 standard+map+trans+shadow+skin+senv+l1301+s100+xhfog_meshdecal
 standard+trans+shadow+senv+l1001+xhfog
 standard+trans+shadow+senv+l1301+s100+xhfog
+# closure (tools/programs.mjs): 15 state(s), the surveyed materials in the environments surveyed for their class
+depth+instbig+xhfog
+depth+skin+xhfog
+physical+map+rep+nearest+rmap+mmap+shadow+senv+bs+transm+l1001+xhfog_plain
+physical+map+rep+nearest+rmap+mmap+shadow+senv+bs+transm+l1301+s100+xhfog_plain
+physical+map+rep+nearest+rmap+mmap+shadow+senv+transm+l1001+xhfog_plain
+physical+map+rep+nearest+rmap+mmap+shadow+senv+transm+l1301+s100+xhfog_plain
+physical+shadow+senv+bs+transm+l1001+xhfog_plain
+physical+shadow+senv+bs+transm+l1301+s100+xhfog_plain
+physical+shadow+senv+transm+l1301+s100+xhfog_plain
+physical+trans+shadow+senv+cc+l1301+s100+xhfog_plain
+standard+map+trans+rep+shadow+senv+l1001+xhfog_plain
+standard+map+trans+rep+shadow+senv+l1301+s100+xhfog_plain
+standard+map+trans+shadow+skin+senv+l1001+xhfog_meshdecal_plain
+standard+map+trans+shadow+skin+senv+l1301+s100+xhfog_meshdecal_plain
+standard+trans+shadow+senv+l1301+s100+xhfog_plain
