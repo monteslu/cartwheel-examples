@@ -222,6 +222,8 @@ standard+map+trans+senv+l1001+xclusteries_hfog_meshdecal
 basic+map+trans+xhfog_meshdecal
 standard+instbig+shadow+senv+l1001+xterrainfx_clusteries
 standard+instbig+senv+l1001+xterrainfx_clusteries
+physical+map+trans+shadow+senv+ds+cc+l1001+xclusteries_hfog_plain
+physical+trans+shadow+senv+l1001+xclusteries_hfog_plain
 # closure (tools/programs.mjs): 384 state(s), the surveyed materials in the environments surveyed for their class
 basic+map+trans+xmeshdecal
 basic+trans+xhfog_meshdecal
@@ -692,3 +694,10 @@ standard+instbig+shadow+senv+l2341+s200+xterrainmin_cluster
 standard+instbig+shadow+senv+l2341+s200+xterrainmin_cluster_plain
 standard+instbig+shadow+senv+l2341+s200+xterrainmin_clusteries
 standard+instbig+shadow+senv+l2341+s200+xterrainmin_clusteries_plain
+# closure (tools/programs.mjs): 6 state(s), the surveyed materials in the environments surveyed for their class
+physical+map+trans+shadow+senv+ds+cc+l2341+s100+xclusteries_hfog_plain
+physical+trans+shadow+senv+l2341+s100+xclusteries_hfog_plain
+standard+map+trans+shadow+senv+l1001+xclusteries_hfog_meshdecal_plain
+standard+map+trans+shadow+senv+l2341+s100+xclusteries_hfog_meshdecal_plain
+standard+trans+shadow+senv+l1001+xclusteries_hfog_meshdecal_plain
+standard+trans+shadow+senv+l2341+s100+xclusteries_hfog_meshdecal_plain

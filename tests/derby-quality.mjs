@@ -9,5 +9,6 @@ const bout = (n) => ({ name: `bout ${n}`, app: 'derby_auto', frames: 700, env: {
 sweep({
   game: 'derby', tables: ['derby'],
   scenes: [gateScene('derby-quick'), gateScene('derby-title'), gateScene('derby-split3'), gateScene('derby-split4'), gateScene('derby-ram'), gateScene('derby-auto'), bout(1), bout(2)],
-  control: { state: 'physical+map+rep+nmap+ao+rmap+shadow+senv+l1001+xcluster_plain', scene: 'derby-quick', quality: 'verylow' },
+  /* the arena floor (the terrain) at Very Low: it asks for its l1001 state, which the table's closure serves with the l2341 one */
+  control: { state: 'standard+instbig+shadow+senv+l2341+s100+xterrainfxmin_clusteries_plain', reports: 'standard+instbig+shadow+senv+l1001+xterrainfxmin_clusteries_plain', scene: 'derby-quick', quality: 'verylow' },
 });
