@@ -3,6 +3,10 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.32.2
+
+- **racer**: The program table gains the see-through physical surface with a normal map under the height fog with no scene environment map (`physical+trans+nmap+shadow+l1001+xcluster_hfog`): Drowned Downtown has no sky, so its fogged water film over the fords asked for a state the table only held with the environment map, and those draws were skipped. racer-reload (which loads every map) failed on GL and WebGPU in the nightly run. The variant closure adds the other 13 see-through materials in that environment.
+
 ## v0.32.1
 
 - **racer**: A kart boosting from a slipstream or a close call no longer reads its flame colour from past the end of the boost colour table (a global buffer overflow that AddressSanitizer found in fx.c). Those two flames now burn the plain boost blue instead of whatever bytes came after the table.
