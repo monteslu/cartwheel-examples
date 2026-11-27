@@ -3,6 +3,10 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.33.0
+
+- **Every game**: built on cartwheel engine v0.86.0 (from v0.78.2), with three.c v0.187.23. On GL the per-draw uniform blocks, bone matrices and morph influences now come from fenced ring buffers, and the velocity pass behind motion blur and the temporal effects uploads the previous poses of moving meshes once before its draws. On native WebGPU the first frame after loading waits once for the GPU, so a driver that compiles shaders at first draw on a cold cache no longer ends the run as a GPU failure (derby's cold start on the arm64 software renderer). The engine's input hash now covers eight seats, and a tick's input is hashed when the tick ends; the games' replays are held to their own recordings and to other platforms, never to stored hashes, so nothing in them changes. Every game's program table was regenerated on the new engine with no change. No game code changes
+
 ## v0.32.2
 
 - **racer**: The program table gains the see-through physical surface with a normal map under the height fog with no scene environment map (`physical+trans+nmap+shadow+l1001+xcluster_hfog`): Drowned Downtown has no sky, so its fogged water film over the fords asked for a state the table only held with the environment map, and those draws were skipped. racer-reload (which loads every map) failed on GL and WebGPU in the nightly run. The variant closure adds the other 13 see-through materials in that environment.
