@@ -3,6 +3,12 @@
 What each release added, changed and fixed, newest first. Releases are git tags; each one's game
 carts and desktop and Android builds are on its GitHub release. Entries name the game they touch.
 
+## v0.32.1
+
+- **racer**: A kart boosting from a slipstream or a close call no longer reads its flame colour from past the end of the boost colour table (a global buffer overflow that AddressSanitizer found in fx.c). Those two flames now burn the plain boost blue instead of whatever bytes came after the table.
+- **racer**: Overgrowth Temple's three bird flocks and four butterfly swarms switch off where no view can see them: beyond 320 m from every camera for a flock, 90 m for a swarm, fading in over the last 40 percent of that range, as the maps' other world emitters already do. They used to run their simulation on every step of every race wherever the views were. On the GL path each simulation step is a transform feedback pass, and split 4 temple ran about 22 of those a frame where split 4 salt runs 9 (17 a frame now on llvmpipe over 300 frames). A new debug switch, sw amb_fade 0, keeps them on at any distance, and new debug fields fx.fade_off, fx.psys and fx.psys_hidden count them.
+- **Tests**: racer-psys-fade (natively, GL and WebGPU, split 4 temple at Very Low with the bot: at least three of the seven canopy emitters off on frame 1500 (four are); control: sw amb_fade 0, none off)
+
 ## v0.32.0
 
 - **racer**: The wheels no longer look like they roll backwards. At race speed a spoked rim turns more than half a spoke gap between two drawn frames, so the eye read it turning the other way (the wagon-wheel effect), and the tread blocks did the same. Each wheel is now drawn by how far it turns a frame: crisp spokes turning with the wheel at a crawl, then smeared spokes that step forward under a third of a gap a frame, then a blurred disc in the colours the spokes average to, and the tread crisp, then a smooth ring. The turn is taken from the wheel's own spin rate and the time since the last drawn frame, so it holds at any frame rate. No new materials

@@ -861,8 +861,9 @@ static void cmd_sw(int argc, const char **argv, cw_reply *r) {
   if (argc > 2 && !strcmp(argv[1], "wheel_alias")) kartgfx_wheel_alias = atoi(argv[2]);
   if (argc > 2 && !strcmp(argv[1], "jump_hold")) racer_jump_hold = atoi(argv[2]);
   if (argc > 2 && !strcmp(argv[1], "blur")) racer_blur = atoi(argv[2]);
-  cw_reply_printf(r, "{\"idle_wait\":%d,\"dnf_any\":%d,\"sun_short\":%d,\"wheel_lag\":%d,\"contact\":%d,\"jump_hold\":%d,\"blur\":%d,\"wheel_alias\":%d}", sw_idle_wait, sim_dnf_any, world_sun_short,
-                  kartgfx_wheel_lag, kartgfx_contact, racer_jump_hold, racer_blur, kartgfx_wheel_alias);
+  if (argc > 2 && !strcmp(argv[1], "amb_fade")) fx_amb_fade_on = atoi(argv[2]);
+  cw_reply_printf(r, "{\"idle_wait\":%d,\"dnf_any\":%d,\"sun_short\":%d,\"wheel_lag\":%d,\"contact\":%d,\"jump_hold\":%d,\"blur\":%d,\"wheel_alias\":%d,\"amb_fade\":%d}", sw_idle_wait, sim_dnf_any, world_sun_short,
+                  kartgfx_wheel_lag, kartgfx_contact, racer_jump_hold, racer_blur, kartgfx_wheel_alias, fx_amb_fade_on);
 }
 
 void ui_init(void) {
@@ -925,7 +926,7 @@ void ui_init(void) {
   cw_debug_i32("ui.sel", &U.sel);
   cw_debug_i32("ui.humans", &U.setup.humans);
   cw_debug_i32("ui.map", &U.map); /* the map the map pick has selected (a save remembers the last one) */
-  cw_debug_command("sw", "sw idle_wait <0|1>: 1 = the ride pick waits for every seat, an idle one too (control); sw dnf_any <0|1>: 1 = a race ends 40 s after the first kart home, a computer one too (control); sw sun_short <0|1>: 1 = below High the sun throws no shadow on the play (control); sw wheel_lag <0|1>: 1 = the karts' wheels drawn a tick behind their chassis (control); sw contact <0|1>: 0 = no dark under the karts where they meet the road (control); sw jump_hold <0|1>: 1 = a jump's flight holds the chase camera at the lip (control); sw blur <0|1>: 0 = no motion blur under a boost (control); sw wheel_alias <0|1>: 1 = the wheels drawn crisp at their true turn every frame (control)", cmd_sw);
+  cw_debug_command("sw", "sw idle_wait <0|1>: 1 = the ride pick waits for every seat, an idle one too (control); sw dnf_any <0|1>: 1 = a race ends 40 s after the first kart home, a computer one too (control); sw sun_short <0|1>: 1 = below High the sun throws no shadow on the play (control); sw wheel_lag <0|1>: 1 = the karts' wheels drawn a tick behind their chassis (control); sw contact <0|1>: 0 = no dark under the karts where they meet the road (control); sw jump_hold <0|1>: 1 = a jump's flight holds the chase camera at the lip (control); sw blur <0|1>: 0 = no motion blur under a boost (control); sw wheel_alias <0|1>: 1 = the wheels drawn crisp at their true turn every frame (control); sw amb_fade <0|1>: 0 = temple's bird flocks and butterfly swarms on at any distance (control)", cmd_sw);
   cw_debug_bytes("save.progress", &SAVE, sizeof SAVE);
   cw_debug_i32("save.migrated", &save_migrated);
   cw_debug_field("save.text", &SAVE.text_scale, CW_DBG_U8, 1);

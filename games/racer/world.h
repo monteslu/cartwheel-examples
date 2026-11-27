@@ -101,6 +101,11 @@ void fx_ambient_follow(cw_node scene, int kind, float density);
  * fade_dist metres from every view's camera and fades in over the last 40 percent of that range (0: always on).
  * Returns the node (for a map that wants to move it, e.g. a steam vent that pulses). */
 cw_node fx_ambient_at(cw_node scene, int kind, t3_vec3 at, t3_vec3 extents, float density, float fade_dist);
+/* A map's own GPUParticles3D fixed in the world, given the same distance fade: off (not drawn, not simulated) beyond
+ * fade_dist metres from every view's camera, faded in over the last 40 percent of that range. The node's color tint is
+ * the fade's, so leave it white. */
+void fx_ambient_fade(cw_node n, float fade_dist);
+extern int fx_amb_fade_on; /* sw amb_fade <0|1>: 0 keeps those emitters on at any distance (a gate's control) */
 
 /* audio.c: engines, tyres, boosts, items, ambience and the music */
 void audio_init(void);

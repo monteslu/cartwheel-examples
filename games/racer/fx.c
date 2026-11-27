@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cartwheel/debug.h"
 #include "cartwheel/math.h"
 #include "cartwheel/particles.h"
 #include "arena.h"
@@ -815,10 +816,17 @@ static void kart_tick(const sim *s, int i) {
   if (boosting) {
     if (f->flame_src >= 0) {
       /* colour by what gave the boost, set when it changes */
-      static const float C[5][3] = { { 0.35f, 0.65f, 1 }, { 1, 0.6f, 0.15f }, { 0.4f, 0.8f, 1 }, { 1, 0.6f, 0.15f }, { 0.55f, 1, 0.35f } };
+      /* one per EV_BOOST source (sim.c start_boost: 0 pad .. 4 trick, 5 slipstream, 6 close call); a source past the
+       * table read past its end (ASan: global-buffer-overflow), so the slipstream and close-call flames took whatever
+       * floats lay after it */
+      static const float C[7][3] = { { 0.35f, 0.65f, 1 }, { 1, 0.6f, 0.15f }, { 0.4f, 0.8f, 1 }, { 1, 0.6f, 0.15f }, { 0.55f, 1, 0.35f },
+                                     { 0.4f, 0.8f, 1 }, { 0.4f, 0.8f, 1 } };
       float r, g, b;
       if (f->flame_src >= 10) r = DRIFT_RGB[f->flame_src - 10][0], g = DRIFT_RGB[f->flame_src - 10][1], b = DRIFT_RGB[f->flame_src - 10][2];
-      else r = C[f->flame_src][0], g = C[f->flame_src][1], b = C[f->flame_src][2];
+      else {
+        int c = f->flame_src < (int)(sizeof C / sizeof C[0]) ? f->flame_src : 2; /* a new source gets the plain boost blue */
+        r = C[c][0], g = C[c][1], b = C[c][2];
+      }
       char s2[200];
       /* no white-hot core: the exhaust's puffs bloomed white at the bottom of the screen in pulses, a flicker under a boost */
       snprintf(s2, sizeof s2, "\"0 %.2f %.2f %.2f 0.7, 0.15 %.2f %.2f %.2f 0.8, 0.5 %.2f %.2f %.2f 0.6, 1 %.2f %.2f %.2f 0\"", 0.5f + 0.5f * r,
@@ -1066,10 +1074,20 @@ void fx_tick(const sim *s) {
   rings_update();
 }
 
+/* debug fields fx.psys, fx.psys_hidden: the tree's particle systems last frame and those hidden (neither simulated nor drawn) */
+static cw_particles_stats PSTATS;
+static bool pstats_fields;
+
 void fx_frame(const sim *s, float alpha) {
   (void)s, (void)alpha;
   if (!FX.ready) return;
   fx_amb_frame(FX.cam_pos, FX.cam_vel, FX.ncams);
+  if (!pstats_fields) {
+    pstats_fields = true;
+    cw_debug_i32("fx.psys", &PSTATS.systems);
+    cw_debug_i32("fx.psys_hidden", &PSTATS.hidden);
+  }
+  cw_particles_get_stats(cw_node_tree(FX.scene), &PSTATS);
 }
 
 

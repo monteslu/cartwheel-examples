@@ -2578,7 +2578,9 @@ static void build_canopy_life(cw_node scene, const track *t) {
       "direction", "vec3(1, 0.05, 0.3)", "spread", "180", "speed_min", "5", "speed_max", "9", "gravity", "vec3(0, 0, 0)", "turbulence", "4", "turbulence_scale", "0.03",
       "turbulence_speed", "0.4", "size", "0.9", "size_random", "0.35", "color_ramp", "\"0 0.05 0.06 0.05 0, 0.08 0.05 0.06 0.05 1, 0.9 0.05 0.06 0.05 1, 1 0.05 0.06 0.05 0\"",
       "blend", "ALPHA", "local_coords", "false", "preprocess", "20", NULL };
-    particles_at(scene, nm, kv, 900 + k, V(a.p.x, a.p.y + 42.0f, a.p.z));
+    /* off beyond where a flock shows (0.9 m specks over a 70 m box): else each flock simulates on every step of every
+     * race wherever the views are */
+    fx_ambient_fade(particles_at(scene, nm, kv, 900 + k, V(a.p.x, a.p.y + 42.0f, a.p.z)), 320.0f);
     flocks++;
   }
   /* butterflies: bright flecks fluttering over the ferns beside the road, each swarm in its own colours */
@@ -2600,7 +2602,7 @@ static void build_canopy_life(cw_node scene, const track *t) {
       "direction", "vec3(0, 1, 0)", "spread", "180", "speed_min", "0.4", "speed_max", "1.2", "gravity", "vec3(0, 0.05, 0)", "damping", "0.3", "turbulence", "5",
       "turbulence_scale", "0.6", "turbulence_speed", "1.5", "size", "0.3", "size_random", "0.3", "color_ramp", ramps[swarms & 3], "energy", "1.3", "spin", "8",
       "blend", "ALPHA", "local_coords", "false", "preprocess", "5", NULL };
-    particles_at(scene, nm, kv, 950 + swarms, p);
+    fx_ambient_fade(particles_at(scene, nm, kv, 950 + swarms, p), 90.0f); /* 0.3 m flecks: under two pixels beyond this */
     swarms++;
   }
   cw_info("temple: %d bird flocks, %d butterfly swarms", flocks, swarms);

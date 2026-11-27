@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "cartwheel/debug.h"
 #include "cartwheel/math.h"
 #include "cartwheel/particles.h"
 #include "fx_int.h"
@@ -85,6 +86,21 @@ static amb *amb_new(cw_node parent, int kind, float density) {
 
 void fx_amb_reset(void) { memset(&AM, 0, sizeof AM); }
 
+/* sw amb_fade <0|1>: 0 = a map's own emitters given a fade (fx_ambient_fade) stay on at any distance, as before (the control of
+ * tests/racer-psys-fade.mjs) */
+int fx_amb_fade_on = 1;
+
+void fx_ambient_fade(cw_node n, float fade_dist) {
+  if (AM.n >= MAXAMB || !cw_node_valid(n) || fade_dist <= 0) return;
+  amb *a = &AM.a[AM.n++];
+  memset(a, 0, sizeof *a);
+  a->n = n;
+  a->kind = -1; /* a map's own emitter: only the distance fade below applies */
+  a->fade_dist = fade_dist;
+  a->alpha = 1;
+  a->shown = true;
+}
+
 cw_node fx_ambient_at(cw_node scene, int kind, t3_vec3 at, t3_vec3 extents, float density, float fade_dist) {
   amb *a = amb_new(scene, kind, density);
   if (!a) return (cw_node){ 0 };
@@ -121,7 +137,13 @@ void fx_amb_init(int nviews) {
   }
 }
 
+/* debug field fx.fade_off: a map's own emitters (fx_ambient_fade) that are off now */
+static int fade_off;
+static bool fade_field;
+
 void fx_amb_frame(const t3_vec3 *cam, const t3_vec3 *vel, int ncams) {
+  if (!fade_field) fade_field = true, cw_debug_i32("fx.fade_off", &fade_off);
+  int off = 0;
   for (int i = 0; i < AM.n; i++) {
     amb *a = &AM.a[i];
     if (a->follow) {
@@ -142,7 +164,7 @@ void fx_amb_frame(const t3_vec3 *cam, const t3_vec3 *vel, int ncams) {
       float d = dx * dx + dy * dy + dz * dz;
       if (d < best) best = d;
     }
-    float d = sqrtf(best);
+    float d = a->kind < 0 && !fx_amb_fade_on ? 0 : sqrtf(best);
     float want = d >= a->fade_dist ? 0 : d <= a->fade_dist * 0.6f ? 1 : (a->fade_dist - d) / (a->fade_dist * 0.4f);
     want = floorf(want * 6.0f + 0.5f) / 6.0f; /* six steps: a tint change costs a property write */
     bool show = want > 0;
@@ -151,9 +173,11 @@ void fx_amb_frame(const t3_vec3 *cam, const t3_vec3 *vel, int ncams) {
       cw_node_set(a->n, "emitting", cw_val_bool(show));
       cw_node_set(a->n, "visible", cw_val_bool(show));
     }
+    if (a->kind < 0 && !show) off++;
     if (show && want != a->alpha) {
       a->alpha = want;
       cw_node_set(a->n, "color", cw_val_color(1, 1, 1, want));
     }
   }
+  fade_off = off;
 }
