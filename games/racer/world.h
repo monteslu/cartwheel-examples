@@ -105,6 +105,8 @@ cw_node fx_ambient_at(cw_node scene, int kind, t3_vec3 at, t3_vec3 extents, floa
  * fade_dist metres from every view's camera, faded in over the last 40 percent of that range. The node's color tint is
  * the fade's, so leave it white. */
 void fx_ambient_fade(cw_node n, float fade_dist);
+extern int fx_splash_once; /* sw splash_once <0|1>: 0 = a splash every time the sim tells of a kart in water (a gate's control) */
+extern int fx_cam_soft; /* sw cam_soft <0|1>: 0 = a boost flares, sparks and lights full size at a camera and a missile's light stays whole there (a gate's control) */
 extern int fx_amb_fade_on; /* sw amb_fade <0|1>: 0 keeps those emitters on at any distance (a gate's control) */
 
 /* audio.c: engines, tyres, boosts, items, ambience and the music */

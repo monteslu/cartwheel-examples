@@ -43,6 +43,8 @@ static const char *const R_FLAME[] = { "amount", "36", "lifetime", "0.34", "life
   "gravity", "vec3(0, 0.5, 0)", "size", "0.42", "size_random", "0.3", "size_curve", "\"0 0.7, 0.3 1, 1 0.1\"",
   "color_ramp", "\"0 0.75 0.9 1 0.7, 0.15 0.55 0.8 1 0.8, 0.5 0.2 0.35 1 0.6, 1 0.05 0.1 0.6 0\"", "energy", "1.2", "blend", "ADD",
   "local_coords", "false", NULL };
+int fx_splash_once = 1;
+int fx_cam_soft = 1;
 static const char *const R_SPRAY[] = { "amount", "70", "lifetime", "0.7", "lifetime_random", "0.4", "emission_shape", "BOX",
   "emission_extents", "vec3(0.9, 0.05, 0.2)", "direction", "vec3(0, 1, -0.3)", "spread", "50", "speed_min", "3", "speed_max", "9",
   "gravity", "vec3(0, -16, 0)", "draw_mode", "STRETCHED", "stretch", "0.03", "size", "0.04", "size_random", "0.5",
@@ -195,6 +197,7 @@ typedef struct kfx {
   bool skid_on[2];
   float dist2;         /* to the nearest camera */
   int boost_tick;      /* the tick of the last boost that flared (a burst of boosts flares once) */
+  int wet_tick;        /* the tick the sim last told of this kart in water (one splash going in) */
 } kfx;
 
 typedef struct light {
@@ -544,10 +547,14 @@ static void on_event(const sim *s, const struct sim_event *e) {
     bool fresh = s->tick - f->boost_tick > 40 || s->tick < f->boost_tick || f->boost_tick == 0;
     if (fresh) f->boost_tick = s->tick > 0 ? s->tick : 1;
     if (!fresh) break;
-    if (src != 0) flare_at(rear, src == 2 ? 0.6f + 0.15f * (float)f->prev_dlvl : 0.8f, r, g, b);
-    if (src != 0) spark_burst(rear, kart_up(k), v3mul(kart_fwd(k), -1), r, g, b);
-    if (src == 2 || src == 4) sparkle_burst(rear, kart_up(k), r, g, b);
-    if (src != 0) light_flash(v3add(rear, v3mul(kart_up(k), 0.5f)), 16 + 6 * (float)f->prev_dlvl, 9, 0.22f, r, g, b);
+    /* the kart a camera follows boosts 4 m in front of it: there its flare, sparks and light on the road come out small and
+     * dim, as a blast's do, and its flame carries the boost. Full size they lit the bottom of the view at every boost in a
+     * pack (the flash sweep's racer-drowned run, 6.4 s). Full size from 17 m out. sw cam_soft 0: full size anywhere */
+    float nk = fx_cam_soft ? 0.35f + 0.65f * CW_CLAMP((sqrtf(dist2_to_cams(rear)) - 5.0f) / 12.0f, 0, 1) : 1.0f;
+    if (src != 0) flare_at(rear, (src == 2 ? 0.6f + 0.15f * (float)f->prev_dlvl : 0.8f) * nk, r, g, b);
+    if (src != 0 && nk > 0.7f) spark_burst(rear, kart_up(k), v3mul(kart_fwd(k), -1), r, g, b);
+    if ((src == 2 || src == 4) && nk > 0.7f) sparkle_burst(rear, kart_up(k), r, g, b);
+    if (src != 0) light_flash(v3add(rear, v3mul(kart_up(k), 0.5f)), (16 + 6 * (float)f->prev_dlvl) * nk * nk, 9, 0.22f, r, g, b);
     break;
   }
   case EV_DRIFT_LEVEL: {
@@ -666,7 +673,13 @@ static void on_event(const sim *s, const struct sim_event *e) {
     FX.k[a].fall_ticks = 40;
     break;
   case EV_WATER: {
+    /* one splash going in; while the kart stays in, its spray and mist carry it. The sim tells of the water every 8
+     * ticks, and a splash and a white cloud for each pulsed under the kart seven and a half times a second (the flash
+     * sweep's racer-dam run, the flooded tunnel at 26 s). sw splash_once 0: a splash every time, as before (the control) */
     if (!ka) break;
+    bool fresh = s->tick - FX.k[a].wet_tick > 40 || s->tick < FX.k[a].wet_tick || FX.k[a].wet_tick == 0;
+    FX.k[a].wet_tick = s->tick > 0 ? s->tick : 1;
+    if (!fresh && fx_splash_once) break;
     t3_vec3 under = v3sub(s->k[a].p, v3mul(up, 0.5f));
     burst(NEXT(splash, splash_i), under, up, fwd);
     cloud_burst(under, up, 0.85f, 0.92f, 0.98f, 0.25f + 0.25f * e->k, 1.0f + e->k);
@@ -1036,6 +1049,13 @@ static void hazards_tick(const sim *s) {
     if (nm < 2 && cw_node_valid(FX.mlight[nm].n)) {
       cw_node3d_set_position(FX.mlight[nm].n, tail);
       float fl = 26 + 3 * cw_sin((float)FX.ticks * 0.2f + (float)(h * 7)); /* the trail light wavers at 1.9 Hz (it flickered at 29 Hz) */
+      /* near a camera the light dims, as a blast does there: a missile chasing the kart a view follows came up from behind
+       * the camera and lit the road under the bottom of the view, then went dark in a frame as it struck (the flash
+       * sweep's racer-drowned run, 6.9 s). Whole from 17 m out. sw cam_soft 0: whole anywhere */
+      if (fx_cam_soft) {
+        float nk = 0.35f + 0.65f * CW_CLAMP((sqrtf(dist2_to_cams(tail)) - 5.0f) / 12.0f, 0, 1);
+        fl *= nk * nk;
+      }
       cw_node_set(FX.mlight[nm].n, "visible", cw_val_bool(true));
       cw_node_set(FX.mlight[nm].n, "energy", cw_val_float(fl));
       cw_node_set(FX.mlight[nm].n, "range", cw_val_float(9));

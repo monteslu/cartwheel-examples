@@ -43,6 +43,9 @@ int kartgfx_contact = 1;
  * tests/racer-wheel-alias.mjs: at race speeds the spokes read as turning backwards) */
 int kartgfx_wheel_alias;
 int kartgfx_kart_lens = 1;
+int kartgfx_shield_fade = 1;
+/* each kart's shield bubble as drawn (0..1, eased toward the shield's state) and the time it was last drawn */
+static float SHIELD_V[MAXK], SHIELD_T[MAXK];
 int game_view_kart(int v); /* main.c: the kart view v follows (its eye is EYE[v]) */
 
 /* the wheels as drawn, frame by frame, for one kart's one wheel (debug: wheels.*, tests/racer-wheel-alias.mjs): its speed,
@@ -631,14 +634,33 @@ void kartgfx_frame(const sim *s, float alpha) {
     flame_eye_k = 1.0f;
     rig_sync_parts(r);
     ground_probe(s, i, r, alpha);
-    /* the shield bubble: pulses, blinks out slowly (2 Hz) in its last seconds */
+    /* the shield bubble: pulses, swells in when raised and fades out when it goes, and in its last seconds it breathes
+     * out and in (2 Hz, a swell, never a blink). It was switched on and off: a kart whose shield took a hit and that raised
+     * another at once lost its bubble for one frame, a pale sphere round the kart in front of the chase camera gone and
+     * back (the flash sweep's racer-drowned run, frame 802). sw shield_fade 0: on and off as before (the control) */
     int sht = (int)P[KP_SHIELD];
-    bool shield_on = sht > 0 && (sht > 90 || ((sht / 15) & 1));
-    r->shield->visible = shield_on;
-    if (shield_on) {
-      float pulse = 1.0f + 0.03f * sinf(tsec * 7.0f);
-      t3_object_set_scale(r->shield, pulse, pulse * 0.92f, pulse);
-      r->shield_mat->opacity = 0.2f + 0.07f * sinf(tsec * 5.0f);
+    if (kartgfx_shield_fade) {
+      float want = sht <= 0 ? 0.0f : sht > 90 ? 1.0f : 0.55f + 0.45f * cosf((float)(90 - sht) * (3.14159265f / 15.0f));
+      float dt = clampf_(tsec - SHIELD_T[i], 0, 0.1f);
+      float v = tsec < SHIELD_T[i] ? want : SHIELD_V[i]; /* a new race: from its state, no fade from the last one */
+      SHIELD_T[i] = tsec;
+      v = want > v ? fminf(want, v + dt / 0.15f) : fmaxf(want, v - dt / 0.2f);
+      SHIELD_V[i] = v;
+      r->shield->visible = v > 0.005f;
+      if (r->shield->visible) {
+        float pulse = 1.0f + 0.03f * sinf(tsec * 7.0f);
+        float grow = 0.85f + 0.15f * v;
+        t3_object_set_scale(r->shield, pulse * grow, pulse * 0.92f * grow, pulse * grow);
+        r->shield_mat->opacity = (0.2f + 0.07f * sinf(tsec * 5.0f)) * v;
+      }
+    } else {
+      bool shield_on = sht > 0 && (sht > 90 || ((sht / 15) & 1));
+      r->shield->visible = shield_on;
+      if (shield_on) {
+        float pulse = 1.0f + 0.03f * sinf(tsec * 7.0f);
+        t3_object_set_scale(r->shield, pulse, pulse * 0.92f, pulse);
+        r->shield_mat->opacity = 0.2f + 0.07f * sinf(tsec * 5.0f);
+      }
     }
   }
 }

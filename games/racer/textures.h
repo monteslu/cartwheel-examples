@@ -69,6 +69,7 @@ void tex_apply_kerb(t3_material *m, const float a[3], const float b[3], float re
 /* Slides a kind's maps (the boost arrows run forward by lowering dv). Moves the shared set: only for a kind one material owns. */
 void tex_scroll(int kind, float du, float dv);
 void tex_free_all(void);
+void tex_forget(int kind); /* the next use of this kind makes its set again */
 extern uint32_t tex_hash; /* a checksum of everything made, a debug field */
 
 /* a photographed material from the assets, read at (x, y) metres with one repeat every tile metres; false: no such file */

@@ -41,6 +41,7 @@
 #include "cartwheel/render2d.h"
 #include "cartwheel/ui.h"
 #include "arena.h"
+#include "textures.h"
 #include "ui.h"
 #include "world.h"
 
@@ -865,8 +866,13 @@ static void cmd_sw(int argc, const char **argv, cw_reply *r) {
   if (argc > 2 && !strcmp(argv[1], "kart_lens")) kartgfx_kart_lens = atoi(argv[2]);
   if (argc > 2 && !strcmp(argv[1], "cage_soft")) orbit_cage_soft = atoi(argv[2]);
   if (argc > 2 && !strcmp(argv[1], "sign_gap")) deco_sign_gap = atoi(argv[2]);
-  cw_reply_printf(r, "{\"idle_wait\":%d,\"dnf_any\":%d,\"sun_short\":%d,\"wheel_lag\":%d,\"contact\":%d,\"jump_hold\":%d,\"blur\":%d,\"wheel_alias\":%d,\"amb_fade\":%d,\"kart_lens\":%d,\"cage_soft\":%d,\"sign_gap\":%d}", sw_idle_wait, sim_dnf_any, world_sun_short,
-                  kartgfx_wheel_lag, kartgfx_contact, racer_jump_hold, racer_blur, kartgfx_wheel_alias, fx_amb_fade_on, kartgfx_kart_lens, orbit_cage_soft, deco_sign_gap);
+  if (argc > 2 && !strcmp(argv[1], "cam_soft")) fx_cam_soft = atoi(argv[2]);
+  if (argc > 2 && !strcmp(argv[1], "splash_once")) fx_splash_once = atoi(argv[2]);
+  if (argc > 2 && !strcmp(argv[1], "shield_fade")) kartgfx_shield_fade = atoi(argv[2]);
+  if (argc > 2 && !strcmp(argv[1], "drowned_calm")) drowned_calm = atoi(argv[2]);
+  if (argc > 2 && !strcmp(argv[1], "tunnel_dash") && tunnel_dash != atoi(argv[2])) tunnel_dash = atoi(argv[2]), tex_forget(TEX_TUNNEL);
+  cw_reply_printf(r, "{\"idle_wait\":%d,\"dnf_any\":%d,\"sun_short\":%d,\"wheel_lag\":%d,\"contact\":%d,\"jump_hold\":%d,\"blur\":%d,\"wheel_alias\":%d,\"amb_fade\":%d,\"kart_lens\":%d,\"cage_soft\":%d,\"sign_gap\":%d,\"tunnel_dash\":%d,\"shield_fade\":%d,\"drowned_calm\":%d,\"splash_once\":%d,\"cam_soft\":%d}", sw_idle_wait, sim_dnf_any, world_sun_short,
+                  kartgfx_wheel_lag, kartgfx_contact, racer_jump_hold, racer_blur, kartgfx_wheel_alias, fx_amb_fade_on, kartgfx_kart_lens, orbit_cage_soft, deco_sign_gap, tunnel_dash, kartgfx_shield_fade, drowned_calm, fx_splash_once, fx_cam_soft);
 }
 
 void ui_init(void) {
@@ -929,7 +935,7 @@ void ui_init(void) {
   cw_debug_i32("ui.sel", &U.sel);
   cw_debug_i32("ui.humans", &U.setup.humans);
   cw_debug_i32("ui.map", &U.map); /* the map the map pick has selected (a save remembers the last one) */
-  cw_debug_command("sw", "sw idle_wait <0|1>: 1 = the ride pick waits for every seat, an idle one too (control); sw dnf_any <0|1>: 1 = a race ends 40 s after the first kart home, a computer one too (control); sw sun_short <0|1>: 1 = below High the sun throws no shadow on the play (control); sw wheel_lag <0|1>: 1 = the karts' wheels drawn a tick behind their chassis (control); sw contact <0|1>: 0 = no dark under the karts where they meet the road (control); sw jump_hold <0|1>: 1 = a jump's flight holds the chase camera at the lip (control); sw blur <0|1>: 0 = no motion blur under a boost (control); sw wheel_alias <0|1>: 1 = the wheels drawn crisp at their true turn every frame (control); sw amb_fade <0|1>: 0 = temple's bird flocks and butterfly swarms on at any distance (control); sw kart_lens <0|1>: 0 = another kart drawn whole however close it comes to a camera (control); sw cage_soft <0|1>: 0 = Wreck Orbit's corkscrew rings as bright as before, set before the race loads (control); sw sign_gap <0|1>: 0 = a corner's chevron boards 10 m apart as before, set before the race loads (control)", cmd_sw);
+  cw_debug_command("sw", "sw idle_wait <0|1>: 1 = the ride pick waits for every seat, an idle one too (control); sw dnf_any <0|1>: 1 = a race ends 40 s after the first kart home, a computer one too (control); sw sun_short <0|1>: 1 = below High the sun throws no shadow on the play (control); sw wheel_lag <0|1>: 1 = the karts' wheels drawn a tick behind their chassis (control); sw contact <0|1>: 0 = no dark under the karts where they meet the road (control); sw jump_hold <0|1>: 1 = a jump's flight holds the chase camera at the lip (control); sw blur <0|1>: 0 = no motion blur under a boost (control); sw wheel_alias <0|1>: 1 = the wheels drawn crisp at their true turn every frame (control); sw amb_fade <0|1>: 0 = temple's bird flocks and butterfly swarms on at any distance (control); sw kart_lens <0|1>: 0 = another kart drawn whole however close it comes to a camera (control); sw cage_soft <0|1>: 0 = Wreck Orbit's corkscrew rings as bright as before, set before the race loads (control); sw sign_gap <0|1>: 0 = a corner's chevron boards 10 m apart as before, set before the race loads (control); sw tunnel_dash <0|1>: 1 = a tunnel's lamp strip in dashes 4 m apart as before, set before the race loads (control); sw shield_fade <0|1>: 0 = a shield bubble switched on and off in a frame (control); sw drowned_calm <0|1>: 0 = Drowned Downtown's neon stutters, its holograms flicker, its lightning echoes and its wall signs stand a bay apart, set before the race loads (control); sw splash_once <0|1>: 0 = a splash and a cloud under a kart in water every 8 ticks (control); sw cam_soft <0|1>: 0 = a boost flares, sparks and lights full size at a camera and a missile's light stays whole there (control)", cmd_sw);
   cw_debug_bytes("save.progress", &SAVE, sizeof SAVE);
   cw_debug_i32("save.migrated", &save_migrated);
   cw_debug_field("save.text", &SAVE.text_scale, CW_DBG_U8, 1);

@@ -172,6 +172,8 @@ static pcol neon_pick(uint32_t *rs) {
  * The structure (painted metal, panels) of every group is ordinary prop geometry; only the glow layer is swapped
  * for the group's own unlit material once the builder is finished. */
 enum { GR_STEADY, GR_FLICK, GR_BUZZ, GR_PULSE, GR_N };
+extern int drowned_calm; /* sw drowned_calm (flicker_level, below) */
+static float slow_dip(double time, double period, uint32_t salt, uint32_t mask);
 static struct {
   pmc *c[GR_N];
   t3_material *mat[GR_N];
@@ -774,6 +776,7 @@ static void dress_walls(const track *t, uint32_t seed) {
   for (int side = -1; side <= 1; side += 2) {
     float s = 8 + frand(&rs) * 4;
     int bay = 0;
+    float lit_s = -1e9f; /* where the last flush sign or poster on this side is */
     while (s < t->length - 8) {
       tsample a = track_at(t, s);
       float step = 9.0f + 6.0f * frand(&rs);
@@ -785,6 +788,13 @@ static void dress_walls(const track *t, uint32_t seed) {
       float r = frand(&rs);
       bool clear = keep_clear(s);
       if (in_shops(s)) r = 1.0f; /* the shop fronts are the wall here */
+      /* a flush sign or poster at most every 24 m a side: bays 9 to 15 m apart filled one after another passed close by the
+       * view, bright on the dark wall, and with a poster and a passing kart that was four flashes in a second at the
+       * side of the view (the flash sweep's racer-drowned run, 13 s). sw drowned_calm 0: as before */
+      if (r < 0.58f && drowned_calm) {
+        if (s - lit_s < 24.0f) r = 1.0f;
+        else lit_s = s;
+      }
       /* flush things on the wall face: a neon sign, or a poster */
       if (r < 0.34f) {
         int g = frand(&rs) < 0.2f ? GR_FLICK : frand(&rs) < 0.5f ? GR_BUZZ : GR_STEADY;
@@ -2707,9 +2717,14 @@ static void holograms_frame(double time) {
   for (int i = 0; i < HO.count; i++) {
     cw_node3d_set_rotation(HO.n[i], V(0, tt * HO.spin[i] + HO.ph[i], 0));
     cw_node3d_set_position(HO.n[i], V(cw_node3d_position(HO.n[i]).x, HO.base_y[i] + 0.5f * sinf(tt * 0.7f + HO.ph[i]), cw_node3d_position(HO.n[i]).z));
-    /* flicker like a bad projector: mostly steady, now and then a dropout and a scan band */
-    uint32_t h = hash32((uint32_t)(tt * 9.0f) + (uint32_t)i * 7919u);
-    float k = (h & 15) == 0 ? 0.15f : (h & 7) == 1 ? 0.55f : 0.85f + 0.15f * sinf(tt * 40.0f);
+    /* a weak projector: the picture breathes, and now and then fades nearly out and back over a second. It flickered:
+     * a dropout or a dim frame nine times a second and a 6 Hz shimmer. sw drowned_calm 0: as before */
+    float k;
+    if (drowned_calm) k = (0.82f + 0.1f * sinf(tt * 1.7f + HO.ph[i])) * (1.0f - 0.8f * slow_dip(time, 1.2, (uint32_t)i * 7919u + 5u, 7u));
+    else {
+      uint32_t h = hash32((uint32_t)(tt * 9.0f) + (uint32_t)i * 7919u);
+      k = (h & 15) == 0 ? 0.15f : (h & 7) == 1 ? 0.55f : 0.85f + 0.15f * sinf(tt * 40.0f);
+    }
     HO.m[i]->color = (t3_color){ 0.9f * k, 0.9f * k, 0.9f * k };
   }
 }
@@ -2937,7 +2952,37 @@ static void rim_frame(double time) {
   }
 }
 
+/* a smooth bump 0..1..0 over each whole second (or period) whose hash picks it, else 0: a dip that swells and fades */
+static float slow_dip(double time, double period, uint32_t salt, uint32_t mask) {
+  double c = floor(time / period);
+  uint32_t h = hash32((uint32_t)c * 2654435761u + salt);
+  if ((h & mask) != 0) return 0;
+  return sinf(3.14159265f * (float)(time / period - c));
+}
+/* a smooth wander through hashed levels lo..1, one knot every period seconds */
+static float slow_wander(double time, double period, uint32_t salt, float lo) {
+  double c = floor(time / period);
+  float u = (float)(time / period - c);
+  u = u * u * (3 - 2 * u);
+  float a = (float)(hash32((uint32_t)c * 2654435761u + salt) & 0xff) / 255.0f, b = (float)(hash32((uint32_t)(c + 1) * 2654435761u + salt) & 0xff) / 255.0f;
+  return lo + (1 - lo) * (a + (b - a) * u);
+}
+
+/* The neon's moods. They once stuttered: a dying tube jumped between three levels eleven times a second, a buzzing one
+ * hummed at 5 Hz and blinked off for a third of a second. Now they swell and fade: a dying tube wanders in brightness a knot every 0.8 s, a buzzing one breathes and now and then dims for a
+ * second, never above three changes a second. sw drowned_calm 0: as before */
+int drowned_calm = 1;
 static float flicker_level(int g, double time) {
+  if (drowned_calm) switch (g) {
+  case GR_FLICK: { /* a tube on the way out: it sags and recovers */
+    float k = slow_wander(time, 0.8, 11u, 0.3f);
+    return k * k * (3 - 2 * k);
+  }
+  case GR_BUZZ: /* steady with a slow breath, and now and then a dim second */
+    return (0.93f + 0.07f * sinf((float)time * 2.1f)) * (1.0f - 0.75f * slow_dip(time, 1.0, 77u, 0x1f));
+  case GR_PULSE: return 0.7f + 0.3f * sinf((float)time * 2.2f);
+  default: return 1.0f;
+  }
   switch (g) {
   case GR_FLICK: { /* a tube on the way out: stutters and drops */
     uint32_t h = hash32((uint32_t)(time * 11.0));
@@ -3081,7 +3126,7 @@ static void build_sky(cw_node root) {
   }
 }
 
-/* lightning: some of every few seconds, a stroke and its flickering echoes; returns the flash 0..1 and the bolt to show */
+/* lightning: some of every few seconds, a stroke that swells and fades; returns the flash 0..1 and the bolt to show */
 /* RACER_DROWNED_FLASH=1 holds the first stroke at its peak so a screenshot shows it */
 static float storm_flash(double time, int *which) {
   static int hold = -1;
@@ -3094,6 +3139,13 @@ static float storm_flash(double time, int *which) {
   if ((h & 7) < 2) return 0;
   double t = time - (double)k * per - 0.6 - (double)((h >> 4) & 255) / 255.0 * 3.0;
   if (t < 0) return 0;
+  /* one stroke: the sky swells in a sixth of a second and fades over a second. It was a stroke and three echoes in 0.6 s,
+   * two flashes over the whole view in a third of a second (the flash sweep's racer-drowned run, 22 s). sw drowned_calm 0:
+   * as before */
+  if (drowned_calm) {
+    float u = fminf((float)t / 0.16f, 1.0f);
+    return t < 0.16 ? u * u * (3 - 2 * u) : expf(-((float)t - 0.16f) * 3.2f);
+  }
   static const float T[4] = { 0, 0.13f, 0.31f, 0.58f }, P[4] = { 1.0f, 0.6f, 0.85f, 0.4f };
   float f = 0;
   for (int i = 0; i < 4; i++) {

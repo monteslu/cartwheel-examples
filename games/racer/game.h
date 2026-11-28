@@ -442,10 +442,16 @@ extern int kartgfx_wheel_alias;
 extern int kartgfx_contact;
 /* sw kart_lens <0|1>: 0 = another kart drawn whole however close it comes to a view's camera, as before (kartgfx.c) */
 extern int kartgfx_kart_lens;
+/* sw shield_fade <0|1>: 0 = a shield bubble switched on and off in a frame, as before (kartgfx.c) */
+extern int kartgfx_shield_fade;
 /* sw cage_soft <0|1>: 0 = Wreck Orbit's corkscrew rings glow as bright as before, read when the map is built (maps/m8_orbit.c) */
 extern int orbit_cage_soft;
 /* sw sign_gap <0|1>: 0 = a corner's chevron boards 10 m apart as before, read when the map is built (dressing.c) */
 extern int deco_sign_gap;
+/* sw drowned_calm <0|1>: 0 = Drowned Downtown's neon stutters, its holograms flicker, its lightning strikes with three echoes and its wall signs stand a bay apart, as before; the signs are placed when the race loads (maps/m2_drowned.c) */
+extern int drowned_calm;
+/* sw tunnel_dash <0|1>: 1 = a tunnel's lamp strip in dashes as before, set before the race loads (textures.c) */
+extern int tunnel_dash;
 /* sw jump_hold <0|1>: 1 = a jump's flight holds the chase camera at the lip like a fall, as it once did (main.c) */
 extern int racer_jump_hold;
 

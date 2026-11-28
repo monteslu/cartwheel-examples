@@ -888,6 +888,7 @@ static void g_wall_wood(float u, float v, texel *t) {
 
 /* tunnel lining: pale ribbed concrete, a lamp strip down the crown (u 0.5), reflector studs low on each side.
  * u runs round the arch (8 m per repeat), v along it (4 m per repeat). */
+int tunnel_dash = 0;
 static void g_tunnel(float u, float v, texel *t) {
   float rib = fminf(fractf(v), 1 - fractf(v)) * 4;              /* metres to the nearest ring joint */
   float ringj = 1 - sstep(0.03f, 0.1f, rib);
@@ -895,8 +896,10 @@ static void g_tunnel(float u, float v, texel *t) {
   float soot = sstep(0.4f, 0.8f, fbm2(u, v, 3, 6, 3, 293));
   float c = 0.5f + 0.09f * (n - 0.5f) + 0.03f * (fine - 0.5f) - 0.14f * soot;
   rgb(t, c, c * 0.975f, c * 0.92f);
-  /* lamp strip: a 0.28 m wide slot in dashes of 2.8 m every 4 m */
-  float dash = sstep(0.06f, 0.1f, fractf(v)) * (1 - sstep(0.76f, 0.8f, fractf(v)));
+  /* lamp strip: a 0.28 m wide slot lit end to end. Dashes of 2.8 m every 4 m passed a kart nine and a half times a
+   * second (38 m/s): where the Dam's corkscrew rolls the crown down beside the view, a regular flicker at 9.5 Hz over the
+   * side of the screen (the flash sweep's racer-dam run, 31 s). sw tunnel_dash 1: the dashes as before (the control) */
+  float dash = tunnel_dash ? sstep(0.06f, 0.1f, fractf(v)) * (1 - sstep(0.76f, 0.8f, fractf(v))) : 1.0f;
   float lamp = band(u, 0.5f, 0.018f, 0.01f) * dash;
   float stud = clamp01(1 - sqrtf(((u < 0.5f ? u : 1 - u) - 0.1f) * ((u < 0.5f ? u : 1 - u) - 0.1f) * 64.0f * 64.0f / 100.0f + (fractf(v * 4) - 0.5f) * (fractf(v * 4) - 0.5f) * 16.0f) / 0.12f);
   mixc(t, 1.0f, 0.95f, 0.8f, lamp);
@@ -1309,6 +1312,26 @@ static void dress(t3_material *m, const tex_set *s, float ru, float rv, float no
   if (ts[4]) m->emissive = (t3_color){ 1, 1, 1 }, m->emissive_intensity = 1;
   m->normal_scale = (t3_vec2){ normal_scale, normal_scale };
   m->ao_map_intensity = ao_intensity;
+}
+
+/* forget a kind's set so its next use makes it again (a switch that changes how it is made); a material already dressed
+ * with it keeps its own reference */
+void tex_forget(int kind) {
+  if (kind < 0 || kind >= TEX_KINDS) return;
+  tex_set *s = &SETS[kind];
+  if (s->map) {
+    t3_release(s->map), t3_release(s->normal), t3_release(s->rough), t3_release(s->ao);
+    if (s->emit) t3_release(s->emit);
+  }
+  memset(s, 0, sizeof *s);
+  free(BLD[kind].tx);
+  BLD[kind] = (build){ 0 };
+  for (int k = 0; k < nrep; k++)
+    if (REP[k].kind == kind) {
+      for (int i = 0; i < 5; i++)
+        if (REP[k].t[i]) t3_release(REP[k].t[i]);
+      REP[k--] = REP[--nrep];
+    }
 }
 
 void tex_apply(t3_material *m, int kind, float repeat_u, float repeat_v, float normal_scale, float ao_intensity) {
