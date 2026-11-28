@@ -18,7 +18,8 @@ sweep({
     gateScene('racer-trial', { frames: 1500, presets: ['verylow', 'low', 'ultra'], reach: { 'race.loaded': 1 } }),
     { name: 'title', app: 'racer', frames: 300, reach: { ticks: (v) => v >= 0 }, show: ['ui.mode'] },
     split(2, 0), split(4, 0), split(2, 2), split(4, 6)],
-  // the control: the terrain's Very Low state out of the table (it covers the fewer-light state a Very Low build draws): frost
+  // the control: the terrain's Very Low state out of the table with the state of more lights that the variant closure serves it
+  // with when it is gone (each covers the fewer-light state a Very Low build draws): frost
   // built at High and switched to Very Low must report it and skip its ground, as the table before the switch runs did
-  control: { state: 'standard+instbig+shadow+senv+l3001+s100+xterrainmin_cluster_plain', scene: 'racer-frost', quality: 'swapdown' },
+  control: { state: ['standard+instbig+shadow+senv+l3001+s100+xterrainmin_cluster_plain', 'standard+instbig+shadow+senv+l3301+s100+xterrainmin_cluster_plain'], scene: 'racer-frost', quality: 'swapdown' },
 });

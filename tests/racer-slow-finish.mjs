@@ -54,7 +54,15 @@ async function run(backend, tag, pre) {
   for (let i = 0; i < 12 && +(await rd('ui.mode')) === M.MAP && +(await rd('ui.map')) !== 0; i++) await press('left');
   if (+(await rd('ui.mode')) === M.MAP) await press('south');  /* "START RACE" */
   let mode = 0, phase = 0;
-  for (let f = 0; f < 1500 && !(mode === M.RACE && phase === PH_RACE); f += 30) { await step(30); mode = +(await rd('ui.mode')); phase = +(await rd('race.phase')); }
+  /* the new race's own GO: ui.mode turns RACE on the press, while race.phase still holds the demo race's (it runs behind the
+   * menus) until the new race has loaded, so its grid or countdown has to be seen first (the old wait sometimes took the
+   * demo race's phase and the press of the gas went into the loading and the countdown) */
+  let fresh = false;
+  for (let f = 0; f < 1500 && !(fresh && phase === PH_RACE); f += 30) {
+    await step(30); mode = +(await rd('ui.mode')); phase = +(await rd('race.phase'));
+    if (mode === M.RACE && phase < PH_RACE) fresh = true;
+    if (mode !== M.RACE) fresh = false;
+  }
   if (mode !== M.RACE || phase !== PH_RACE) { console.error(`no race started (mode ${mode}, phase ${phase})`); await bye(3); }
   /* two and a half minutes at the lights, then the gas held until the race is over (12 minutes of race at most) */
   let t = +(await rd('race.ticks'));

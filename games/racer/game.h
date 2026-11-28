@@ -440,6 +440,8 @@ extern int kartgfx_wheel_lag;
 extern int kartgfx_wheel_alias;
 /* sw contact <0|1>: 0 = no dark under the karts where they meet the road, as before (kartgfx.c) */
 extern int kartgfx_contact;
+/* sw kart_lens <0|1>: 0 = another kart drawn whole however close it comes to a view's camera, as before (kartgfx.c) */
+extern int kartgfx_kart_lens;
 /* sw jump_hold <0|1>: 1 = a jump's flight holds the chase camera at the lip like a fall, as it once did (main.c) */
 extern int racer_jump_hold;
 

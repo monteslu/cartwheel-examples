@@ -13,6 +13,10 @@
 //     frames and at least 80% in each frame of 5 bases or more (one panel of a crumpled car shaded from another
 //     flood's side is a tenth of a frame's bases; a frame of fewer is too few to judge alone and counts toward the
 //     sweep), with at least 10 frames holding a base.
+//   bomberdude: one caster in a frame is big enough to judge (the arena's blocks and the bombers are small at the
+//     camera's height, and Very Low culls small casters by design), and the engine's tool needs two to judge a frame, so
+//     bomberdude is judged on a sweep of its autopilot's round, every 100 frames from 300 to 1000, on Very Low, in this
+//     gate: 90% of the shadows High draws over the sweep, a frame of one base counting toward it, at least 6 frames holding one.
 //   BikeMesa is not measured here (its frame reports no caster bases: the rider's shadow falls on the canyon wall far
 //   behind, past Very Low's shadow distance, while the wheels sit on the track); it is judged by eye on its Very Low shots.
 //     Its sweep runs as four gates of its own (tests/quality-grounding-derby-<n>.mjs: Very Low and Low, GL and WebGPU), each
@@ -28,14 +32,14 @@ const APPS = [
   { app: 'racer_auto', frames: 900, env: { RACER_THIN: '1' } },
   { app: 'derby_auto', frames: [300, 350, 400, 450, 500, 550, 600, 650, 700, 750, 800, 850, 900], presets: ['verylow', 'low'], frameShare: 0.8, frameMin: 5, minFrames: 10 },
   { app: 'pugball_auto', frames: 600 },
-  { app: 'bomberdude_auto', frames: 600 },
+  { app: 'bomberdude_auto', frames: [300, 400, 500, 600, 700, 800, 900, 1000], presets: ['verylow'], frameShare: 0.9, frameMin: 2, minFrames: 6, main: true },
   { app: 'chromite_auto', frames: 600, share: 0.8 },
   { app: 'spout_auto', frames: 600 },
 ];
 const only = opt('apps') ? opt('apps').split(',') : null;
 let fail = 0;
 for (const gpu of opt('gpu', 'gl,webgpu').split(','))
-  for (const a of APPS.filter((x) => (only ? only.includes(x.app) : !Array.isArray(x.frames)))) {
+  for (const a of APPS.filter((x) => (only ? only.includes(x.app) : !Array.isArray(x.frames) || x.main))) {
     if (!Array.isArray(a.frames)) {
       const r = spawnSync('node', [join(ROOT, 'deps/cartwheel-engine/tests/quality-grounding.mjs'), '--project', ROOT, '--apps', `${a.app}:${a.frames}`, '--gpu', gpu, ...(a.share ? ['--share', String(a.share)] : [])],
         { stdio: 'inherit', env: { ...process.env, ...(a.env || {}) } });

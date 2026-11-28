@@ -57,7 +57,15 @@ async function run(backend, tag, idle, pre) {
   const picked = +(await rd('ui.mode'));
   if (picked === M.MAP) await press(0, 'south');             /* "START RACE" ("(A) go") */
   let phase = 0, mode = picked; /* the menus' demo race runs behind them: only the race's own GO counts */
-  for (let f = 0; f < 1200 && !(mode === M.RACE && phase === PH_RACE); f += 30) { await step(30); mode = +(await rd('ui.mode')); phase = +(await rd('race.phase')); }
+  /* the new race's own GO: ui.mode turns RACE on the press, while race.phase still holds the demo race's (it runs behind the
+   * menus) until the new race has loaded, so its grid or countdown has to be seen first (the old wait sometimes took the
+   * demo race's phase and the press of the gas went into the loading and the countdown) */
+  let fresh = false;
+  for (let f = 0; f < 1200 && !(fresh && phase === PH_RACE); f += 30) {
+    await step(30); mode = +(await rd('ui.mode')); phase = +(await rd('race.phase'));
+    if (mode === M.RACE && phase < PH_RACE) fresh = true;
+    if (mode !== M.RACE) fresh = false;
+  }
   const prog0 = (await rd('karts.prog'))[0];
   await hold(300, { south: true }, {});          /* floor it */
   await pads({}, {});

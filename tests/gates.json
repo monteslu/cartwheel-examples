@@ -4999,7 +4999,7 @@
   {
     "name": "quality-grounding",
     "script": "tests/quality-grounding.mjs",
-    "note": "nothing floats on Very Low: the autopilot of each game in play (racer, pugball, bomberdude, chromite, spout; BikeMesa by eye; derby in quality-grounding-derby-1 to -4) keeps at least 90% of the shadows High draws at the base of every caster big enough to read on screen (chromite 80%: a pipe lit by a lamp), on GL and WebGPU (the engine's tests/quality-grounding.mjs). Control: a frame with no shadows must fail"
+    "note": "nothing floats on Very Low: the autopilot of each game in play (racer, pugball, chromite, spout; bomberdude on a sweep of its round every 100 frames from 300 to 1000 on Very Low, one caster in a frame being big enough to judge; BikeMesa by eye; derby in quality-grounding-derby-1 to -4) keeps at least 90% of the shadows High draws at the base of every caster big enough to read on screen (chromite 80%: a pipe lit by a lamp), on GL and WebGPU (the engine's tests/quality-grounding.mjs). Control: a frame with no shadows must fail"
   },
   {
     "name": "quality-grounding-derby-1",

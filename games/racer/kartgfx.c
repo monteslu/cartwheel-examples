@@ -42,6 +42,8 @@ int kartgfx_contact = 1;
 /* sw wheel_alias <0|1>: 1 = every wheel drawn crisp at its true turn each frame, the old way (the control of
  * tests/racer-wheel-alias.mjs: at race speeds the spokes read as turning backwards) */
 int kartgfx_wheel_alias;
+int kartgfx_kart_lens = 1;
+int game_view_kart(int v); /* main.c: the kart view v follows (its eye is EYE[v]) */
 
 /* the wheels as drawn, frame by frame, for one kart's one wheel (debug: wheels.*, tests/racer-wheel-alias.mjs): its speed,
  * the turn a frame the wheel made and the turn drawn (rim, then tyre, radians), the look each was drawn in */
@@ -533,6 +535,22 @@ void kartgfx_frame(const sim *s, float alpha) {
 
     /* a slow blink while it comes back (2 Hz: never a strobe) */
     r->root->visible = !(k->respawn_ticks > 0 && ((k->respawn_ticks / 15) & 1));
+    /* another kart at a view's lens shrinks away: 0 within 1.5 m of the camera, whole from 4 m. A kart flying past the
+     * chase camera off a jump filled the bottom of the view with its white body and black tyres in turn, several flashes
+     * in a second there (the flash sweep's orbit run, frame 2649). A view's own kart never does (its chase camera
+     * keeps it 3 m and more away, nearer in a bump). sw kart_lens 0: drawn whole, as before (the control) */
+    float lens = 1;
+    if (kartgfx_kart_lens) {
+      float o2 = 1e12f;
+      for (int e = 0; e < NEYE; e++) {
+        if (game_view_kart(e) == i) continue;
+        float dx = k->p.x - EYE[e].x, dy = k->p.y - EYE[e].y, dz = k->p.z - EYE[e].z;
+        o2 = fminf(o2, dx * dx + dy * dy + dz * dz);
+      }
+      float u = clampf_((sqrtf(o2) - 1.5f) / 2.5f, 0, 1);
+      lens = u * u * (3 - 2 * u);
+      if (lens <= 0) r->root->visible = false;
+    }
     r->shield_mat->opacity = 0;
 
     /* the root: trick and tumble about the body's middle */
@@ -551,6 +569,7 @@ void kartgfx_frame(const sim *s, float alpha) {
     t3_vec3 rp = v3add(v3sub(cen, t3_vec3_apply_quat(cen, qr)), v3add(v3(0, P[KP_HOP], 0), sh));
     t3_object_set_position(r->root, rp.x, rp.y, rp.z);
     t3_object_set_quaternion(r->root, qr);
+    t3_object_set_scale(r->root, lens, lens, lens);
 
     /* the body: roll, pitch, drift slew, squash, about a low axis */
     t3_quat qb = qmul(qaxis(0, 1, 0, P[KP_YAW]), qmul(qaxis(1, 0, 0, P[KP_PITCH]), qaxis(0, 0, 1, P[KP_ROLL])));
