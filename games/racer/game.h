@@ -444,6 +444,8 @@ extern int kartgfx_contact;
 extern int kartgfx_kart_lens;
 /* sw cage_soft <0|1>: 0 = Wreck Orbit's corkscrew rings glow as bright as before, read when the map is built (maps/m8_orbit.c) */
 extern int orbit_cage_soft;
+/* sw sign_gap <0|1>: 0 = a corner's chevron boards 10 m apart as before, read when the map is built (dressing.c) */
+extern int deco_sign_gap;
 /* sw jump_hold <0|1>: 1 = a jump's flight holds the chase camera at the lip like a fall, as it once did (main.c) */
 extern int racer_jump_hold;
 

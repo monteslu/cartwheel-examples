@@ -772,6 +772,7 @@ void deco_sign(cw_node parent, const track *t, float s, int side, int kind, cons
   pmc_finish(c, parent, "Sign", true, -1);
 }
 
+int deco_sign_gap = 1;
 int deco_corner_signs(cw_node parent, const track *t, float min_curv, const dress_style *in) {
   dress_style st = styled(in);
   if (min_curv <= 0) min_curv = 0.012f;
@@ -782,7 +783,10 @@ int deco_corner_signs(cw_node parent, const track *t, float min_curv, const dres
     /* a warning before the corner, then three chevron boards along its outside */
     float s0 = at[i] - 40;
     for (int k = 0; k < 4; k++) {
-      float s = k == 0 ? s0 : at[i] + 8.0f + 10.0f * (float)(k - 1);
+      /* 16 m apart: 10 m let three dark boards pass a kart at race speed three and a half times a second against the bright
+       * ground, a regular flicker at the side of the view (the flash sweep's salt run on GL, 0.068 at 3.5 Hz); at 16 m
+       * that rate needs 56 m/s. sw sign_gap 0: 10 m, as before (the control) */
+      float s = k == 0 ? s0 : at[i] + 8.0f + (deco_sign_gap ? 16.0f : 10.0f) * (float)(k - 1);
       if (s < 2 || s > t->length - 2) continue;
       tsample a = track_at(t, s);
       if (a.flags & (TF_GAP | TF_LOOP | TF_TUNNEL)) continue;
