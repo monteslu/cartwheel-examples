@@ -17,5 +17,6 @@
   { "name": "racer-battle", "gate": "racer-battle", "frames": 3000, "note": "weapons and hits in a battle arena" },
   { "name": "racer-salt", "gate": "racer-salt", "frames": 3000, "note": "a race: boosts and pickups" },
   { "name": "racer-orbit", "gate": "racer-orbit", "frames": 3000, "note": "the orbit track's lights" },
-  { "name": "racer-orbit-lens", "gate": "racer-orbit", "startCmds": ["sw kart_lens 0", "race 7 0 1"], "frames": 3000, "mustFail": "sw kart_lens 0: another kart drawn whole however close it comes to the camera, as before: one flying past the chase camera off a jump filled the bottom of the view with its white body and black tyres in turn (4 flashes in a second at frame 2649)" }
+  { "name": "racer-orbit-lens", "gate": "racer-orbit", "startCmds": ["sw kart_lens 0", "race 7 0 1"], "frames": 3000, "mustFail": "sw kart_lens 0: another kart drawn whole however close it comes to the camera, as before: one flying past the chase camera off a jump filled the bottom of the view with its white body and black tyres in turn (4 flashes in a second at frame 2649)" },
+  { "name": "racer-orbit-cage", "gate": "racer-orbit", "startCmds": ["sw cage_soft 0", "race 7 0 1"], "frames": 3000, "gpu": "gl", "mustFail": "sw cage_soft 0: the corkscrew's rings glow as bright as before, and their passing overhead reads as a regular flicker at 3.5 Hz (0.031, the bound 0.02) on GL" }
 ]

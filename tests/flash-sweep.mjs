@@ -87,7 +87,9 @@ for (const e of entries) {
       fields: res ? res.fields.flashes : null, controlFails: l.j && l.j.control ? l.j.control.failsAsItMust : null });
     if (e.mustFail) {
       /* the run itself must fail its bounds (not the run breaking, nor the strobe control going unseen) */
-      const runFailed = !!(l.j && l.j.problems && l.j.problems.length && l.j.control && l.j.control.failsAsItMust);
+      /* a native run's JSON (--host native) carries the strobe control's analysis, not its verdict: its line says it */
+      const ctlFails = l.j && l.j.control && (l.j.control.failsAsItMust ?? /^ok   control fails as it must/m.test(l.out || ''));
+      const runFailed = !!(l.j && l.j.problems && l.j.problems.length && ctlFails);
       console.log(runFailed ? `ok   ${e.name} (${l.gpu}) fails as it must (${e.mustFail})` : `FAIL ${e.name} (${l.gpu}) did not fail its bounds: a control that must fail (${e.mustFail})`);
       if (!runFailed) bad++;
       table[table.length - 1].ok = runFailed, table[table.length - 1].mustFail = true;

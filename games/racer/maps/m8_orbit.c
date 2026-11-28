@@ -1385,6 +1385,7 @@ static void build_reactor(cw_node root, const track *t, int L, pcol c1, pcol c2)
 /* the cage casts no shadow: its frames pass the kart about three and a half times a second through the corkscrew,
  * and their sun shadows swept over the kart and the road as often, a regular light-dark pulse the flash sweep counted
  * (racer-orbit) */
+int orbit_cage_soft = 1;
 static void build_cage(cw_node root, const track *t, int i0, int i1, pcol c1, pcol c2) {
   pmc *CG = pmc_new(170, 12);
   float Rr = 8.4f;
@@ -1396,8 +1397,10 @@ static void build_cage(cw_node root, const track *t, int i0, int i1, pcol c1, pc
     pm_layer(b, PL_METAL);
     pm_ring(b, Rr, 0.42f, 28, 6, K.hull2);
     pm_layer(b, PL_GLOW);
-    /* glowing, not blazing: the cage's rings sweep overhead about three and a half times a second at racing speed */
-    pm_ring(b, Rr - 0.5f, 0.12f, 28, 4, glow(((i / 12) & 1) ? c1 : c2, 2.2f));
+    /* glowing, not blazing: the cage's rings sweep overhead about three and a half times a second at racing speed, and
+     * at 2.2 their passing read as a regular flicker over the top of the view (0.031 at 3.5 Hz in the flash sweep's
+     * orbit run on GL, where the bound is 0.02): sw cage_soft 0 brings 2.2 back (the control) */
+    pm_ring(b, Rr - 0.5f, 0.12f, 28, 4, glow(((i / 12) & 1) ? c1 : c2, orbit_cage_soft ? 1.1f : 2.2f));
     pm_pop(b);
     /* ribbons: the same angle in the road's frame at both ends, so they twist with the road */
     pm *rb = pmc_at(CG, a->p);
